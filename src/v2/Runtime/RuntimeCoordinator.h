@@ -32,6 +32,7 @@ namespace Runtime
         explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter = nullptr, ApplyInputCapture a_applyInputCapture = nullptr) noexcept;
 
         ViewLoadReport LoadViews(const std::filesystem::path& a_viewsDirectory);
+        void EnableInputRouting() noexcept;
 
         bool RequestOpenView(std::string a_viewId);
         bool RequestCloseView(std::string a_viewId);
@@ -77,6 +78,8 @@ namespace Runtime
         ApplyInputCapture _applyInputCapture{ nullptr };
 
         std::atomic_bool _dataLoadPending {false};
+
+        std::atomic_bool _inputRoutingAvailable {false};
 
         // Published by Tick for the game-window thread
         std::atomic_bool _inputCaptured {false};

@@ -10,11 +10,26 @@
 namespace
 {
 	bool g_drawAvailable = false;
+	std::vector<std::pair<std::uint32_t, bool>> g_frameworkKeyEvents;
 
 	bool DrawAvailableForTest()
 	{
 		return g_drawAvailable;
 	}
+
+	bool HandleFrameworkKeyForTest(std::uint32_t a_virtualKey, bool a_down)
+	{
+		g_frameworkKeyEvents.emplace_back(a_virtualKey, a_down);
+		return a_virtualKey == 0x1B;
+	}
+
+	struct AcceleratorState
+	{
+		std::uint32_t toggleScan;
+		bool captured;
+		bool captureArmed;
+		std::uint32_t captureUpScan;
+	};
 
 	struct MouseButtonEvent
 	{
@@ -88,9 +103,29 @@ namespace
 			ringHandler = std::move(a_handler);
 		}
 
+		void SetNativeAcceleratorHandler(NativeAcceleratorHandler a_handler) override
+		{
+			nativeAcceleratorHandler = std::move(a_handler);
+		}
+
 		void SetNativeFocus(bool a_focused) override
 		{
+			inputStateTransitions.push_back(a_focused ? "focus:on" : "focus:off");
+			if (throwOnNativeFocus) {
+				throw std::runtime_error{ "native focus failed" };
+			}
 			nativeFocusStates.push_back(a_focused);
+		}
+
+		void SetAcceleratorKeys(std::uint32_t a_toggleScan, bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpScan) override
+		{
+			inputStateTransitions.push_back(a_captured ? "accelerators:on" : "accelerators:off");
+			acceleratorStates.push_back({
+				.toggleScan = a_toggleScan,
+				.captured = a_captured,
+				.captureArmed = a_captureArmed,
+				.captureUpScan = a_captureUpScan
+			});
 		}
 
 		void InjectKeyEvent(std::uint32_t a_virtualKey, bool a_down) override
@@ -138,8 +173,15 @@ namespace
 			ringHandler(a_ring);
 		}
 
+		bool EmitNativeAccelerator(std::uint32_t a_virtualKey, std::uint32_t a_scanCode, bool a_down)
+		{
+			assert(nativeAcceleratorHandler);
+			return nativeAcceleratorHandler(a_virtualKey, a_scanCode, a_down);
+		}
+
 		bool initializeSucceeds{ true };
 		bool throwOnUpdate{ false };
+		bool throwOnNativeFocus{ false };
 		int initializeCalls{ 0 };
 		std::optional<OSFUI::RendererConfig> config;
 		std::vector<OSFUI::ViewManifest> createdViews;
@@ -148,6 +190,9 @@ namespace
 		std::vector<double> updateDeltas;
 		std::optional<OSFUI::FrameBufferView> frame;
 		SharedRingHandler ringHandler;
+		NativeAcceleratorHandler nativeAcceleratorHandler;
+		std::vector<AcceleratorState> acceleratorStates;
+		std::vector<std::string> inputStateTransitions;
 		std::vector<bool> nativeFocusStates;
 		std::vector<std::pair<std::uint32_t, bool>> keyEvents;
 		std::vector<std::pair<int, int>> mouseMoves;
@@ -250,6 +295,7 @@ namespace
 
 	void TestPresenterInitializationAndTransportWiring()
 	{
+		g_frameworkKeyEvents.clear();
 		auto renderer = std::make_unique<FakeWebRenderer>();
 		auto compositor = std::make_unique<FakeCompositor>();
 		auto* rendererPtr = renderer.get();
@@ -258,7 +304,8 @@ namespace
 		Presentation::WebViewPresenter presenter{
 			std::move(renderer),
 			std::move(compositor),
-			&DrawAvailableForTest
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
 		};
 
 		const std::filesystem::path dataDirectory{ "test-data/OSFUI" };
@@ -272,6 +319,11 @@ namespace
 		assert(rendererPtr->config->height == OSFUI::kDefaultViewHeight);
 		assert(compositorPtr->initializeCalls == 1);
 		assert(compositorPtr->visibleStates == std::vector<bool>{ false });
+		assert(rendererPtr->EmitNativeAccelerator(0x1B, 0x01, true));
+		assert((g_frameworkKeyEvents ==
+			std::vector<std::pair<std::uint32_t, bool>>{
+				{ 0x1B, true }
+			}));
 
 		compositorPtr->EmitResize(2560, 1440);
 		assert(rendererPtr->resizeCalls ==
@@ -297,7 +349,8 @@ namespace
 		Presentation::WebViewPresenter presenter{
 			std::move(renderer),
 			std::move(compositor),
-			&DrawAvailableForTest
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
 		};
 
 		assert(presenter.Initialize("test-data/OSFUI"));
@@ -336,6 +389,13 @@ namespace
 
 		presenter.SetInputFocus(true);
 		assert(rendererPtr->nativeFocusStates == std::vector<bool>{ true });
+		assert((rendererPtr->inputStateTransitions ==
+			std::vector<std::string>{ "accelerators:on", "focus:on" }));
+		assert(rendererPtr->acceleratorStates.size() == 1);
+		assert(rendererPtr->acceleratorStates[0].toggleScan == 0);
+		assert(rendererPtr->acceleratorStates[0].captured);
+		assert(!rendererPtr->acceleratorStates[0].captureArmed);
+		assert(rendererPtr->acceleratorStates[0].captureUpScan == 0);
 
 		presenter.Hide(view.id);
 		assert(rendererPtr->hiddenChanges.back() ==
@@ -346,6 +406,10 @@ namespace
 		presenter.SetInputFocus(false);
 		assert((rendererPtr->nativeFocusStates ==
 			std::vector<bool>{ true, false }));
+		assert((rendererPtr->inputStateTransitions ==
+			std::vector<std::string>{ "accelerators:on", "focus:on", "focus:off", "accelerators:off" }));
+		assert(rendererPtr->acceleratorStates.size() == 2);
+		assert(!rendererPtr->acceleratorStates[1].captured);
 	}
 
 	void TestPresenterTickSubmitsFramesAndTracksDrawAvailability()
@@ -360,7 +424,8 @@ namespace
 		Presentation::WebViewPresenter presenter{
 			std::move(renderer),
 			std::move(compositor),
-			&DrawAvailableForTest
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
 		};
 
 		assert(presenter.Initialize("test-data/OSFUI"));
@@ -402,7 +467,8 @@ namespace
 		Presentation::WebViewPresenter presenter{
 			std::move(renderer),
 			std::move(compositor),
-			&DrawAvailableForTest
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
 		};
 
 		assert(presenter.Initialize("test-data/OSFUI"));
@@ -476,12 +542,57 @@ namespace
 		Presentation::WebViewPresenter presenter{
 			std::move(renderer),
 			std::move(compositor),
-			&DrawAvailableForTest
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
 		};
 
 		assert(!presenter.Initialize("test-data/OSFUI"));
 		assert(rendererPtr->initializeCalls == 1);
 		assert(compositorPtr->initializeCalls == 0);
+	}
+
+	void TestPresenterRequiresFrameworkKeyHandler()
+	{
+		auto renderer = std::make_unique<FakeWebRenderer>();
+		auto compositor = std::make_unique<FakeCompositor>();
+		auto* rendererPtr = renderer.get();
+		auto* compositorPtr = compositor.get();
+
+		Presentation::WebViewPresenter presenter{
+			std::move(renderer),
+			std::move(compositor),
+			&DrawAvailableForTest,
+			nullptr
+		};
+
+		assert(!presenter.Initialize("test-data/OSFUI"));
+		assert(rendererPtr->initializeCalls == 0);
+		assert(compositorPtr->initializeCalls == 0);
+	}
+
+	void TestPresenterClearsAcceleratorsWhenNativeFocusFails()
+	{
+		auto renderer = std::make_unique<FakeWebRenderer>();
+		auto compositor = std::make_unique<FakeCompositor>();
+		auto* rendererPtr = renderer.get();
+
+		Presentation::WebViewPresenter presenter{
+			std::move(renderer),
+			std::move(compositor),
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
+		};
+
+		assert(presenter.Initialize("test-data/OSFUI"));
+		rendererPtr->throwOnNativeFocus = true;
+		presenter.SetInputFocus(true);
+
+		assert((rendererPtr->inputStateTransitions ==
+			std::vector<std::string>{ "accelerators:on", "focus:on", "accelerators:off" }));
+		assert(rendererPtr->acceleratorStates.size() == 2);
+		assert(rendererPtr->acceleratorStates[0].captured);
+		assert(!rendererPtr->acceleratorStates[1].captured);
+		assert(rendererPtr->nativeFocusStates.empty());
 	}
 
 	void TestPresenterContainsNestedTickFailures()
@@ -494,7 +605,8 @@ namespace
 		Presentation::WebViewPresenter presenter{
 			std::move(renderer),
 			std::move(compositor),
-			&DrawAvailableForTest
+			&DrawAvailableForTest,
+			&HandleFrameworkKeyForTest
 		};
 
 		assert(presenter.Initialize("test-data/OSFUI"));
@@ -518,7 +630,8 @@ namespace
 			Presentation::WebViewPresenter presenter{
 				std::move(renderer),
 				std::move(compositor),
-				&DrawAvailableForTest
+				&DrawAvailableForTest,
+				&HandleFrameworkKeyForTest
 			};
 		}
 
@@ -534,6 +647,8 @@ void RunWebViewPresenterTests()
 	TestPresenterTickSubmitsFramesAndTracksDrawAvailability();
 	TestPresenterConvertsAndCoalescesMouseInput();
 	TestPresenterInitializationFailure();
+	TestPresenterRequiresFrameworkKeyHandler();
+	TestPresenterClearsAcceleratorsWhenNativeFocusFails();
 	TestPresenterContainsNestedTickFailures();
 	TestPresenterDestroysRendererBeforeCompositor();
 }

@@ -555,6 +555,7 @@ namespace
 			&RegisterPapyrusForTest,
 			&presenter
 		};
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings")
@@ -617,6 +618,7 @@ namespace
 	{
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings"),
@@ -646,6 +648,7 @@ namespace
 		ViewFixture fixture;
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		LoadCoordinatorViews(runtime, fixture, { "osfui/settings" });
 
@@ -685,6 +688,7 @@ namespace
 		ViewFixture fixture;
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		LoadCoordinatorViews(runtime, fixture, {
 			"osfui/settings",
@@ -747,6 +751,7 @@ namespace
 		ViewFixture fixture;
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		LoadCoordinatorViews(runtime, fixture, { "osfui/settings" });
 
@@ -794,6 +799,7 @@ namespace
 		ViewFixture fixture;
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		LoadCoordinatorViews(runtime, fixture, { "osfui/settings" });
 
@@ -830,6 +836,7 @@ namespace
 		RecordingViewPresenter presenter;
 		presenter.showSucceeds = false;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings")
@@ -863,6 +870,7 @@ namespace
 	{
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings"),
@@ -897,6 +905,7 @@ namespace
 			&presenter,
 			&RecordInputCapture
 		};
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings"),
@@ -931,6 +940,7 @@ namespace
 			&presenter,
 			&RecordInputCapture
 		};
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings", true),
@@ -960,6 +970,7 @@ namespace
 			&presenter,
 			&RecordInputCapture
 		};
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings")
@@ -991,10 +1002,30 @@ namespace
 		assert((g_inputCaptureStates == std::vector<bool>{ false }));
 	}
 
+	void TestCoordinatorRefusesCapturingMenuWithoutInputRouting()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+
+		assert(!runtime.IsInputCaptured());
+		assert(presenter.inputFocusStates.empty());
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action == Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[0].viewId == "osfui/settings");
+		assert(runtime.Views().Presentation().openViewIds.empty());
+	}
+
 	void TestCoordinatorRoutesKeyboardWhileCaptured()
 	{
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings")
@@ -1016,6 +1047,7 @@ namespace
 	{
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings")
@@ -1063,6 +1095,7 @@ namespace
 	{
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings")
@@ -1224,6 +1257,7 @@ int main()
 	TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement();
 	TestCoordinatorDoesNotCaptureFailedPresentation();
 	TestCoordinatorNeverCapturesWithoutPresenter();
+	TestCoordinatorRefusesCapturingMenuWithoutInputRouting();
 	TestCoordinatorRoutesKeyboardWhileCaptured();
 	TestCoordinatorClosesActiveMenuForEscape();
 	TestCoordinatorDoesNotRouteInputToPassiveHud();

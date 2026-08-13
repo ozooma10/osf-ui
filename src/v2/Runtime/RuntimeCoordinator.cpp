@@ -2,23 +2,15 @@
 
 namespace Runtime
 {
-    RuntimeCoordinator::RuntimeCoordinator(
-        RegisterPapyrus a_registerPapyrus,
-        IViewPresenter* a_viewPresenter,
-        ApplyInputCapture a_applyInputCapture) noexcept :
-        _registerPapyrus(a_registerPapyrus),
-        _viewPresenter(a_viewPresenter),
-        _applyInputCapture(a_applyInputCapture)
+    RuntimeCoordinator::RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter, ApplyInputCapture a_applyInputCapture) noexcept
+        : _registerPapyrus(a_registerPapyrus), _viewPresenter(a_viewPresenter), _applyInputCapture(a_applyInputCapture)
     {}
 
     ViewLoadReport RuntimeCoordinator::LoadViews(const std::filesystem::path& a_viewsDirectory)
     {
         auto discovery = DiscoverViews(a_viewsDirectory);
 
-        ViewLoadReport report{
-            .loaded = discovery.views.size(),
-            .issues = std::move(discovery.issues)
-        };
+        ViewLoadReport report {.loaded = discovery.views.size(), .issues = std::move(discovery.issues)};
 
         std::unordered_set<std::string> knownViewIds;
 
@@ -27,7 +19,7 @@ namespace Runtime
         }
 
         {
-            std::scoped_lock lock{ _viewRequestsMutex };
+            std::scoped_lock lock {_viewRequestsMutex};
 
             _views.ReplaceViews(std::move(discovery.views));
             _knownViewIds = std::move(knownViewIds);
@@ -36,6 +28,11 @@ namespace Runtime
         }
 
         return report;
+    }
+
+    void RuntimeCoordinator::EnableInputRouting() noexcept
+    {
+        _inputRoutingAvailable.store(true, std::memory_order_release);
     }
 
     bool RuntimeCoordinator::RequestOpenView(std::string a_viewId)
@@ -100,7 +97,7 @@ namespace Runtime
             return false;
         }
 
-        std::scoped_lock lock{ _viewRequestsMutex };
+        std::scoped_lock lock {_viewRequestsMutex};
 
         if (a_action == ViewRequestAction::Open) {
             if (!_knownViewIds.contains(a_viewId)) {
@@ -114,10 +111,7 @@ namespace Runtime
             return false;
         }
 
-        _pendingViewRequests.push_back({
-            .action = a_action,
-            .viewId = std::move(a_viewId)
-        });
+        _pendingViewRequests.push_back({.action = a_action, .viewId = std::move(a_viewId)});
 
         return true;
     }
@@ -127,7 +121,7 @@ namespace Runtime
         std::vector<ViewRequest> requests;
 
         {
-            std::scoped_lock lock{ _viewRequestsMutex };
+            std::scoped_lock lock {_viewRequestsMutex};
             requests.swap(_pendingViewRequests);
         }
 
@@ -138,22 +132,17 @@ namespace Runtime
     {
         for (const auto& request : TakeViewRequests()) {
             const bool open = request.action == ViewRequestAction::Open;
-            const auto result = open
-                ? _views.OpenView(request.viewId)
-                : _views.CloseView(request.viewId);
+            const auto result = open ? _views.OpenView(request.viewId) : _views.CloseView(request.viewId);
 
             if (result == ViewOperationResult::UnknownView) {
-                REX::WARN(
-                    "RuntimeCoordinator: ignored {} request for unknown view '{}'",
-                    open ? "open" : "close",
-                    request.viewId);
+                REX::WARN("RuntimeCoordinator: ignored {} request for unknown view '{}'", open ? "open" : "close", request.viewId);
             }
         }
     }
 
     void RuntimeCoordinator::MarkViewInstantiated(std::string_view a_viewId)
     {
-        std::scoped_lock lock{ _viewRequestsMutex };
+        std::scoped_lock lock {_viewRequestsMutex};
         _instantiatedViewIds.emplace(a_viewId);
     }
 
@@ -168,8 +157,15 @@ namespace Runtime
         ApplyViewRequests();
         ApplyFrameworkInputActions();
         DispatchPresentationCommands();
-        ReconcileInputFocus();
-        ApplyInputCapturePolicy();
+        const bool shouldCaptureInput = _viewPresenter && _inputRoutingAvailable.load(std::memory_order_acquire) && _views.Presentation().capturesInput;
+
+        if (shouldCaptureInput) {
+            ApplyInputCapturePolicy();
+            ReconcileInputFocus();
+        } else {
+            ReconcileInputFocus();
+            ApplyInputCapturePolicy();
+        }
 
         if (_viewPresenter) {
             _viewPresenter->Tick();
@@ -215,6 +211,12 @@ namespace Runtime
                     continue;
                 }
 
+                if (command.view.capturesInput && !_inputRoutingAvailable.load(std::memory_order_acquire)) {
+                    REX::WARN("RuntimeCoordinator: refused to show input-capturing view '{}' because game-window input routing is unavailable", command.view.id);
+                    _views.CloseView(command.view.id);
+                    continue;
+                }
+
                 if (!_viewPresenter->Show(command.view)) {
                     // Show failed. Return logical state to closed and queue its defensive hide.
                     _views.CloseView(command.view.id);
@@ -239,7 +241,7 @@ namespace Runtime
             return;
         }
 
-        const bool shouldFocus = _views.Presentation().capturesInput;
+        const bool shouldFocus = _inputRoutingAvailable.load(std::memory_order_acquire) && _views.Presentation().capturesInput;
 
         if (_inputFocusRequested == shouldFocus) {
             return;
@@ -251,8 +253,7 @@ namespace Runtime
 
     void RuntimeCoordinator::ApplyInputCapturePolicy()
     {
-        const bool shouldCapture = _viewPresenter && _views.Presentation().capturesInput;
-
+        const bool shouldCapture = _viewPresenter && _inputRoutingAvailable.load(std::memory_order_acquire) && _views.Presentation().capturesInput;
         // Revoke routing before returning controls to the game. On acquisition, publish routing only after the game-side capture policy is applied.
         if (!shouldCapture) {
             _inputCaptured.store(false, std::memory_order_release);
@@ -266,7 +267,7 @@ namespace Runtime
             _inputCaptured.store(true, std::memory_order_release);
         }
     }
-    
+
     ViewRuntime& RuntimeCoordinator::Views() noexcept
     {
         return _views;

@@ -32,8 +32,8 @@ namespace Presentation
         }
     }
 
-    WebViewPresenter::WebViewPresenter(std::unique_ptr<OSFUI::IWebRenderer> a_renderer, std::unique_ptr<OSFUI::ICompositor> a_compositor, DrawAvailable a_drawAvailable)
-        : _compositor(std::move(a_compositor)), _renderer(std::move(a_renderer)), _drawAvailable(a_drawAvailable)
+    WebViewPresenter::WebViewPresenter(std::unique_ptr<OSFUI::IWebRenderer> a_renderer, std::unique_ptr<OSFUI::ICompositor> a_compositor, DrawAvailable a_drawAvailable, FrameworkKeyHandler a_frameworkKeyHandler)
+        : _compositor(std::move(a_compositor)), _renderer(std::move(a_renderer)), _drawAvailable(a_drawAvailable), _frameworkKeyHandler(a_frameworkKeyHandler)
     {}
 
     WebViewPresenter::~WebViewPresenter() = default;
@@ -44,8 +44,8 @@ namespace Presentation
             return true;
         }
 
-        if (!_renderer || !_compositor) {
-            REX::ERROR("WebViewPresenter: renderer or compositor is unavailable");
+        if (!_renderer || !_compositor || !_frameworkKeyHandler) {
+            REX::ERROR("WebViewPresenter: renderer, compositor, or framework key handler is unavailable");
             return false;
         }
 
@@ -64,6 +64,9 @@ namespace Presentation
                 return false;
             }
 
+            _renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_virtualKey, std::uint32_t, bool a_down) {
+                return _frameworkKeyHandler(a_virtualKey, a_down);
+            });
             _renderer->SetSharedRingHandler([this](const OSFUI::SharedRingDesc& a_ring) { _compositor->SetSharedRing(a_ring); });
 
             _compositor->SetOutputResizeCallback([this](std::uint32_t a_width, std::uint32_t a_height) {
@@ -148,15 +151,27 @@ namespace Presentation
             return;
         }
 
-        try {
-            _renderer->SetNativeFocus(a_focused);
+        const auto clearAcceleratorState = [this]() noexcept {
+            try {
+                _renderer->SetAcceleratorKeys(0, false, false, 0);
+            } catch (...) {
+            }
+        };
 
+        try {
             if (a_focused) {
+                _renderer->SetAcceleratorKeys(0, true, false, 0);
+                _renderer->SetNativeFocus(a_focused);
                 _inputFocused.store(true, std::memory_order_release);
+            } else {
+                _renderer->SetNativeFocus(false);
+                _renderer->SetAcceleratorKeys(0, false, false, 0);
             }
         } catch (const std::exception& error) {
+            clearAcceleratorState();
             REX::ERROR("WebViewPresenter: failed to set input focus to {}: {}", a_focused, error.what());
         } catch (...) {
+            clearAcceleratorState();
             REX::ERROR("WebViewPresenter: failed to set input focus to {} with an unknown exception", a_focused);
         }
     }

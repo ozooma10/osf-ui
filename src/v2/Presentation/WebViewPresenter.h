@@ -21,8 +21,9 @@ namespace Presentation
     {
     public:
         using DrawAvailable = bool (*)();
+        using FrameworkKeyHandler = bool (*)(std::uint32_t, bool);
 
-        WebViewPresenter(std::unique_ptr<OSFUI::IWebRenderer> a_renderer, std::unique_ptr<OSFUI::ICompositor> a_compositor, DrawAvailable a_drawAvailable);
+        WebViewPresenter(std::unique_ptr<OSFUI::IWebRenderer> a_renderer, std::unique_ptr<OSFUI::ICompositor> a_compositor, DrawAvailable a_drawAvailable, FrameworkKeyHandler a_frameworkKeyHandler);
 
         ~WebViewPresenter() override;
 
@@ -51,6 +52,7 @@ namespace Presentation
         std::unique_ptr<OSFUI::IWebRenderer> _renderer;
 
         DrawAvailable _drawAvailable {nullptr};
+        FrameworkKeyHandler _frameworkKeyHandler {nullptr};
 
         std::unordered_set<std::string> _instantiatedViews;
         std::unordered_set<std::string> _visibleViews;
