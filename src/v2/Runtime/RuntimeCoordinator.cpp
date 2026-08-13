@@ -27,6 +27,10 @@ namespace Runtime
     {
         TickPapyrusRegistration();
         DispatchPresentationCommands();
+
+        if (_viewPresenter) {
+            _viewPresenter->Tick();
+        }
     }
 
     void RuntimeCoordinator::TickPapyrusRegistration()

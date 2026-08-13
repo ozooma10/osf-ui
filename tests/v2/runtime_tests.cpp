@@ -62,8 +62,16 @@ namespace
 			});
 		}
 
+		void Tick() noexcept override
+		{
+			++tickCalls;
+			presentationCallCountsAtTick.push_back(calls.size());
+		}
+
 		bool showSucceeds{ true };
+		std::size_t tickCalls{ 0 };
 		std::vector<PresentationCall> calls;
+		std::vector<std::size_t> presentationCallCountsAtTick;
 	};
 
 	class ViewFixture
@@ -423,6 +431,8 @@ namespace
 		runtime.Tick();
 
 		assert(g_papyrusCalls == 1);
+		assert(presenter.tickCalls == 1);
+		assert(presenter.presentationCallCountsAtTick[0] == 1);
 		assert(presenter.calls.size() == 1);
 		assert(
 			presenter.calls[0].action ==
@@ -438,6 +448,8 @@ namespace
 		runtime.Tick();
 
 		assert(g_papyrusCalls == 1);
+		assert(presenter.tickCalls == 2);
+		assert(presenter.presentationCallCountsAtTick[1] == 1);
 		assert(presenter.calls.size() == 1);
 		assert(
 			presenter.calls[0].action ==
@@ -446,7 +458,23 @@ namespace
 
 		presenter.calls.clear();
 		runtime.Tick();
+		assert(presenter.tickCalls == 3);
+		assert(presenter.presentationCallCountsAtTick[2] == 0);
 		assert(presenter.calls.empty());
+	}
+
+	void TestCoordinatorTicksPresenterWithoutCommands()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Tick();
+		runtime.Tick();
+
+		assert(presenter.tickCalls == 2);
+		assert(presenter.calls.empty());
+		assert((presenter.presentationCallCountsAtTick ==
+			std::vector<std::size_t>{ 0, 0 }));
 	}
 
 	void TestCoordinatorDispatchesMenuReplacementInOrder()
@@ -626,6 +654,7 @@ int main()
 	TestCoordinatorRetriesPapyrusRegistration();
 	TestCoordinatorLoadsDiscoveredViews();
 	TestCoordinatorDispatchesPresentationAlongsideLifecycle();
+	TestCoordinatorTicksPresenterWithoutCommands();
 	TestCoordinatorDispatchesMenuReplacementInOrder();
 	TestCoordinatorClosesViewWhenPresentationFails();
 
