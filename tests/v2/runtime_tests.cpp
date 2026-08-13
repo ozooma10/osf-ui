@@ -8,12 +8,34 @@
 #include <string>
 #include <vector>
 
+#include "v2/Runtime/RuntimeCoordinator.h"
 #include "v2/Runtime/ViewDiscovery.h"
 #include "v2/Runtime/ViewPresentationController.h"
 #include "v2/Runtime/ViewRuntime.h"
 
 namespace
 {
+	int g_papyrusCalls = 0;
+	int g_papyrusFailuresRemaining = 0;
+
+	bool RegisterPapyrusForTest()
+	{
+		++g_papyrusCalls;
+
+		if (g_papyrusFailuresRemaining > 0) {
+			--g_papyrusFailuresRemaining;
+			return false;
+		}
+
+		return true;
+	}
+
+	void ResetPapyrusTestState()
+	{
+		g_papyrusCalls = 0;
+		g_papyrusFailuresRemaining = 0;
+	}
+
 	class ViewFixture
 	{
 	public:
@@ -286,6 +308,70 @@ namespace
 		assert(result.issues.size() == 1);
 		assert(result.issues[0].path == fixture.Root() / "missing");
 	}
+
+	void TestCoordinatorCoalescesDataLoadedWork()
+	{
+		ResetPapyrusTestState();
+		Runtime::RuntimeCoordinator runtime{ &RegisterPapyrusForTest };
+
+		runtime.Tick();
+		assert(g_papyrusCalls == 0);
+
+		runtime.NotifyDataLoaded();
+		runtime.NotifyDataLoaded();
+		runtime.Tick();
+		assert(g_papyrusCalls == 1);
+
+		runtime.Tick();
+		assert(g_papyrusCalls == 1);
+
+		runtime.NotifyDataLoaded();
+		runtime.Tick();
+		assert(g_papyrusCalls == 1);
+	}
+
+	void TestCoordinatorRetriesPapyrusRegistration()
+	{
+		ResetPapyrusTestState();
+		g_papyrusFailuresRemaining = 1;
+		Runtime::RuntimeCoordinator runtime{ &RegisterPapyrusForTest };
+
+		runtime.NotifyDataLoaded();
+		runtime.Tick();
+		assert(g_papyrusCalls == 1);
+
+		runtime.Tick();
+		assert(g_papyrusCalls == 2);
+
+		runtime.Tick();
+		assert(g_papyrusCalls == 2);
+	}
+
+	void TestCoordinatorLoadsDiscoveredViews()
+	{
+		ViewFixture fixture;
+		fixture.WriteManifest(
+			"osfui",
+			"settings",
+			R"({ "title": "Mod Settings" })");
+		fixture.WriteManifest(
+			"author.mod",
+			"broken",
+			R"({ "kind": )");
+
+		Runtime::RuntimeCoordinator runtime{ nullptr };
+		const auto report = runtime.LoadViews(fixture.Root());
+
+		assert(report.loaded == 1);
+		assert(report.issues.size() == 1);
+
+		const auto views = runtime.Views().Views();
+		assert(views.size() == 1);
+		assert(views[0].id == "osfui/settings");
+		assert(
+			runtime.Views().OpenView("osfui/settings") ==
+			Runtime::ViewOperationResult::Changed);
+	}
 }
 
 int main()
@@ -300,6 +386,9 @@ int main()
 	TestManifestKeepsUnknownKindFallback();
 	TestViewDiscoveryContainsInvalidNeighbors();
 	TestViewDiscoveryReportsMissingDirectory();
+	TestCoordinatorCoalescesDataLoadedWork();
+	TestCoordinatorRetriesPapyrusRegistration();
+	TestCoordinatorLoadsDiscoveredViews();
 
 	std::cout << "v2 runtime tests passed\n";
 	return 0;
