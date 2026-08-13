@@ -2,8 +2,14 @@
 
 namespace Runtime
 {
-    RuntimeCoordinator::RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter) noexcept
-        : _registerPapyrus(a_registerPapyrus), _viewPresenter(a_viewPresenter) {}
+    RuntimeCoordinator::RuntimeCoordinator(
+        RegisterPapyrus a_registerPapyrus,
+        IViewPresenter* a_viewPresenter,
+        ApplyInputCapture a_applyInputCapture) noexcept :
+        _registerPapyrus(a_registerPapyrus),
+        _viewPresenter(a_viewPresenter),
+        _applyInputCapture(a_applyInputCapture)
+    {}
 
     ViewLoadReport RuntimeCoordinator::LoadViews(const std::filesystem::path& a_viewsDirectory)
     {
@@ -116,6 +122,7 @@ namespace Runtime
         ApplyViewRequests();
         DispatchPresentationCommands();
         ReconcileInputFocus();
+        ApplyInputCapturePolicy();
 
         if (_viewPresenter) {
             _viewPresenter->Tick();
@@ -186,6 +193,16 @@ namespace Runtime
 
         _viewPresenter->SetInputFocus(shouldFocus);
         _inputFocusRequested = shouldFocus;
+    }
+
+    void RuntimeCoordinator::ApplyInputCapturePolicy()
+    {
+        if (!_applyInputCapture) {
+            return;
+        }
+
+        const bool shouldCapture = _viewPresenter && _views.Presentation().capturesInput;
+        _applyInputCapture(shouldCapture);
     }
 
     ViewRuntime& RuntimeCoordinator::Views() noexcept

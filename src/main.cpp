@@ -1,5 +1,6 @@
 #include "composite/D3D12Compositor.h"
 #include "composite/ScaleformOverlayHook.h"
+#include "input/ControlLayer.h"
 #include "render/WebView2HostWebRenderer.h"
 
 #include "v2/Events/Events.h"
@@ -36,9 +37,18 @@ namespace
 		return presenter;
 	}
 
+	void ApplyGameInputCapture(bool a_captured)
+	{
+		OSFUI::ControlLayer::Apply(a_captured);
+	}
+
 	Runtime::RuntimeCoordinator& ApplicationRuntime()
 	{
-		static Runtime::RuntimeCoordinator runtime{ &Papyrus::RegisterFunctions, &ApplicationPresenter() };
+		static Runtime::RuntimeCoordinator runtime{
+			&Papyrus::RegisterFunctions,
+			&ApplicationPresenter(),
+			&ApplyGameInputCapture
+		};
 
 		return runtime;
 	}

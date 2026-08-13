@@ -26,8 +26,9 @@ namespace Runtime
     {
     public:
         using RegisterPapyrus = bool (*)();
+        using ApplyInputCapture = void (*)(bool);
 
-        explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter = nullptr) noexcept;
+        explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter = nullptr, ApplyInputCapture a_applyInputCapture = nullptr) noexcept;
 
         ViewLoadReport LoadViews(const std::filesystem::path& a_viewsDirectory);
 
@@ -53,6 +54,7 @@ namespace Runtime
         void DispatchPresentationCommands();
 
         void ReconcileInputFocus();
+        void ApplyInputCapturePolicy();
 
         ViewRuntime _views;
 
@@ -63,6 +65,7 @@ namespace Runtime
 
         RegisterPapyrus _registerPapyrus{ nullptr };
         IViewPresenter* _viewPresenter{ nullptr };
+        ApplyInputCapture _applyInputCapture{ nullptr };
 
         std::atomic_bool _dataLoadPending{ false };
 

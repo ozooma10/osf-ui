@@ -23,6 +23,7 @@ namespace
 {
 	int g_papyrusCalls = 0;
 	int g_papyrusFailuresRemaining = 0;
+	std::vector<bool> g_inputCaptureStates;
 
 	bool RegisterPapyrusForTest()
 	{
@@ -40,6 +41,11 @@ namespace
 	{
 		g_papyrusCalls = 0;
 		g_papyrusFailuresRemaining = 0;
+	}
+
+	void RecordInputCapture(bool a_captured)
+	{
+		g_inputCaptureStates.push_back(a_captured);
 	}
 
 	struct PresentationCall
@@ -784,10 +790,49 @@ namespace
 			std::vector<std::string>{ "author.mod/status" }));
 	}
 
-	void TestCoordinatorReleasesFocusForNonCapturingReplacement()
+	void TestCoordinatorAppliesInputCapturePolicyEveryTick()
 	{
+		g_inputCaptureStates.clear();
 		RecordingViewPresenter presenter;
-		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			&presenter,
+			&RecordInputCapture
+		};
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings"),
+			Hud("author.mod/status")
+		});
+
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+		runtime.Tick();
+
+		// The production ControlLayer owns edge detection and startup retry, so
+		// the desired capture state must be supplied on every tick.
+		assert((g_inputCaptureStates == std::vector<bool>{ true, true }));
+
+		runtime.Views().OpenView("author.mod/status");
+		runtime.Tick();
+		assert((g_inputCaptureStates ==
+			std::vector<bool>{ true, true, true }));
+
+		runtime.Views().CloseView("osfui/settings");
+		runtime.Tick();
+		assert((g_inputCaptureStates ==
+			std::vector<bool>{ true, true, true, false }));
+	}
+
+	void TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement()
+	{
+		g_inputCaptureStates.clear();
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			&presenter,
+			&RecordInputCapture
+		};
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings", true),
@@ -801,15 +846,22 @@ namespace
 
 		assert((presenter.inputFocusStates ==
 			std::vector<bool>{ true, false }));
+		assert((g_inputCaptureStates ==
+			std::vector<bool>{ true, false }));
 		assert(runtime.Views().Presentation().activeMenu ==
 			"author.mod/dashboard");
 	}
 
-	void TestCoordinatorDoesNotFocusFailedPresentation()
+	void TestCoordinatorDoesNotCaptureFailedPresentation()
 	{
+		g_inputCaptureStates.clear();
 		RecordingViewPresenter presenter;
 		presenter.showSucceeds = false;
-		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			&presenter,
+			&RecordInputCapture
+		};
 
 		runtime.Views().ReplaceViews({
 			Menu("osfui/settings")
@@ -819,7 +871,26 @@ namespace
 		runtime.Tick();
 
 		assert(presenter.inputFocusStates.empty());
+		assert((g_inputCaptureStates == std::vector<bool>{ false }));
 		assert(runtime.Views().Presentation().openViewIds.empty());
+	}
+
+	void TestCoordinatorNeverCapturesWithoutPresenter()
+	{
+		g_inputCaptureStates.clear();
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			nullptr,
+			&RecordInputCapture
+		};
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+
+		assert((g_inputCaptureStates == std::vector<bool>{ false }));
 	}
 
 	void TestViewRuntimeQueuesPresentationCommands()
@@ -946,8 +1017,10 @@ int main()
 	TestCoordinatorTracksOnlySuccessfulInstantiation();
 	TestCoordinatorClosesViewWhenPresentationFails();
 	TestCoordinatorReconcilesInputFocusAcrossMenuAndHudChanges();
-	TestCoordinatorReleasesFocusForNonCapturingReplacement();
-	TestCoordinatorDoesNotFocusFailedPresentation();
+	TestCoordinatorAppliesInputCapturePolicyEveryTick();
+	TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement();
+	TestCoordinatorDoesNotCaptureFailedPresentation();
+	TestCoordinatorNeverCapturesWithoutPresenter();
 	RunPapyrusTests();
 	RunWebViewPresenterTests();
 
