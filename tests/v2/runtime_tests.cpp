@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 
+#include "input/OverlayInputHook.h"
 #include "v2/Runtime/RuntimeCoordinator.h"
 #include "v2/Runtime/ViewDiscovery.h"
 #include "v2/Runtime/ViewPresentationController.h"
@@ -47,6 +48,21 @@ namespace
 	{
 		g_inputCaptureStates.push_back(a_captured);
 	}
+
+	bool InputCapturedForTest()
+	{
+		return false;
+	}
+
+	bool HandleWindowKeyForTest(std::uint32_t, OSFUI::ScanCode, bool)
+	{
+		return false;
+	}
+
+	void HandleLayoutChangedForTest() {}
+	void HandleMouseAbsoluteForTest(int, int, int, int) {}
+	void HandleMouseButtonForTest(int, bool) {}
+	void HandleMouseWheelForTest(int) {}
 
 	struct PresentationCall
 	{
@@ -177,6 +193,42 @@ namespace
 		view.capturesInput = false;
 		view.pausesGame = false;
 		return view;
+	}
+
+	void TestGameWindowInputHandlersRequireCompleteTable()
+	{
+		using Handlers =
+			OSFUI::OverlayInputHook::GameWindowInputHandlers;
+
+		const Handlers complete{
+			.isCaptured = &InputCapturedForTest,
+			.onKey = &HandleWindowKeyForTest,
+			.onKeyboardLayoutChanged = &HandleLayoutChangedForTest,
+			.onMouseAbsolute = &HandleMouseAbsoluteForTest,
+			.onMouseButton = &HandleMouseButtonForTest,
+			.onMouseWheel = &HandleMouseWheelForTest
+		};
+
+		assert(complete.IsComplete());
+
+		auto missing = complete;
+		missing.isCaptured = nullptr;
+		assert(!missing.IsComplete());
+		missing = complete;
+		missing.onKey = nullptr;
+		assert(!missing.IsComplete());
+		missing = complete;
+		missing.onKeyboardLayoutChanged = nullptr;
+		assert(!missing.IsComplete());
+		missing = complete;
+		missing.onMouseAbsolute = nullptr;
+		assert(!missing.IsComplete());
+		missing = complete;
+		missing.onMouseButton = nullptr;
+		assert(!missing.IsComplete());
+		missing = complete;
+		missing.onMouseWheel = nullptr;
+		assert(!missing.IsComplete());
 	}
 
 	void TestEmptyController()
@@ -992,6 +1044,7 @@ namespace
 
 int main()
 {
+	TestGameWindowInputHandlersRequireCompleteTable();
 	TestEmptyController();
 	TestMenusReplaceEachOther();
 	TestMultipleHuds();

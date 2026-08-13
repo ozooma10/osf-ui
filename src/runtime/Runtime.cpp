@@ -368,7 +368,30 @@ namespace OSFUI
 		const bool focusMenuRegistered = FocusMenu::Register();
 		// The WndProc subclass is the only input path: it drives the toggle key
 		// and consumes/routes keyboard and mouse while the overlay captures input.
-		const bool inputInstalled = OverlayInputHook::Install();
+		const bool inputInstalled = OverlayInputHook::Install({
+			.isCaptured = [] {
+				return Runtime::Get().IsInputCaptured();
+			},
+			.onKey = [](std::uint32_t a_vk, ScanCode a_scan, bool a_down) {
+				return Runtime::Get().OnGameWindowKey(a_vk, a_scan, a_down);
+			},
+			.onKeyboardLayoutChanged = [] {
+				Runtime::Get().NotifyKeyboardLayoutChanged();
+			},
+			.onMouseAbsolute = [](int a_x, int a_y, int a_width, int a_height) {
+				Runtime::Get().OnGameWindowMouseAbsolute(
+					a_x,
+					a_y,
+					a_width,
+					a_height);
+			},
+			.onMouseButton = [](int a_button, bool a_down) {
+				Runtime::Get().OnGameWindowMouseButton(a_button, a_down);
+			},
+			.onMouseWheel = [](int a_delta) {
+				Runtime::Get().OnGameWindowMouseWheel(a_delta);
+			}
+		});
 		_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
 		if (!_captureIntegrationAvailable) {
 			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");

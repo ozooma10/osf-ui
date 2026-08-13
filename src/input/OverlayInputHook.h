@@ -1,5 +1,9 @@
 #pragma once
 
+#include "input/InputTypes.h"
+
+#include <cstdint>
+
 namespace OSFUI
 {
 	// Subclasses the game's main window procedure (SetWindowLongPtr on the
@@ -30,12 +34,37 @@ namespace OSFUI
 		// Its WndProc owns ShowCursor/ClipCursor state, which must be applied even
 		// if native focus moves to the WebView before another input packet arrives.
 		inline constexpr std::uint32_t kRefreshInputStateMessage = 0x804A;
-		// Finds the game's main top-level window for the current process and
-		// installs the WndProc subclass. Call on the first main-thread tick after
-		// kPostPostDataLoad. Returns false (and logs) if no window is found or the
-		// swap fails. One-way: never un-subclassed (other overlays may chain on the
-		// same window).
-		bool Install();
+
+		struct GameWindowInputHandlers
+		{
+			using IsCaptured = bool (*)();
+			using KeyHandler = bool (*)(std::uint32_t, ScanCode, bool);
+			using LayoutChangedHandler = void (*)();
+			using MouseAbsoluteHandler = void (*)(int, int, int, int);
+			using MouseButtonHandler = void (*)(int, bool);
+			using MouseWheelHandler = void (*)(int);
+
+			IsCaptured isCaptured{ nullptr };
+			KeyHandler onKey{ nullptr };
+			LayoutChangedHandler onKeyboardLayoutChanged{ nullptr };
+			MouseAbsoluteHandler onMouseAbsolute{ nullptr };
+			MouseButtonHandler onMouseButton{ nullptr };
+			MouseWheelHandler onMouseWheel{ nullptr };
+
+			bool IsComplete() const
+			{
+				return isCaptured &&
+					onKey &&
+					onKeyboardLayoutChanged &&
+					onMouseAbsolute &&
+					onMouseButton &&
+					onMouseWheel;
+			}
+		};
+
+		// Finds the game's main top-level window and installs the WndProc subclass.
+		// Every handler is required before the one-way installation can proceed.
+		bool Install(GameWindowInputHandlers a_handlers);
 		void RequestStateRefresh();
 		// The subclassed game window, or nullptr before Install()/on failure.
 		// For platform facts keyed to the window's thread — notably the

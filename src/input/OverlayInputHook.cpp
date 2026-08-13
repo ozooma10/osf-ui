@@ -8,7 +8,6 @@
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 #	include "input/WorldSurfaceActivateSink.h"
 #endif
-#include "runtime/Runtime.h"
 
 // Keep <Windows.h> confined to this file. NOGDI stops wingdi's ERROR macro
 // from clobbering REX::ERROR.
@@ -25,6 +24,7 @@ namespace OSFUI::OverlayInputHook
 		WNDPROC g_gameProc{ nullptr };
 		HWND    g_hwnd{ nullptr };
 		std::atomic_bool g_chainCycleLogged{ false };
+		GameWindowInputHandlers g_handlers;
 
 		// Physical identity of a WM_(SYS)KEY* message: make code from lParam
 		// bits 16-23, extended flag from bit 24, composed into the DIK
@@ -113,7 +113,6 @@ namespace OSFUI::OverlayInputHook
 				return;
 			}
 
-			auto& runtime = Runtime::Get();
 			const auto& mouse = raw.data.mouse;
 
 			// The engine may re-hide/re-clip the pointer at any time; heal it on
@@ -125,27 +124,27 @@ namespace OSFUI::OverlayInputHook
 			RECT  client{};
 			if (::GetCursorPos(&pt) && ::ScreenToClient(a_hwnd, &pt) &&
 				::GetClientRect(a_hwnd, &client) && client.right > 0 && client.bottom > 0) {
-				runtime.OnGameWindowMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
+				g_handlers.onMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
 			}
 
 			const auto buttons = mouse.usButtonFlags;
 			if (buttons & RI_MOUSE_LEFT_BUTTON_DOWN) {
-				runtime.OnGameWindowMouseButton(0, true);
+				g_handlers.onMouseButton(0, true);
 			}
 			if (buttons & RI_MOUSE_LEFT_BUTTON_UP) {
-				runtime.OnGameWindowMouseButton(0, false);
+				g_handlers.onMouseButton(0, false);
 			}
 			if (buttons & RI_MOUSE_RIGHT_BUTTON_DOWN) {
-				runtime.OnGameWindowMouseButton(1, true);
+				g_handlers.onMouseButton(1, true);
 			}
 			if (buttons & RI_MOUSE_RIGHT_BUTTON_UP) {
-				runtime.OnGameWindowMouseButton(1, false);
+				g_handlers.onMouseButton(1, false);
 			}
 			if (buttons & RI_MOUSE_MIDDLE_BUTTON_DOWN) {
-				runtime.OnGameWindowMouseButton(2, true);
+				g_handlers.onMouseButton(2, true);
 			}
 			if (buttons & RI_MOUSE_MIDDLE_BUTTON_UP) {
-				runtime.OnGameWindowMouseButton(2, false);
+				g_handlers.onMouseButton(2, false);
 			}
 
 			// usButtonData is a USHORT carrying a signed WHEEL_DELTA (120)
@@ -154,7 +153,7 @@ namespace OSFUI::OverlayInputHook
 			if (buttons & RI_MOUSE_WHEEL) {
 				const auto wheelDelta = static_cast<short>(mouse.usButtonData);
 				if (wheelDelta != 0) {
-					runtime.OnGameWindowMouseWheel(static_cast<int>(wheelDelta));
+					g_handlers.onMouseWheel(static_cast<int>(wheelDelta));
 				}
 			}
 		}
@@ -175,11 +174,11 @@ namespace OSFUI::OverlayInputHook
 				return ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
 			}
 
-			auto& runtime = Runtime::Get();
+			const bool captured = g_handlers.isCaptured();
 
 			// Capture flips on the game main thread, so this is where the
 			// open/close edge becomes visible to the window thread.
-			const bool wantHwCursor = runtime.IsInputCaptured();
+			const bool wantHwCursor = captured;
 			if (wantHwCursor != g_hwCursorActive) {
 				g_hwCursorActive = wantHwCursor;
 				if (wantHwCursor) {
@@ -206,8 +205,7 @@ namespace OSFUI::OverlayInputHook
 #endif
 				// Drive toggle/web-routing on the initial press only so key
 				// auto-repeat can't re-toggle the overlay.
-				const bool consume = repeat ? runtime.IsInputCaptured() :
-					                              runtime.OnGameWindowKey(vk, MessageScanCode(vk, a_lparam), true);
+				const bool consume = repeat ? captured : g_handlers.onKey(vk, MessageScanCode(vk, a_lparam), true);
 				if (consume) {
 					return 0;
 				}
@@ -217,7 +215,7 @@ namespace OSFUI::OverlayInputHook
 			case WM_SYSKEYUP:
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
-				if (runtime.OnGameWindowKey(vk, MessageScanCode(vk, a_lparam), false)) {
+				if (g_handlers.onKey(vk, MessageScanCode(vk, a_lparam), false)) {
 					return 0;
 				}
 				break;
@@ -226,18 +224,18 @@ namespace OSFUI::OverlayInputHook
 				// Keyboard layout switched (Alt+Shift / Win+Space) while the game
 				// window has focus: keycap labels must recompute. Flag only —
 				// the rebuild runs on the main thread's tick. Never consumed.
-				runtime.NotifyKeyboardLayoutChanged();
+				g_handlers.onKeyboardLayoutChanged();
 				break;
 			case WM_CHAR:
 				// Chromium receives text and IME through its focused native child
 				// window. Swallow the game's duplicate character stream while the
 				// overlay owns input.
-				if (runtime.IsInputCaptured()) return 0;
+				if (captured) return 0;
 				break;
 			case WM_UNICHAR:
 				// Answer the capability probe and swallow duplicate text only while
 				// the overlay owns input; Chromium receives the original stream.
-				if (!runtime.IsInputCaptured()) {
+				if (!captured) {
 					break;
 				}
 				if (a_wparam == UNICODE_NOCHAR) {
@@ -248,7 +246,7 @@ namespace OSFUI::OverlayInputHook
 				// Dead key (accent): no finished character yet, the composed
 				// result arrives as a later WM_CHAR. Block it from the game
 				// while captured.
-				if (runtime.IsInputCaptured()) {
+				if (captured) {
 					return 0;
 				}
 				break;
@@ -263,7 +261,7 @@ namespace OSFUI::OverlayInputHook
 				}
 				break;
 			case WM_INPUT:
-				if (runtime.IsInputCaptured()) {
+				if (captured) {
 					// Route into the overlay, then skip the game's proc so its
 					// camera/movement gets nothing. WM_INPUT must still reach
 					// DefWindowProc to release the raw input buffer.
@@ -272,7 +270,7 @@ namespace OSFUI::OverlayInputHook
 				}
 				break;
 			default:
-				if (IsLegacyMouseMessage(a_msg) && runtime.IsInputCaptured()) {
+				if (IsLegacyMouseMessage(a_msg) && captured) {
 					// Everything already routes from WM_INPUT; block any legacy
 					// duplicates from the game.
 					return 0;
@@ -300,11 +298,17 @@ namespace OSFUI::OverlayInputHook
 		}
 	}
 
-	bool Install()
+	bool Install(GameWindowInputHandlers a_handlers)
 	{
+		if (!a_handlers.IsComplete()) {
+			REX::ERROR("OverlayInputHook: incomplete game-window input handlers; input capture unavailable");
+			return false;
+		}
+
 		if (g_originalProc) {
 			return true;  // already installed (one-way)
 		}
+		g_handlers = a_handlers;
 
 		g_hwnd = FindGameWindow();
 		if (!g_hwnd) {

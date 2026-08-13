@@ -128,6 +128,8 @@ target("OSF UI")
         "src/composite/EngineD3D12.cpp",
         "src/composite/ScaleformOverlayHook.cpp",
         "src/input/ControlLayer.cpp",
+        "src/input/HardwareCursor.cpp",
+        "src/input/OverlayInputHook.cpp",
         "src/core/Log.cpp",
         "src/platform/WindowsPlatform.cpp",
         "src/runtime/DevViewFiles.cpp"
