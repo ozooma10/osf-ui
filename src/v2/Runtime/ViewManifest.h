@@ -23,7 +23,6 @@ namespace Runtime
         bool pausesGame{ true };
         bool openOnStart{ false };
         bool catalogVisible{ true };
-        bool debugOnly{ false };
 
         std::filesystem::path rootDirectory;
     };

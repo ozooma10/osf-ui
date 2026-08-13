@@ -8,7 +8,6 @@ namespace Runtime
 {
     struct DiscoveredViewStartupContext
     {
-        bool developerMode {false};
         std::optional<bool> playerOverride;
     };
 

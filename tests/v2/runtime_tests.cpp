@@ -445,8 +445,7 @@ namespace
 			R"({
 				"kind": "hud",
 				"openOnStart": true,
-				"hub": false,
-				"debugOnly": true
+				"hub": false
 			})");
 
 		const auto manifest = Runtime::LoadViewManifest(path);
@@ -454,7 +453,6 @@ namespace
 		assert(manifest->kind == Runtime::ViewKind::Hud);
 		assert(manifest->openOnStart);
 		assert(!manifest->catalogVisible);
-		assert(manifest->debugOnly);
 		assert(!manifest->capturesInput);
 		assert(!manifest->pausesGame);
 	}
@@ -465,7 +463,7 @@ namespace
 		menu.openOnStart = true;
 		assert(!Runtime::ShouldAutoStartDiscoveredView(
 			menu,
-			{ .developerMode = true, .playerOverride = true }));
+			{ .playerOverride = true }));
 
 		auto hud = Hud("author.mod/hud");
 		assert(!Runtime::ShouldAutoStartDiscoveredView(hud, {}));
@@ -484,16 +482,7 @@ namespace
 		hud.catalogVisible = false;
 		assert(!Runtime::ShouldAutoStartDiscoveredView(
 			hud,
-			{ .developerMode = true, .playerOverride = true }));
-
-		hud.catalogVisible = true;
-		hud.debugOnly = true;
-		assert(!Runtime::ShouldAutoStartDiscoveredView(
-			hud,
 			{ .playerOverride = true }));
-		assert(Runtime::ShouldAutoStartDiscoveredView(
-			hud,
-			{ .developerMode = true, .playerOverride = true }));
 	}
 
 	void TestViewDiscoveryContainsInvalidNeighbors()

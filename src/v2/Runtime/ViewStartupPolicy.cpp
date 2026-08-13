@@ -8,10 +8,6 @@ namespace Runtime
             return false;
         }
 
-        if (a_view.debugOnly && !a_context.developerMode) {
-            return false;
-        }
-
         return a_context.playerOverride.value_or(a_view.openOnStart);
     }
 }
