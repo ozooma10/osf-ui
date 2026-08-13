@@ -63,8 +63,7 @@ namespace Runtime
         }
 
         if (a_opening) {
-            // A lifecycle close is a barrier: discard stale opens queued before
-            // the transition and reserve the queue for the mandatory close.
+            // A lifecycle close is a barrier: discard stale opens queued before the transition and reserve the queue for the mandatory close.
             _pendingViewRequests.clear();
             _pendingViewRequests.push_back({.action = ViewRequestAction::CloseAll});
         }
