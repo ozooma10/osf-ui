@@ -18,6 +18,65 @@ namespace Runtime
         return report;
     }
 
+    bool RuntimeCoordinator::RequestOpenView(std::string a_viewId)
+    {
+        return QueueViewRequest(ViewRequestAction::Open, std::move(a_viewId));
+    }
+
+    bool RuntimeCoordinator::RequestCloseView(std::string a_viewId)
+    {
+        return QueueViewRequest(ViewRequestAction::Close, std::move(a_viewId));
+    }
+
+    bool RuntimeCoordinator::QueueViewRequest(ViewRequestAction a_action, std::string a_viewId)
+    {
+        if (a_viewId.empty()) {
+            return false;
+        }
+
+        std::scoped_lock lock{ _viewRequestsMutex };
+
+        if (_pendingViewRequests.size() >= kMaxPendingViewRequests) {
+            return false;
+        }
+
+        _pendingViewRequests.push_back({
+            .action = a_action,
+            .viewId = std::move(a_viewId)
+        });
+
+        return true;
+    }
+
+    std::vector<ViewRequest> RuntimeCoordinator::TakeViewRequests()
+    {
+        std::vector<ViewRequest> requests;
+
+        {
+            std::scoped_lock lock{ _viewRequestsMutex };
+            requests.swap(_pendingViewRequests);
+        }
+
+        return requests;
+    }
+
+    void RuntimeCoordinator::ApplyViewRequests()
+    {
+        for (const auto& request : TakeViewRequests()) {
+            const bool open = request.action == ViewRequestAction::Open;
+            const auto result = open
+                ? _views.OpenView(request.viewId)
+                : _views.CloseView(request.viewId);
+
+            if (result == ViewOperationResult::UnknownView) {
+                REX::WARN(
+                    "RuntimeCoordinator: ignored {} request for unknown view '{}'",
+                    open ? "open" : "close",
+                    request.viewId);
+            }
+        }
+    }
+
     void RuntimeCoordinator::NotifyDataLoaded() noexcept
     {
         _dataLoadPending.store(true, std::memory_order_release);
@@ -26,6 +85,7 @@ namespace Runtime
     void RuntimeCoordinator::Tick()
     {
         TickPapyrusRegistration();
+        ApplyViewRequests();
         DispatchPresentationCommands();
 
         if (_viewPresenter) {

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "v2/Runtime/RuntimeCoordinator.h"
@@ -507,6 +508,146 @@ namespace
 		assert(presenter.calls[1].viewId == "osfui/keybindings");
 	}
 
+	void TestCoordinatorDefersViewRequestsUntilTick()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+
+		assert(runtime.RequestOpenView("osfui/settings"));
+		assert(runtime.Views().Presentation().openViewIds.empty());
+		assert(presenter.calls.empty());
+
+		runtime.Tick();
+
+		const auto opened = runtime.Views().Presentation();
+		assert(opened.activeMenu == "osfui/settings");
+		assert((opened.openViewIds ==
+			std::vector<std::string>{ "osfui/settings" }));
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Show);
+		assert(presenter.calls[0].viewId == "osfui/settings");
+		assert(presenter.presentationCallCountsAtTick[0] == 1);
+
+		presenter.calls.clear();
+		assert(runtime.RequestCloseView("osfui/settings"));
+		assert(runtime.Views().Presentation().activeMenu == "osfui/settings");
+
+		runtime.Tick();
+
+		const auto closed = runtime.Views().Presentation();
+		assert(!closed.activeMenu);
+		assert(closed.openViewIds.empty());
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[0].viewId == "osfui/settings");
+	}
+
+	void TestCoordinatorAppliesViewRequestsInFifoOrder()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings"),
+			Menu("osfui/keybindings")
+		});
+
+		assert(runtime.RequestOpenView("osfui/settings"));
+		assert(runtime.RequestOpenView("osfui/keybindings"));
+		assert(runtime.RequestCloseView("osfui/keybindings"));
+
+		runtime.Tick();
+
+		assert(presenter.calls.size() == 4);
+		assert(presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Show);
+		assert(presenter.calls[0].viewId == "osfui/settings");
+		assert(presenter.calls[1].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[1].viewId == "osfui/settings");
+		assert(presenter.calls[2].action ==
+			Runtime::ViewPresentationAction::Show);
+		assert(presenter.calls[2].viewId == "osfui/keybindings");
+		assert(presenter.calls[3].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[3].viewId == "osfui/keybindings");
+		assert(runtime.Views().Presentation().openViewIds.empty());
+	}
+
+	void TestCoordinatorContainsInvalidViewRequests()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+
+		assert(!runtime.RequestOpenView(""));
+		assert(!runtime.RequestCloseView(""));
+		assert(runtime.RequestOpenView("author.mod/missing"));
+
+		runtime.Tick();
+
+		assert(runtime.Views().Presentation().openViewIds.empty());
+		assert(presenter.calls.empty());
+		assert(presenter.tickCalls == 1);
+	}
+
+	void TestCoordinatorBoundsConcurrentViewRequests()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+
+		constexpr std::size_t threadCount = 4;
+		constexpr std::size_t requestsPerThread = 64;
+		std::atomic_size_t accepted{ 0 };
+		std::vector<std::thread> threads;
+
+		for (std::size_t thread = 0; thread < threadCount; ++thread) {
+			threads.emplace_back([&] {
+				for (std::size_t request = 0; request < requestsPerThread; ++request) {
+					if (runtime.RequestOpenView("osfui/settings")) {
+						accepted.fetch_add(1, std::memory_order_relaxed);
+					}
+				}
+			});
+		}
+
+		for (auto& thread : threads) {
+			thread.join();
+		}
+
+		assert(accepted.load(std::memory_order_relaxed) == 256);
+		assert(!runtime.RequestOpenView("osfui/settings"));
+
+		runtime.Tick();
+
+		// Duplicate opens collapse in ViewRuntime, so the bounded batch produces
+		// exactly one presenter transition.
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Show);
+
+		// Draining releases the complete capacity for the following tick.
+		assert(runtime.RequestCloseView("osfui/settings"));
+		presenter.calls.clear();
+		runtime.Tick();
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Hide);
+	}
+
 	void TestCoordinatorClosesViewWhenPresentationFails()
 	{
 		RecordingViewPresenter presenter;
@@ -658,6 +799,10 @@ int main()
 	TestCoordinatorDispatchesPresentationAlongsideLifecycle();
 	TestCoordinatorTicksPresenterWithoutCommands();
 	TestCoordinatorDispatchesMenuReplacementInOrder();
+	TestCoordinatorDefersViewRequestsUntilTick();
+	TestCoordinatorAppliesViewRequestsInFifoOrder();
+	TestCoordinatorContainsInvalidViewRequests();
+	TestCoordinatorBoundsConcurrentViewRequests();
 	TestCoordinatorClosesViewWhenPresentationFails();
 	RunWebViewPresenterTests();
 
