@@ -79,6 +79,8 @@ target("osfui-v2-tests")
     add_cxflags("cl::/Zc:preprocessor", { force = true })
     add_files(
         "tests/v2/runtime_tests.cpp",
+        "tests/v2/web_view_presenter_tests.cpp",
+        "src/v2/Presentation/WebViewPresenter.cpp",
         "src/v2/Runtime/ViewManifest.cpp",
         "src/v2/Runtime/ViewDiscovery.cpp",
         "src/v2/Runtime/ViewCatalog.cpp",

@@ -13,6 +13,8 @@
 #include "v2/Runtime/ViewPresentationController.h"
 #include "v2/Runtime/ViewRuntime.h"
 
+#include "web_view_presenter_tests.h"
+
 namespace
 {
 	int g_papyrusCalls = 0;
@@ -657,6 +659,7 @@ int main()
 	TestCoordinatorTicksPresenterWithoutCommands();
 	TestCoordinatorDispatchesMenuReplacementInOrder();
 	TestCoordinatorClosesViewWhenPresentationFails();
+	RunWebViewPresenterTests();
 
 	std::cout << "v2 runtime tests passed\n";
 	return 0;
