@@ -21,10 +21,6 @@ namespace Runtime
 
     void RuntimeCoordinator::NotifyDataLoaded() noexcept
     {
-        if (_papyrusRegistered) {
-            return;
-        }
-
         _dataLoadPending.store(true, std::memory_order_release);
     }
 
