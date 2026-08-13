@@ -2,8 +2,8 @@
 
 namespace Runtime
 {
-    RuntimeCoordinator::RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter, ApplyInputCapture a_applyInputCapture) noexcept
-        : _registerPapyrus(a_registerPapyrus), _viewPresenter(a_viewPresenter), _applyInputCapture(a_applyInputCapture)
+    RuntimeCoordinator::RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter, ApplyInputCapture a_applyInputCapture, ApplyGamePause a_applyGamePause) noexcept
+        : _registerPapyrus(a_registerPapyrus), _viewPresenter(a_viewPresenter), _applyInputCapture(a_applyInputCapture), _applyGamePause(a_applyGamePause)
     {}
 
     ViewLoadReport RuntimeCoordinator::LoadViews(const std::filesystem::path& a_viewsDirectory)
@@ -167,6 +167,8 @@ namespace Runtime
             ApplyInputCapturePolicy();
         }
 
+        ApplyGamePausePolicy();
+
         if (_viewPresenter) {
             _viewPresenter->Tick();
         }
@@ -265,6 +267,15 @@ namespace Runtime
 
         if (shouldCapture) {
             _inputCaptured.store(true, std::memory_order_release);
+        }
+    }
+
+    void RuntimeCoordinator::ApplyGamePausePolicy()
+    {
+        const bool shouldPause = _viewPresenter != nullptr && _views.Presentation().pausesGame;
+
+        if (_applyGamePause) {
+            _applyGamePause(shouldPause);
         }
     }
 

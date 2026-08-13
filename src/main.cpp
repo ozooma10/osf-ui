@@ -2,6 +2,7 @@
 #include "composite/ScaleformOverlayHook.h"
 #include "input/ControlLayer.h"
 #include "input/OverlayInputHook.h"
+#include "input/SimPause.h"
 #include "render/WebView2HostWebRenderer.h"
 
 #include "v2/Events/Events.h"
@@ -49,9 +50,14 @@ namespace
         }
     }
 
+    void ApplyGamePause(bool a_paused)
+    {
+        OSFUI::SimPause::Apply(a_paused);
+    }
+
     Runtime::RuntimeCoordinator& ApplicationRuntime()
     {
-        static Runtime::RuntimeCoordinator runtime {&Papyrus::RegisterFunctions, &ApplicationPresenter(), &ApplyGameInputCapture};
+        static Runtime::RuntimeCoordinator runtime {&Papyrus::RegisterFunctions, &ApplicationPresenter(), &ApplyGameInputCapture, &ApplyGamePause};
 
         return runtime;
     }

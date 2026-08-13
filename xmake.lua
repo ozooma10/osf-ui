@@ -130,6 +130,7 @@ target("OSF UI")
         "src/input/ControlLayer.cpp",
         "src/input/HardwareCursor.cpp",
         "src/input/OverlayInputHook.cpp",
+        "src/input/SimPause.cpp",
         "src/core/Log.cpp",
         "src/platform/WindowsPlatform.cpp",
         "src/runtime/DevViewFiles.cpp"

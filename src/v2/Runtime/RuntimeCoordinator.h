@@ -28,8 +28,9 @@ namespace Runtime
     public:
         using RegisterPapyrus = bool (*)();
         using ApplyInputCapture = void (*)(bool);
+        using ApplyGamePause = void (*)(bool);
 
-        explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter = nullptr, ApplyInputCapture a_applyInputCapture = nullptr) noexcept;
+        explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter = nullptr, ApplyInputCapture a_applyInputCapture = nullptr, ApplyGamePause a_applyGamePause = nullptr) noexcept;
 
         ViewLoadReport LoadViews(const std::filesystem::path& a_viewsDirectory);
         void EnableInputRouting() noexcept;
@@ -65,6 +66,7 @@ namespace Runtime
         void ApplyFrameworkInputActions();
         void ReconcileInputFocus();
         void ApplyInputCapturePolicy();
+        void ApplyGamePausePolicy();
 
         ViewRuntime _views;
 
@@ -76,6 +78,7 @@ namespace Runtime
         RegisterPapyrus _registerPapyrus{ nullptr };
         IViewPresenter* _viewPresenter{ nullptr };
         ApplyInputCapture _applyInputCapture{ nullptr };
+        ApplyGamePause _applyGamePause{ nullptr };
 
         std::atomic_bool _dataLoadPending {false};
 

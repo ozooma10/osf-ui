@@ -25,6 +25,7 @@ namespace
 	int g_papyrusCalls = 0;
 	int g_papyrusFailuresRemaining = 0;
 	std::vector<bool> g_inputCaptureStates;
+	std::vector<bool> g_gamePauseStates;
 
 	bool RegisterPapyrusForTest()
 	{
@@ -47,6 +48,11 @@ namespace
 	void RecordInputCapture(bool a_captured)
 	{
 		g_inputCaptureStates.push_back(a_captured);
+	}
+
+	void RecordGamePause(bool a_paused)
+	{
+		g_gamePauseStates.push_back(a_paused);
 	}
 
 	bool InputCapturedForTest()
@@ -931,6 +937,76 @@ namespace
 			std::vector<bool>{ true, true, true, false }));
 	}
 
+	void TestCoordinatorAppliesGamePausePolicyEveryTick()
+	{
+		g_gamePauseStates.clear();
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			&presenter,
+			nullptr,
+			&RecordGamePause
+		};
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings", false, true),
+			Hud("author.mod/status")
+		});
+
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+		runtime.Tick();
+
+		// SimPause owns edge detection and startup retry, so the desired pause
+		// state must be supplied on every main-thread tick.
+		assert((g_gamePauseStates == std::vector<bool>{ true, true }));
+
+		runtime.Views().OpenView("author.mod/status");
+		runtime.Tick();
+		assert((g_gamePauseStates ==
+			std::vector<bool>{ true, true, true }));
+
+		runtime.Views().CloseView("osfui/settings");
+		runtime.Tick();
+		assert((g_gamePauseStates ==
+			std::vector<bool>{ true, true, true, false }));
+	}
+
+	void TestCoordinatorDoesNotPauseWithoutPresentedView()
+	{
+		g_gamePauseStates.clear();
+		RecordingViewPresenter presenter;
+		presenter.showSucceeds = false;
+		Runtime::RuntimeCoordinator failedPresentation{
+			nullptr,
+			&presenter,
+			nullptr,
+			&RecordGamePause
+		};
+
+		failedPresentation.Views().ReplaceViews({
+			Menu("osfui/settings", false, true)
+		});
+		failedPresentation.Views().OpenView("osfui/settings");
+		failedPresentation.Tick();
+		assert((g_gamePauseStates == std::vector<bool>{ false }));
+
+		g_gamePauseStates.clear();
+		Runtime::RuntimeCoordinator missingPresenter{
+			nullptr,
+			nullptr,
+			nullptr,
+			&RecordGamePause
+		};
+
+		missingPresenter.Views().ReplaceViews({
+			Menu("osfui/settings", false, true)
+		});
+		missingPresenter.Views().OpenView("osfui/settings");
+		missingPresenter.Tick();
+		assert((g_gamePauseStates == std::vector<bool>{ false }));
+	}
+
 	void TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement()
 	{
 		g_inputCaptureStates.clear();
@@ -1254,6 +1330,8 @@ int main()
 	TestCoordinatorClosesViewWhenPresentationFails();
 	TestCoordinatorReconcilesInputFocusAcrossMenuAndHudChanges();
 	TestCoordinatorAppliesInputCapturePolicyEveryTick();
+	TestCoordinatorAppliesGamePausePolicyEveryTick();
+	TestCoordinatorDoesNotPauseWithoutPresentedView();
 	TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement();
 	TestCoordinatorDoesNotCaptureFailedPresentation();
 	TestCoordinatorNeverCapturesWithoutPresenter();
