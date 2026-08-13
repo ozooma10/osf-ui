@@ -16,8 +16,8 @@
 
 namespace
 {
-	std::atomic_bool g_gameWindowInputInstallPending {false};
-	std::atomic_bool g_gameWindowInputRefreshPending {false};
+    std::atomic_bool g_gameWindowInputInstallPending {false};
+    std::atomic_bool g_gameWindowInputRefreshPending {false};
 
     std::filesystem::path PluginDataDirectory()
     {
@@ -33,9 +33,8 @@ namespace
 
     Presentation::WebViewPresenter& ApplicationPresenter()
     {
-        static Presentation::WebViewPresenter presenter {std::make_unique<OSFUI::WebView2HostWebRenderer>(), std::make_unique<OSFUI::D3D12Compositor>(), &OSFUI::ScaleformOverlayHook::DrawEnabled, &RouteFrameworkKey};
-
-        return presenter;
+        static auto* const presenter = new Presentation::WebViewPresenter {std::make_unique<OSFUI::WebView2HostWebRenderer>(), std::make_unique<OSFUI::D3D12Compositor>(), &OSFUI::ScaleformOverlayHook::DrawEnabled, &RouteFrameworkKey};
+        return *presenter;
     }
 
     void ApplyGameInputCapture(bool a_captured)
@@ -46,7 +45,7 @@ namespace
 
         if (previousCaptured != a_captured) {
             previousCaptured = a_captured;
-           	g_gameWindowInputRefreshPending.store(true, std::memory_order_release); 
+            g_gameWindowInputRefreshPending.store(true, std::memory_order_release);
         }
     }
 
@@ -160,14 +159,14 @@ namespace
                         };
                         const PendingReset reset {_tickPending};
 
-						if (g_gameWindowInputInstallPending.exchange(false, std::memory_order_acq_rel)) {
-							InstallGameWindowInputRouting();
-						}
+                        if (g_gameWindowInputInstallPending.exchange(false, std::memory_order_acq_rel)) {
+                            InstallGameWindowInputRouting();
+                        }
 
                         ApplicationRuntime().Tick();
-						if (g_gameWindowInputRefreshPending.exchange(false, std::memory_order_acq_rel)) {
-							OSFUI::OverlayInputHook::RequestStateRefresh();
-						}
+                        if (g_gameWindowInputRefreshPending.exchange(false, std::memory_order_acq_rel)) {
+                            OSFUI::OverlayInputHook::RequestStateRefresh();
+                        }
                     },
                     "OSF UI v2 runtime tick",
                     [this] { ClearPending(); }
@@ -226,7 +225,7 @@ namespace
             break;
         case SFSE::MessagingInterface::kPostPostDataLoad:
             REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-			g_gameWindowInputInstallPending.store(true, std::memory_order_release);
+            g_gameWindowInputInstallPending.store(true, std::memory_order_release);
             if (!Events::Register()) {
                 REX::ERROR("Plugin: menu event integration is unavailable");
             }
