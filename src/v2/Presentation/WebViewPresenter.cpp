@@ -77,7 +77,7 @@ namespace Presentation
             return;
         }
 
-        _compositor->SetSeamDrawMode(a_installed);
+        _compositor->SetScaleformOverlayEnabled(a_installed);
 
         if (!a_installed) {
             _compositor->SetVisible(false);

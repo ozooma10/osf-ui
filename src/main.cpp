@@ -1,4 +1,9 @@
+#include "composite/D3D12Compositor.h"
+#include "composite/ScaleformOverlayHook.h"
+#include "render/WebView2HostWebRenderer.h"
+
 #include "v2/Events/Events.h"
+#include "v2/Presentation/WebViewPresenter.h"
 #include "v2/Scripts/Papyrus.h"
 
 #include "v2/Runtime/ViewManifest.h"
@@ -10,14 +15,30 @@
 
 namespace
 {
+	std::filesystem::path PluginDataDirectory()
+	{
+		return std::filesystem::path{ REX::FModule::GetCurrentModule().GetFileName() }.parent_path() / L"OSFUI";
+	}
+
 	std::filesystem::path DefaultViewsDirectory()
 	{
-		return std::filesystem::path{ REX::FModule::GetCurrentModule().GetFileName() }.parent_path() / L"OSFUI" / L"Views";
+		return PluginDataDirectory() / L"Views";
+	}
+
+	Presentation::WebViewPresenter& ApplicationPresenter()
+	{
+		static Presentation::WebViewPresenter presenter{
+			std::make_unique<OSFUI::WebView2HostWebRenderer>(),
+			std::make_unique<OSFUI::D3D12Compositor>(),
+			&OSFUI::ScaleformOverlayHook::DrawEnabled
+		};
+
+		return presenter;
 	}
 
 	Runtime::RuntimeCoordinator& ApplicationRuntime()
 	{
-		static Runtime::RuntimeCoordinator runtime{&Papyrus::RegisterFunctions};
+		static Runtime::RuntimeCoordinator runtime{ &Papyrus::RegisterFunctions, &ApplicationPresenter() };
 
 		return runtime;
 	}
@@ -111,30 +132,16 @@ namespace
 		switch (a_msg->type) {
 			case SFSE::MessagingInterface::kPostLoad:
 				REX::INFO("Plugin: SFSE message kPostLoad");
-				// if (Runtime::Get().GetConfig().enabled) {
-				// 	Runtime::Get().InstallOverlayDrawPath();
-				// }
+				ApplicationPresenter().SetDrawPathInstalled(OSFUI::ScaleformOverlayHook::Install());
 				break;
 			case SFSE::MessagingInterface::kPostDataLoad:
 				REX::INFO("Plugin: SFSE message kPostDataLoad");
 
 				ApplicationRuntime().NotifyDataLoaded();
-
-				// GameVM and ControlMap exist from here, but this callback need not
-				// share the owning thread. The enabled runtime binds Papyrus and copies
-				// ControlMap on its next main-thread tick. With the runtime disabled
-				// there is no permanent tick, so queue the promised Papyrus-only setup
-				// directly through the same BSService main-thread queue.
-				// if (Runtime::Get().GetConfig().enabled) {
-				// 	Runtime::Get().OnDataLoaded();
-				// } else if (!TryQueueMainThread([] { API::Papyrus::Install(); })) {
-				// 	REX::ERROR("Plugin: could not queue disabled-runtime Papyrus binding on the main thread; "
-				// 		"OSFUI.* natives remain unavailable");
-				// }
 				break;
 			case SFSE::MessagingInterface::kPostPostDataLoad:
 				REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-				if(!Events::Register()) {
+				if (!Events::Register()) {
 					REX::ERROR("Plugin: menu event integration is unavailable");
 				}
 				break;
@@ -159,6 +166,11 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	}
 
 	try {
+		if (!ApplicationPresenter().Initialize(PluginDataDirectory())) {
+			REX::ERROR("Plugin: presentation initialization failed");
+			return false;
+		}
+
 		LoadInstalledViews();
 	} catch (const std::exception& error) {
 		REX::ERROR("Plugin: view initialization failed: {}", error.what());

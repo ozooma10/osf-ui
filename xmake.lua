@@ -117,7 +117,17 @@ target("OSF UI")
     add_syslinks("d3d12", "dxgi", "dxguid", "d3dcompiler", "shell32", "ole32")
 
     -- add src files
-    add_files("src/v2/**.cpp", "src/main.cpp")
+    add_files(
+        "src/v2/**.cpp",
+        "src/main.cpp",
+        "src/render/WebView2HostWebRenderer.cpp",
+        "src/render/Wv2SharedCompat.cpp",
+        "src/composite/D3D12Compositor.cpp",
+        "src/composite/EngineD3D12.cpp",
+        "src/composite/ScaleformOverlayHook.cpp",
+        "src/platform/WindowsPlatform.cpp",
+        "src/runtime/DevViewFiles.cpp"
+    )
     add_headerfiles("src/**.h")
     add_includedirs("src")
     add_includedirs("tools/webview2_shared")

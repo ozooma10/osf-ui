@@ -7,26 +7,27 @@ struct ID3D12Resource;
 
 namespace OSFUI
 {
-	// Seam-draw hook, defined in D3D12Compositor.cpp and called by UiPassSeam
+	// Scaleform-overlay hook, defined in D3D12Compositor.cpp and called by
+	// ScaleformOverlayHook
 	// from a render worker inside the engine's UI-buffer hand-off: records the
 	// overlay quad onto the ENGINE's own command list, into the engine's UI
 	// buffer. a_fgTarget identifies the FG UI-input hand-off. Returns
 	// true when a quad was recorded (the caller then restores the engine's
 	// descriptor-heap binding). False when the compositor is not set up,
-	// hidden, or has no ready GPU frame — the seam simply skips.
-	// a_regionFirst: first seam draw of this frame's End region — the ring
+	// hidden, or has no ready GPU frame — the hook simply skips.
+	// a_regionFirst: first overlay draw of this frame's End region — the ring
 	// serial is promoted only then, so both targets sample the same frame.
-	[[nodiscard]] bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+	[[nodiscard]] bool RecordScaleformOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 		bool a_fgTarget, bool a_regionFirst);
 
 	// Draws the renderer's frames into Starfield's own transparent Scaleform UI
 	// layer, on the game's own ID3D12Device (located via composite/EngineD3D12.h;
-	// we create no device). See docs/seam-draw-design.md.
+	// we create no device). See docs/scaleform-overlay-design.md.
 	//
 	// Threading:
 	//  - Submit() (SFSE tick thread) adopts newly announced shared rings and
 	//    records which slot the browser host published. No GPU work is submitted there.
-	//  - RecordSeamOverlayDraw (above) runs on an engine render worker and does
+	//  - RecordScaleformOverlayDraw (above) runs on an engine render worker and does
 	//    all GPU work onto the engine's own command list. It also observes the
 	//    UI target size and whether the frame graph exposes the Frame Generation
 	//    COPY_SOURCE hand-off.
@@ -48,11 +49,11 @@ namespace OSFUI
 		[[nodiscard]] bool IsOutputSizeKnown() const override;
 		// GPU transport (out-of-process browser host): adopt the shared ring;
 		// sharedSlot frames submitted afterwards are sampled directly at the
-		// engine seam (produce/consume fence synchronized, no CPU upload).
+		// Scaleform pass (produce/consume fence synchronized, no CPU upload).
 		void SetSharedRing(const SharedRingDesc& a_desc) override;
-		// Records that the engine seam is hooked and drawing. Reported in System
+		// Records that the Scaleform overlay hook is installed and drawing. Reported in System
 		// Health together with Frame Generation detection.
-		void SetSeamDrawMode(bool a_enabled) override;
+		void SetScaleformOverlayEnabled(bool a_enabled) override;
 		[[nodiscard]] CompositorStatus GetStatus() const override;
 
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }

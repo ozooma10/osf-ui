@@ -235,7 +235,7 @@ namespace OSFUI
 			{ "bridgeVersion", kBridgeProtocolVersion },
 			{ "renderer", runtime._renderer ? std::string(runtime._renderer->Name()) : "none" },
 			{ "compositor", runtime._compositor ? std::string(runtime._compositor->Name()) : "none" },
-			{ "drawPath", status.seamActive ? "ui-seam" : "unavailable" },
+			{ "drawPath", status.scaleformOverlayActive ? "scaleform-overlay" : "unavailable" },
 			{ "frameGeneration", status.frameGeneration },
 			{ "nativeFocus", runtime._renderer && runtime._renderer->UsesNativeKeyboardFocus() },
 			{ "locale", runtime._localization.Locale() },

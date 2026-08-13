@@ -51,7 +51,7 @@ report.** Choose accordingly:
 ## Prefixes and tags
 
 - Every line starts with its module: `Runtime:`, `SettingsStore:`, `BridgeApi:`, …
-  Composite code may use an established bracketed tag such as `[UiPassSeam]`.
+  Composite code may use an established bracketed tag such as `[ScaleformOverlayHook]`.
   Pick one existing style; don't invent hybrids.
 - **`[content]`** — placed after the module prefix — marks *third-party content
   errors*: a mod's manifest/schema/overlay/API call is wrong, OSF UI itself is
@@ -190,7 +190,7 @@ bounded and time-throttled.
 
 Boot: SFSE milestones, config summary, effective developer mode and activation source. Hooks:
 every vtable/trampoline hook armed or refused (address + slot). Renderer: browser-host
-launch, device/queue located, seam enabled. Views: loaded / finished loading /
+launch, device/queue located, Scaleform overlay enabled. Views: loaded / finished loading /
 recovered / reclaimed / destroyed. Teardown: shutdown reached. If a crash log's
 last line leaves you unable to say which of these were live, promote the missing
 transition.

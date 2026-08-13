@@ -154,9 +154,9 @@ namespace
 			lastRingGeneration = a_ring.generation;
 		}
 
-		void SetSeamDrawMode(bool a_enabled) override
+		void SetScaleformOverlayEnabled(bool a_enabled) override
 		{
-			seamDrawModes.push_back(a_enabled);
+			scaleformOverlayStates.push_back(a_enabled);
 		}
 
 		std::string_view Name() const override
@@ -177,7 +177,7 @@ namespace
 		std::vector<bool> visibleStates;
 		OutputResizeCallback resizeCallback;
 		std::uint64_t lastRingGeneration{ 0 };
-		std::vector<bool> seamDrawModes;
+		std::vector<bool> scaleformOverlayStates;
 
 	private:
 		std::vector<std::string>* _destructionLog;
@@ -254,7 +254,7 @@ namespace
 
 		assert(presenter.Initialize("test-data/OSFUI"));
 		presenter.SetDrawPathInstalled(true);
-		assert(compositorPtr->seamDrawModes == std::vector<bool>{ true });
+		assert(compositorPtr->scaleformOverlayStates == std::vector<bool>{ true });
 
 		const auto view = MenuView();
 		assert(!presenter.Show(view));

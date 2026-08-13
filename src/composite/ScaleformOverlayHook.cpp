@@ -1,9 +1,9 @@
-#include "composite/UiPassSeam.h"
+#include "composite/ScaleformOverlayHook.h"
 
-#include "composite/D3D12Compositor.h"  // RecordSeamOverlayDraw (real-overlay seam draw)
+#include "composite/D3D12Compositor.h"  // RecordScaleformOverlayDraw
 #include "composite/EngineD3D12.h"
-#include "composite/SeamTargetFormat.h"
-#include "composite/UiPassSeamPolicy.h"
+#include "composite/ScaleformOverlayHookPolicy.h"
+#include "composite/ScaleformTargetFormat.h"
 #include "core/Log.h"
 #include "platform/WindowsPlatform.h"
 
@@ -13,7 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace OSFUI::UiPassSeam
+namespace OSFUI::ScaleformOverlayHook
 {
 	namespace
 	{
@@ -36,7 +36,7 @@ namespace OSFUI::UiPassSeam
 		std::atomic<bool> g_installed{ false };
 		std::atomic<bool> g_installOk{ false };
 
-		// -------------------------------------------------- D3D12 seam hooks
+		// ---------------------------------------- D3D12 Scaleform-overlay hooks
 		// This is the known-good pre-b8e3643 implementation. It hooks only the
 		// hand-off barrier and descriptor heaps; root-signature/PSO interception
 		// is intentionally absent.
@@ -52,13 +52,13 @@ namespace OSFUI::UiPassSeam
 		std::atomic<SetDescriptorHeapsFn> g_origSetDescriptorHeaps{ nullptr };
 
 		// The last SetDescriptorHeaps the ENGINE issued on this thread's command
-		// list, so the seam draw can put it back after binding its own heap.
-		// "Engine" is load-bearing: see tl_inSeamDraw.
+		// list, so the overlay draw can put it back after binding its own heap.
+		// "Engine" is load-bearing: see tl_inScaleformDraw.
 		thread_local ID3D12GraphicsCommandList* tl_heapList = nullptr;
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
 
-		// True while RecordSeamOverlayDraw is recording our overlay onto the
+		// True while RecordScaleformOverlayDraw is recording our overlay onto the
 		// engine's list. The compositor binds its own SRV heap through the
 		// *virtual* ID3D12GraphicsCommandList::SetDescriptorHeaps, and that vtable
 		// is the one patched below — so without this flag the tracker above would
@@ -69,9 +69,9 @@ namespace OSFUI::UiPassSeam
 		// "restore" our 9-descriptor SRV heap onto the engine's list and drop its
 		// sampler heap, so the engine's next root-descriptor-table resolve reads
 		// our heap and any sampler table hits an unbound one.
-		thread_local bool tl_inSeamDraw = false;
+		thread_local bool tl_inScaleformDraw = false;
 		std::atomic<int> g_hookInstallState{ 0 };
-		// Gates RecordSeamDrawAtHandoff. Set from Install() and cleared by
+		// Gates RecordScaleformDrawAtHandoff. Set from Install() and cleared by
 		// EnsureDrawHooksInstalled on any failure path — declared up here (rather
 		// than beside its first reader) precisely so that lazy installer, which
 		// runs long after Install() returned true, can turn it back off.
@@ -79,7 +79,7 @@ namespace OSFUI::UiPassSeam
 
 		thread_local int tl_handoffDrawsLeft = 0;
 		thread_local int tl_callsAfterFirstDraw = -1;
-		void RecordSeamDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+		void RecordScaleformDrawAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			bool a_fgTarget, bool a_regionFirst);
 		ID3D12GraphicsCommandList* g_selfTestList = nullptr;
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
@@ -92,7 +92,7 @@ namespace OSFUI::UiPassSeam
 		{
 			if (a_self == g_selfTestList) {
 				g_selfTestHeapsSeen.store(true, std::memory_order_relaxed);
-			} else if (!tl_inSeamDraw) {
+			} else if (!tl_inScaleformDraw) {
 				tl_heapList = a_self;
 				tl_heapCount = a_num < 2u ? a_num : 2u;
 				for (UINT i = 0; i < tl_heapCount; ++i) {
@@ -126,7 +126,7 @@ namespace OSFUI::UiPassSeam
 						continue;
 					}
 					const auto desc = barrier.Transition.pResource->GetDesc();
-					if (SeamTargetFormat::ResolveRtv(desc.Format) == DXGI_FORMAT_UNKNOWN ||
+					if (ScaleformTargetFormat::ResolveRtv(desc.Format) == DXGI_FORMAT_UNKNOWN ||
 						desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
 						desc.SampleDesc.Count != 1 ||
 						desc.Width < 256 || desc.Height < 256) {
@@ -143,7 +143,7 @@ namespace OSFUI::UiPassSeam
 					if (tl_callsAfterFirstDraw < 0) {
 						tl_callsAfterFirstDraw = 0;
 					}
-					RecordSeamDrawAtHandoff(
+					RecordScaleformDrawAtHandoff(
 						a_self, barrier.Transition.pResource, fgTarget, regionFirst);
 				}
 			}
@@ -179,7 +179,7 @@ namespace OSFUI::UiPassSeam
 			const auto engine = LocateEngineD3D12();
 			if (!engine) {
 				g_drawEnabled.store(false, std::memory_order_release);
-				REX::ERROR("[UiPassSeam] draw hooks: engine D3D12 device not reachable; seam draw disabled");
+				REX::ERROR("[ScaleformOverlayHook] draw hooks: engine D3D12 device not reachable; overlay draw disabled");
 				return;
 			}
 
@@ -226,7 +226,7 @@ namespace OSFUI::UiPassSeam
 				if (patched && barrierOk && heapsOk) {
 					g_selfTestList = nullptr;
 					g_hookInstallState.store(1, std::memory_order_release);
-					REX::INFO("[UiPassSeam] seam draw hooks armed: "
+					REX::INFO("[ScaleformOverlayHook] overlay draw hooks armed: "
 							   "ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
 							   "(SetDescriptorHeaps) hooked and self-tested",
 						kSlotResourceBarrier, kSlotSetDescriptorHeaps);
@@ -250,19 +250,19 @@ namespace OSFUI::UiPassSeam
 					// as an "installed" flag — g_hookInstallState and
 					// g_drawEnabled do that.
 					g_selfTestList = nullptr;
-					// The log said "seam draw disabled" while leaving it enabled,
-					// so the compositor kept seam mode on with nothing able to
+					// The log said "overlay draw disabled" while leaving it enabled,
+					// so the compositor kept Scaleform-overlay mode on with nothing able to
 					// draw: an invisible overlay reported as healthy.
 					g_drawEnabled.store(false, std::memory_order_release);
-					REX::ERROR("[UiPassSeam] seam draw hook self-test FAILED "
+					REX::ERROR("[ScaleformOverlayHook] overlay draw hook self-test FAILED "
 							   "(patch b/h={}/{} seen b/h={}/{}); "
-							   "vtable restored, seam draw disabled",
+							   "vtable restored, overlay draw disabled",
 						patchedBarrier, patchedHeaps, barrierOk, heapsOk);
 				}
 				list->Close();
 			} else {
 				g_drawEnabled.store(false, std::memory_order_release);
-				REX::ERROR("[UiPassSeam] draw hooks: throwaway command list creation failed; seam draw disabled");
+				REX::ERROR("[ScaleformOverlayHook] draw hooks: throwaway command list creation failed; overlay draw disabled");
 			}
 
 			if (list) {
@@ -276,7 +276,7 @@ namespace OSFUI::UiPassSeam
 		}
 
 
-		void RecordSeamDrawAtHandoff(
+		void RecordScaleformDrawAtHandoff(
 			ID3D12GraphicsCommandList* a_list,
 			ID3D12Resource* a_buffer,
 			const bool a_fgTarget,
@@ -298,17 +298,17 @@ namespace OSFUI::UiPassSeam
 			// pair of assignments because every exit from the draw has to clear
 			// it — a stuck flag would make the tracker miss the engine's next
 			// real bind, which is the same corruption one step removed.
-			struct SeamDrawScope
+			struct ScaleformDrawScope
 			{
-				SeamDrawScope() { tl_inSeamDraw = true; }
-				~SeamDrawScope() { tl_inSeamDraw = false; }
+				ScaleformDrawScope() { tl_inScaleformDraw = true; }
+				~ScaleformDrawScope() { tl_inScaleformDraw = false; }
 			};
 			const bool drew = [&] {
-				const SeamDrawScope scope;
-				return RecordSeamOverlayDraw(a_list, a_buffer, a_fgTarget, a_regionFirst);
+				const ScaleformDrawScope scope;
+				return RecordScaleformOverlayDraw(a_list, a_buffer, a_fgTarget, a_regionFirst);
 			}();
 			if (!drew) {
-				// Every early-out in RecordSeamOverlayDraw precedes its
+				// Every early-out in RecordScaleformOverlayDraw precedes its
 				// SetDescriptorHeaps, so nothing was rebound and there is
 				// nothing to put back.
 				return;
@@ -365,7 +365,7 @@ namespace OSFUI::UiPassSeam
 
 			std::uintptr_t current = 0;
 			if (!Platform::SafeReadPointer(slotAddress, current)) {
-				REX::WARN("[UiPassSeam] {}: vtable slot at 0x{:X} unreadable; not hooking",
+				REX::WARN("[ScaleformOverlayHook] {}: vtable slot at 0x{:X} unreadable; not hooking",
 					a_label, slotAddress);
 				return 0;
 			}
@@ -373,26 +373,26 @@ namespace OSFUI::UiPassSeam
 				const auto owner = Platform::ModuleNameForAddress(
 					reinterpret_cast<const void*>(current));
 				if (!detail::CanChainForeignExecute(a_kind, owner)) {
-					REX::WARN("[UiPassSeam] {}: slot 7 holds 0x{:X} from '{}', expected "
+					REX::WARN("[ScaleformOverlayHook] {}: slot 7 holds 0x{:X} from '{}', expected "
 							  "0x{:X} (game patch or unsupported foreign hook); not hooking",
 						a_label, current, owner.empty() ? "unknown module" : owner,
 						expected.address());
 					return 0;
 				}
-				REX::INFO("[UiPassSeam] {}: chaining compatible hook from '{}' at 0x{:X}",
+				REX::INFO("[ScaleformOverlayHook] {}: chaining compatible hook from '{}' at 0x{:X}",
 					a_label, owner, current);
 			}
 
 			auto** slot = reinterpret_cast<void**>(slotAddress);
 			DWORD oldProtect = 0;
 			if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) {
-				REX::WARN("[UiPassSeam] {}: VirtualProtect failed; not hooking", a_label);
+				REX::WARN("[ScaleformOverlayHook] {}: VirtualProtect failed; not hooking", a_label);
 				return 0;
 			}
 			a_orig.store(current, std::memory_order_release);
 			*slot = reinterpret_cast<void*>(a_thunk);
 			::VirtualProtect(slot, sizeof(void*), oldProtect, &oldProtect);
-			REX::INFO("[UiPassSeam] hooked {} slot 7 "
+			REX::INFO("[ScaleformOverlayHook] hooked {} slot 7 "
 					   "(vtbl 0x{:X}, original 0x{:X})",
 				a_label, vtbl.address(), current);
 			return current;
@@ -412,7 +412,7 @@ namespace OSFUI::UiPassSeam
 			std::uintptr_t current = 0;
 			if (!Platform::SafeReadPointer(slotAddress, current) ||
 				current != reinterpret_cast<std::uintptr_t>(a_thunk)) {
-				REX::ERROR("[UiPassSeam] {}: incomplete hook rollback could not verify slot 7; "
+				REX::ERROR("[ScaleformOverlayHook] {}: incomplete hook rollback could not verify slot 7; "
 						   "leaving the current owner untouched",
 					a_label);
 				return;
@@ -420,16 +420,16 @@ namespace OSFUI::UiPassSeam
 			auto** slot = reinterpret_cast<void**>(slotAddress);
 			DWORD oldProtect = 0;
 			if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) {
-				REX::ERROR("[UiPassSeam] {}: incomplete hook rollback could not make slot 7 writable",
+				REX::ERROR("[ScaleformOverlayHook] {}: incomplete hook rollback could not make slot 7 writable",
 					a_label);
 				return;
 			}
 			*slot = reinterpret_cast<void*>(a_original);
 			DWORD ignored = 0;
 			if (!::VirtualProtect(slot, sizeof(void*), oldProtect, &ignored)) {
-				REX::WARN("[UiPassSeam] {}: slot 7 restored but its page protection was not", a_label);
+				REX::WARN("[ScaleformOverlayHook] {}: slot 7 restored but its page protection was not", a_label);
 			}
-			REX::INFO("[UiPassSeam] restored {} slot 7 after incomplete hook installation", a_label);
+			REX::INFO("[ScaleformOverlayHook] restored {} slot 7 after incomplete hook installation", a_label);
 		}
 	}
 
@@ -463,10 +463,10 @@ namespace OSFUI::UiPassSeam
 			RestoreExecuteSlot("ScaleformEnd", kVtblScaleformEnd, origEnd, &EndThunk);
 			RestoreExecuteSlot("ScaleformComposite", kVtblScaleformComposite,
 				origComposite, &CompositeThunk);
-			REX::ERROR("[UiPassSeam] hook set incomplete — the overlay has no draw path this "
+			REX::ERROR("[ScaleformOverlayHook] hook set incomplete — the overlay has no draw path this "
 					   "session. See the per-hook lines above for which slot declined.");
 		} else {
-			REX::INFO("[UiPassSeam] seam draw enabled: overlay records into "
+			REX::INFO("[ScaleformOverlayHook] overlay draw enabled: records into "
 					   "Starfield's transparent UI layer at the ScaleformEnd hand-off");
 		}
 		return ok;

@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- The rebuilt v2 runtime now owns and initializes the production WebView2 renderer and D3D12 compositor, then installs its Scaleform overlay hook after peer SFSE plugins have loaded. The prior checkpoint could discover and schedule views but had no live presentation backend, so no view could reach the screen.
 - View discovery now contains filesystem inspection and enumeration failures to the affected path, records an actionable issue, and continues loading unrelated valid views instead of allowing a directory error to unwind through plugin startup.
 - The complete discovered-view inventory is reachable again from OSF UI's own Mod Settings detail. It no longer depends on the retired Diagnostics settings group, so authors can inspect catalog-hidden and uninstantiated views against the current Interface settings schema.
 - Settings sliders now update their readout while dragging but commit only when the drag ends, and text and colour fields commit on their native change boundary instead of on every keystroke. Preact's compatibility transform had collapsed the deliberately separate `input` and `change` handlers onto the same event, causing slider write spam and inconsistent text-field commits.
@@ -31,7 +32,7 @@
 - First-party dropdowns now stay inside their OSF UI view and remain selectable. The Keybindings filter and long Mod Settings enum controls no longer open WebView2's separate native picker window, which could extend beyond the game window and lose clicks when Chromium focus crossed OSF UI's mouse-capture boundary. Menus widen for long values and shift back inside the viewport instead of clipping labels to the trigger width.
 - Two views making requests at the same time could receive each other's replies. Documents number their own requests from a per-document counter, so every document's first request is `q1`; the OSF UI runtime keyed deferred requests by that id alone, so a second view's request displaced the first, one document's promise settled with another's data, and the displaced request hung until its timeout. Deferrals are now tracked by an OSF UI runtime-minted token and the document's id is only echoed back on the wire.
 - A request handler that rejects a request, or misses its deadline, no longer counts against the calling view's protocol-fault budget — an ordinary application error could accumulate into a System Health warning naming a view that had done nothing wrong.
-- Menu opens are refused when the overlay cannot actually draw, not just when its install-time hooks failed. The seam's command-list hooks are taken lazily on the first frame and can fail then, which previously still admitted an invisible overlay that captured input.
+- Menu opens are refused when the overlay cannot actually draw, not just when its install-time hooks failed. The Scaleform overlay's command-list hooks are taken lazily on the first frame and can fail then, which previously still admitted an invisible overlay that captured input.
 - Mod Settings no longer keeps displaying a value the store refused: a rejected write is rolled back locally. A refusal never touches the store, so nothing was coming to correct the display.
 - Rebinding a key repeatedly no longer leaks one `settings.captured` subscription per attempt.
 - Retained mod state is capped by mod as well as by key, so the per-key cap actually bounds the store.
@@ -43,7 +44,7 @@
 
 - Removed the unfinished in-world browser-surface experiment and its dormant configuration/build switches. It required assets that never shipped, was disabled in every release, and had accumulated OSF UI runtime and packaging branches around an unsupported feature.
 - Production rendering now uses the WebView2 web renderer and D3D12 compositor exclusively. Removed diagnostic null-renderer/null-compositor configuration and build switches that could produce an apparently successful plugin with no way to render.
-- Removed the developer-only Web Performance Lab and the live render-stat overlay. System Health still reports whether the UI seam is active and whether Frame Generation is detected, without maintaining per-frame counters, sampling IPC, or injected page UI.
+- Removed the developer-only Web Performance Lab and the live render-stat overlay. System Health still reports whether the Scaleform overlay is active and whether Frame Generation is detected, using the clear `scaleform-overlay` draw-path label without maintaining per-frame counters, sampling IPC, or injected page UI.
 - Removed diagnostic uploads and the post-crash reporting prompt. System Health remains local and still supports copying its diagnostic report and issue details, opening logs, retrying views, and following update or troubleshooting links.
 
 ### For view authors
@@ -83,7 +84,7 @@
 - Unexpected browser-host and OSF UI runtime exceptions are contained, and an incomplete Scaleform hook set is rolled back instead of leaving half of the draw protocol installed.
 - Live key rebinding, virtual-cursor input, settings and hotkey unsubscription, settings persistence retries, and content-folder scans are hardened against cross-thread or filesystem failures that could previously lose a write, invoke released plugin state, or terminate the UI.
 - Reveal handshakes now drain pre-reveal captures while atomically changing presentation epochs and use a fresh token for every open, so a queued transparent frame or a copied old sentinel cannot reveal the overlay.
-- System Health no longer describes the retired Present-hook fallback; a missing UI seam is reported as unavailable instead.
+- System Health no longer describes the retired Present-hook fallback; a missing Scaleform overlay path is reported as unavailable instead.
 
 ### Other changes
 

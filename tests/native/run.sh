@@ -81,7 +81,7 @@ SUITES=(
 "view_presentation_controller_tests view_presentation_controller_tests.cpp ../../src/runtime/ViewPresentationController.cpp"
 "wndproc_chain_tests wndproc_chain_tests.cpp"
 "papyrus_call_tests papyrus_call_tests.cpp"
-"ui_pass_seam_policy_tests ui_pass_seam_policy_tests.cpp"
+"scaleform_overlay_hook_policy_tests scaleform_overlay_hook_policy_tests.cpp"
 )
 
 # Deterministic object path for a source (flatten dir separators into the name).

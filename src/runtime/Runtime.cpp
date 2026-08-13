@@ -9,7 +9,7 @@
 #include "api/PapyrusApi.h"
 #include "compat/v1/Papyrus.h"
 #include "composite/D3D12Compositor.h"
-#include "composite/UiPassSeam.h"
+#include "composite/ScaleformOverlayHook.h"
 #include "core/Log.h"
 #include "core/Version.h"
 #include "input/ControlLayer.h"
@@ -317,13 +317,13 @@ namespace OSFUI
 		if (!_config.enabled || !_compositor) {
 			return false;
 		}
-		const bool installed = UiPassSeam::Install();
+		const bool installed = ScaleformOverlayHook::Install();
 		_overlayDrawAvailable.store(installed, std::memory_order_release);
-		_compositor->SetSeamDrawMode(installed);
+		_compositor->SetScaleformOverlayEnabled(installed);
 		if (!installed) {
-			REX::ERROR("Runtime: the Scaleform UI seam could not be hooked — menu opens will be "
+			REX::ERROR("Runtime: the Scaleform overlay hook could not be installed — menu opens will be "
 					   "refused this session so OSF UI cannot capture input without a draw path. "
-					   "See the [UiPassSeam] lines above.");
+					   "See the [ScaleformOverlayHook] lines above.");
 		}
 		return installed;
 	}
@@ -796,14 +796,14 @@ namespace OSFUI
 
 	bool Runtime::OverlayCanDraw() const
 	{
-		return _overlayDrawAvailable.load(std::memory_order_acquire) && UiPassSeam::DrawEnabled();
+		return _overlayDrawAvailable.load(std::memory_order_acquire) && ScaleformOverlayHook::DrawEnabled();
 	}
 
 	bool Runtime::BeginViewOpen(std::string_view a_id)
 	{
 		// Both halves: Install() only proves the vtable hooks were taken, while
 		// the command-list hooks are self-tested lazily on a render worker and
-		// can disable the seam afterwards. Gating on the install alone admits an
+		// can disable the overlay hook afterwards. Gating on the install alone admits an
 		// invisible overlay that still holds focus and input.
 		if (!OverlayCanDraw()) {
 			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable",
@@ -3035,7 +3035,7 @@ namespace OSFUI
 			}
 			if (frame->frameIndex != _lastSubmittedFrame) {
 				_lastSubmittedFrame = frame->frameIndex;
-				_compositor->Submit(*frame);  // also starts lazy seam setup
+				_compositor->Submit(*frame);  // also starts lazy Scaleform-overlay setup
 				_revealFrameReady = true;
 			}
 			// Hold reasons, checked in order; the reveal completes only when none
@@ -3050,7 +3050,7 @@ namespace OSFUI
 				// presentable, so keep the compositor hidden.
 				holding = true;
 			} else if (!_compositor->IsOutputSizeKnown()) {
-				// The UI seam has not observed the output size yet. Keep the first
+				// The Scaleform overlay hook has not observed the output size yet. Keep the first
 				// manifest-sized texture hidden while that callback arrives.
 				holding = true;
 			} else if (frame->width != _viewWidth.load() ||

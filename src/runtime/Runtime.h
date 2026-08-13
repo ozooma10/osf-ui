@@ -37,7 +37,7 @@ namespace OSFUI
 		[[nodiscard]] static Runtime& Get();
 
 		bool Initialize();
-		// Install the render-pass seam after SFSE has loaded every peer plugin.
+		// Install the Scaleform overlay hook after SFSE has loaded every peer plugin.
 		// Luma must patch the vanilla ScaleformComposite implementation before
 		// OSF UI chains it; calling this during our own Plugin_Load is too early.
 		bool InstallOverlayDrawPath();
@@ -463,7 +463,7 @@ namespace OSFUI
 		std::atomic<ScanCode>         _captureUpScan{ kInvalidScanCode };
 
 		// Can the overlay actually reach the screen? `_overlayDrawAvailable` is
-		// only the install-time half (the Scaleform vtable hooks); the seam's
+		// only the install-time half (the Scaleform vtable hooks); the hook's
 		// command-list hooks are taken lazily on a render worker and their
 		// self-test can disable drawing long afterwards. Every "may this open"
 		// gate must ask both, or it admits an invisible overlay that still
@@ -477,13 +477,13 @@ namespace OSFUI
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
 
-		// Deferred compositor reveal (main thread only). The UI-seam hook
+		// Deferred compositor reveal (main thread only). The Scaleform overlay hook
 		// compositor keeps drawing its last cached texture while visible, so on
 		// the closed->open edge ApplyViewPresentationPolicy arms this instead of calling
 		// SetVisible(true): SubmitFrameIfVisible holds the reveal until the
 		// renderer hands over a frame with a new serial — one produced after the
 		// open, i.e. after every queued message was delivered (ABI 1.3
-		// message-before-first-paint). D3D12 additionally waits until the UI seam
+		// message-before-first-paint). D3D12 additionally waits until the Scaleform hook
 		// has reported the output size and the renderer has painted at that size.
 		// Normally costs only a couple of frames. A deadline closes the menu and
 		// releases its pause/input policy if the renderer never produces a frame

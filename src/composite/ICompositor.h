@@ -7,7 +7,7 @@ namespace OSFUI
 	// Small, local-only status snapshot used by System Health.
 	struct CompositorStatus
 	{
-		bool seamActive{ false };
+		bool scaleformOverlayActive{ false };
 		bool frameGeneration{ false };
 	};
 
@@ -20,9 +20,9 @@ namespace OSFUI
 		virtual bool Initialize() = 0;
 		virtual void Submit(const FrameBufferView& a_frame) = 0;
 
-		// Overlay visibility. The seam redraws the last frame independently of
+		// Overlay visibility. The Scaleform hook redraws the last frame independently of
 		// Submit(), so it needs an explicit hide signal. Hiding only stops
-		// new frames; the render seam can still reuse the previous one.
+		// new frames; the render hook can still reuse the previous one.
 		// Default no-op for compositors that draw nothing.
 		virtual void SetVisible(bool /*a_visible*/) {}
 
@@ -34,7 +34,7 @@ namespace OSFUI
 		virtual void SetOutputResizeCallback(OutputResizeCallback /*a_callback*/) {}
 
 		// Default true: most compositors need no asynchronously discovered output
-		// size. One that does returns false until the UI seam has observed
+		// size. One that does returns false until the Scaleform hook has observed
 		// the real target, holding a deferred reveal off a manifest-sized frame.
 		[[nodiscard]] virtual bool IsOutputSizeKnown() const { return true; }
 
@@ -44,10 +44,10 @@ namespace OSFUI
 		// Default no-op for compositors that draw nothing.
 		virtual void SetSharedRing(const SharedRingDesc& /*a_desc*/) {}
 
-		// Seam-draw mode records into the engine's own UI render pass, which
+		// Scaleform-overlay mode records into the engine's own UI render pass, which
 		// makes it ride Frame Generation's UI handling.
-		// Default no-op for compositors without a seam path.
-		virtual void SetSeamDrawMode(bool /*a_enabled*/) {}
+		// Default no-op for compositors without a Scaleform-overlay path.
+		virtual void SetScaleformOverlayEnabled(bool /*a_enabled*/) {}
 
 		[[nodiscard]] virtual CompositorStatus GetStatus() const { return {}; }
 
