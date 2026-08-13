@@ -5,6 +5,7 @@
 #include "v2/Runtime/ViewDiscovery.h"
 #include "v2/Runtime/ViewCatalog.h"
 #include "v2/Runtime/RuntimeCoordinator.h"
+#include "v2/Platform/NativeMainThreadQueue.h"
 
 
 namespace
@@ -36,6 +37,72 @@ namespace
 		REX::INFO("View discovery completed: {} valid, {} invalid", report.loaded, report.issues.size());
 	}
 
+	class RuntimeTickTask final : public SFSE::ITaskDelegate
+	{
+	public:
+		void Run() override
+		{
+			// AddPermanentTask may run on rotating worker threads. At most one native-main-thread tick may be queued or executing.
+			if (_tickPending.exchange(true, std::memory_order_acq_rel)) {
+				return;
+			}
+
+			try {
+				const auto result = Platform::NativeMainThreadQueue::Post(
+					[this] {
+						struct PendingReset
+						{
+							std::atomic_bool& pending;
+
+							~PendingReset()
+							{
+								pending.store(false, std::memory_order_release);
+							}
+						};
+
+						const PendingReset reset{ _tickPending };
+						ApplicationRuntime().Tick();
+					},
+					"OSF UI v2 runtime tick",
+					[this] {
+						ClearPending();
+					});
+
+				if (result == Platform::NativeMainThreadQueue::PostResult::Unavailable) {
+					// The native queue may not be available during early boot. Let the next permanent-task frame retry.
+					ClearPending();
+				}
+
+				_postFailureLogged.store( false, std::memory_order_release);
+			} catch (const std::exception& error) {
+				ClearPending();
+
+				if (!_postFailureLogged.exchange(true, std::memory_order_acq_rel)) {
+					REX::ERROR("RuntimeTick: failed to post main-thread work: {}", error.what());
+				}
+			} catch (...) {
+				ClearPending();
+
+				if (!_postFailureLogged.exchange( true, std::memory_order_acq_rel)) {
+					REX::ERROR("RuntimeTick: failed to post main-thread work with an unknown exception");
+				}
+			}
+		}
+
+		void Destroy() override
+		{
+			// Permanent task with process lifetime.
+		}
+	private:
+		void ClearPending()
+		{
+			_tickPending.store(false, std::memory_order_release);
+		}
+
+		std::atomic_bool _tickPending{ false };
+		std::atomic_bool _postFailureLogged{ false };
+	};
+
 	void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
 	{
 		if (!a_msg) {
@@ -51,9 +118,7 @@ namespace
 			case SFSE::MessagingInterface::kPostDataLoad:
 				REX::INFO("Plugin: SFSE message kPostDataLoad");
 
-				if(!Papyrus::RegisterFunctions()) {
-					REX::ERROR("Plugin: Papyrus natives are unavailable");
-				}
+				ApplicationRuntime().NotifyDataLoaded();
 
 				// GameVM and ControlMap exist from here, but this callback need not
 				// share the owning thread. The enabled runtime binds Papyrus and copies
@@ -81,9 +146,37 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 {
 	SFSE::Init(a_sfse, { .trampoline = true, .trampolineSize = 1024 });
 
-	LoadInstalledViews();
+	const auto* messaging = SFSE::GetMessagingInterface();
+	if (!messaging) {
+		REX::ERROR( "Plugin: SFSE MessagingInterface is unavailable");
+		return false;
+	}
 
-	SFSE::GetMessagingInterface()->RegisterListener(OnSFSEMessage);
+	const auto* tasks = SFSE::GetTaskInterface();
+	if (!tasks || tasks->Version() < SFSE::TaskInterface::kVersion) {
+		REX::ERROR("Plugin: compatible SFSE TaskInterface is unavailable");
+		return false;
+	}
+
+	try {
+		LoadInstalledViews();
+	} catch (const std::exception& error) {
+		REX::ERROR("Plugin: view initialization failed: {}", error.what());
+		return false;
+	} catch (...) {
+		REX::ERROR("Plugin: view initialization failed with an unknown exception");
+		return false;
+	}
+
+	if (!messaging->RegisterListener(OnSFSEMessage)) {
+		REX::ERROR("Plugin: failed to register the SFSE message listener");
+		return false;
+	}
+
+	static RuntimeTickTask runtimeTick;
+	tasks->AddPermanentTask(&runtimeTick);
+
+	REX::INFO("Plugin: v2 runtime tick registered through SFSE TaskInterface v{}", tasks->Version());
+
 	return true;
-	// return OSFUI::Plugin::OnLoad();
 }
