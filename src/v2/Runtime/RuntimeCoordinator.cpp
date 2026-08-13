@@ -48,6 +48,52 @@ namespace Runtime
         return QueueViewRequest(ViewRequestAction::Close, std::move(a_viewId));
     }
 
+    bool RuntimeCoordinator::IsInputCaptured() const noexcept
+    {
+        return _inputCaptured.load(std::memory_order_acquire);
+    }
+
+    bool RuntimeCoordinator::RouteKeyEvent(std::uint32_t a_virtualKey, bool a_down) noexcept
+    {
+        if (!IsInputCaptured() || !_viewPresenter) {
+            return false;
+        }
+
+        constexpr std::uint32_t kEscapeVirtualKey = 0x1B;
+
+        if (a_virtualKey == kEscapeVirtualKey) {
+            if (a_down) {
+                _escapeClosePending.store(true, std::memory_order_release);
+            }
+
+            return true;
+        }
+
+        _viewPresenter->SendKeyEvent(a_virtualKey, a_down);
+        return true;
+    }
+
+    void RuntimeCoordinator::RouteMousePosition(int a_clientX, int a_clientY, int a_clientWidth, int a_clientHeight) noexcept
+    {
+        if (IsInputCaptured() && _viewPresenter) {
+            _viewPresenter->UpdateMousePosition(a_clientX, a_clientY, a_clientWidth, a_clientHeight);
+        }
+    }
+
+    void RuntimeCoordinator::RouteMouseButtonEvent(int a_button, bool a_down) noexcept
+    {
+        if (IsInputCaptured() && _viewPresenter) {
+            _viewPresenter->SendMouseButtonEvent(a_button, a_down);
+        }
+    }
+
+    void RuntimeCoordinator::RouteMouseWheelEvent(int a_wheelDelta) noexcept
+    {
+        if (IsInputCaptured() && _viewPresenter) {
+            _viewPresenter->SendMouseWheelEvent(a_wheelDelta);
+        }
+    }
+
     bool RuntimeCoordinator::QueueViewRequest(ViewRequestAction a_action, std::string a_viewId)
     {
         if (a_viewId.empty()) {
@@ -120,6 +166,7 @@ namespace Runtime
     {
         TickPapyrusRegistration();
         ApplyViewRequests();
+        ApplyFrameworkInputActions();
         DispatchPresentationCommands();
         ReconcileInputFocus();
         ApplyInputCapturePolicy();
@@ -179,6 +226,13 @@ namespace Runtime
         }
     }
 
+    void RuntimeCoordinator::ApplyFrameworkInputActions()
+    {
+        if (_escapeClosePending.exchange(false, std::memory_order_acq_rel)) {
+            _views.CloseActiveMenu();
+        }
+    }
+
     void RuntimeCoordinator::ReconcileInputFocus()
     {
         if (!_viewPresenter) {
@@ -197,14 +251,22 @@ namespace Runtime
 
     void RuntimeCoordinator::ApplyInputCapturePolicy()
     {
-        if (!_applyInputCapture) {
-            return;
+        const bool shouldCapture = _viewPresenter && _views.Presentation().capturesInput;
+
+        // Revoke routing before returning controls to the game. On acquisition, publish routing only after the game-side capture policy is applied.
+        if (!shouldCapture) {
+            _inputCaptured.store(false, std::memory_order_release);
         }
 
-        const bool shouldCapture = _viewPresenter && _views.Presentation().capturesInput;
-        _applyInputCapture(shouldCapture);
-    }
+        if (_applyInputCapture) {
+            _applyInputCapture(shouldCapture);
+        }
 
+        if (shouldCapture) {
+            _inputCaptured.store(true, std::memory_order_release);
+        }
+    }
+    
     ViewRuntime& RuntimeCoordinator::Views() noexcept
     {
         return _views;

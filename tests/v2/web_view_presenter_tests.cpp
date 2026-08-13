@@ -16,6 +16,21 @@ namespace
 		return g_drawAvailable;
 	}
 
+	struct MouseButtonEvent
+	{
+		int x;
+		int y;
+		int button;
+		bool down;
+	};
+
+	struct MouseWheelEvent
+	{
+		int x;
+		int y;
+		int wheelDelta;
+	};
+
 	class FakeWebRenderer final : public OSFUI::IWebRenderer
 	{
 	public:
@@ -78,6 +93,35 @@ namespace
 			nativeFocusStates.push_back(a_focused);
 		}
 
+		void InjectKeyEvent(std::uint32_t a_virtualKey, bool a_down) override
+		{
+			keyEvents.emplace_back(a_virtualKey, a_down);
+		}
+
+		void InjectMouseMove(int a_x, int a_y) override
+		{
+			mouseMoves.emplace_back(a_x, a_y);
+		}
+
+		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down) override
+		{
+			mouseButtons.push_back({
+				.x = a_x,
+				.y = a_y,
+				.button = a_button,
+				.down = a_down
+			});
+		}
+
+		void InjectPhysicalMouseWheel(int a_x, int a_y, int a_wheelDelta) override
+		{
+			physicalMouseWheels.push_back({
+				.x = a_x,
+				.y = a_y,
+				.wheelDelta = a_wheelDelta
+			});
+		}
+
 		void SetViewHidden(std::string_view a_viewId, bool a_hidden) override
 		{
 			hiddenChanges.emplace_back(std::string{ a_viewId }, a_hidden);
@@ -105,6 +149,10 @@ namespace
 		std::optional<OSFUI::FrameBufferView> frame;
 		SharedRingHandler ringHandler;
 		std::vector<bool> nativeFocusStates;
+		std::vector<std::pair<std::uint32_t, bool>> keyEvents;
+		std::vector<std::pair<int, int>> mouseMoves;
+		std::vector<MouseButtonEvent> mouseButtons;
+		std::vector<MouseWheelEvent> physicalMouseWheels;
 		std::vector<std::pair<std::string, bool>> hiddenChanges;
 
 	private:
@@ -342,6 +390,80 @@ namespace
 		assert(!compositorPtr->visibleStates.back());
 	}
 
+	void TestPresenterConvertsAndCoalescesMouseInput()
+	{
+		g_drawAvailable = true;
+
+		auto renderer = std::make_unique<FakeWebRenderer>();
+		auto compositor = std::make_unique<FakeCompositor>();
+		auto* rendererPtr = renderer.get();
+		auto* compositorPtr = compositor.get();
+
+		Presentation::WebViewPresenter presenter{
+			std::move(renderer),
+			std::move(compositor),
+			&DrawAvailableForTest
+		};
+
+		assert(presenter.Initialize("test-data/OSFUI"));
+		presenter.SetDrawPathInstalled(true);
+		assert(presenter.Show(MenuView()));
+		presenter.SetInputFocus(true);
+		compositorPtr->EmitResize(1280, 720);
+
+		presenter.SendKeyEvent(0x41, true);
+		assert((rendererPtr->keyEvents ==
+			std::vector<std::pair<std::uint32_t, bool>>{
+				{ 0x41, true }
+			}));
+
+		presenter.UpdateMousePosition(960, 540, 1920, 1080);
+		assert(rendererPtr->mouseMoves.empty());
+		presenter.Tick();
+		assert((rendererPtr->mouseMoves ==
+			std::vector<std::pair<int, int>>{
+				{ 640, 360 }
+			}));
+
+		presenter.UpdateMousePosition(-100, -100, 1920, 1080);
+		presenter.Tick();
+		assert(rendererPtr->mouseMoves.back() ==
+			(std::pair<int, int>{ 0, 0 }));
+
+		presenter.UpdateMousePosition(100, 100, 1920, 1080);
+		presenter.UpdateMousePosition(3000, 2000, 1920, 1080);
+		presenter.Tick();
+		assert(rendererPtr->mouseMoves.size() == 3);
+		assert(rendererPtr->mouseMoves.back() ==
+			(std::pair<int, int>{ 1279, 719 }));
+
+		presenter.SendMouseButtonEvent(0, true);
+		presenter.SendMouseWheelEvent(120);
+
+		assert(rendererPtr->mouseButtons.size() == 1);
+		assert(rendererPtr->mouseButtons[0].x == 1279);
+		assert(rendererPtr->mouseButtons[0].y == 719);
+		assert(rendererPtr->mouseButtons[0].button == 0);
+		assert(rendererPtr->mouseButtons[0].down);
+
+		assert(rendererPtr->physicalMouseWheels.size() == 1);
+		assert(rendererPtr->physicalMouseWheels[0].x == 1279);
+		assert(rendererPtr->physicalMouseWheels[0].y == 719);
+		assert(rendererPtr->physicalMouseWheels[0].wheelDelta == 120);
+
+		presenter.SetInputFocus(false);
+		presenter.SendKeyEvent(0x42, true);
+		presenter.UpdateMousePosition(100, 100, 1920, 1080);
+		presenter.SendMouseButtonEvent(0, false);
+		presenter.SendMouseWheelEvent(-120);
+		presenter.Tick();
+
+		assert(rendererPtr->keyEvents.size() == 1);
+		assert(rendererPtr->mouseMoves.size() == 3);
+		assert(rendererPtr->mouseButtons.size() == 1);
+		assert(rendererPtr->physicalMouseWheels.size() == 1);
+	}
+
 	void TestPresenterInitializationFailure()
 	{
 		auto renderer = std::make_unique<FakeWebRenderer>();
@@ -410,6 +532,7 @@ void RunWebViewPresenterTests()
 	TestPresenterInitializationAndTransportWiring();
 	TestPresenterShowHideAndManifestConversion();
 	TestPresenterTickSubmitsFramesAndTracksDrawAvailability();
+	TestPresenterConvertsAndCoalescesMouseInput();
 	TestPresenterInitializationFailure();
 	TestPresenterContainsNestedTickFailures();
 	TestPresenterDestroysRendererBeforeCompositor();

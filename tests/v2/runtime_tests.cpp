@@ -70,6 +70,20 @@ namespace
 		std::string viewId;
 	};
 
+	struct MousePositionCall
+	{
+		int clientX;
+		int clientY;
+		int clientWidth;
+		int clientHeight;
+	};
+
+	struct MouseButtonCall
+	{
+		int button;
+		bool down;
+	};
+
 	class RecordingViewPresenter final : public Runtime::IViewPresenter
 	{
 	public:
@@ -85,6 +99,34 @@ namespace
 		void SetInputFocus(bool a_focused) noexcept override
 		{
 			inputFocusStates.push_back(a_focused);
+		}
+
+		void SendKeyEvent(std::uint32_t a_virtualKey, bool a_down) noexcept override
+		{
+			keyEvents.emplace_back(a_virtualKey, a_down);
+		}
+
+		void UpdateMousePosition(int a_clientX, int a_clientY, int a_clientWidth, int a_clientHeight) noexcept override
+		{
+			mousePositions.push_back({
+				.clientX = a_clientX,
+				.clientY = a_clientY,
+				.clientWidth = a_clientWidth,
+				.clientHeight = a_clientHeight
+			});
+		}
+
+		void SendMouseButtonEvent(int a_button, bool a_down) noexcept override
+		{
+			mouseButtons.push_back({
+				.button = a_button,
+				.down = a_down
+			});
+		}
+
+		void SendMouseWheelEvent(int a_wheelDelta) noexcept override
+		{
+			mouseWheelDeltas.push_back(a_wheelDelta);
 		}
 
 		void Hide(std::string_view a_viewId) noexcept override
@@ -105,6 +147,10 @@ namespace
 		std::size_t tickCalls{ 0 };
 		std::vector<PresentationCall> calls;
 		std::vector<bool> inputFocusStates;
+		std::vector<std::pair<std::uint32_t, bool>> keyEvents;
+		std::vector<MousePositionCall> mousePositions;
+		std::vector<MouseButtonCall> mouseButtons;
+		std::vector<int> mouseWheelDeltas;
 		std::vector<std::size_t> presentationCallCountsAtTick;
 	};
 
@@ -945,6 +991,110 @@ namespace
 		assert((g_inputCaptureStates == std::vector<bool>{ false }));
 	}
 
+	void TestCoordinatorRoutesKeyboardWhileCaptured()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+
+		assert(runtime.IsInputCaptured());
+		assert(runtime.RouteKeyEvent(0x41, true));
+		assert(runtime.RouteKeyEvent(0x41, false));
+		assert((presenter.keyEvents ==
+			std::vector<std::pair<std::uint32_t, bool>>{
+				{ 0x41, true },
+				{ 0x41, false }
+			}));
+	}
+
+	void TestCoordinatorClosesActiveMenuForEscape()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+
+		assert(runtime.RouteKeyEvent(0x1B, true));
+		assert(runtime.RouteKeyEvent(0x1B, false));
+		assert(presenter.keyEvents.empty());
+		assert(runtime.Views().Presentation().activeMenu == "osfui/settings");
+
+		runtime.Tick();
+
+		assert(!runtime.Views().Presentation().activeMenu);
+		assert(!runtime.IsInputCaptured());
+		assert(presenter.calls.back().action == Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls.back().viewId == "osfui/settings");
+	}
+
+	void TestCoordinatorDoesNotRouteInputToPassiveHud()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Hud("author.mod/status")
+		});
+		runtime.Views().OpenView("author.mod/status");
+		runtime.Tick();
+
+		assert(!runtime.IsInputCaptured());
+		assert(!runtime.RouteKeyEvent(0x41, true));
+		runtime.RouteMousePosition(100, 200, 1920, 1080);
+		runtime.RouteMouseButtonEvent(0, true);
+		runtime.RouteMouseWheelEvent(120);
+
+		assert(presenter.keyEvents.empty());
+		assert(presenter.mousePositions.empty());
+		assert(presenter.mouseButtons.empty());
+		assert(presenter.mouseWheelDeltas.empty());
+	}
+
+	void TestCoordinatorStopsRoutingAfterMenuClose()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+
+		assert(runtime.RouteKeyEvent(0x41, true));
+		runtime.RouteMousePosition(100, 200, 1920, 1080);
+		runtime.RouteMouseButtonEvent(0, true);
+		runtime.RouteMouseWheelEvent(120);
+
+		assert(runtime.RequestCloseView("osfui/settings"));
+		runtime.Tick();
+		assert(!runtime.IsInputCaptured());
+
+		const auto keyCount = presenter.keyEvents.size();
+		const auto positionCount = presenter.mousePositions.size();
+		const auto buttonCount = presenter.mouseButtons.size();
+		const auto wheelCount = presenter.mouseWheelDeltas.size();
+
+		assert(!runtime.RouteKeyEvent(0x42, true));
+		runtime.RouteMousePosition(300, 400, 1920, 1080);
+		runtime.RouteMouseButtonEvent(0, false);
+		runtime.RouteMouseWheelEvent(-120);
+
+		assert(presenter.keyEvents.size() == keyCount);
+		assert(presenter.mousePositions.size() == positionCount);
+		assert(presenter.mouseButtons.size() == buttonCount);
+		assert(presenter.mouseWheelDeltas.size() == wheelCount);
+	}
+
 	void TestViewRuntimeQueuesPresentationCommands()
 	{
 		Runtime::ViewRuntime runtime;
@@ -1074,6 +1224,10 @@ int main()
 	TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement();
 	TestCoordinatorDoesNotCaptureFailedPresentation();
 	TestCoordinatorNeverCapturesWithoutPresenter();
+	TestCoordinatorRoutesKeyboardWhileCaptured();
+	TestCoordinatorClosesActiveMenuForEscape();
+	TestCoordinatorDoesNotRouteInputToPassiveHud();
+	TestCoordinatorStopsRoutingAfterMenuClose();
 	RunPapyrusTests();
 	RunWebViewPresenterTests();
 
