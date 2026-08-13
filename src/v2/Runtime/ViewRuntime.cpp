@@ -4,7 +4,7 @@ namespace Runtime
 {
     void ViewRuntime::ReplaceViews(std::vector<ViewManifest> a_views)
     {
-        presentation.CloseAll();
+        CloseAllViews();
         catalog.Replace(std::move(a_views));
     }
 

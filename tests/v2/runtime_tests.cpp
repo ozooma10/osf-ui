@@ -434,6 +434,40 @@ namespace
 			Runtime::ViewPresentationAction::Hide);
 		assert(commands[0].view.id == "osfui/keybindings");
 	}
+
+	void TestReplacingViewsHidesOpenViews()
+	{
+		Runtime::ViewRuntime runtime;
+
+		runtime.ReplaceViews({
+			Menu("osfui/settings"),
+			Hud("author.mod/status")
+		});
+
+		runtime.OpenView("osfui/settings");
+		runtime.OpenView("author.mod/status");
+		runtime.TakePresentationCommands();
+
+		runtime.ReplaceViews({
+			Menu("osfui/keybindings")
+		});
+
+		const auto commands = runtime.TakePresentationCommands();
+
+		assert(commands.size() == 2);
+
+		assert(
+			commands[0].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(commands[0].view.id == "author.mod/status");
+
+		assert(
+			commands[1].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(commands[1].view.id == "osfui/settings");
+
+		assert(runtime.Presentation().openViewIds.empty());
+	}
 }
 
 int main()
@@ -446,6 +480,7 @@ int main()
 	TestOpenIdsAreSorted();
 	TestViewRuntimeResolvesCatalog();
 	TestViewRuntimeQueuesPresentationCommands();
+	TestReplacingViewsHidesOpenViews();
 	TestManifestKeepsUnknownKindFallback();
 	TestViewDiscoveryContainsInvalidNeighbors();
 	TestViewDiscoveryReportsMissingDirectory();
