@@ -4,42 +4,36 @@
 #include "v2/Runtime/ViewManifest.h"
 #include "v2/Runtime/ViewDiscovery.h"
 #include "v2/Runtime/ViewCatalog.h"
+#include "v2/Runtime/RuntimeCoordinator.h"
+
 
 namespace
 {
 	std::filesystem::path DefaultViewsDirectory()
 	{
-		return std::filesystem::path{
-			REX::FModule::GetCurrentModule().GetFileName()
-		}.parent_path() / L"OSFUI" / L"Views";
+		return std::filesystem::path{ REX::FModule::GetCurrentModule().GetFileName() }.parent_path() / L"OSFUI" / L"Views";
 	}
 
-	Runtime::ViewCatalog& InstalledViews()
+	Runtime::RuntimeCoordinator& ApplicationRuntime()
 	{
-		static Runtime::ViewCatalog catalog;
-		return catalog;
+		static Runtime::RuntimeCoordinator runtime{&Papyrus::RegisterFunctions};
+
+		return runtime;
 	}
 
-	void DiscoverInstalledViews()
+	void LoadInstalledViews()
 	{
-		auto result = Runtime::DiscoverViews(DefaultViewsDirectory());
-		for(const auto& issue : result.issues) {
+		const auto report = ApplicationRuntime().LoadViews(DefaultViewsDirectory());
+
+		for (const auto& issue : report.issues) {
 			REX::ERROR("View discovery failed at '{}': {}", issue.path.string(), issue.message);
 		}
 
-		InstalledViews().Replace(std::move(result.views));
-
-		for(const auto& view : InstalledViews().All()) {
-			REX::INFO("Discovered view '{}' title='{}' entry='{}' size={}x{} transparent={}", view.id, view.title, view.entry, view.width, view.height, view.transparent);
+		for (const auto& view : ApplicationRuntime().Views().Views()) {
+			REX::INFO("Discovered view '{}' title='{}'", view.id, view.title);
 		}
 
-		if (const auto* settings = InstalledViews().Find("osfui/settings")) {
-			REX::INFO("Catalog lookup succeeded: '{}' -> '{}'", settings->id, settings->rootDirectory.string());
-		} else {
-			REX::ERROR("Catalog lookup failed: built-in view 'osfui/settings' is unavailable");
-		}
-
-		REX::INFO("View discovery completed: {} valid, {} invalid",  InstalledViews().All().size(), result.issues.size());
+		REX::INFO("View discovery completed: {} valid, {} invalid", report.loaded, report.issues.size());
 	}
 
 	void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
@@ -57,7 +51,6 @@ namespace
 			case SFSE::MessagingInterface::kPostDataLoad:
 				REX::INFO("Plugin: SFSE message kPostDataLoad");
 
-				DiscoverInstalledViews();
 				if(!Papyrus::RegisterFunctions()) {
 					REX::ERROR("Plugin: Papyrus natives are unavailable");
 				}
@@ -87,6 +80,8 @@ namespace
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 {
 	SFSE::Init(a_sfse, { .trampoline = true, .trampolineSize = 1024 });
+
+	LoadInstalledViews();
 
 	SFSE::GetMessagingInterface()->RegisterListener(OnSFSEMessage);
 	return true;
