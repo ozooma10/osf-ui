@@ -17,12 +17,12 @@ namespace Runtime
 
         const auto previousMenu = presentation.ActiveMenu();
 
-        if(!presentation.Open(*view)) {
+        if (!presentation.Open(*view)) {
             return ViewOperationResult::Unchanged;
         }
 
-        if(view->kind == ViewKind::Menu && previousMenu && *previousMenu != view->id) {
-            if(const auto* previousView = catalog.Find(*previousMenu)) {
+        if (view->kind == ViewKind::Menu && previousMenu && *previousMenu != view->id) {
+            if (const auto* previousView = catalog.Find(*previousMenu)) {
                 QueuePresentationCommand(ViewPresentationAction::Hide, *previousView);
             }
         }
@@ -34,11 +34,11 @@ namespace Runtime
     ViewOperationResult ViewRuntime::CloseView(std::string_view a_id)
     {
         const auto* view = catalog.Find(a_id);
-        if(!view) {
+        if (!view) {
             return ViewOperationResult::UnknownView;
         }
 
-        if(!presentation.Close(a_id)) {
+        if (!presentation.Close(a_id)) {
             return ViewOperationResult::Unchanged;
         }
 
@@ -49,18 +49,20 @@ namespace Runtime
     bool ViewRuntime::CloseActiveMenu()
     {
         const auto activeMenu = presentation.ActiveMenu();
-        if(!activeMenu) {
+        if (!activeMenu) {
             return false;
         }
 
         const auto* view = catalog.Find(*activeMenu);
 
-        if(!presentation.CloseActiveMenu()) {
+        if (!presentation.CloseActiveMenu()) {
             return false;
         }
-        if(view) {
+
+        if (view) {
             QueuePresentationCommand(ViewPresentationAction::Hide, *view);
         }
+
         return true;
     }
 
@@ -70,8 +72,8 @@ namespace Runtime
 
         presentation.CloseAll();
 
-        for(const auto& id : openViewIds) {
-            if(const auto* view = catalog.Find(id)) {
+        for (const auto& id : openViewIds) {
+            if (const auto* view = catalog.Find(id)) {
                 QueuePresentationCommand(ViewPresentationAction::Hide, *view);
             }
         }
@@ -99,7 +101,9 @@ namespace Runtime
         return commands;
     }
 
-    void ViewRuntime::QueuePresentationCommand(ViewPresentationAction a_action, const ViewManifest& a_view)
+    void ViewRuntime::QueuePresentationCommand(
+        ViewPresentationAction a_action,
+        const ViewManifest& a_view)
     {
         pendingCommands.push_back({
             .action = a_action,

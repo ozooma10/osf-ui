@@ -40,7 +40,9 @@ namespace Runtime
         std::vector<ViewPresentationCommand> TakePresentationCommands();
 
     private:
-        void QueuePresentationCommand(ViewPresentationAction a_action, const ViewManifest& a_view);    
+        void QueuePresentationCommand(
+            ViewPresentationAction a_action,
+            const ViewManifest& a_view);
 
         ViewCatalog catalog;
         ViewPresentationController presentation;
