@@ -7,7 +7,8 @@ namespace Runtime
     enum class ViewRequestAction
     {
         Open,
-        Close
+        Close,
+        CloseAll
     };
 
     struct ViewRequest

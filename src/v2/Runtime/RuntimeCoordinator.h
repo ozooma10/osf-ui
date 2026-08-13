@@ -37,6 +37,7 @@ namespace Runtime
 
         bool RequestOpenView(std::string a_viewId);
         bool RequestCloseView(std::string a_viewId);
+        void NotifyMenuOpenClose(std::string_view a_menuName, bool a_opening);
 
         bool IsInputCaptured() const noexcept;
 
@@ -74,6 +75,8 @@ namespace Runtime
         std::vector<ViewRequest> _pendingViewRequests;
         std::unordered_set<std::string> _knownViewIds;
         std::unordered_set<std::string> _instantiatedViewIds;
+        bool _loadingMenuOpen{ false };
+        bool _mainMenuOpen{ false };
 
         RegisterPapyrus _registerPapyrus{ nullptr };
         IViewPresenter* _viewPresenter{ nullptr };

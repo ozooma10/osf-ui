@@ -126,6 +126,11 @@ namespace
         return ApplicationRuntime().RequestCloseView(std::move(a_viewId));
     }
 
+    void HandleGameMenuOpenClose(std::string_view a_menuName, bool a_opening)
+    {
+        ApplicationRuntime().NotifyMenuOpenClose(a_menuName, a_opening);
+    }
+
     void LoadInstalledViews()
     {
         const auto report = ApplicationRuntime().LoadViews(DefaultViewsDirectory());
@@ -232,7 +237,7 @@ namespace
         case SFSE::MessagingInterface::kPostPostDataLoad:
             REX::INFO("Plugin: SFSE message kPostPostDataLoad");
             g_gameWindowInputInstallPending.store(true, std::memory_order_release);
-            if (!Events::Register()) {
+            if (!Events::Register(&HandleGameMenuOpenClose)) {
                 REX::ERROR("Plugin: menu event integration is unavailable");
             }
             break;

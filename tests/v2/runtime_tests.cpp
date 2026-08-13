@@ -1007,6 +1007,81 @@ namespace
 		assert((g_gamePauseStates == std::vector<bool>{ false }));
 	}
 
+	void TestCoordinatorClosesAllViewsForBlockingGameMenu()
+	{
+		g_inputCaptureStates.clear();
+		g_gamePauseStates.clear();
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{
+			nullptr,
+			&presenter,
+			&RecordInputCapture,
+			&RecordGamePause
+		};
+		runtime.EnableInputRouting();
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings"),
+			Hud("author.mod/status")
+		});
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Views().OpenView("author.mod/status");
+		runtime.Tick();
+
+		presenter.calls.clear();
+		presenter.inputFocusStates.clear();
+		g_inputCaptureStates.clear();
+		g_gamePauseStates.clear();
+
+		runtime.NotifyMenuOpenClose("LoadingMenu", true);
+
+		// The event callback only produces work; presentation remains owned by
+		// the serialized native-main-thread tick.
+		assert(runtime.Views().Presentation().openViewIds.size() == 2);
+
+		runtime.Tick();
+
+		assert(runtime.Views().Presentation().openViewIds.empty());
+		assert(presenter.calls.size() == 2);
+		assert(presenter.calls[0].action == Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[0].viewId == "author.mod/status");
+		assert(presenter.calls[1].action == Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[1].viewId == "osfui/settings");
+		assert((presenter.inputFocusStates == std::vector<bool>{ false }));
+		assert((g_inputCaptureStates == std::vector<bool>{ false }));
+		assert((g_gamePauseStates == std::vector<bool>{ false }));
+	}
+
+	void TestCoordinatorBlocksOpensUntilAllTransitionMenusClose()
+	{
+		ViewFixture fixture;
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+		runtime.EnableInputRouting();
+		LoadCoordinatorViews(runtime, fixture, { "osfui/settings" });
+
+		// Ordinary menus do not block OSF UI presentation.
+		runtime.NotifyMenuOpenClose("PauseMenu", true);
+		assert(runtime.RequestOpenView("osfui/settings"));
+
+		// A transition edge discards the stale open above and refuses new opens.
+		runtime.NotifyMenuOpenClose("MainMenu", true);
+		assert(!runtime.RequestOpenView("osfui/settings"));
+
+		// Overlapping blockers remain closed until both have left.
+		runtime.NotifyMenuOpenClose("LoadingMenu", true);
+		runtime.NotifyMenuOpenClose("MainMenu", false);
+		assert(!runtime.RequestOpenView("osfui/settings"));
+
+		runtime.NotifyMenuOpenClose("LoadingMenu", false);
+		assert(runtime.RequestOpenView("osfui/settings"));
+		runtime.Tick();
+
+		assert(runtime.Views().Presentation().activeMenu == "osfui/settings");
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action == Runtime::ViewPresentationAction::Show);
+	}
+
 	void TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement()
 	{
 		g_inputCaptureStates.clear();
@@ -1332,6 +1407,8 @@ int main()
 	TestCoordinatorAppliesInputCapturePolicyEveryTick();
 	TestCoordinatorAppliesGamePausePolicyEveryTick();
 	TestCoordinatorDoesNotPauseWithoutPresentedView();
+	TestCoordinatorClosesAllViewsForBlockingGameMenu();
+	TestCoordinatorBlocksOpensUntilAllTransitionMenusClose();
 	TestCoordinatorReleasesInputOwnershipForNonCapturingReplacement();
 	TestCoordinatorDoesNotCaptureFailedPresentation();
 	TestCoordinatorNeverCapturesWithoutPresenter();

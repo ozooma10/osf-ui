@@ -4,11 +4,19 @@
 
 namespace Events
 {
-    bool Register()
+    bool Register(MenuOpenCloseCallback a_callback)
     {
+        if (!a_callback) {
+            REX::ERROR("Events: menu event callback is unavailable");
+            return false;
+        }
+
+        auto* const handler = Handlers::MenuOpenCloseHandler::GetSingleton();
+        handler->SetCallback(a_callback);
+
         static bool registered = false;
 
-        if(registered) {
+        if (registered) {
             return true;
         }
         auto* ui = RE::UI::GetSingleton();
@@ -17,7 +25,7 @@ namespace Events
             return false;
         }
 
-        ui->RegisterSink<RE::MenuOpenCloseEvent>(Handlers::MenuOpenCloseHandler::GetSingleton());
+        ui->RegisterSink<RE::MenuOpenCloseEvent>(handler);
 
         registered = true;
         REX::INFO("Events: registered MenuOpenCloseEvent handler");

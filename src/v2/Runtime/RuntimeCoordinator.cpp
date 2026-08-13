@@ -45,6 +45,31 @@ namespace Runtime
         return QueueViewRequest(ViewRequestAction::Close, std::move(a_viewId));
     }
 
+    void RuntimeCoordinator::NotifyMenuOpenClose(std::string_view a_menuName, bool a_opening)
+    {
+        const bool loadingMenu = a_menuName == "LoadingMenu";
+        const bool mainMenu = a_menuName == "MainMenu";
+
+        if (!loadingMenu && !mainMenu) {
+            return;
+        }
+
+        std::scoped_lock lock {_viewRequestsMutex};
+
+        if (loadingMenu) {
+            _loadingMenuOpen = a_opening;
+        } else {
+            _mainMenuOpen = a_opening;
+        }
+
+        if (a_opening) {
+            // A lifecycle close is a barrier: discard stale opens queued before
+            // the transition and reserve the queue for the mandatory close.
+            _pendingViewRequests.clear();
+            _pendingViewRequests.push_back({.action = ViewRequestAction::CloseAll});
+        }
+    }
+
     bool RuntimeCoordinator::IsInputCaptured() const noexcept
     {
         return _inputCaptured.load(std::memory_order_acquire);
@@ -100,6 +125,10 @@ namespace Runtime
         std::scoped_lock lock {_viewRequestsMutex};
 
         if (a_action == ViewRequestAction::Open) {
+            if (_loadingMenuOpen || _mainMenuOpen) {
+                return false;
+            }
+
             if (!_knownViewIds.contains(a_viewId)) {
                 return false;
             }
@@ -131,6 +160,11 @@ namespace Runtime
     void RuntimeCoordinator::ApplyViewRequests()
     {
         for (const auto& request : TakeViewRequests()) {
+            if (request.action == ViewRequestAction::CloseAll) {
+                _views.CloseAllViews();
+                continue;
+            }
+
             const bool open = request.action == ViewRequestAction::Open;
             const auto result = open ? _views.OpenView(request.viewId) : _views.CloseView(request.viewId);
 
