@@ -8,8 +8,33 @@
 
 namespace Presentation
 {
-    WebViewPresenter::WebViewPresenter(std::unique_ptr<OSFUI::IWebRenderer> a_renderer, std::unique_ptr<OSFUI::ICompositor> a_compositor, DrawAvailable a_drawAvailable) :
-        _compositor(std::move(a_compositor)), _renderer(std::move(a_renderer)), _drawAvailable(a_drawAvailable) {}
+    namespace
+    {
+        std::uint64_t PackPair(std::uint32_t a_first, std::uint32_t a_second)
+        {
+            return (static_cast<std::uint64_t>(a_first) << 32) | a_second;
+        }
+
+        std::uint32_t UnpackFirst(std::uint64_t a_pair)
+        {
+            return static_cast<std::uint32_t>(a_pair >> 32);
+        }
+
+        std::uint32_t UnpackSecond(std::uint64_t a_pair)
+        {
+            return static_cast<std::uint32_t>(a_pair);
+        }
+
+        std::uint32_t ScaleCoordinate(int a_clientCoordinate, int a_clientExtent, std::uint32_t a_outputExtent)
+        {
+            const auto scaled = static_cast<std::int64_t>(a_clientCoordinate) * a_outputExtent / a_clientExtent;
+            return static_cast<std::uint32_t>(std::clamp(scaled, std::int64_t {0}, static_cast<std::int64_t>(a_outputExtent - 1)));
+        }
+    }
+
+    WebViewPresenter::WebViewPresenter(std::unique_ptr<OSFUI::IWebRenderer> a_renderer, std::unique_ptr<OSFUI::ICompositor> a_compositor, DrawAvailable a_drawAvailable)
+        : _compositor(std::move(a_compositor)), _renderer(std::move(a_renderer)), _drawAvailable(a_drawAvailable)
+    {}
 
     WebViewPresenter::~WebViewPresenter() = default;
 
@@ -25,12 +50,9 @@ namespace Presentation
         }
 
         try {
-            const OSFUI::RendererConfig rendererConfig{
-                .width = OSFUI::kDefaultViewWidth,
-                .height = OSFUI::kDefaultViewHeight,
-                .devMode = false,
-                .dataDir = a_dataDirectory
-            };
+            const OSFUI::RendererConfig rendererConfig {.width = OSFUI::kDefaultViewWidth, .height = OSFUI::kDefaultViewHeight, .devMode = false, .dataDir = a_dataDirectory};
+
+            _outputSize.store(PackPair(rendererConfig.width, rendererConfig.height), std::memory_order_release);
 
             if (!_renderer->Initialize(rendererConfig)) {
                 REX::ERROR("WebViewPresenter: renderer initialization failed");
@@ -42,15 +64,12 @@ namespace Presentation
                 return false;
             }
 
-            _renderer->SetSharedRingHandler(
-                [this](const OSFUI::SharedRingDesc& a_ring) {
-                    _compositor->SetSharedRing(a_ring);
-                });
+            _renderer->SetSharedRingHandler([this](const OSFUI::SharedRingDesc& a_ring) { _compositor->SetSharedRing(a_ring); });
 
-            _compositor->SetOutputResizeCallback(
-                [this](std::uint32_t a_width, std::uint32_t a_height) {
-                    _renderer->Resize(a_width, a_height);
-                });
+            _compositor->SetOutputResizeCallback([this](std::uint32_t a_width, std::uint32_t a_height) {
+                _outputSize.store(PackPair(a_width, a_height), std::memory_order_release);
+                _renderer->Resize(a_width, a_height);
+            });
 
             _compositor->SetVisible(false);
 
@@ -84,8 +103,7 @@ namespace Presentation
         }
     }
 
-    bool WebViewPresenter::Show(
-        const Runtime::ViewManifest& a_view) noexcept
+    bool WebViewPresenter::Show(const Runtime::ViewManifest& a_view) noexcept
     {
         try {
             const bool canDraw = _initialized && _drawPathInstalled && _drawAvailable && _drawAvailable();
@@ -121,16 +139,94 @@ namespace Presentation
 
     void WebViewPresenter::SetInputFocus(bool a_focused) noexcept
     {
+        if (!a_focused) {
+            _inputFocused.store(false, std::memory_order_release);
+            _pendingMousePosition.store(kNoPendingMousePosition, std::memory_order_release);
+        }
+
         if (!_initialized) {
             return;
         }
 
         try {
             _renderer->SetNativeFocus(a_focused);
+
+            if (a_focused) {
+                _inputFocused.store(true, std::memory_order_release);
+            }
         } catch (const std::exception& error) {
             REX::ERROR("WebViewPresenter: failed to set input focus to {}: {}", a_focused, error.what());
         } catch (...) {
             REX::ERROR("WebViewPresenter: failed to set input focus to {} with an unknown exception", a_focused);
+        }
+    }
+
+    void WebViewPresenter::SendKeyEvent(std::uint32_t a_virtualKey, bool a_down) noexcept
+    {
+        if (!_inputFocused.load(std::memory_order_acquire)) {
+            return;
+        }
+
+        try {
+            _renderer->InjectKeyEvent(a_virtualKey, a_down);
+        } catch (const std::exception& error) {
+            REX::ERROR("WebViewPresenter: failed to send key event: {}", error.what());
+        } catch (...) {
+            REX::ERROR("WebViewPresenter: failed to send key event with an unknown exception");
+        }
+    }
+
+    void WebViewPresenter::UpdateMousePosition(int a_clientX, int a_clientY, int a_clientWidth, int a_clientHeight) noexcept
+    {
+        if (!_inputFocused.load(std::memory_order_acquire) || a_clientWidth <= 0 || a_clientHeight <= 0) {
+            return;
+        }
+
+        const auto outputSize = _outputSize.load(std::memory_order_acquire);
+        const auto outputWidth = UnpackFirst(outputSize);
+        const auto outputHeight = UnpackSecond(outputSize);
+
+        if (outputWidth == 0 || outputHeight == 0) {
+            return;
+        }
+
+        const auto position = PackPair(ScaleCoordinate(a_clientX, a_clientWidth, outputWidth), ScaleCoordinate(a_clientY, a_clientHeight, outputHeight));
+
+        _mousePosition.store(position, std::memory_order_release);
+        _pendingMousePosition.store(position, std::memory_order_release);
+    }
+
+    void WebViewPresenter::SendMouseButtonEvent(int a_button, bool a_down) noexcept
+    {
+        if (!_inputFocused.load(std::memory_order_acquire)) {
+            return;
+        }
+
+        const auto position = _mousePosition.load(std::memory_order_acquire);
+
+        try {
+            _renderer->InjectMouseButton(static_cast<int>(UnpackFirst(position)), static_cast<int>(UnpackSecond(position)), a_button, a_down);
+        } catch (const std::exception& error) {
+            REX::ERROR("WebViewPresenter: failed to send mouse button event: {}", error.what());
+        } catch (...) {
+            REX::ERROR("WebViewPresenter: failed to send mouse button event with an unknown exception");
+        }
+    }
+
+    void WebViewPresenter::SendMouseWheelEvent(int a_wheelDelta) noexcept
+    {
+        if (!_inputFocused.load(std::memory_order_acquire)) {
+            return;
+        }
+
+        const auto position = _mousePosition.load(std::memory_order_acquire);
+
+        try {
+            _renderer->InjectPhysicalMouseWheel(static_cast<int>(UnpackFirst(position)), static_cast<int>(UnpackSecond(position)), a_wheelDelta);
+        } catch (const std::exception& error) {
+            REX::ERROR("WebViewPresenter: failed to send mouse wheel event: {}", error.what());
+        } catch (...) {
+            REX::ERROR("WebViewPresenter: failed to send mouse wheel event with an unknown exception");
         }
     }
 
@@ -141,7 +237,7 @@ namespace Presentation
         }
 
         try {
-            const std::string viewId{ a_viewId };
+            const std::string viewId {a_viewId};
             if (!_instantiatedViews.contains(viewId)) {
                 return;
             }
@@ -180,6 +276,12 @@ namespace Presentation
             _lastTick = now;
 
             const double deltaSeconds = std::clamp(elapsed, 0.0, 0.1);
+
+            const auto mousePosition = _pendingMousePosition.exchange(kNoPendingMousePosition, std::memory_order_acq_rel);
+
+            if (mousePosition != kNoPendingMousePosition && _inputFocused.load(std::memory_order_acquire)) {
+                _renderer->InjectMouseMove(static_cast<int>(UnpackFirst(mousePosition)), static_cast<int>(UnpackSecond(mousePosition)));
+            }
 
             _renderer->Update(deltaSeconds);
 

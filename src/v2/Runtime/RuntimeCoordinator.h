@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <string>
@@ -35,6 +36,13 @@ namespace Runtime
         bool RequestOpenView(std::string a_viewId);
         bool RequestCloseView(std::string a_viewId);
 
+        bool IsInputCaptured() const noexcept;
+
+        bool RouteKeyEvent(std::uint32_t a_virtualKey, bool a_down) noexcept;
+        void RouteMousePosition(int a_clientX, int a_clientY, int a_clientWidth, int a_clientHeight) noexcept;
+        void RouteMouseButtonEvent(int a_button, bool a_down) noexcept;
+        void RouteMouseWheelEvent(int a_wheelDelta) noexcept;
+
         void NotifyDataLoaded() noexcept;
         void Tick();
 
@@ -53,6 +61,7 @@ namespace Runtime
         void TickPapyrusRegistration();
         void DispatchPresentationCommands();
 
+        void ApplyFrameworkInputActions();
         void ReconcileInputFocus();
         void ApplyInputCapturePolicy();
 
@@ -67,7 +76,13 @@ namespace Runtime
         IViewPresenter* _viewPresenter{ nullptr };
         ApplyInputCapture _applyInputCapture{ nullptr };
 
-        std::atomic_bool _dataLoadPending{ false };
+        std::atomic_bool _dataLoadPending {false};
+
+        // Published by Tick for the game-window thread
+        std::atomic_bool _inputCaptured {false};
+
+        // Latched by the game-window thread and drained by Tick
+        std::atomic_bool _escapeClosePending {false};
 
         // Read and written only by Tick() on the main thread.
         bool _papyrusRegistered{ false };
