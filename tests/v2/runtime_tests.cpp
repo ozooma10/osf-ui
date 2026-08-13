@@ -372,6 +372,68 @@ namespace
 			runtime.Views().OpenView("osfui/settings") ==
 			Runtime::ViewOperationResult::Changed);
 	}
+
+	void TestViewRuntimeQueuesPresentationCommands()
+	{
+		Runtime::ViewRuntime runtime;
+
+		runtime.ReplaceViews({
+			Menu("osfui/settings"),
+			Menu("osfui/keybindings", false, false)
+		});
+
+		assert(runtime.TakePresentationCommands().empty());
+
+		assert(
+			runtime.OpenView("osfui/settings") ==
+			Runtime::ViewOperationResult::Changed);
+
+		auto commands = runtime.TakePresentationCommands();
+
+		assert(commands.size() == 1);
+		assert(
+			commands[0].action ==
+			Runtime::ViewPresentationAction::Show);
+		assert(commands[0].view.id == "osfui/settings");
+
+		// Taking commands drains the queue.
+		assert(runtime.TakePresentationCommands().empty());
+
+		// Reopening the same view creates no duplicate renderer work.
+		assert(
+			runtime.OpenView("osfui/settings") ==
+			Runtime::ViewOperationResult::Unchanged);
+		assert(runtime.TakePresentationCommands().empty());
+
+		// Opening another menu hides the previous menu first.
+		assert(
+			runtime.OpenView("osfui/keybindings") ==
+			Runtime::ViewOperationResult::Changed);
+
+		commands = runtime.TakePresentationCommands();
+
+		assert(commands.size() == 2);
+		assert(
+			commands[0].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(commands[0].view.id == "osfui/settings");
+		assert(
+			commands[1].action ==
+			Runtime::ViewPresentationAction::Show);
+		assert(commands[1].view.id == "osfui/keybindings");
+
+		assert(
+			runtime.CloseView("osfui/keybindings") ==
+			Runtime::ViewOperationResult::Changed);
+
+		commands = runtime.TakePresentationCommands();
+
+		assert(commands.size() == 1);
+		assert(
+			commands[0].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(commands[0].view.id == "osfui/keybindings");
+	}
 }
 
 int main()
@@ -383,6 +445,7 @@ int main()
 	TestCloseAndCloseAll();
 	TestOpenIdsAreSorted();
 	TestViewRuntimeResolvesCatalog();
+	TestViewRuntimeQueuesPresentationCommands();
 	TestManifestKeepsUnknownKindFallback();
 	TestViewDiscoveryContainsInvalidNeighbors();
 	TestViewDiscoveryReportsMissingDirectory();

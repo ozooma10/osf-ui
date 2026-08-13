@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ViewCatalog.h"
+#include "ViewPresentationCommand.h"
 #include "ViewPresentationController.h"
 
 namespace Runtime
@@ -36,8 +37,13 @@ namespace Runtime
         std::span<const ViewManifest> Views() const;
         PresentationSnapshot Presentation() const;
 
+        std::vector<ViewPresentationCommand> TakePresentationCommands();
+
     private:
+        void QueuePresentationCommand(ViewPresentationAction a_action, const ViewManifest& a_view);    
+
         ViewCatalog catalog;
         ViewPresentationController presentation;
+        std::vector<ViewPresentationCommand> pendingCommands;
     };
 }
