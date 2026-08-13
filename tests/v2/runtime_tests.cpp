@@ -36,6 +36,36 @@ namespace
 		g_papyrusFailuresRemaining = 0;
 	}
 
+	struct PresentationCall
+	{
+		Runtime::ViewPresentationAction action;
+		std::string viewId;
+	};
+
+	class RecordingViewPresenter final : public Runtime::IViewPresenter
+	{
+	public:
+		bool Show(const Runtime::ViewManifest& a_view) noexcept override
+		{
+			calls.push_back({
+				.action = Runtime::ViewPresentationAction::Show,
+				.viewId = a_view.id
+			});
+			return showSucceeds;
+		}
+
+		void Hide(std::string_view a_viewId) noexcept override
+		{
+			calls.push_back({
+				.action = Runtime::ViewPresentationAction::Hide,
+				.viewId = std::string{ a_viewId }
+			});
+		}
+
+		bool showSucceeds{ true };
+		std::vector<PresentationCall> calls;
+	};
+
 	class ViewFixture
 	{
 	public:
@@ -373,6 +403,114 @@ namespace
 			Runtime::ViewOperationResult::Changed);
 	}
 
+	void TestCoordinatorDispatchesPresentationAlongsideLifecycle()
+	{
+		ResetPapyrusTestState();
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{
+			&RegisterPapyrusForTest,
+			&presenter
+		};
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.NotifyDataLoaded();
+		assert(
+			runtime.Views().OpenView("osfui/settings") ==
+			Runtime::ViewOperationResult::Changed);
+
+		runtime.Tick();
+
+		assert(g_papyrusCalls == 1);
+		assert(presenter.calls.size() == 1);
+		assert(
+			presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Show);
+		assert(presenter.calls[0].viewId == "osfui/settings");
+
+		presenter.calls.clear();
+		assert(
+			runtime.Views().CloseView("osfui/settings") ==
+			Runtime::ViewOperationResult::Changed);
+
+		// Presentation still runs after Papyrus registration is complete.
+		runtime.Tick();
+
+		assert(g_papyrusCalls == 1);
+		assert(presenter.calls.size() == 1);
+		assert(
+			presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[0].viewId == "osfui/settings");
+
+		presenter.calls.clear();
+		runtime.Tick();
+		assert(presenter.calls.empty());
+	}
+
+	void TestCoordinatorDispatchesMenuReplacementInOrder()
+	{
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings"),
+			Menu("osfui/keybindings")
+		});
+
+		runtime.Views().OpenView("osfui/settings");
+		runtime.Tick();
+		presenter.calls.clear();
+
+		runtime.Views().OpenView("osfui/keybindings");
+		runtime.Tick();
+
+		assert(presenter.calls.size() == 2);
+		assert(
+			presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[0].viewId == "osfui/settings");
+		assert(
+			presenter.calls[1].action ==
+			Runtime::ViewPresentationAction::Show);
+		assert(presenter.calls[1].viewId == "osfui/keybindings");
+	}
+
+	void TestCoordinatorClosesViewWhenPresentationFails()
+	{
+		RecordingViewPresenter presenter;
+		presenter.showSucceeds = false;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		runtime.Views().ReplaceViews({
+			Menu("osfui/settings")
+		});
+		runtime.Views().OpenView("osfui/settings");
+
+		runtime.Tick();
+
+		assert(presenter.calls.size() == 2);
+		assert(
+			presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Show);
+		assert(presenter.calls[0].viewId == "osfui/settings");
+		assert(
+			presenter.calls[1].action ==
+			Runtime::ViewPresentationAction::Hide);
+		assert(presenter.calls[1].viewId == "osfui/settings");
+
+		const auto state = runtime.Views().Presentation();
+		assert(state.openViewIds.empty());
+		assert(!state.activeMenu);
+		assert(!state.capturesInput);
+		assert(!state.pausesGame);
+
+		presenter.calls.clear();
+		runtime.Tick();
+		assert(presenter.calls.empty());
+	}
+
 	void TestViewRuntimeQueuesPresentationCommands()
 	{
 		Runtime::ViewRuntime runtime;
@@ -487,6 +625,9 @@ int main()
 	TestCoordinatorCoalescesDataLoadedWork();
 	TestCoordinatorRetriesPapyrusRegistration();
 	TestCoordinatorLoadsDiscoveredViews();
+	TestCoordinatorDispatchesPresentationAlongsideLifecycle();
+	TestCoordinatorDispatchesMenuReplacementInOrder();
+	TestCoordinatorClosesViewWhenPresentationFails();
 
 	std::cout << "v2 runtime tests passed\n";
 	return 0;

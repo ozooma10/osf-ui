@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IViewPresenter.h"
 #include "ViewDiscovery.h"
 #include "ViewRuntime.h"
 
@@ -21,7 +22,7 @@ namespace Runtime
     public:
         using RegisterPapyrus = bool (*)();
 
-        explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus) noexcept;
+        explicit RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter = nullptr) noexcept;
 
         ViewLoadReport LoadViews(const std::filesystem::path& a_viewsDirectory);
 
@@ -32,8 +33,13 @@ namespace Runtime
         const ViewRuntime& Views() const noexcept;
 
     private:
+        void TickPapyrusRegistration();
+        void DispatchPresentationCommands();
+
+
         ViewRuntime _views;
         RegisterPapyrus _registerPapyrus{ nullptr };
+        IViewPresenter* _viewPresenter{ nullptr };
 
         std::atomic_bool _dataLoadPending{ false };
 

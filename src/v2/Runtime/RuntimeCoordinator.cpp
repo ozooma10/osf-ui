@@ -2,9 +2,8 @@
 
 namespace Runtime
 {
-    RuntimeCoordinator::RuntimeCoordinator(RegisterPapyrus a_registerPapyrus) noexcept 
-        : _registerPapyrus(a_registerPapyrus)
-    {}
+    RuntimeCoordinator::RuntimeCoordinator(RegisterPapyrus a_registerPapyrus, IViewPresenter* a_viewPresenter) noexcept
+        : _registerPapyrus(a_registerPapyrus), _viewPresenter(a_viewPresenter) {}
 
     ViewLoadReport RuntimeCoordinator::LoadViews(const std::filesystem::path& a_viewsDirectory)
     {
@@ -26,6 +25,12 @@ namespace Runtime
 
     void RuntimeCoordinator::Tick()
     {
+        TickPapyrusRegistration();
+        DispatchPresentationCommands();
+    }
+
+    void RuntimeCoordinator::TickPapyrusRegistration()
+    {
         if (_papyrusRegistered) {
             _dataLoadPending.store(false, std::memory_order_release);
             return;
@@ -40,8 +45,35 @@ namespace Runtime
             return;
         }
 
-        // GameVM may be temporarily unavailable. Keep the work pending so the next main-thread Tick retries instead of losing initialization.
+        // GameVM may be temporarily unavailable. Retry during the next main-thread tick instead of losing initialization.
         _dataLoadPending.store(true, std::memory_order_release);
+    }
+
+    void RuntimeCoordinator::DispatchPresentationCommands()
+    {
+        if (!_viewPresenter) {
+            return;
+        }
+
+        while (true) {
+            const auto commands = _views.TakePresentationCommands();
+
+            if (commands.empty()) {
+                return;
+            }
+
+            for (const auto& command : commands) {
+                if (command.action == ViewPresentationAction::Hide) {
+                    _viewPresenter->Hide(command.view.id);
+                    continue;
+                }
+
+                if (!_viewPresenter->Show(command.view)) {
+                    // Show failed. Close the desired view so it cannot retain invisible input or pause policy. CloseView queues a Hide command, which the next loop drains.
+                    _views.CloseView(command.view.id);
+                }
+            }
+        }
     }
 
     ViewRuntime& RuntimeCoordinator::Views() noexcept
