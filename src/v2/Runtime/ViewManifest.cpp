@@ -17,6 +17,8 @@ namespace Runtime
         bool capturesInput{ true };
         bool pausesGame{ true };
         bool openOnStart{ false };
+        bool hub{ true };
+        bool debugOnly{ false };
     };
 
     namespace
@@ -132,6 +134,8 @@ namespace Runtime
             .capturesInput = capturesInput,
             .pausesGame = pausesGame,
             .openOnStart = parsed.openOnStart,
+            .catalogVisible = parsed.hub,
+            .debugOnly = parsed.debugOnly,
             .rootDirectory = std::move(viewDirectory)
         };
         return manifest;

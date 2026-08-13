@@ -87,6 +87,7 @@ target("osfui-v2-tests")
         "src/v2/Runtime/ViewCatalog.cpp",
         "src/v2/Runtime/ViewPresentationController.cpp",
         "src/v2/Runtime/ViewRuntime.cpp",
+        "src/v2/Runtime/ViewStartupPolicy.cpp",
         "src/v2/Runtime/RuntimeCoordinator.cpp",
         "src/v2/Scripts/Papyrus.cpp"
     )

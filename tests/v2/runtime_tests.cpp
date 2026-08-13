@@ -16,6 +16,7 @@
 #include "v2/Runtime/ViewDiscovery.h"
 #include "v2/Runtime/ViewPresentationController.h"
 #include "v2/Runtime/ViewRuntime.h"
+#include "v2/Runtime/ViewStartupPolicy.h"
 
 #include "papyrus_tests.h"
 #include "web_view_presenter_tests.h"
@@ -433,6 +434,66 @@ namespace
 		assert(manifest->kind == Runtime::ViewKind::Menu);
 		assert(manifest->capturesInput);
 		assert(manifest->pausesGame);
+	}
+
+	void TestManifestRetainsDiscoveredStartupInputs()
+	{
+		ViewFixture fixture;
+		const auto path = fixture.WriteManifest(
+			"author.mod",
+			"diagnostics",
+			R"({
+				"kind": "hud",
+				"openOnStart": true,
+				"hub": false,
+				"debugOnly": true
+			})");
+
+		const auto manifest = Runtime::LoadViewManifest(path);
+		assert(manifest);
+		assert(manifest->kind == Runtime::ViewKind::Hud);
+		assert(manifest->openOnStart);
+		assert(!manifest->catalogVisible);
+		assert(manifest->debugOnly);
+		assert(!manifest->capturesInput);
+		assert(!manifest->pausesGame);
+	}
+
+	void TestDiscoveredViewStartupPolicy()
+	{
+		auto menu = Menu("author.mod/menu");
+		menu.openOnStart = true;
+		assert(!Runtime::ShouldAutoStartDiscoveredView(
+			menu,
+			{ .developerMode = true, .playerOverride = true }));
+
+		auto hud = Hud("author.mod/hud");
+		assert(!Runtime::ShouldAutoStartDiscoveredView(hud, {}));
+
+		hud.openOnStart = true;
+		assert(Runtime::ShouldAutoStartDiscoveredView(hud, {}));
+		assert(!Runtime::ShouldAutoStartDiscoveredView(
+			hud,
+			{ .playerOverride = false }));
+
+		hud.openOnStart = false;
+		assert(Runtime::ShouldAutoStartDiscoveredView(
+			hud,
+			{ .playerOverride = true }));
+
+		hud.catalogVisible = false;
+		assert(!Runtime::ShouldAutoStartDiscoveredView(
+			hud,
+			{ .developerMode = true, .playerOverride = true }));
+
+		hud.catalogVisible = true;
+		hud.debugOnly = true;
+		assert(!Runtime::ShouldAutoStartDiscoveredView(
+			hud,
+			{ .playerOverride = true }));
+		assert(Runtime::ShouldAutoStartDiscoveredView(
+			hud,
+			{ .developerMode = true, .playerOverride = true }));
 	}
 
 	void TestViewDiscoveryContainsInvalidNeighbors()
@@ -1389,6 +1450,8 @@ int main()
 	TestViewRuntimeQueuesPresentationCommands();
 	TestReplacingViewsHidesOpenViews();
 	TestManifestKeepsUnknownKindFallback();
+	TestManifestRetainsDiscoveredStartupInputs();
+	TestDiscoveredViewStartupPolicy();
 	TestViewDiscoveryContainsInvalidNeighbors();
 	TestViewDiscoveryReportsMissingDirectory();
 	TestCoordinatorCoalescesDataLoadedWork();
