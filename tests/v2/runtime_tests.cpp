@@ -4,8 +4,10 @@
 #include <cassert>
 #include <chrono>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -14,6 +16,7 @@
 #include "v2/Runtime/ViewPresentationController.h"
 #include "v2/Runtime/ViewRuntime.h"
 
+#include "papyrus_tests.h"
 #include "web_view_presenter_tests.h"
 
 namespace
@@ -120,6 +123,26 @@ namespace
 	private:
 		std::filesystem::path _root;
 	};
+
+	void LoadCoordinatorViews(
+		Runtime::RuntimeCoordinator& a_runtime,
+		ViewFixture& a_fixture,
+		std::initializer_list<std::string_view> a_viewIds)
+	{
+		for (const auto id : a_viewIds) {
+			const auto separator = id.find('/');
+			assert(separator != std::string_view::npos);
+
+			a_fixture.WriteManifest(
+				id.substr(0, separator),
+				id.substr(separator + 1),
+				R"({ "title": "Test View" })");
+		}
+
+		const auto report = a_runtime.LoadViews(a_fixture.Root());
+		assert(report.loaded == a_viewIds.size());
+		assert(report.issues.empty());
+	}
 
 	Runtime::ViewManifest Menu(
 		std::string a_id,
@@ -510,12 +533,11 @@ namespace
 
 	void TestCoordinatorDefersViewRequestsUntilTick()
 	{
+		ViewFixture fixture;
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
 
-		runtime.Views().ReplaceViews({
-			Menu("osfui/settings")
-		});
+		LoadCoordinatorViews(runtime, fixture, { "osfui/settings" });
 
 		assert(runtime.RequestOpenView("osfui/settings"));
 		assert(runtime.Views().Presentation().openViewIds.empty());
@@ -550,21 +572,22 @@ namespace
 
 	void TestCoordinatorAppliesViewRequestsInFifoOrder()
 	{
+		ViewFixture fixture;
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
 
-		runtime.Views().ReplaceViews({
-			Menu("osfui/settings"),
-			Menu("osfui/keybindings")
+		LoadCoordinatorViews(runtime, fixture, {
+			"osfui/settings",
+			"osfui/keybindings"
 		});
 
 		assert(runtime.RequestOpenView("osfui/settings"));
 		assert(runtime.RequestOpenView("osfui/keybindings"));
-		assert(runtime.RequestCloseView("osfui/keybindings"));
+		assert(!runtime.RequestCloseView("osfui/keybindings"));
 
 		runtime.Tick();
 
-		assert(presenter.calls.size() == 4);
+		assert(presenter.calls.size() == 3);
 		assert(presenter.calls[0].action ==
 			Runtime::ViewPresentationAction::Show);
 		assert(presenter.calls[0].viewId == "osfui/settings");
@@ -574,24 +597,33 @@ namespace
 		assert(presenter.calls[2].action ==
 			Runtime::ViewPresentationAction::Show);
 		assert(presenter.calls[2].viewId == "osfui/keybindings");
-		assert(presenter.calls[3].action ==
+		assert(runtime.Views().Presentation().activeMenu ==
+			"osfui/keybindings");
+
+		presenter.calls.clear();
+		assert(runtime.RequestCloseView("osfui/keybindings"));
+		runtime.Tick();
+
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action ==
 			Runtime::ViewPresentationAction::Hide);
-		assert(presenter.calls[3].viewId == "osfui/keybindings");
+		assert(presenter.calls[0].viewId == "osfui/keybindings");
 		assert(runtime.Views().Presentation().openViewIds.empty());
 	}
 
 	void TestCoordinatorContainsInvalidViewRequests()
 	{
+		ViewFixture fixture;
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
 
-		runtime.Views().ReplaceViews({
-			Menu("osfui/settings")
-		});
+		LoadCoordinatorViews(runtime, fixture, { "osfui/settings" });
 
 		assert(!runtime.RequestOpenView(""));
 		assert(!runtime.RequestCloseView(""));
-		assert(runtime.RequestOpenView("author.mod/missing"));
+		assert(!runtime.RequestOpenView("author.mod/missing"));
+		assert(!runtime.RequestCloseView("author.mod/missing"));
+		assert(!runtime.RequestCloseView("osfui/settings"));
 
 		runtime.Tick();
 
@@ -602,12 +634,11 @@ namespace
 
 	void TestCoordinatorBoundsConcurrentViewRequests()
 	{
+		ViewFixture fixture;
 		RecordingViewPresenter presenter;
 		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
 
-		runtime.Views().ReplaceViews({
-			Menu("osfui/settings")
-		});
+		LoadCoordinatorViews(runtime, fixture, { "osfui/settings" });
 
 		constexpr std::size_t threadCount = 4;
 		constexpr std::size_t requestsPerThread = 64;
@@ -646,6 +677,42 @@ namespace
 		assert(presenter.calls.size() == 1);
 		assert(presenter.calls[0].action ==
 			Runtime::ViewPresentationAction::Hide);
+	}
+
+	void TestCoordinatorTracksOnlySuccessfulInstantiation()
+	{
+		ViewFixture fixture;
+		RecordingViewPresenter presenter;
+		Runtime::RuntimeCoordinator runtime{ nullptr, &presenter };
+
+		LoadCoordinatorViews(runtime, fixture, { "osfui/settings" });
+
+		assert(!runtime.RequestCloseView("osfui/settings"));
+
+		presenter.showSucceeds = false;
+		assert(runtime.RequestOpenView("osfui/settings"));
+		runtime.Tick();
+
+		assert(!runtime.RequestCloseView("osfui/settings"));
+		assert(runtime.Views().Presentation().openViewIds.empty());
+
+		presenter.showSucceeds = true;
+		presenter.calls.clear();
+		assert(runtime.RequestOpenView("osfui/settings"));
+		runtime.Tick();
+		assert(presenter.calls.size() == 1);
+
+		assert(runtime.RequestCloseView("osfui/settings"));
+		runtime.Tick();
+		assert(runtime.Views().Presentation().openViewIds.empty());
+
+		// Hiding preserves the document instance, so it remains reopenable.
+		presenter.calls.clear();
+		assert(runtime.RequestOpenView("osfui/settings"));
+		runtime.Tick();
+		assert(presenter.calls.size() == 1);
+		assert(presenter.calls[0].action ==
+			Runtime::ViewPresentationAction::Show);
 	}
 
 	void TestCoordinatorClosesViewWhenPresentationFails()
@@ -803,7 +870,9 @@ int main()
 	TestCoordinatorAppliesViewRequestsInFifoOrder();
 	TestCoordinatorContainsInvalidViewRequests();
 	TestCoordinatorBoundsConcurrentViewRequests();
+	TestCoordinatorTracksOnlySuccessfulInstantiation();
 	TestCoordinatorClosesViewWhenPresentationFails();
+	RunPapyrusTests();
 	RunWebViewPresenterTests();
 
 	std::cout << "v2 runtime tests passed\n";

@@ -14,7 +14,21 @@ namespace Runtime
             .issues = std::move(discovery.issues)
         };
 
-        _views.ReplaceViews(std::move(discovery.views));
+        std::unordered_set<std::string> knownViewIds;
+
+        for (const auto& view : discovery.views) {
+            knownViewIds.insert(view.id);
+        }
+
+        {
+            std::scoped_lock lock{ _viewRequestsMutex };
+
+            _views.ReplaceViews(std::move(discovery.views));
+            _knownViewIds = std::move(knownViewIds);
+            _instantiatedViewIds.clear();
+            _pendingViewRequests.clear();
+        }
+
         return report;
     }
 
@@ -35,6 +49,14 @@ namespace Runtime
         }
 
         std::scoped_lock lock{ _viewRequestsMutex };
+
+        if (a_action == ViewRequestAction::Open) {
+            if (!_knownViewIds.contains(a_viewId)) {
+                return false;
+            }
+        } else if (!_instantiatedViewIds.contains(a_viewId)) {
+            return false;
+        }
 
         if (_pendingViewRequests.size() >= kMaxPendingViewRequests) {
             return false;
@@ -75,6 +97,12 @@ namespace Runtime
                     request.viewId);
             }
         }
+    }
+
+    void RuntimeCoordinator::MarkViewInstantiated(std::string_view a_viewId)
+    {
+        std::scoped_lock lock{ _viewRequestsMutex };
+        _instantiatedViewIds.emplace(a_viewId);
     }
 
     void RuntimeCoordinator::NotifyDataLoaded() noexcept
@@ -133,9 +161,12 @@ namespace Runtime
                 }
 
                 if (!_viewPresenter->Show(command.view)) {
-                    // Show failed. Close the desired view so it cannot retain invisible input or pause policy. CloseView queues a Hide command, which the next loop drains.
+                    // Show failed. Return logical state to closed and queue its defensive hide.
                     _views.CloseView(command.view.id);
+                    continue;
                 }
+
+                MarkViewInstantiated(command.view.id);
             }
         }
     }

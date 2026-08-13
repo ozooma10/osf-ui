@@ -78,6 +78,7 @@ target("osfui-v2-tests")
     add_packages("glaze")
     add_cxflags("cl::/Zc:preprocessor", { force = true })
     add_files(
+        "tests/v2/papyrus_tests.cpp",
         "tests/v2/runtime_tests.cpp",
         "tests/v2/web_view_presenter_tests.cpp",
         "src/v2/Presentation/WebViewPresenter.cpp",
@@ -86,9 +87,10 @@ target("osfui-v2-tests")
         "src/v2/Runtime/ViewCatalog.cpp",
         "src/v2/Runtime/ViewPresentationController.cpp",
         "src/v2/Runtime/ViewRuntime.cpp",
-        "src/v2/Runtime/RuntimeCoordinator.cpp"
+        "src/v2/Runtime/RuntimeCoordinator.cpp",
+        "src/v2/Scripts/Papyrus.cpp"
     )
-    add_includedirs("src")
+    add_includedirs("tests/native/stubs", "src")
     set_pcxxheader("tests/native/stubs/pch.h")
 
 -- define targets

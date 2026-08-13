@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Papyrus `OpenMenu` and `CloseMenu` now reach the rebuilt v2 runtime through its bounded main-thread request queue. Unknown opens and closes of views that have never been instantiated fail immediately instead of reporting that unusable work was accepted.
 - The rebuilt v2 runtime now owns and initializes the production WebView2 renderer and D3D12 compositor, then installs its Scaleform overlay hook after peer SFSE plugins have loaded. The prior checkpoint could discover and schedule views but had no live presentation backend, so no view could reach the screen.
 - View discovery now contains filesystem inspection and enumeration failures to the affected path, records an actionable issue, and continues loading unrelated valid views instead of allowing a directory error to unwind through plugin startup.
 - The complete discovered-view inventory is reachable again from OSF UI's own Mod Settings detail. It no longer depends on the retired Diagnostics settings group, so authors can inspect catalog-hidden and uninstantiated views against the current Interface settings schema.

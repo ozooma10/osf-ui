@@ -43,6 +43,16 @@ namespace
 		return runtime;
 	}
 
+	bool RequestViewOpen(std::string a_viewId)
+	{
+		return ApplicationRuntime().RequestOpenView(std::move(a_viewId));
+	}
+
+	bool RequestViewClose(std::string a_viewId)
+	{
+		return ApplicationRuntime().RequestCloseView(std::move(a_viewId));
+	}
+
 	void LoadInstalledViews()
 	{
 		const auto report = ApplicationRuntime().LoadViews(DefaultViewsDirectory());
@@ -164,6 +174,8 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 		REX::ERROR("Plugin: compatible SFSE TaskInterface is unavailable");
 		return false;
 	}
+
+	Papyrus::SetViewRequestHandlers(&RequestViewOpen, &RequestViewClose);
 
 	try {
 		if (!ApplicationPresenter().Initialize(PluginDataDirectory())) {

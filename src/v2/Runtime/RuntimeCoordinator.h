@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace Runtime
@@ -45,6 +47,7 @@ namespace Runtime
 
         std::vector<ViewRequest> TakeViewRequests();
         void ApplyViewRequests();
+        void MarkViewInstantiated(std::string_view a_viewId);
 
         void TickPapyrusRegistration();
         void DispatchPresentationCommands();
@@ -53,6 +56,8 @@ namespace Runtime
 
         std::mutex _viewRequestsMutex;
         std::vector<ViewRequest> _pendingViewRequests;
+        std::unordered_set<std::string> _knownViewIds;
+        std::unordered_set<std::string> _instantiatedViewIds;
 
         RegisterPapyrus _registerPapyrus{ nullptr };
         IViewPresenter* _viewPresenter{ nullptr };
