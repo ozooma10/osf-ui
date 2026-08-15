@@ -477,9 +477,7 @@ namespace OSFUI
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
 
-		// Deferred compositor reveal policy (main thread only). Runtime performs
-		// the renderer/compositor and fail-closed engine side effects; the gate
-		// owns the fresh-frame, output-size, and bounded-timeout decisions.
+		// Policy for revealing rendered view frames (main thread only)
 		ViewRevealGate                 m_viewReveal;
 
 		// The view shown as the overlay's active menu — the last one sent

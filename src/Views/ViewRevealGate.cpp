@@ -51,7 +51,7 @@ namespace OSFUI
 			return decision;
 		}
 
-		// frame wins before deadline is charged. Prevents alt-tab or load hitch from timing out frame that became ready on first resumed tick.
+		// frame wins before checking timeout. Prevents alt-tab or load hitch from timing out frame that became ready on first resumed tick.
 		if (m_lastPolledAt) {
 			const auto elapsed = std::max(0.0, a_nowSeconds - *m_lastPolledAt);
 			m_heldSeconds += std::min(elapsed, kMaxHeldStepSeconds);
