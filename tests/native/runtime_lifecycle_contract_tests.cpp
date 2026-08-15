@@ -141,11 +141,11 @@ namespace
 
 int main()
 {
-	const auto runtimeSource = ReadSource("../../src/runtime/Runtime.cpp");
-	const auto rendererSource = ReadSource("../../src/render/WebView2HostWebRenderer.cpp");
-	const auto menuEventSource = ReadSource("../../src/input/MenuEventSink.cpp");
-	const auto presentationSource = ReadSource("../../src/runtime/ViewPresentationController.cpp");
-	const auto lifecycleHeader = ReadSource("../../src/runtime/ViewLifecycle.h");
+	const auto runtimeSource = ReadSource("../../src/Runtime/Runtime.cpp");
+	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
+	const auto menuEventSource = ReadSource("../../src/Input/MenuEventSink.cpp");
+	const auto presentationSource = ReadSource("../../src/Views/ViewPresentationController.cpp");
+	const auto lifecycleHeader = ReadSource("../../src/Views/ViewLifecycle.h");
 
 	const auto tick = FunctionBody(runtimeSource, "void Runtime::Tick(double a_deltaSeconds)");
 	Check(ContainsInOrder(tick, {

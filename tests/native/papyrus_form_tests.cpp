@@ -1,5 +1,5 @@
 // Native desktop tests for form references across the bridge (protocol 2.0,
-// docs/form-references-design.md): the REAL api/PapyrusApi.cpp compiled
+// docs/form-references-design.md): the REAL API/PapyrusApi.cpp compiled
 // against stubs/RE (recording VM + a TESForm test registry), driven through
 // the same natives the game binds. Covers SetViewForms' capture-ids/
 // serialize-at-drain split (identity fields, null-slot preservation, empty
@@ -14,9 +14,9 @@
 // main-thread-only while a FormID is just a number.
 // Assert-style; process exit code is the failure count.
 
-#include "api/BridgeApi.h"
-#include "api/PapyrusApi.h"
-#include "compat/v1/Papyrus.h"
+#include "API/BridgeApi.h"
+#include "API/PapyrusApi.h"
+#include "Compat/V1/Papyrus.h"
 
 #include "RE/B/BSScriptUtil.h"
 #include "RE/E/Events.h"
@@ -71,7 +71,7 @@ namespace
 	};
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub, as in
+// Core/Log.h declarations (real impl pulls game deps — stub, as in
 // papyrus_action_tests.cpp; SettingsStore references these).
 namespace OSFUI::Log
 {

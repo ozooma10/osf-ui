@@ -6,7 +6,7 @@
 
 ```powershell
 # Release build (WebView2, releasedbg) -> dist/OSF-UI-v<releaseVersion>-alpha.zip
-# releaseVersion is the OSF UI release version from kOsfuiReleaseVersion in src/core/Version.h; tag defaults to "alpha".
+# releaseVersion is the OSF UI release version from kOsfuiReleaseVersion in src/Core/Version.h; tag defaults to "alpha".
 pwsh tools/package.ps1
 
 pwsh tools/package.ps1 -Version 2.0.0 -Tag beta   # custom version/tag

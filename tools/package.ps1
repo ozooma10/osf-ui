@@ -21,7 +21,7 @@
 
 .PARAMETER Version
     Release version string for the archive name. Defaults to kOsfuiReleaseVersion
-    parsed from src/core/Version.h.
+    parsed from src/Core/Version.h.
 
 .PARAMETER Tag
     Suffix appended after the version (e.g. "alpha" -> v1.0.0-alpha). "" omits it.
@@ -229,7 +229,7 @@ try {
         # HARD FAIL: every view the shipped config references must be in the
         # archive, or a fresh standalone install renders nothing on F10.
         # View ids are qualified '<modId>/<viewName>' and map onto
-        # views/<modId>/<viewName>/manifest.json (src/runtime/Ids.h grammar).
+        # views/<modId>/<viewName>/manifest.json (src/Core/Ids.h grammar).
         # External views (e.g. an 'ozooma10.almanac/planets') ship with their
         # own mod and must not be a standalone default.
         # Read the two keys defensively. Under `Set-StrictMode -Version Latest`

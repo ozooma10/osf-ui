@@ -28,12 +28,12 @@ jobs:
           CXX: clang++
 
       - name: Check protocol version lockstep
-        # kBridgeProtocolVersion (src/core/Version.h) is claimed as a literal in the SDK README's headline, 
+        # kBridgeProtocolVersion (src/Core/Version.h) is claimed as a literal in the SDK README's headline,
         # the authoring guide's status blurb + versioning section, and the .d.ts header
         # the "docs say 0.1, code says 0.4" drift class must not recur. Each headline site must name the CURRENT version. ("protocol 0.4"-style historical annotations elsewhere are fine and not checked.)
         run: |
           set -e
-          V=$(sed -n 's/.*kBridgeProtocolVersion = "\([0-9.]*\)".*/\1/p' src/core/Version.h)
+          V=$(sed -n 's/.*kBridgeProtocolVersion = "\([0-9.]*\)".*/\1/p' src/Core/Version.h)
           test -n "$V" || { echo "::error::could not extract kBridgeProtocolVersion"; exit 1; }
           echo "kBridgeProtocolVersion = $V"
           fail=0
@@ -48,7 +48,7 @@ jobs:
           exit $fail
 
       - name: Check every JSON read and write goes through the wrapper
-        # src/runtime/Json.h is the only place nlohmann is touched directly, and
+        # src/Core/Json.h is the only place nlohmann is touched directly, and
         # each rule below was a real defect before it was a rule:
         #   dump()   - defaults to error_handler_t::strict, which THROWS on
         #              malformed UTF-8; most dump sites sit on the game tick or a
@@ -81,12 +81,12 @@ jobs:
           check 'json::parse('  'use Json::Parse() — a raw parse() drops ignore_comments'
           check '\.value("'     'use Json::Get() — .value() throws on a wrong-typed key'
           [ "$fail" = 0 ] || exit 1
-          echo "all JSON access goes through src/runtime/Json.h"
+          echo "all JSON access goes through src/Core/Json.h"
 
       - name: Check plugin version lockstep
         run: |
           set -e
-          V=$(sed -n 's/.*kOsfuiReleaseVersion = "\([0-9.]*\)".*/\1/p' src/core/Version.h)
+          V=$(sed -n 's/.*kOsfuiReleaseVersion = "\([0-9.]*\)".*/\1/p' src/Core/Version.h)
           test -n "$V" || { echo "::error::could not extract kOsfuiReleaseVersion"; exit 1; }
           grep -qF "set_version(\"$V\")" xmake.lua || {
             echo "::error file=xmake.lua::project version does not match kOsfuiReleaseVersion $V"
@@ -96,8 +96,8 @@ jobs:
           for pair in Major:$MAJOR Minor:$MINOR Patch:$PATCH; do
             name=${pair%%:*}
             value=${pair#*:}
-            grep -qE "kOsfuiReleaseVersion${name} = ${value};" src/core/Version.h || {
-              echo "::error file=src/core/Version.h::numeric $name does not match kOsfuiReleaseVersion $V"
+            grep -qE "kOsfuiReleaseVersion${name} = ${value};" src/Core/Version.h || {
+              echo "::error file=src/Core/Version.h::numeric $name does not match kOsfuiReleaseVersion $V"
               exit 1
             }
           done

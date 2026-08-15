@@ -1,4 +1,4 @@
-// The lenient accessor contract (src/runtime/Json.h).
+// The lenient accessor contract (src/Core/Json.h).
 //
 // Json::Get is now the single reader for every JSON field in the plugin and the
 // browser host — ~90 former Json::Get{String,Bool,Int} call sites plus ~90
@@ -15,7 +15,7 @@
 //     schema bounds must accept both, while an int field must not silently
 //     truncate a float.
 
-#include "runtime/Json.h"
+#include "Core/Json.h"
 
 #include <cstdint>
 #include <iostream>

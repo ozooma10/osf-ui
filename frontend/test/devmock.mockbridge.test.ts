@@ -80,7 +80,7 @@ async function settle(ms = 1): Promise<void> {
 
 /**
  * Run the handshake. `loaded()` first because `ready.version` is read out of
- * src/core/Version.h and the greeting waits on it.
+ * src/Core/Version.h and the greeting waits on it.
  */
 async function greet(api: MockApi = mock): Promise<void> {
   await api.loaded();

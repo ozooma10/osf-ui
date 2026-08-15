@@ -96,8 +96,8 @@ test('built-in request endpoints resolve without configuration', async () => {
 
 test('the endpoint registry mirrors the current native runtime', async () => {
   const [runtime, settings] = await Promise.all([
-    readFile(resolve(import.meta.dirname, '../../../src/runtime/Runtime.cpp'), 'utf8'),
-    readFile(resolve(import.meta.dirname, '../../../src/runtime/SettingsModule.cpp'), 'utf8'),
+    readFile(resolve(import.meta.dirname, '../../../src/Runtime/Runtime.cpp'), 'utf8'),
+    readFile(resolve(import.meta.dirname, '../../../src/Settings/SettingsModule.cpp'), 'utf8'),
   ]);
   const names = (source, kind) => [
     ...source.matchAll(new RegExp(`Register${kind}\\("([^"]+)"`, 'g')),

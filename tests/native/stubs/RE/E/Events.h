@@ -1,7 +1,7 @@
 #pragma once
 
 // Desktop-test stand-in for CommonLibSF's event plumbing: the minimal
-// sink/source pair api/PapyrusApi.cpp needs (TESLoadGameEvent teardown).
+// sink/source pair API/PapyrusApi.cpp needs (TESLoadGameEvent teardown).
 // Tests fire the event with GetEventSource()->Notify({}).
 
 #include <vector>

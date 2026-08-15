@@ -1,16 +1,16 @@
 // Native desktop tests for the HotkeyService core: the
-// REAL src/runtime/HotkeyService.cpp + SettingsStore + KeyNames,
+// REAL src/Bindings/HotkeyService.cpp + SettingsStore + KeyNames,
 // wired exactly like Runtime::BuildModules — registry rebuild on rebind and
 // registry shape change, suppression while the overlay captures / a rebind is
 // armed, duplicate-binding fan-out, and the informational conflict data
 // embedded in SettingsStore::Data(). Assert-style; process exit code is the
 // failure count.
 
-#include "runtime/HotkeyService.h"
-#include "runtime/SettingsStore.h"
+#include "Bindings/HotkeyService.h"
+#include "Settings/SettingsStore.h"
 
-#include "core/Log.h"
-#include "input/KeyNames.h"
+#include "Core/Log.h"
+#include "Input/KeyNames.h"
 #include "check.h"
 
 namespace
@@ -77,7 +77,7 @@ namespace
 	}
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub, as in the other
+// Core/Log.h declarations (real impl pulls game deps — stub, as in the other
 // suites).
 namespace OSFUI::Log
 {

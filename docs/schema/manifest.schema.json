@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
   "title": "OSF UI View Manifest",
-  "description": "Schema for views/<modId>/<viewName>/manifest.json. Mirrors src/runtime/ViewManifest.cpp. Unknown keys are allowed. Bridge protocol 2.0.",
+  "description": "Schema for views/<modId>/<viewName>/manifest.json. Mirrors src/Views/ViewManifest.cpp. Unknown keys are allowed. Bridge protocol 2.0.",
   "type": "object",
   "additionalProperties": true,
   "properties": {

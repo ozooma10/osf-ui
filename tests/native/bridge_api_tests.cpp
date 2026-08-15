@@ -1,6 +1,6 @@
 // Native desktop unit tests for BridgeApi ABI 2.0 + MessageBridge protocol 2.0
-// (docs/mod-api-2.0-design.md): the REAL src/api/BridgeApi.cpp and
-// src/runtime/MessageBridge.cpp compiled against stubs/pch.h. Pins the endpoint
+// (docs/mod-api-2.0-design.md): the REAL src/API/BridgeApi.cpp and
+// src/Bridge/MessageBridge.cpp compiled against stubs/pch.h. Pins the endpoint
 // grammar ("<author>.<modname>.<name>", api-freeze item 3), first-wins duplicate
 // refusal, unregister-then-reregister replacement, qualified RegisterView ids
 // (item 1), and — end to end through a live bridge — the four-verb envelope, the
@@ -16,12 +16,12 @@
 // NOTE: BridgeApi is a process singleton — the sections below share state and
 // MUST run in declaration order; each assumes what the one above it left behind.
 
-#include "api/BridgeApi.h"
+#include "API/BridgeApi.h"
 #include "OSFUI_JSON.h"
 
-#include "core/Log.h"
-#include "core/Version.h"  // kOsfuiReleaseVersion / kBridgeProtocolVersion (the `ready` payload)
-#include "runtime/MessageBridge.h"
+#include "Core/Log.h"
+#include "Core/Version.h"  // kOsfuiReleaseVersion / kBridgeProtocolVersion (the `ready` payload)
+#include "Bridge/MessageBridge.h"
 #include "check.h"
 
 namespace
@@ -171,7 +171,7 @@ namespace
 	};
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub it here).
+// Core/Log.h declarations (real impl pulls game deps — stub it here).
 namespace OSFUI::Log
 {
 	static bool g_devMode = true;

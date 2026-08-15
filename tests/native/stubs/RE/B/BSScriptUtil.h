@@ -1,7 +1,7 @@
 #pragma once
 
 // Desktop-test stand-in for CommonLibSF's Papyrus glue: just enough of the
-// RE::BSScript surface for api/PapyrusApi.cpp to compile UNCHANGED and be
+// RE::BSScript surface for API/PapyrusApi.cpp to compile UNCHANGED and be
 // driven from tests/native/papyrus_action_tests.cpp. Two recording seams:
 //   - IVirtualMachine::BindNativeMethod stores each native by name (type-
 //     erased); the test fetches it back with its exact function-pointer type

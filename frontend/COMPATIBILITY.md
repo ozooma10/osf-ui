@@ -37,7 +37,7 @@ navigation carrying `osfui-api=1`. Remove that append in 2.1.0 using
 
 **Exit criterion:** do not transform it. If it ever must change, change `src/shared-kit/osfui.js`
 directly as hand-written JavaScript, bump the bridge protocol version in
-`src/core/Version.h` and `sdk/osfui.d.ts` together, and treat it as a public API
+`src/Core/Version.h` and `sdk/osfui.d.ts` together, and treat it as a public API
 release. Compiling it is a separate, deliberate decision requiring a byte-diff
 gate against the previous output.
 

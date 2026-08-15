@@ -1,4 +1,4 @@
-#include "runtime/ViewPolicyStore.h"
+#include "Views/ViewPolicyStore.h"
 
 #include <cassert>
 #include <filesystem>

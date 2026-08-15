@@ -86,7 +86,7 @@ target("OSF UI")
     -- add packages
     add_packages("nlohmann_json")
 
-    -- D3D12 overlay compositor (composite/): the device/queue are the game's, but we still need these for our own root signature, pipeline state, and runtime shader compilation.
+    -- D3D12 overlay compositor (Composite/): the device/queue are the game's, but we still need these for our own root signature, pipeline state, and runtime shader compilation.
     -- d3dcompiler is used to build the overlay shaders at runtime
     -- shell32/ole32: SHGetKnownFolderPath for the writable settings path.
     add_syslinks("d3d12", "dxgi", "dxguid", "d3dcompiler", "shell32", "ole32")
@@ -97,7 +97,7 @@ target("OSF UI")
     add_includedirs("src")
     add_includedirs("tools/webview2_shared")
     -- sdk/ holds the public single-header native API (OSFUI_API.h); 
-    -- src/api includes it directly so the impl and the consumer copy share one ABI def.
+    -- src/API includes it directly so the impl and the consumer copy share one ABI def.
     add_headerfiles("sdk/OSFUI_API.h", "sdk/OSFUI_JSON.h")
     add_includedirs("sdk")
     set_pcxxheader("src/pch.h")

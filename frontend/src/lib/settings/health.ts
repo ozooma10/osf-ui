@@ -302,7 +302,7 @@ const COPY: Record<string, IssueCopy> = {
   // NOTE: there is deliberately no `render.framegen-fallback` entry either, and
   // for a sharper reason than the one above: that card could only ever be ACTIVE
   // in the exact state where the overlay suspends its draws, so the pane meant to
-  // show it was itself invisible. See the note in src/runtime/Runtime.h.
+  // show it was itself invisible. See the note in src/Runtime/Runtime.h.
   'compat.needs-newer-osfui': {
     title: ['issueNeedsNewerTitle', 'Something installed expects a newer OSF UI'],
     impact: [

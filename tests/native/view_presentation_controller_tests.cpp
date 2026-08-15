@@ -4,7 +4,7 @@
 // module. The tests assert the active-menu invariant so a future multi-menu
 // change trips a test, not a policy bug.
 
-#include "runtime/ViewPresentationController.h"
+#include "Views/ViewPresentationController.h"
 
 #include <cassert>
 #include <iostream>

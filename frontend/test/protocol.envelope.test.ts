@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Outbound envelope shape: what the shipped helper (src/shared-kit/osfui.js,
-// bridge protocol 2.0) posts, and what src/runtime/MessageBridge.cpp accepts.
+// bridge protocol 2.0) posts, and what src/Bridge/MessageBridge.cpp accepts.
 //
 // 2.0 moved routing metadata BESIDE the payload — `kind`, `name` and `id` are
 // envelope fields, so no payload key can steer routing any more (1.x carried
@@ -252,7 +252,7 @@ describe('request envelopes', () => {
 
 // ---------------------------------------------------------------------------
 // Mirror of MessageBridge::HandleWebMessage's envelope gates
-// (src/runtime/MessageBridge.cpp). Only ENVELOPE validity: an unknown endpoint
+// (src/Bridge/MessageBridge.cpp). Only ENVELOPE validity: an unknown endpoint
 // name is a well-formed message that answers `unknown-endpoint`, not this.
 // ---------------------------------------------------------------------------
 

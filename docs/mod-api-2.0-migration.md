@@ -85,7 +85,7 @@ A correct 2.0 view has **zero lifecycle code**:
 
 ## 2. View authors — the wire
 
-Only relevant if you talk to `postMessage`/`onMessage` directly. Source of truth: `src/runtime/MessageBridge.{h,cpp}`.
+Only relevant if you talk to `postMessage`/`onMessage` directly. Source of truth: `src/Bridge/MessageBridge.{h,cpp}`.
 
 **1.x, web → native** — one shape, routing *inside* the payload:
 
@@ -184,7 +184,7 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 
 **Settlement-shape changes:**
 
-- `settings.set` **rejects** on failure (`forbidden`, `unknown-setting`, `read-only`, `invalid-value`) instead of resolving `settings.ack { ok:false }` the caller had to remember to inspect, and resolves `{ mod, key, value }` with the **post-clamp committed** value, so clamped and accepted are distinguishable without a re-read (`src/runtime/SettingsModule.cpp`).
+- `settings.set` **rejects** on failure (`forbidden`, `unknown-setting`, `read-only`, `invalid-value`) instead of resolving `settings.ack { ok:false }` the caller had to remember to inspect, and resolves `{ mod, key, value }` with the **post-clamp committed** value, so clamped and accepted are distinguishable without a re-read (`src/Settings/SettingsModule.cpp`).
 - `settings.reset` resolves `{}`. The refreshed registry reaches every view — the caller included — through `osfui/settings`, rather than arriving by a different route for the caller alone.
 - `settings.captureKey` settles in **machine time**: resolves `{ armed: true, mod, key }` or rejects `capture-busy` / `forbidden` / `not-rebindable`. The captured key (or cancellation) arrives afterwards as the `settings.captured` **event**. There is no `timeoutMs: 0` usage anywhere any more — a request that waits on a human is the wrong shape.
 - `ping` resolves `{}` (was a `runtime.pong` message); `game.get` resolves `GameData` directly (was `game.data`).
@@ -207,7 +207,7 @@ The `kind` field replaces the whole `type` taxonomy: `runtime.ready` (now `kind:
 
 ## 4. Papyrus authors
 
-`data/Scripts/Source/OSFUI.psc`, natives in `src/api/PapyrusApi.{h,cpp}`.
+`data/Scripts/Source/OSFUI.psc`, natives in `src/API/PapyrusApi.{h,cpp}`.
 
 Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSFUIViewAction` would churn exactly the mods that already migrated, in the one language where migrating means recompiling `.pex` files.
 
@@ -234,7 +234,7 @@ Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSF
 
 ## 5. Native plugin authors
 
-`sdk/OSFUI_API.h` (+ the optional `sdk/OSFUI_JSON.h` facade), with the OSF UI runtime implementation in `src/api/BridgeApi.{h,cpp}` and `src/api/Exports.cpp`.
+`sdk/OSFUI_API.h` (+ the optional `sdk/OSFUI_JSON.h` facade), with the OSF UI runtime implementation in `src/API/BridgeApi.{h,cpp}` and `src/API/Exports.cpp`.
 
 ### 5.1 Breaking ABI 2.0
 
@@ -283,7 +283,7 @@ The design doc left three open questions. What shipped:
 
 **6.2 `SetViewState` takes JSON text at the C ABI; typed sugar lives in `OSFUI_JSON.h`.** The method is `bool SetViewState(const char*, const char*, const char*)` — text only, because `const char*` is the only shape that survives the vtable contract and no plugin should have to agree with the OSF UI runtime on an `nlohmann` version. `sdk/OSFUI_JSON.h` adds a `SetViewState(modId, key, const Json&)` overload plus a `template <class T>` sugar, both `noexcept`, both returning `false` on a serialization throw. Header-only, opt-in, nothing but text crosses the DLL boundary.
 
-**6.3 The retained-state cache moved out of `PapyrusApi` into the OSF UI runtime.** In 1.5 the `mod\nkey` cache lived in `src/api/PapyrusApi.cpp`, because Papyrus was the only mod backend with state. Once `SetViewState` gave the native ABI the same verb, keeping it there meant either the ABI writing into the Papyrus module or two caches with two replay rules. It's now `src/runtime/RetainedStateStore.{h,cpp}`, owned by `Runtime` and shared by both mod backend types, with a per-entry `sessionScoped` flag rather than one store-wide policy (Papyrus values must not cross a game load; native values must). Consequences: `Papyrus::ReplayViewState` **removed** (`Runtime::OnViewGreeted` replays for both mod backend types from the one store); `Papyrus::TakeSessionReset()` **added** so the OSF UI runtime learns a load happened and calls `RetainedStateStore::ClearSessionScoped()`; `DrainViewPushes` split into `DrainViewState` and `DrainViewEvents`.
+**6.3 The retained-state cache moved out of `PapyrusApi` into the OSF UI runtime.** In 1.5 the `mod\nkey` cache lived in `src/API/PapyrusApi.cpp`, because Papyrus was the only mod backend with state. Once `SetViewState` gave the native ABI the same verb, keeping it there meant either the ABI writing into the Papyrus module or two caches with two replay rules. It's now `src/Bridge/RetainedStateStore.{h,cpp}`, owned by `Runtime` and shared by both mod backend types, with a per-entry `sessionScoped` flag rather than one store-wide policy (Papyrus values must not cross a game load; native values must). Consequences: `Papyrus::ReplayViewState` **removed** (`Runtime::OnViewGreeted` replays for both mod backend types from the one store); `Papyrus::TakeSessionReset()` **added** so the OSF UI runtime learns a load happened and calls `RetainedStateStore::ClearSessionScoped()`; `DrainViewPushes` split into `DrainViewState` and `DrainViewEvents`.
 
 **6.4 Still open: `osfui:trace` from the dev harness.** Whether the trace flag should also be settable per-view from the harness, mirroring `openDevTools`, shipped **unimplemented**. The flag is `localStorage["osfui:trace"]`, read once when the shared bridge helper loads (`frontend/src/shared-kit/osfui.js`); there's no pipe command for it. A second control path for a debug toggle is the aliasing 2.0 exists to remove. Revisit only if setting it on a view you can't open DevTools on turns out to matter.
 
@@ -294,7 +294,7 @@ The design doc left three open questions. What shipped:
 - **7.1 `osfui/debug.error` shipped as the `osfui.debug.error` EVENT.** A slash denotes a qualified view id (`<modId>/<viewName>`) and the state `<modId>/<key>` separator, so a slashed name is ambiguous exactly where it matters. It shipped as a dotted event name in the platform (`osfui.*`) namespace, delivered by `MessageBridge::ReportProtocolFault` → `Runtime::OnProtocolFault` → `Emit(view, "osfui.debug.error", …)`, printed by the shared bridge helper's `deliverEvent` special case with the usual `[osfui]` prefix. Naming it an event also settles what it is: one-shot, never replayed, never cached.
 - **7.2 The fixed-target shell verbs shipped as requests, not commands.** The doc grouped `osfui.openModPage` and `osfui.openLogFolder` with the commands; both can fail for reasons the page can't predict and the player can act on (`shell-failed`, `no-log-folder`), and the doc's own rule is that wanting a remote outcome makes it a request. The security property that motivated grouping them — the target is a compile-time constant or natively derived and the payload can't steer the shell — is unaffected by endpoint kind. `close`, `log`, `view.ready`, `osfui.gamepadRaw` and `osfui.handleBack` did ship as commands.
 - **7.4 `hud.show` / `hud.hide` and `osfui.textFocus` were deleted, not migrated.** The first two were registered to the *same handler lambdas* as `menu.open`/`menu.close`; "one dialect, no aliases" is a design principle. `osfui.textFocus` was a registered no-op kept only so a view asserting text focus before session focus wouldn't trip `unknown-command`; since an unknown send is now a dev-only debug event it bought nothing. (The WebView2 focus-on-demand mechanism it fronted is native and unaffected.)
-- **7.5 Smaller drifts.** The removed `ReplayViewState` machinery moved to `src/runtime/RetainedStateStore.{h,cpp}` rather than staying in `PapyrusApi` (§6.3). The native ABI now matches the OSF UI runtime registry spelling: `RegisterSend` / `RegisterRequest`.
+- **7.5 Smaller drifts.** The removed `ReplayViewState` machinery moved to `src/Bridge/RetainedStateStore.{h,cpp}` rather than staying in `PapyrusApi` (§6.3). The native ABI now matches the OSF UI runtime registry spelling: `RegisterSend` / `RegisterRequest`.
 
 ---
 

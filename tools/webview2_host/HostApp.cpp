@@ -1,11 +1,11 @@
 #include "HostApp.h"
-#include "compat/v1/Navigation.h"
+#include "Compat/V1/Navigation.h"
 
 #include "EmbeddedScripts.h"
 
-#include "core/Version.h"
-#include "input/ScanCode.h"
-#include "runtime/Json.h"
+#include "Core/Version.h"
+#include "Input/ScanCode.h"
+#include "Core/Json.h"
 #include "Wv2BoundedQueue.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2LocalUri.h"
@@ -53,7 +53,7 @@ namespace osfui::wv2
 		using osfui::win32::ToUtf8;
 		using osfui::win32::ToWide;
 
-		// Shared with the plugin (runtime/Json.h). Json::Dump is the UTF-8-safe
+		// Shared with the plugin (Core/Json.h). Json::Dump is the UTF-8-safe
 		// serializer — a strict dump() throws on a split sequence, and this
 		// side's writers have no handler above them either; Json::Parse is the
 		// non-throwing reader. `Json` (capitalized) is the namespace, distinct
@@ -327,7 +327,7 @@ namespace osfui::wv2
 			std::uint64_t nextSuspendAttemptId{ 1 };
 
 			// accel state pushed by the game (touched only on the STA thread).
-			// Physical scan codes (DIK convention, input/ScanCode.h) since
+			// Physical scan codes (DIK convention, Input/ScanCode.h) since
 			// protocol 6.
 			std::uint32_t toggleScan{ 0x44 /*F10*/ }, captureUpScan{ 0 };
 			bool          captured{ false }, captureArmed{ false };

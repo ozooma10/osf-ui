@@ -36,8 +36,8 @@ The plugin build force-includes `src/pch.h` (CommonLibSF + REX). Here,
 `stubs/pch.h` substitutes it: the same std umbrella plus a minimal `REX::INFO/
 WARN/ERROR/DEBUG` stub matching CommonLibSF's CTAD-struct call syntax. Logged
 lines are recorded in `REX::test::Entries()` so tests can assert on warnings
-(e.g. duplicate-id resolution). `OSFUI::Log` (from `core/Log.h`) is stubbed in
-the test file itself — `src/core/Log.cpp` pulls game deps and is not compiled.
+(e.g. duplicate-id resolution). `OSFUI::Log` (from `Core/Log.h`) is stubbed in
+the test file itself — `src/Core/Log.cpp` pulls game deps and is not compiled.
 
 ## Scope
 
@@ -61,26 +61,26 @@ Windows pipe suite is built separately through xmake. Currently:
 | `papyrus_form_tests.cpp` | Form references across the bridge: temporary `PushFormsToView` and strict retained `SetViewForms` capture FormIDs on the VM thread and serialize on the main thread (identity fields, `FORM_ENUM_STRING` signatures + numeric fallback, null-slot preservation for `None`/deleted forms), plus the `GetFormById`/`GetFormsById` resolvers (decimal + hex parse matrix, quiet stale references, bulk order/length) |
 | `control_map_policy_tests.cpp` | Conservative live-ControlMap classification and the semantic active-context precedence used by scoped hotkey dispatch |
 | `scan_code_tests.cpp` | The physical key identity core: `ComposeScanCode`'s message-quirk normalization (Pause/NumLock/PrintScreen), the `kNamedScans` full-table name round-trip and ≤16-char constraint, W3C `KeyboardEvent.code` aliases, and the frozen legacy VK resolver the values migration reads |
-| `key_label_tests.cpp` | The localized keycap-label pipeline (`input/KeyLabels`): fixed short forms for non-printing keys (localizable via `chrome.keys.*`), layout glyphs for printable keys, the fallback chain, and US/German-QWERTZ layout fixtures (Z/Y swap, umlauts, dead keys, the ISO `<>` key) |
+| `key_label_tests.cpp` | The localized keycap-label pipeline (`Input/KeyLabels`): fixed short forms for non-printing keys (localizable via `chrome.keys.*`), layout glyphs for printable keys, the fallback chain, and US/German-QWERTZ layout fixtures (Z/Y swap, umlauts, dead keys, the ISO `<>` key) |
 | `localization_service_tests.cpp` | `LocalizationService`: the English-source catalog and the locale fallback rules (exact locale → base language → authored English) |
 | `view_manifest_tests.cpp` | `ViewManifest`: canonical manifest accents and the `readySignal` native-bridge requirement/fallback |
-| `json_tests.cpp` | The `runtime/Json` lenient accessor contract: `Get<T>` wrong-type/missing-key defaults, the int-vs-float target asymmetry, negative-into-unsigned refusal, comment-tolerant `Parse`, and UTF-8-replacing `Dump` |
+| `json_tests.cpp` | The `Core/Json` lenient accessor contract: `Get<T>` wrong-type/missing-key defaults, the int-vs-float target asymmetry, negative-into-unsigned refusal, comment-tolerant `Parse`, and UTF-8-replacing `Dump` |
 | `wv2_messages_tests.cpp` | Typed wire-message round-trips for the game ↔ browser-host pipe (`Wv2Messages.h`): type stamping, declared defaults, wrong-typed-field tolerance, opaque envelope byte fidelity, and the hello identity gate |
 | `health_registry_tests.cpp` | `HealthRegistry` + `MessageBridge` through real 2.0 envelopes: dedupe/occurrence counting, resolve/reactivate history, wire ordering, the payload sanitizer, and delivery |
-| `config_defaults_tests.cpp` | `core/Config`: parsing and defaults for the developer/boot `config.json` |
-| `dev_view_files_tests.cpp` | `runtime/DevViewFiles`: mod-folder view footprint resolution behind dev-mode reload |
-| `cursor_shape_tests.cpp` | `CursorShapeFromSystemCursorId` (`render/IWebRenderer.h`): system cursor id → shape mapping |
-| `gamepad_navigation_tests.cpp` | `input/GamepadNavigation`: analogue left stick → one digital navigation direction, with latch-through-jitter and deliberate-hold repeat |
+| `config_defaults_tests.cpp` | `Core/Config`: parsing and defaults for the developer/boot `config.json` |
+| `dev_view_files_tests.cpp` | `Views/Dev/DevViewFiles`: mod-folder view footprint resolution behind dev-mode reload |
+| `cursor_shape_tests.cpp` | `CursorShapeFromSystemCursorId` (`Render/IWebRenderer.h`): system cursor id → shape mapping |
+| `gamepad_navigation_tests.cpp` | `Input/GamepadNavigation`: analogue left stick → one digital navigation direction, with latch-through-jitter and deliberate-hold repeat |
 | `browser_host_recovery_tests.cpp` | Bounded browser-host restart policy: automatic backoff, response timeout, terminal-disable behavior, and the explicit-open retry escape hatch |
-| `deferred_main_thread_work_tests.cpp` | `runtime/DeferredMainThreadWork`: coalescing cross-thread notification consumed at proven main-thread checkpoints |
+| `deferred_main_thread_work_tests.cpp` | `Runtime/DeferredMainThreadWork`: coalescing cross-thread notification consumed at proven main-thread checkpoints |
 | `runtime_lifecycle_contract_tests.cpp` | Source-linked static characterization of the mature cross-component view lifecycle: hidden preparation before bridge delivery and reveal, pending-open cancellation, presentation epochs and stale-frame rejection, fail-closed menu admission, transition-menu CloseAll, reveal timeout cleanup, HUD-preserving menu replacement, and reusable-document close versus idle destruction. It does not execute Starfield, WebView2, D3D12, or prove host/in-game behavior |
-| `view_lifecycle_tests.cpp` | `runtime/ViewLifecycle`: main-thread open/hidden policy, idle TTL, and the non-pinned closed-view cap |
-| `view_policy_store_tests.cpp` | `runtime/ViewPolicyStore`: player HUD-autostart overrides retained beside the settings values, shipped manifests untouched |
-| `view_presentation_controller_tests.cpp` | `runtime/ViewPresentationController`: instantiated views, the single active-menu slot invariant, the HUD shown set, and the derived policy/layers Runtime applies |
+| `view_lifecycle_tests.cpp` | `Views/ViewLifecycle`: main-thread open/hidden policy, idle TTL, and the non-pinned closed-view cap |
+| `view_policy_store_tests.cpp` | `Views/ViewPolicyStore`: player HUD-autostart overrides retained beside the settings values, shipped manifests untouched |
+| `view_presentation_controller_tests.cpp` | `Views/ViewPresentationController`: instantiated views, the single active-menu slot invariant, the HUD shown set, and the derived policy/layers Runtime applies |
 | `local_view_uri_tests.cpp` | `Wv2LocalUri` — security-model rule 2's single decision point: view virtual-host matching, including the lookalike/egress cases |
 | `papyrus_call_tests.cpp` | `papyrus.call` bounds: platform-script refusal, argument cap, int range, float finiteness, and the JS → Papyrus type mapping |
-| `wndproc_chain_tests.cpp` | `input/WndProcChain`: window-procedure chain re-entry protection against hooks that re-insert themselves above us |
-| `ui_pass_seam_policy_tests.cpp` | `composite/UiPassSeamPolicy`: fail-closed recognition of UI-pass slot owners (vanilla plus the proven foreign hooks) gating seam installation |
+| `wndproc_chain_tests.cpp` | `Input/WndProcChain`: window-procedure chain re-entry protection against hooks that re-insert themselves above us |
+| `ui_pass_seam_policy_tests.cpp` | `Composite/UiPassSeamPolicy`: fail-closed recognition of UI-pass slot owners (vanilla plus the proven foreign hooks) gating seam installation |
 | `v1_navigation_tests.cpp` | Temporary native legacy selector insertion, including existing queries, fragments, and replacement of an authored selector |
 
 Every suite is assert-style and exits with its own failure count; `run.sh` sums

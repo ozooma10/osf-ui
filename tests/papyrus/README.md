@@ -1,6 +1,6 @@
 # Papyrus API validation mod
 
-Throwaway in-game test for the `OSFUI` Papyrus natives (`src/api/PapyrusApi.*`
+Throwaway in-game test for the `OSFUI` Papyrus natives (`src/API/PapyrusApi.*`
 + `data/Scripts/Source/OSFUI.psc`). **Not shipped**: it deploys as its own
 MO2 mod, never into `data/`, so neither `tools/package.ps1` archives nor the
 xmake deploy can pick it up.

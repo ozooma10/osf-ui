@@ -2,7 +2,7 @@
 
 The logs exist to answer one question after a bad session: **what was OSF UI doing
 when things went wrong?** Every line either helps answer that or costs the reader
-time. This doc is the contract; `src/core/Log.h` points here.
+time. This doc is the contract; `src/Core/Log.h` points here.
 
 Component and health names follow the [terminology glossary](terminology.md).
 

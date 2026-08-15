@@ -1,4 +1,4 @@
-#include "core/Config.h"
+#include "Core/Config.h"
 
 #include <cassert>
 #include <filesystem>

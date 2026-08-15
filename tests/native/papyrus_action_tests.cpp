@@ -1,6 +1,6 @@
 // Native desktop tests for the Papyrus dynamic-data API (protocol 2.0,
-// docs/mod-api-2.0-design.md): the REAL api/PapyrusApi.cpp and
-// runtime/RetainedStateStore.cpp compiled against stubs/RE (a recording VM),
+// docs/mod-api-2.0-design.md): the REAL API/PapyrusApi.cpp and
+// Bridge/RetainedStateStore.cpp compiled against stubs/RE (a recording VM),
 // driven through the same natives the game binds.
 //
 // 2.0 replaced the single transient `PushToView` channel with the state/event
@@ -19,11 +19,11 @@
 // one-shot session-reset flag.
 // Assert-style; process exit code is the failure count.
 
-#include "api/BridgeApi.h"
-#include "api/PapyrusApi.h"
-#include "compat/v1/Papyrus.h"
-#include "core/StringUtil.h"
-#include "runtime/RetainedStateStore.h"
+#include "API/BridgeApi.h"
+#include "API/PapyrusApi.h"
+#include "Compat/V1/Papyrus.h"
+#include "Core/StringUtil.h"
+#include "Bridge/RetainedStateStore.h"
 
 #include "RE/B/BSScriptUtil.h"
 #include "RE/E/Events.h"
@@ -45,7 +45,7 @@ namespace
 	}
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub, as in
+// Core/Log.h declarations (real impl pulls game deps — stub, as in
 // settings_module_tests.cpp; SettingsStore references these).
 namespace OSFUI::Log
 {

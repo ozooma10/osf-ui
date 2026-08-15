@@ -1,11 +1,11 @@
 // Native desktop unit tests for SettingsStore: the REAL
-// src/runtime/SettingsStore.cpp + Json.cpp compiled against stubs/pch.h, run
+// src/Settings/SettingsStore.cpp + Json.cpp compiled against stubs/pch.h, run
 // on the developer's desktop toolchain — the native mirror of the web
 // devtools/harness. Assert-style; process exit code is the failure count.
 
-#include "runtime/SettingsStore.h"
+#include "Settings/SettingsStore.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace
@@ -50,7 +50,7 @@ namespace
 	};
 }
 
-// core/Log.h declarations (real impl lives in src/core/Log.cpp, which pulls
+// Core/Log.h declarations (real impl lives in src/Core/Log.cpp, which pulls
 // game deps — stub it here instead).
 namespace OSFUI::Log
 {

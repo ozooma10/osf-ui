@@ -11,7 +11,7 @@ that behavior reach the OSF UI runtime and authoring tools.
 ## Delete the isolated implementations
 
 - Delete `frontend/src/compat/v1/` and its focused frontend tests.
-- Delete `src/compat/v1/` and `tests/native/v1_*`.
+- Delete `src/Compat/V1/` and `tests/native/v1_*`.
 
 ## Remove shared bridge helper composition and navigation selection
 
@@ -24,7 +24,7 @@ that behavior reach the OSF UI runtime and authoring tools.
   `packages/cli/src/shared-assets.mjs`: stop composing or selecting the
   packaged v1 façade; regenerate `packages/cli/assets/osfui.js` from the strict
   shared bridge helper.
-- `src/render/WebView2HostWebRenderer.cpp`: remove `legacyApi` from
+- `src/Render/WebView2HostWebRenderer.cpp`: remove `legacyApi` from
   `NavigateMsg` and `ViewRec`.
 - `tools/webview2_host/HostApp.cpp` and `GameMessages.inl`: remove the v1
   navigation include and `WithLegacyApiQuery` call.
@@ -33,24 +33,24 @@ that behavior reach the OSF UI runtime and authoring tools.
 
 ## Remove the native ABI adapter
 
-- `src/api/Exports.cpp`: remove ABI-major 1 dispatch; leave ABI 2.x dispatch
+- `src/API/Exports.cpp`: remove ABI-major 1 dispatch; leave ABI 2.x dispatch
   and unrelated-major refusal intact.
-- `src/api/BridgeApi.{h,cpp}`: remove the legacy command/request registries,
+- `src/API/BridgeApi.{h,cpp}`: remove the legacy command/request registries,
   pending unregister queues, `RegisterLegacy*` methods, `LegacyCaller` ledger,
   legacy request marker, and v1 typed-reply wrapper. Keep the strict
   `RegisterSend`/`RegisterRequest` paths unchanged.
-- `src/runtime/MessageBridge.{h,cpp}`: remove `RegisterLegacyCommand`, the
+- `src/Bridge/MessageBridge.{h,cpp}`: remove `RegisterLegacyCommand`, the
   legacy command map, request-ID injection/auto-ack branches (including the
   legacy-view-only request-to-strict-send branch), `Gate::legacyApi`,
   `IsLegacyApiView`, and the extra `OnViewCreated` argument.
-- `src/runtime/Runtime.cpp`: remove the three legacy flags passed to
+- `src/Runtime/Runtime.cpp`: remove the three legacy flags passed to
   `OnViewCreated`.
 
 ## Remove the Papyrus adapter
 
-- `src/api/PapyrusApi.cpp`: remove `Compat::V1::Papyrus::BindNatives` and the
+- `src/API/PapyrusApi.cpp`: remove `Compat::V1::Papyrus::BindNatives` and the
   three narrow `RegisterLegacyAction*` / `SerializeFormForLegacyPush` hooks.
-- `src/runtime/Runtime.cpp`: remove the `DrainPushes` block that emits
+- `src/Runtime/Runtime.cpp`: remove the `DrainPushes` block that emits
   `data.push`.
 - `data/Scripts/Source/OSFUI.psc`: delete the six declarations marked
   `DEPRECATED 1.x compatibility`, then rebuild the shipped PEX.
@@ -65,7 +65,7 @@ that behavior reach the OSF UI runtime and authoring tools.
 - `packages/cli/src/config.mjs` must reject pre-2.0 projects again; remove
   `isPre2Target`, its warning, and the legacy toolchain/navigation tests. New
   scaffolds and published typings already remain 2.0-only.
-- `src/runtime/RuntimeHealthCoordinator.{h,cpp}` and
+- `src/Runtime/RuntimeHealthCoordinator.{h,cpp}` and
   `HealthReconciler.{h,cpp}`: remove the legacy ABI/Papyrus warning
   producers and compatibility-log ledger. Keep genuinely unsupported ABI-major
   reporting.

@@ -13,10 +13,10 @@
 // `_subscribers` set is gone with the read that used to fill it.
 // Assert-style; process exit code is the failure count.
 
-#include "runtime/HealthRegistry.h"
-#include "runtime/MessageBridge.h"
+#include "Diagnostics/HealthRegistry.h"
+#include "Bridge/MessageBridge.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace
@@ -120,7 +120,7 @@ namespace
 	}
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub, as in the other
+// Core/Log.h declarations (real impl pulls game deps — stub, as in the other
 // suites).
 namespace OSFUI::Log
 {

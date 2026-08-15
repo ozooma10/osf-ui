@@ -1,4 +1,4 @@
-#include "input/GamepadNavigation.h"
+#include "Input/GamepadNavigation.h"
 
 #include <cassert>
 #include <iostream>

@@ -52,7 +52,7 @@ async function projectFixture(t) {
 test('toolchain metadata and packaged helper match the runtime API', async () => {
   const constants = await import('../src/constants.mjs');
   const versionHeader = await readFile(
-    resolve(import.meta.dirname, '../../../src/core/Version.h'),
+    resolve(import.meta.dirname, '../../../src/Core/Version.h'),
     'utf8',
   );
   assert.equal(

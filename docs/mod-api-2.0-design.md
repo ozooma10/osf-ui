@@ -23,7 +23,7 @@ in 1.x traces back to not answering two questions consistently:
 1. **Does the caller need a completion?** This produced the send/emit and
    request/call aliases, command auto-acks, the injected `requestId` in plugin
    command payloads, and the helper's "foreign ack" heuristic
-   (`frontend/src/shared-kit/osfui.js`, `src/api/BridgeApi.cpp`).
+   (`frontend/src/shared-kit/osfui.js`, `src/API/BridgeApi.cpp`).
 2. **What happens on F5?** This produced the `data.push` vs `data.state`
    split, the "fire a `ready` action so the script re-pushes" convention, and
    the blank-after-reload bug class in consumers.
@@ -153,7 +153,7 @@ native → web:   { kind: "reply" | "error",   id: string,   payload: {} | { cod
   uses the same strict `RegisterSend` / `RegisterRequest` split. Routing fields
   are never injected into payloads and no acknowledgement is fabricated.
 - Name grammar keeps today's structural partition
-  (`src/api/BridgeApi.cpp` `IsValidPluginCommand`): platform endpoints are
+  (`src/API/BridgeApi.cpp` `IsValidPluginCommand`): platform endpoints are
   undotted or `osfui.*`; mod endpoints are `<author>.<modname>.<name>`.
   Collision-proof without a registry.
 
@@ -212,7 +212,7 @@ The two new entries close real gaps:
   changes over time is state, not something the view must remember to
   re-request. Requests stay reserved for on-demand reads and mutations.
 
-Retained-state mechanics carry over from 1.5 (`src/api/PapyrusApi.cpp`):
+Retained-state mechanics carry over from 1.5 (`src/API/PapyrusApi.cpp`):
 per-`mod\nkey` latest-wins cache, case-insensitive keys, bounded entry count,
 main-thread form serialization with `null` slot-keeping. The `SetViewForms`
 path means form identity payloads survive the removal of `PushFormsToView`.
@@ -278,7 +278,7 @@ fixed-target shell endpoints.
   section). Dropping is correct (executing a mutation whose kind the caller
   got wrong invites worse bugs); dropping *silently* is not.
 - Late or duplicate replies after settlement are ignored (the OSF UI runtime
-  already did this correctly in the 1.7 release, in `src/api/BridgeApi.cpp`).
+  already did this correctly in the 1.7 release, in `src/API/BridgeApi.cpp`).
 - Handlers respond or reject exactly once; sends can never be awaited.
 
 ## DevTools: F12 Chromium DevTools is the debugging destination
@@ -359,7 +359,7 @@ constraints that plan must honor:
 - The native ABI makes a deliberate 2.0 break: `RegisterSend` replaces
   `RegisterCommand`, `SetViewState` is baseline, and during 2.0.x ABI 1.x
   callers receive the isolated frozen 1.8 adapter plus a bounded local warning
-  naming the outdated DLL (`src/api/Exports.cpp`). Future 2.x additions remain
+  naming the outdated DLL (`src/API/Exports.cpp`). Future 2.x additions remain
   append-only; unrelated ABI majors receive `nullptr`.
 
 ## Open questions

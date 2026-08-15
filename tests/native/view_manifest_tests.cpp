@@ -1,6 +1,6 @@
-#include "runtime/ViewManifest.h"
+#include "Views/ViewManifest.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include <cassert>
 #include <fstream>
 #include <iostream>

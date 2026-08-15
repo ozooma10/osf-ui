@@ -33,7 +33,7 @@
 #include <nlohmann/json.hpp>
 
 #include "Wv2Protocol.h"  // kDefaultLogicalHeight
-#include "runtime/Json.h"
+#include "Core/Json.h"
 
 namespace osfui::wv2::msg
 {
@@ -276,7 +276,7 @@ namespace osfui::wv2::msg
 	struct AccelState
 	{
 		static constexpr std::string_view kType = "accelState";
-		// Physical SCAN codes (DIK convention, input/ScanCode.h) since protocol
+		// Physical SCAN codes (DIK convention, Input/ScanCode.h) since protocol
 		// 6 — the host matches framework-owned keys on them.
 		std::uint32_t toggleScan{ 0 };
 		bool          captured{ false };

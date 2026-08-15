@@ -12,8 +12,8 @@
  *   - docs/authoring-views.md          (prose reference)
  *   - docs/mod-api-2.0-migration.md    (what changed, and why)
  *   - docs/schema/*.schema.json        (manifest + settings-schema validation)
- *   - src/core/Version.h               (kBridgeProtocolVersion)
- *   - src/runtime/MessageBridge.cpp    (envelopes + dispatch)
+ *   - src/Core/Version.h               (kBridgeProtocolVersion)
+ *   - src/Bridge/MessageBridge.cpp    (envelopes + dispatch)
  *   - SFSE/Plugins/OSFUI/views/shared/osfui.js (the shipped JS helper)
  *
  * Usage: this is an ambient declaration file — drop it into your view project

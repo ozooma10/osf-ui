@@ -30,7 +30,7 @@ namespace osfui::wv2
 	// connected-but-stalled or impersonating browser host a terminal recoverable failure.
 	// v5: game-directed, best-effort suspension for idle hidden views.
 	// v6: physical key identity — `accelerator` messages carry `scan` (DIK
-	// convention, input/ScanCode.h) alongside `vk`, and accelState's
+	// convention, Input/ScanCode.h) alongside `vk`, and accelState's
 	// toggleVk/captureUpVk become toggleScan/captureUpScan.
 	inline constexpr std::uint32_t kBrowserHostProtocolVersion = 6;
 

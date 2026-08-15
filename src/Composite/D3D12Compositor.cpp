@@ -1,0 +1,1021 @@
+#include "Composite/D3D12Compositor.h"
+
+#include "Composite/EngineD3D12.h"
+#include "Composite/SeamTargetFormat.h"
+#include "Core/Log.h"
+
+#include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
+
+#include <d3dcompiler.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <iterator>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
+
+#include "Win32Util.h"
+
+namespace OSFUI
+{
+	namespace
+	{
+
+		using osfui::win32::SafeRelease;
+
+		// Fullscreen triangle from SV_VertexID (no vertex buffer). UV (0,0) is
+		// the top-left so the texture's row 0 lands at the top of the screen.
+		constexpr const char* kVertexShader = R"(
+struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+VSOut main(uint id : SV_VertexID) {
+    VSOut o;
+    o.uv  = float2((id << 1) & 2, id & 2);
+    o.pos = float4(o.uv.x * 2.0 - 1.0, 1.0 - o.uv.y * 2.0, 0.0, 1.0);
+    return o;
+}
+)";
+
+		// The overlay texture is BGRA8 premultiplied alpha. Sample straight
+		// through; the premultiplied-over blend is configured in the PSO.
+		constexpr const char* kPixelShader = R"(
+Texture2D    gTex : register(t0);
+SamplerState gSmp : register(s0);
+float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
+    return gTex.Sample(gSmp, uv);
+}
+)";
+
+
+		std::atomic<void*> g_overlay{ nullptr };  // D3D12Compositor::Impl*
+
+		// Bridge for the seam-draw hook: Impl is private to the class, so the
+		// free function RecordSeamOverlayDraw goes through a pointer that only
+		// Impl (which can name itself) installs at setup.
+		using SeamDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool);
+		std::atomic<SeamDrawFn> g_seamDrawFn{ nullptr };
+
+		using ExecuteCommandListsFn = void (STDMETHODCALLTYPE*)(
+			ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
+		using QueueExecutedFn = void (*)(
+			ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
+		std::atomic<ExecuteCommandListsFn> g_origExecuteCommandLists{ nullptr };
+		std::atomic<QueueExecutedFn> g_queueExecutedFn{ nullptr };
+		constexpr std::size_t kExecuteCommandListsSlot = 10;
+
+		void STDMETHODCALLTYPE ExecuteCommandListsThunk(
+			ID3D12CommandQueue* a_queue,
+			const UINT a_count,
+			ID3D12CommandList* const* a_lists)
+		{
+			// Forward first. Consume fences must be queued after the command
+			// lists that actually sampled their shared texture.
+			if (const auto original = g_origExecuteCommandLists.load(std::memory_order_acquire)) {
+				original(a_queue, a_count, a_lists);
+			}
+			if (const auto notify = g_queueExecutedFn.load(std::memory_order_acquire)) {
+				notify(a_queue, a_count, a_lists);
+			}
+		}
+
+		[[nodiscard]] ID3DBlob* CompileShader(const char* a_src, const char* a_entry, const char* a_target)
+		{
+			ID3DBlob* code = nullptr;
+			ID3DBlob* errors = nullptr;
+			const auto hr = ::D3DCompile(a_src, std::strlen(a_src), nullptr, nullptr, nullptr,
+				a_entry, a_target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
+			if (FAILED(hr)) {
+				REX::ERROR("D3D12Compositor: shader '{}' compile failed (hr=0x{:08X}): {}",
+					a_target, static_cast<std::uint32_t>(hr),
+					errors ? static_cast<const char*>(errors->GetBufferPointer()) : "no message");
+			}
+			SafeRelease(errors);
+			return code;
+		}
+	}
+
+	struct D3D12Compositor::Impl
+	{
+		EngineD3D12   engine{};
+		std::atomic_bool visible{ false };
+
+		// The seam's UI target is the authoritative output size.
+		OutputResizeCallback onOutputResize;
+		std::uint32_t        notifiedOutputW{ 0 };
+		std::uint32_t        notifiedOutputH{ 0 };
+		std::mutex           outputMutex;
+		std::atomic_bool     outputSizeKnown{ false };
+
+		bool setupAttempted{ false };
+		bool setupOk{ false };
+
+		// GPU shared-ring transport (out-of-process browser host). SetSharedRing
+		// (game thread) parks the announced ring here; Submit adopts it once the
+		// engine device has been located. The compositor owns the handles from
+		// SetSharedRing on.
+		//
+		// All GPU work happens at the engine seam. ringMutex guards the opened
+		// ring between Submit (adoption) and the seam render workers (sampling).
+		std::atomic<bool> seamActive{ false };
+		std::mutex        ringMutex;
+		// One descriptor is enough: the whole create-and-bind sequence runs
+		// under ringMutex, and OMSetRenderTargets snapshots the CPU descriptor
+		// at record time, so it is free for reuse the moment the call returns.
+		ID3D12DescriptorHeap* seamRtvHeap{ nullptr };  // typed RTV onto the engine's (typeless) UI buffers
+		struct PendingConsume
+		{
+			ID3D12Fence* fence{ nullptr };
+			std::uint64_t serial{ 0 };
+		};
+		// A consume is acknowledged only by the queue hook, after the engine
+		// submits the command list containing our draw.
+		std::mutex pendingConsumeMutex;
+		std::unordered_map<ID3D12CommandList*, PendingConsume> pendingConsumes;
+		std::atomic_bool consumeSignalFailureLogged{ false };
+		bool gpuIdleFailureLogged{ false };
+		std::atomic<std::uint64_t> seamDraws{ 0 };
+		std::atomic<std::uint64_t> seamDrawsFgTarget{ 0 };  // diagnostics
+		bool          noSharedFrameLogged{ false };  // ringMutex
+		// Newest slot whose produce fence is CPU-verified complete. The seam
+		// cannot queue-wait on the browser host's fence (not our queue), and skipping
+		// incomplete frames flickers under rapid production (mouse-move
+		// repaints, 2026-07-21) — so an incomplete newest frame falls back to
+		// this one instead: one frame stale, never absent.
+		std::uint32_t seamReadySlot{ 0 };    // ringMutex
+		std::uint64_t seamReadySerial{ 0 };  // ringMutex
+		// The previous ring generation is retired, not released, on adoption:
+		// seam draws live inside ENGINE command lists that our idle fence
+		// cannot cover, so the old textures must outlive one more adoption.
+		ID3D12Resource* retiredSlots[SharedRingDesc::kMaxSlots]{};
+		ID3D12Fence*    retiredProduce{ nullptr };
+		ID3D12Fence*    retiredConsume{ nullptr };
+
+		std::mutex     sharedMutex;
+		SharedRingDesc sharedPending{};
+		bool           sharedDirty{ false };
+		// Opened on the engine device and guarded by ringMutex:
+		ID3D12Resource* sharedSlots[SharedRingDesc::kMaxSlots]{};
+		std::uint32_t   sharedSlotCount{ 0 };
+		ID3D12Fence*    sharedProduce{ nullptr };
+		ID3D12Fence*    sharedConsume{ nullptr };
+		std::uint64_t   sharedGeneration{ 0 };
+		bool            sharedOpenFailed{ false };
+		// Latest published ring frame (guarded by frameMutex). sharedFrameReady
+		// stays false until the browser host has submitted its first shared-slot frame.
+		std::mutex    frameMutex;
+		std::uint64_t lastSubmittedIndex{ 0 };
+		bool          sharedFrameReady{ false };
+		std::uint32_t gpuSlot{ 0 };
+		std::uint64_t gpuSerial{ 0 };
+
+		// Shared GPU objects, created once.
+		ID3D12Fence*          fence{ nullptr };
+		HANDLE                fenceEvent{ nullptr };
+		std::uint64_t         nextFenceValue{ 1 };
+		ID3D12RootSignature*  rootSig{ nullptr };
+		// Starfield uses RGBA8; Luma upgrades the same UI target to RGBA16F. PSO
+		// RTV formats are immutable, so keep one lazy pipeline for each supported
+		// target rather than attempting an invalid cross-format bind.
+		struct SeamPipeline
+		{
+			DXGI_FORMAT format{ DXGI_FORMAT_UNKNOWN };
+			ID3D12PipelineState* state{ nullptr };
+			bool failed{ false };
+		};
+		SeamPipeline seamPipelines[2]{
+			{ DXGI_FORMAT_R8G8B8A8_UNORM },
+			{ DXGI_FORMAT_R16G16B16A16_FLOAT },
+		};
+		// shader-visible: slot 0 unused, 1..kMaxSlots = shared ring
+		ID3D12DescriptorHeap* srvHeap{ nullptr };
+		std::uint32_t         srvStride{ 0 };
+		ID3DBlob*             vsBlob{ nullptr };
+		ID3DBlob*             psBlob{ nullptr };
+
+		// The seam reports whether this render region contains the transparent
+		// RT->COPY_SOURCE hand-off used by Frame Generation. The previous region's
+		// observation selects the safe target at the start of the next region.
+		std::atomic_bool frameGenActiveSignal{ false };
+		std::atomic_bool seamRegionSawFgTarget{ false };
+		std::atomic_bool seamClassificationKnown{ false };
+		std::atomic_bool seamFgLayerOnlyLogged{ false };
+
+		~Impl()
+		{
+			g_queueExecutedFn.store(nullptr, std::memory_order_release);
+			g_seamDrawFn.store(nullptr, std::memory_order_release);
+			g_overlay.store(nullptr, std::memory_order_release);
+			const bool gpuIdle = WaitForGpuIdle();
+			const bool hasUnsubmittedDraws = HasPendingConsumes();
+			if (gpuIdle && !hasUnsubmittedDraws) {
+				ReleaseSharedRing();
+			} else {
+				REX::ERROR("D3D12Compositor: retaining GPU objects during shutdown because "
+						   "recorded overlay work could not be proven idle");
+			}
+			ReleasePendingConsumes();
+			{
+				std::scoped_lock lk(sharedMutex);
+				if (sharedDirty) {
+					CloseRingHandles(sharedPending);
+					sharedDirty = false;
+				}
+			}
+			if (gpuIdle && !hasUnsubmittedDraws) {
+				for (auto& pipeline : seamPipelines) {
+					SafeRelease(pipeline.state);
+				}
+				SafeRelease(rootSig);
+				SafeRelease(srvHeap);
+				SafeRelease(seamRtvHeap);
+				SafeRelease(vsBlob);
+				SafeRelease(psBlob);
+				SafeRelease(fence);
+				if (fenceEvent) {
+					::CloseHandle(fenceEvent);
+				}
+				SafeRelease(engine.directQueue);
+				SafeRelease(engine.device);
+			}
+		}
+
+		[[nodiscard]] CompositorStatus GetStatus() const
+		{
+			return {
+				.seamActive = seamActive.load(std::memory_order_relaxed),
+				.frameGeneration = frameGenActiveSignal.load(std::memory_order_relaxed),
+			};
+		}
+
+		// Drain the engine's DIRECT queue up to this point. We submit no work of
+		// our own any more, but seam draws ride ENGINE command lists on this
+		// queue, so this is what makes retiring a ring generation safe.
+		[[nodiscard]] bool WaitForGpuIdle()
+		{
+			if (!fence || !fenceEvent || !engine.directQueue) {
+				return true;
+			}
+			const auto value = nextFenceValue++;
+			HRESULT hr = engine.directQueue->Signal(fence, value);
+			if (SUCCEEDED(hr) && fence->GetCompletedValue() < value) {
+				hr = fence->SetEventOnCompletion(value, fenceEvent);
+				if (SUCCEEDED(hr) && ::WaitForSingleObject(fenceEvent, 2000) == WAIT_OBJECT_0) {
+					return fence->GetCompletedValue() >= value;
+				}
+			} else if (SUCCEEDED(hr)) {
+				return true;
+			}
+			if (!gpuIdleFailureLogged) {
+				gpuIdleFailureLogged = true;
+				REX::ERROR("D3D12Compositor: GPU idle wait failed or timed out (hr=0x{:08X}); "
+						   "ring retirement is deferred",
+					static_cast<std::uint32_t>(hr));
+			}
+			return false;
+		}
+
+		static void CloseRingHandles(SharedRingDesc& a_desc)
+		{
+			for (auto*& handle : a_desc.slotHandles) {
+				if (handle) {
+					::CloseHandle(handle);
+					handle = nullptr;
+				}
+			}
+			if (a_desc.produceFence) {
+				::CloseHandle(a_desc.produceFence);
+				a_desc.produceFence = nullptr;
+			}
+			if (a_desc.consumeFence) {
+				::CloseHandle(a_desc.consumeFence);
+				a_desc.consumeFence = nullptr;
+			}
+		}
+
+		// Adoption path: previous generation moves to the retirement slots
+		// (freeing whatever was retired before), so engine lists recorded just
+		// before a re-announce still reference live textures.
+		void RetireSharedRing()
+		{
+			for (auto*& slot : retiredSlots) {
+				SafeRelease(slot);
+			}
+			SafeRelease(retiredProduce);
+			SafeRelease(retiredConsume);
+			for (std::size_t i = 0; i < SharedRingDesc::kMaxSlots; ++i) {
+				retiredSlots[i] = sharedSlots[i];
+				sharedSlots[i] = nullptr;
+			}
+			retiredProduce = sharedProduce;
+			sharedProduce = nullptr;
+			retiredConsume = sharedConsume;
+			sharedConsume = nullptr;
+			sharedSlotCount = 0;
+			seamReadySlot = 0;  // slots of the old generation are gone
+			seamReadySerial = 0;
+		}
+
+		void ReleaseSharedRing()
+		{
+			for (auto*& slot : retiredSlots) {
+				SafeRelease(slot);
+			}
+			SafeRelease(retiredProduce);
+			SafeRelease(retiredConsume);
+			for (auto*& slot : sharedSlots) {
+				SafeRelease(slot);
+			}
+			sharedSlotCount = 0;
+			SafeRelease(sharedProduce);
+			SafeRelease(sharedConsume);
+		}
+
+		// Game thread. The compositor owns the handles from here on.
+		void SetSharedRing(const SharedRingDesc& a_desc)
+		{
+			std::scoped_lock lk(sharedMutex);
+			if (sharedDirty) {
+				CloseRingHandles(sharedPending);  // superseded before adoption
+			}
+			sharedPending = a_desc;
+			sharedDirty = true;
+			sharedOpenFailed = false;
+		}
+
+		void TrackConsume(
+			ID3D12GraphicsCommandList* a_list,
+			ID3D12Fence* a_consumeFence,
+			const std::uint64_t a_serial)
+		{
+			if (!a_list || !a_consumeFence || a_serial == 0) {
+				return;
+			}
+			std::scoped_lock lk(pendingConsumeMutex);
+			auto [it, inserted] = pendingConsumes.try_emplace(a_list);
+			auto& pending = it->second;
+			if (inserted || pending.fence != a_consumeFence) {
+				a_consumeFence->AddRef();
+				SafeRelease(pending.fence);
+				pending.fence = a_consumeFence;
+			}
+			pending.serial = (std::max)(pending.serial, a_serial);
+		}
+
+		[[nodiscard]] bool HasPendingConsumes()
+		{
+			std::scoped_lock lk(pendingConsumeMutex);
+			return !pendingConsumes.empty();
+		}
+
+		void ReleasePendingConsumes()
+		{
+			std::scoped_lock lk(pendingConsumeMutex);
+			for (auto& [list, pending] : pendingConsumes) {
+				(void)list;
+				SafeRelease(pending.fence);
+			}
+			pendingConsumes.clear();
+		}
+
+		void OnCommandListsExecuted(
+			ID3D12CommandQueue* a_queue,
+			const UINT a_count,
+			ID3D12CommandList* const* a_lists)
+		{
+			if (!a_queue || !a_lists) {
+				return;
+			}
+			std::vector<PendingConsume> completed;
+			{
+				std::scoped_lock lk(pendingConsumeMutex);
+				for (UINT i = 0; i < a_count; ++i) {
+					const auto it = pendingConsumes.find(a_lists[i]);
+					if (it != pendingConsumes.end()) {
+						completed.push_back(it->second);
+						pendingConsumes.erase(it);
+					}
+				}
+			}
+			// One ExecuteCommandLists call completes the whole batch before
+			// these signals. Coalesce by fence so values never move backwards.
+			std::unordered_map<ID3D12Fence*, std::uint64_t> signals;
+			for (const auto& pending : completed) {
+				auto& value = signals[pending.fence];
+				value = (std::max)(value, pending.serial);
+			}
+			for (const auto& [consumeFence, serial] : signals) {
+				const auto hr = a_queue->Signal(consumeFence, serial);
+				if (FAILED(hr) &&
+					!consumeSignalFailureLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::ERROR("D3D12Compositor: queue-ordered consume-fence signal failed "
+							   "(hr=0x{:08X}); the browser host will drop frames instead of reusing a busy slot",
+						static_cast<std::uint32_t>(hr));
+				}
+			}
+			for (auto& pending : completed) {
+				SafeRelease(pending.fence);
+			}
+		}
+
+		static void QueueExecutedThunk(
+			ID3D12CommandQueue* a_queue,
+			const UINT a_count,
+			ID3D12CommandList* const* a_lists)
+		{
+			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
+			if (self) {
+				self->OnCommandListsExecuted(a_queue, a_count, a_lists);
+			}
+		}
+
+		[[nodiscard]] bool InstallQueueHook()
+		{
+			auto** vtable = *reinterpret_cast<void***>(engine.directQueue);
+			auto** slot = &vtable[kExecuteCommandListsSlot];
+			const auto current = reinterpret_cast<ExecuteCommandListsFn>(*slot);
+			if (current == &ExecuteCommandListsThunk) {
+				return g_origExecuteCommandLists.load(std::memory_order_acquire) != nullptr;
+			}
+			if (g_origExecuteCommandLists.load(std::memory_order_acquire) != nullptr) {
+				REX::ERROR("D3D12Compositor: ExecuteCommandLists hook state conflicts with "
+						   "the engine queue; overlay disabled");
+				return false;
+			}
+			DWORD oldProtect = 0;
+			if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) {
+				REX::ERROR("D3D12Compositor: could not make the command-queue vtable writable; "
+						   "overlay disabled");
+				return false;
+			}
+			g_origExecuteCommandLists.store(current, std::memory_order_release);
+			*slot = reinterpret_cast<void*>(&ExecuteCommandListsThunk);
+			DWORD ignored = 0;
+			if (!::VirtualProtect(slot, sizeof(void*), oldProtect, &ignored)) {
+				REX::WARN("D3D12Compositor: command-queue vtable protection could not be restored");
+			}
+			return true;
+		}
+
+		// Submit/tick thread: adopt the latest announced ring. Returns true when a
+		// usable ring is open.
+		[[nodiscard]] bool EnsureSharedRing()
+		{
+			SharedRingDesc pending{};
+			{
+				std::scoped_lock lk(sharedMutex);
+				if (!sharedDirty) {
+					std::scoped_lock ring(ringMutex);
+					return sharedSlots[0] != nullptr && !sharedOpenFailed;
+				}
+				pending = sharedPending;
+				sharedPending = {};
+				sharedDirty = false;
+			}
+			// Hold the draw lock across the pending-list check and queue drain.
+			// That closes the window where a render worker could record another
+			// old-ring draw after the idle fence had already been queued.
+			std::scoped_lock ring(ringMutex);
+			const auto deferAdoption = [&]() {
+				std::scoped_lock lk(sharedMutex);
+				if (sharedDirty) {
+					CloseRingHandles(pending);  // a newer announcement superseded this one
+				} else {
+					sharedPending = pending;
+					pending = {};
+					sharedDirty = true;
+				}
+				return sharedSlots[0] != nullptr && !sharedOpenFailed;
+			};
+			if (HasPendingConsumes()) {
+				return deferAdoption();
+			}
+			// Old slots may still be referenced by in-flight ENGINE lists
+			// carrying seam draws. A failed drain must keep this generation
+			// alive; it is never treated as a successful timeout.
+			if (!WaitForGpuIdle()) {
+				return deferAdoption();
+			}
+			RetireSharedRing();
+
+			auto* dev = engine.device;
+			bool ok = pending.slotCount > 0 &&
+			          pending.slotCount <= SharedRingDesc::kMaxSlots;
+			HRESULT openHr = ok ? S_OK : E_INVALIDARG;
+			const char* openObject = "ring metadata";
+			int openSlot = -1;
+			for (std::size_t i = 0; ok && i < pending.slotCount; ++i) {
+				openObject = "texture";
+				openSlot = static_cast<int>(i);
+				if (!pending.slotHandles[i]) {
+					openHr = E_HANDLE;
+					ok = false;
+				} else {
+					openHr = dev->OpenSharedHandle(pending.slotHandles[i],
+						__uuidof(ID3D12Resource), reinterpret_cast<void**>(&sharedSlots[i]));
+					ok = SUCCEEDED(openHr);
+				}
+			}
+			if (ok) {
+				openObject = "produce fence";
+				openSlot = -1;
+				openHr = pending.produceFence ? dev->OpenSharedHandle(pending.produceFence,
+					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedProduce)) : E_HANDLE;
+				ok = SUCCEEDED(openHr);
+			}
+			if (ok) {
+				openObject = "consume fence";
+				openHr = pending.consumeFence ? dev->OpenSharedHandle(pending.consumeFence,
+					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedConsume)) : E_HANDLE;
+				ok = SUCCEEDED(openHr);
+			}
+			CloseRingHandles(pending);
+			if (!ok) {
+				const auto gameLuid = dev->GetAdapterLuid();
+				REX::ERROR("D3D12Compositor: OpenSharedHandle failed for {} (slot {}, hr=0x{:08X}); "
+					"game adapter LUID 0x{:08X}:0x{:08X}, browser-host adapter LUID 0x{:08X}:0x{:08X} — "
+					"GPU frames from the browser host cannot be composited",
+					openObject, openSlot, static_cast<std::uint32_t>(openHr),
+					static_cast<std::uint32_t>(gameLuid.HighPart), gameLuid.LowPart,
+					pending.adapterLuidHigh, pending.adapterLuidLow);
+				ReleaseSharedRing();
+				sharedOpenFailed = true;
+				return false;
+			}
+			sharedOpenFailed = false;
+			sharedGeneration = pending.generation;
+			sharedSlotCount = pending.slotCount;
+			for (std::uint32_t i = 0; i < sharedSlotCount; ++i) {
+				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+				srv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+				srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+				srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				srv.Texture2D.MipLevels = 1;
+				const D3D12_CPU_DESCRIPTOR_HANDLE handle{
+					srvHeap->GetCPUDescriptorHandleForHeapStart().ptr +
+					static_cast<SIZE_T>(1 + i) * srvStride
+				};
+				dev->CreateShaderResourceView(sharedSlots[i], &srv, handle);
+			}
+			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, {} slots, generation {})",
+				pending.width, pending.height, sharedSlotCount, pending.generation);
+			return true;
+		}
+
+		// Setup, on the Submit / tick thread.
+		void EnsureSetup()
+		{
+			if (setupAttempted) {
+				return;
+			}
+			setupAttempted = true;
+
+			engine = LocateEngineD3D12();
+			if (!engine) {
+				REX::ERROR("D3D12Compositor: could not locate the engine device/queue; overlay disabled "
+					"(see reverse-engineering-notes.md §2)");
+				return;
+			}
+
+			if (!CreateSharedObjects()) {
+				REX::ERROR("D3D12Compositor: setup failed; overlay disabled this session");
+				return;
+			}
+
+			g_overlay.store(this, std::memory_order_release);
+			g_queueExecutedFn.store(&Impl::QueueExecutedThunk, std::memory_order_release);
+			if (!InstallQueueHook()) {
+				g_queueExecutedFn.store(nullptr, std::memory_order_release);
+				g_overlay.store(nullptr, std::memory_order_release);
+				REX::ERROR("D3D12Compositor: setup failed; overlay disabled this session");
+				return;
+			}
+			g_seamDrawFn.store(&Impl::SeamDrawThunk, std::memory_order_release);
+			setupOk = true;
+			REX::INFO("D3D12Compositor: seam-only overlay armed (no IDXGISwapChain::Present hook)");
+		}
+
+		void ObserveSeamOutputSize(const D3D12_RESOURCE_DESC& a_desc)
+		{
+			const auto width = static_cast<std::uint32_t>((std::min)(a_desc.Width,
+				static_cast<std::uint64_t>(UINT32_MAX)));
+			const auto height = a_desc.Height;
+			OutputResizeCallback callback;
+			{
+				std::scoped_lock lk(outputMutex);
+				const bool changed = width != 0 && height != 0 &&
+					(width != notifiedOutputW || height != notifiedOutputH);
+				if (changed) {
+					notifiedOutputW = width;
+					notifiedOutputH = height;
+					callback = onOutputResize;
+				}
+			}
+			if (callback) {
+				callback(width, height);
+				outputSizeKnown.store(true, std::memory_order_release);
+			}
+		}
+
+		[[nodiscard]] bool CreateSharedObjects()
+		{
+			auto* dev = engine.device;
+
+			if (FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), reinterpret_cast<void**>(&fence)))) {
+				REX::ERROR("D3D12Compositor: CreateFence failed");
+				return false;
+			}
+			fenceEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+			if (!fenceEvent) {
+				REX::ERROR("D3D12Compositor: CreateEvent failed");
+				return false;
+			}
+
+			// Root signature: 1 SRV table (t0) + 1 static linear-clamp sampler.
+			D3D12_DESCRIPTOR_RANGE range{};
+			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+			range.NumDescriptors = 1;
+			range.BaseShaderRegister = 0;
+			range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+			D3D12_ROOT_PARAMETER param{};
+			param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+			param.DescriptorTable.NumDescriptorRanges = 1;
+			param.DescriptorTable.pDescriptorRanges = &range;
+			param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+			D3D12_STATIC_SAMPLER_DESC sampler{};
+			sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+			sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+			sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+			sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+			sampler.MaxLOD = D3D12_FLOAT32_MAX;
+			sampler.ShaderRegister = 0;
+			sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+			D3D12_ROOT_SIGNATURE_DESC rsDesc{};
+			rsDesc.NumParameters = 1;
+			rsDesc.pParameters = &param;
+			rsDesc.NumStaticSamplers = 1;
+			rsDesc.pStaticSamplers = &sampler;
+			rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+			ID3DBlob* rsBlob = nullptr;
+			ID3DBlob* rsError = nullptr;
+			if (FAILED(::D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsError))) {
+				REX::ERROR("D3D12Compositor: SerializeRootSignature failed: {}",
+					rsError ? static_cast<const char*>(rsError->GetBufferPointer()) : "no message");
+				SafeRelease(rsBlob);
+				SafeRelease(rsError);
+				return false;
+			}
+			const auto rsHr = dev->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(),
+				__uuidof(ID3D12RootSignature), reinterpret_cast<void**>(&rootSig));
+			SafeRelease(rsBlob);
+			SafeRelease(rsError);
+			if (FAILED(rsHr)) {
+				REX::ERROR("D3D12Compositor: CreateRootSignature failed");
+				return false;
+			}
+
+			vsBlob = CompileShader(kVertexShader, "main", "vs_5_0");
+			psBlob = CompileShader(kPixelShader, "main", "ps_5_0");
+			if (!vsBlob || !psBlob) {
+				return false;
+			}
+
+			// Descriptor heaps. SRV slot 0 is left unused (it held the retired
+			// CPU-upload overlay texture); slots 1..kMaxSlots hold the
+			// shared-ring textures.
+			D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
+			srvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+			srvDesc.NumDescriptors = 1 + SharedRingDesc::kMaxSlots;
+			srvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+			if (FAILED(dev->CreateDescriptorHeap(&srvDesc, __uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&srvHeap)))) {
+				REX::ERROR("D3D12Compositor: CreateDescriptorHeap(SRV) failed");
+				return false;
+			}
+			srvStride = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+			// Seam-draw RTV: a typed view created per draw onto the engine's
+			// (typeless, churning) UI buffers. One descriptor suffices — the
+			// draw path is serialized under ringMutex and OMSetRenderTargets
+			// snapshots the descriptor at record time.
+			{
+				D3D12_DESCRIPTOR_HEAP_DESC heap{};
+				heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+				heap.NumDescriptors = 1;
+				if (FAILED(dev->CreateDescriptorHeap(&heap,
+						__uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&seamRtvHeap)))) {
+					REX::ERROR("D3D12Compositor: seam RTV heap creation failed");
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		// Seam draw (UiPassSeam, render worker, inside the engine's UI-buffer
+		// hand-off): record the overlay quad onto the ENGINE's list into the
+		// engine's UI buffer — upstream of Frame Generation, so both real and
+		// generated frames carry it. v1 transport: the produce fence is checked
+		// on the CPU (we cannot wait on a queue we don't control). The command
+		// queue hook signals consumption only after the exact engine command list
+		// containing this draw has been submitted.
+		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+			const bool a_fgTarget, const bool a_regionFirst)
+		{
+			if (!setupOk || !seamRtvHeap || !a_buffer) {
+				return false;
+			}
+
+			const auto desc = a_buffer->GetDesc();
+			ObserveSeamOutputSize(desc);
+
+			bool classificationKnown = seamClassificationKnown.load(std::memory_order_acquire);
+			if (a_regionFirst) {
+				const bool previousRegionHadFgTarget =
+					seamRegionSawFgTarget.exchange(false, std::memory_order_acq_rel);
+				frameGenActiveSignal.store(previousRegionHadFgTarget, std::memory_order_release);
+				classificationKnown = seamClassificationKnown.exchange(true, std::memory_order_acq_rel);
+			}
+			if (a_fgTarget) {
+				seamRegionSawFgTarget.store(true, std::memory_order_release);
+				frameGenActiveSignal.store(true, std::memory_order_release);
+			}
+
+			if (!visible.load(std::memory_order_relaxed)) {
+				return false;
+			}
+			// Until the first complete seam region establishes whether COPY_SOURCE
+			// exists, delay the ordinary target rather than risk blending twice.
+			if (!classificationKnown && !a_fgTarget) {
+				return false;
+			}
+
+			// In the FG graph the RT->pixel-SRV candidate is the already-opaque
+			// scene/composite image. Drawing there puts the overlay into the frame
+			// interpolation input, then FFX composites the transparent UI layer on
+			// top a second time. Opaque pixels hide that duplication; translucent
+			// pixels alternate between one and two blends. The COPY_SOURCE target
+			// is the actual transparent UI layer and later feeds both paths.
+			const bool fgActive = frameGenActiveSignal.load(std::memory_order_acquire);
+			if (fgActive && !a_fgTarget) {
+				if (!seamFgLayerOnlyLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::DEBUG("D3D12Compositor: FG seam uses only the transparent COPY_SOURCE UI layer");
+				}
+				return false;
+			}
+			bool ready = false;
+			std::uint32_t ringSlot = 0;
+			std::uint64_t serial = 0;
+			{
+				std::scoped_lock lk(frameMutex);
+				ready = sharedFrameReady;
+				ringSlot = gpuSlot;
+				serial = gpuSerial;
+			}
+
+			std::scoped_lock ring(ringMutex);
+			if (!ready) {
+				// Normally a brief startup transient: the overlay can be revealed
+				// on the frame the browser host publishes its first shared slot.
+				if (!noSharedFrameLogged) {
+					noSharedFrameLogged = true;
+					REX::DEBUG("D3D12Compositor: seam hand-off reached before the browser host "
+							   "published a shared-ring frame; nothing to draw yet");
+				}
+				return false;
+			}
+			// Promote the newest frame to "ready" once its produce fence has
+			// completed; an incomplete newest frame falls back to the last
+			// ready one (see seamReadySlot) instead of skipping the draw.
+			// Under FG the preceding opaque target was deliberately skipped, so
+			// the transparent target becomes the effective first draw.
+			const bool effectiveRegionFirst = a_regionFirst || (fgActive && a_fgTarget);
+			if (effectiveRegionFirst &&
+				serial != 0 && ringSlot < sharedSlotCount && sharedSlots[ringSlot] &&
+				(!sharedProduce || sharedProduce->GetCompletedValue() >= serial)) {
+				seamReadySlot = ringSlot;
+				seamReadySerial = serial;
+			}
+			if (seamReadySerial == 0 || seamReadySlot >= sharedSlotCount || !sharedSlots[seamReadySlot]) {
+				return false;  // no fully-produced frame yet this ring generation
+			}
+			ringSlot = seamReadySlot;
+			serial = seamReadySerial;
+
+			const auto rtvFormat = SeamTargetFormat::ResolveRtv(desc.Format);
+			auto* pso = EnsureSeamPipeline(rtvFormat);
+			if (!pso) {
+				return false;
+			}
+
+			const D3D12_CPU_DESCRIPTOR_HANDLE rtv = seamRtvHeap->GetCPUDescriptorHandleForHeapStart();
+			D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
+			rtvDesc.Format = rtvFormat;
+			rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+			engine.device->CreateRenderTargetView(a_buffer, &rtvDesc, rtv);
+
+			ID3D12DescriptorHeap* heaps[]{ srvHeap };
+			a_list->SetDescriptorHeaps(1, heaps);
+			a_list->SetGraphicsRootSignature(rootSig);
+			const D3D12_GPU_DESCRIPTOR_HANDLE srv{
+				srvHeap->GetGPUDescriptorHandleForHeapStart().ptr +
+				static_cast<UINT64>(1 + ringSlot) * srvStride
+			};
+			a_list->SetGraphicsRootDescriptorTable(0, srv);
+
+			const D3D12_VIEWPORT vp{ 0.0f, 0.0f, static_cast<float>(desc.Width), static_cast<float>(desc.Height), 0.0f, 1.0f };
+			const D3D12_RECT scissor{ 0, 0, static_cast<LONG>(desc.Width), static_cast<LONG>(desc.Height) };
+			a_list->RSSetViewports(1, &vp);
+			a_list->RSSetScissorRects(1, &scissor);
+			a_list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+			a_list->SetPipelineState(pso);
+			a_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			a_list->DrawInstanced(3, 1, 0, 0);
+
+			TrackConsume(a_list, sharedConsume, serial);
+			const auto drawIndex = seamDraws.fetch_add(1, std::memory_order_relaxed) + 1;
+			const auto fgIndex = a_fgTarget
+				? seamDrawsFgTarget.fetch_add(1, std::memory_order_relaxed) + 1
+				: 0;
+			// One-time log per target kind: if the FG line never appears, its
+			// hand-off is not being matched.
+			if (drawIndex == 1 || fgIndex == 1) {
+				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})",
+					a_fgTarget ? "premultiplied / FG UI input" : "premultiplied / composite input",
+					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
+					SeamTargetFormat::Name(rtvFormat),
+					reinterpret_cast<std::uintptr_t>(a_buffer));
+			}
+			return true;
+		}
+
+		static bool SeamDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+			const bool a_fgTarget, const bool a_regionFirst)
+		{
+			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
+			return self && self->RecordSeamOverlay(a_list, a_buffer, a_fgTarget, a_regionFirst);
+		}
+
+		// Get or create the PSO for the current UI target. Called under ringMutex,
+		// so the two-entry cache needs no separate synchronization.
+		[[nodiscard]] ID3D12PipelineState* EnsureSeamPipeline(
+			const DXGI_FORMAT a_rtvFormat)
+		{
+			auto* cached = std::ranges::find_if(seamPipelines,
+				[a_rtvFormat](const SeamPipeline& a_pipeline) {
+					return a_pipeline.format == a_rtvFormat;
+				});
+			if (cached == std::end(seamPipelines)) {
+				return nullptr;
+			}
+			if (cached->state || cached->failed) {
+				return cached->state;
+			}
+
+			D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+			desc.pRootSignature = rootSig;
+			desc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
+			desc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
+			desc.SampleMask = UINT_MAX;
+			desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+			desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+			desc.RasterizerState.DepthClipEnable = TRUE;
+			desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+			desc.NumRenderTargets = 1;
+			desc.RTVFormats[0] = a_rtvFormat;
+			desc.SampleDesc.Count = 1;
+
+			// Premultiplied-alpha "over" blend for BGRA browser frames, matching
+			// the engine's own UI composition (docs/seam-draw-design.md).
+			auto& rt = desc.BlendState.RenderTarget[0];
+			rt.BlendEnable = TRUE;
+			rt.SrcBlend = D3D12_BLEND_ONE;
+			rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+			rt.BlendOp = D3D12_BLEND_OP_ADD;
+			rt.SrcBlendAlpha = D3D12_BLEND_ONE;
+			rt.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+			rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+			rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+			if (FAILED(engine.device->CreateGraphicsPipelineState(&desc,
+					__uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&cached->state)))) {
+				REX::ERROR("D3D12Compositor: seam CreateGraphicsPipelineState failed for {}",
+					SeamTargetFormat::Name(a_rtvFormat));
+				cached->state = nullptr;
+				cached->failed = true;
+				return nullptr;
+			}
+			REX::INFO("D3D12Compositor: seam pipeline ready (premultiplied over, {})",
+				SeamTargetFormat::Name(a_rtvFormat));
+			return cached->state;
+		}
+
+		// Submit: just remember which ring slot/serial the seam should draw.
+		// No pixel copy — the seam samples the shared texture directly.
+		void CacheSharedFrame(const FrameBufferView& a_frame)
+		{
+			if (a_frame.frameIndex == lastSubmittedIndex) {
+				return;
+			}
+			lastSubmittedIndex = a_frame.frameIndex;
+			std::scoped_lock lk(frameMutex);
+			sharedFrameReady = true;
+			gpuSlot = a_frame.sharedSlot;
+			gpuSerial = a_frame.frameIndex;
+		}
+
+	};
+
+	D3D12Compositor::D3D12Compositor() = default;
+	D3D12Compositor::~D3D12Compositor() = default;
+
+	bool D3D12Compositor::Initialize()
+	{
+		_impl = std::make_unique<Impl>();
+		REX::INFO("D3D12Compositor: initialized (seam-only overlay; engine device/queue are set up "
+				  "on the first submitted frame)");
+		return true;
+	}
+
+
+	void D3D12Compositor::Submit(const FrameBufferView& a_frame)
+	{
+		if (!_impl) {
+			return;
+		}
+		_impl->CacheSharedFrame(a_frame);
+		_impl->EnsureSetup();
+		if (_impl->setupOk) {
+			(void)_impl->EnsureSharedRing();
+		}
+	}
+
+	void D3D12Compositor::SetSeamDrawMode(const bool a_enabled)
+	{
+		if (_impl) {
+			_impl->seamActive.store(a_enabled, std::memory_order_relaxed);
+		}
+	}
+
+	CompositorStatus D3D12Compositor::GetStatus() const
+	{
+		return _impl ? _impl->GetStatus() : CompositorStatus{};
+	}
+
+	bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+		const bool a_fgTarget, const bool a_regionFirst)
+	{
+		const auto fn = g_seamDrawFn.load(std::memory_order_acquire);
+		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_fgTarget, a_regionFirst);
+	}
+
+	void D3D12Compositor::SetSharedRing(const SharedRingDesc& a_desc)
+	{
+		if (_impl) {
+			_impl->SetSharedRing(a_desc);
+		} else {
+			// Not initialized: still own the handles — close them.
+			SharedRingDesc desc = a_desc;
+			Impl::CloseRingHandles(desc);
+		}
+	}
+
+	void D3D12Compositor::SetVisible(bool a_visible)
+	{
+		if (_impl) {
+			_impl->visible.store(a_visible, std::memory_order_relaxed);
+		}
+	}
+
+	void D3D12Compositor::SetOutputResizeCallback(OutputResizeCallback a_callback)
+	{
+		if (!_impl) {
+			return;
+		}
+		OutputResizeCallback callback;
+		std::uint32_t width = 0;
+		std::uint32_t height = 0;
+		{
+			std::scoped_lock lk(_impl->outputMutex);
+			_impl->onOutputResize = std::move(a_callback);
+			if (_impl->onOutputResize && _impl->notifiedOutputW != 0 && _impl->notifiedOutputH != 0 &&
+				!_impl->outputSizeKnown.load(std::memory_order_relaxed)) {
+				callback = _impl->onOutputResize;
+				width = _impl->notifiedOutputW;
+				height = _impl->notifiedOutputH;
+			}
+		}
+		if (callback) {
+			callback(width, height);
+			_impl->outputSizeKnown.store(true, std::memory_order_release);
+		}
+	}
+
+	bool D3D12Compositor::IsOutputSizeKnown() const
+	{
+		return _impl && _impl->outputSizeKnown.load(std::memory_order_acquire);
+	}
+}

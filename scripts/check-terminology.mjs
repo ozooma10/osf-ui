@@ -25,7 +25,7 @@ function sourceFiles(directory) {
   for (const entry of readdirSync(resolve(root, directory), { withFileTypes: true })) {
     const path = `${directory}/${entry.name}`;
     if (entry.isDirectory()) {
-      if (path.replaceAll('\\', '/').endsWith('/compat')) continue;
+      if (path.replaceAll('\\', '/').toLowerCase().endsWith('/compat')) continue;
       files.push(...sourceFiles(path));
     } else if (['.cpp', '.css', '.h', '.js', '.ts', '.tsx'].includes(extname(entry.name))) {
       files.push(path);
@@ -102,17 +102,17 @@ const retiredFrontendInternalNames = [
 ];
 
 const retiredInternalPaths = [
-  'src/runtime/MenuController.h',
-  'src/runtime/MenuController.cpp',
-  'src/runtime/ViewStateStore.h',
-  'src/runtime/ViewStateStore.cpp',
-  'src/runtime/DiagnosticsModule.h',
-  'src/runtime/DiagnosticsModule.cpp',
-  'src/runtime/DiagnosticsReconciler.h',
-  'src/runtime/DiagnosticsReconciler.cpp',
-  'src/runtime/RuntimeDiagnostics.h',
-  'src/runtime/RuntimeDiagnostics.cpp',
-	'src/runtime/RendererHostRecovery.h',
+  'src/Views/MenuController.h',
+  'src/Views/MenuController.cpp',
+  'src/Views/ViewStateStore.h',
+  'src/Views/ViewStateStore.cpp',
+  'src/Diagnostics/DiagnosticsModule.h',
+  'src/Diagnostics/DiagnosticsModule.cpp',
+  'src/Diagnostics/DiagnosticsReconciler.h',
+  'src/Diagnostics/DiagnosticsReconciler.cpp',
+  'src/Runtime/RuntimeDiagnostics.h',
+  'src/Runtime/RuntimeDiagnostics.cpp',
+	'src/Render/RendererHostRecovery.h',
   'frontend/src/lib/settings/inputContext.ts',
   'frontend/src/lib/settings/diagnostics.ts',
   'frontend/devmock/fixtures/vanillaKeys.ts',
@@ -122,12 +122,12 @@ const retiredInternalPaths = [
 	'tools/webview2_host/HostCommands.inl',
 ];
 
-for (const file of sourceFiles('frontend/src').filter((file) => !file.includes('/compat/'))) {
+for (const file of sourceFiles('frontend/src').filter((file) => !file.toLowerCase().includes('/compat/'))) {
   checkText(file, retiredBridgeNames);
   checkText(file, retiredInternalNames);
   checkText(file, retiredFrontendInternalNames);
 }
-for (const file of sourceFiles('src').filter((file) => !file.includes('/compat/'))) {
+for (const file of sourceFiles('src').filter((file) => !file.toLowerCase().includes('/compat/'))) {
   checkText(file, retiredBridgeNames);
   checkText(file, retiredInternalNames);
 }
@@ -140,15 +140,15 @@ checkText('tests/native/view_presentation_controller_tests.cpp', [
   [/\b(?:Register|Unregister|IsRegistered)\s*\(/, 'use explicit instantiated-view operations'],
 ]);
 for (const file of [
-  'src/runtime/ViewPresentationController.h',
-  'src/runtime/ViewPresentationController.cpp',
+  'src/Views/ViewPresentationController.h',
+  'src/Views/ViewPresentationController.cpp',
 ]) {
   checkText(file, [
     [/\bViewRegistration\b/, 'use InstantiatedView for presentation-controller records'],
     [/\b(?:Register|Unregister|IsRegistered)\s*\(/, 'use explicit instantiated-view operations'],
   ]);
 }
-checkText('src/runtime/Runtime.cpp', [
+checkText('src/Runtime/Runtime.cpp', [
   [/_presentation\.(?:Register|Unregister|IsRegistered)\s*\(/,
     'use explicit instantiated-view presentation operations'],
 ]);
@@ -221,13 +221,13 @@ checkText('docs/mod-api-2.0-design.md', [
 checkText('docs/troubleshooting.md', [
   [/MOD MENUS/, 'use the MOD SETTINGS pause-menu label'],
 ]);
-checkText('src/runtime/ViewManifest.h', [
+checkText('src/Views/ViewManifest.h', [
   [/manifest's `id` field must equal/, 'manifests do not declare identity'],
 ]);
-checkText('src/runtime/ViewManager.h', [
+checkText('src/Views/ViewManager.h', [
   [/\bLoadAll\(/, 'use DiscoverAll for manifest discovery'],
 ]);
-checkText('src/render/WebView2HostWebRenderer.cpp', [
+checkText('src/Render/WebView2HostWebRenderer.cpp', [
   [/\bactiveId\b/, 'use inputTargetId for the renderer input target'],
   [/\bactive view\b/i, 'use input-target view in renderer transport language'],
 ]);
@@ -240,7 +240,7 @@ for (const file of [
     [/\bactive view\b/i, 'use input-target view in browser-host transport language'],
   ]);
 }
-checkText('src/runtime/LiveControlMap.h', [
+checkText('src/Bindings/LiveControlMap.h', [
   [/\binputContext\b/, 'use engineInputContext for live ControlMap state'],
   [/\bInputContextState\b/, 'use EngineInputContextState'],
   [/_inputContextState\b/, 'use _engineInputContextState'],
@@ -344,7 +344,7 @@ checkText('frontend/src/views/osfui/settings/Detail.tsx', [
   [/\bRegisteredViews\b|registered-views(?:-group|-head|-body|-empty)?|registered-view(?:-meta|-id)?/,
     'use discovered-view inventory terminology; retained i18n keys may keep registeredViews'],
 ]);
-checkText('src/runtime/DevViewReloadWorker.h', [
+checkText('src/Views/Dev/DevViewReloadWorker.h', [
   [/\bbool\s+(?:overlay|world)\b/, 'dev reload targets are instantiated views; world-surface flags were removed'],
 ]);
 checkText('frontend/src/views/osfui/settings/App.tsx', [

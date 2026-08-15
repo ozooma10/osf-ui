@@ -163,8 +163,8 @@ const L10N_CATALOGS = import.meta.glob<Record<string, string>>(
   { import: 'default' },
 );
 
-/** src/core/Version.h — `kOsfuiReleaseVersion` feeds the harness OSF UI release-version badge. */
-const VERSION_HEADER = import.meta.glob<string>('../../src/core/Version.h', {
+/** src/Core/Version.h — `kOsfuiReleaseVersion` feeds the harness OSF UI release-version badge. */
+const VERSION_HEADER = import.meta.glob<string>('../../src/Core/Version.h', {
   query: '?raw',
   import: 'default',
 });
@@ -1091,7 +1091,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
    * timer is what makes an F5 identical to a first open: the harness cannot push
    * a greeting the document missed, because the document asks for it.
    *
-   * Async because the OSF UI release-version badge reads src/core/Version.h and the catalogs may
+   * Async because the OSF UI release-version badge reads src/Core/Version.h and the catalogs may
    * still be loading; `helloSeq` drops a stale greeting whose document has already
    * been replaced by a newer one.
    */
@@ -1601,14 +1601,14 @@ export function installMock(opts: MockOptions = {}): MockApi {
   }
 
   /**
-   * The OSF UI release version, read out of src/core/Version.h so the harness
+   * The OSF UI release version, read out of src/Core/Version.h so the harness
    * badge shows what the DLL would report. Best-effort: an unreachable file keeps the
    * "-mock" marker so a fake version is not mistaken for a real one. The greeting
    * waits on it, because `ready.version` is the reference point every advisory
    * `targetVersion` is compared against.
    */
   const osfuiReleaseVersion: Promise<string> = (async () => {
-    const text = await loadOnly(VERSION_HEADER, 'src/core/Version.h');
+    const text = await loadOnly(VERSION_HEADER, 'src/Core/Version.h');
     if (text === null) return FALLBACK_OSFUI_RELEASE_VERSION;
     const m = /kOsfuiReleaseVersion\s*=\s*"([^"]+)"/.exec(text);
     if (!m || !m[1]) {

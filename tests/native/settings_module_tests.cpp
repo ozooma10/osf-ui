@@ -18,10 +18,10 @@
 //     no longer mistake a refusal for success.
 // Assert-style; process exit code is the failure count.
 
-#include "runtime/MessageBridge.h"
-#include "runtime/SettingsModule.h"
+#include "Bridge/MessageBridge.h"
+#include "Settings/SettingsModule.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace
@@ -137,7 +137,7 @@ namespace
 	}
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub).
+// Core/Log.h declarations (real impl pulls game deps — stub).
 namespace OSFUI::Log
 {
 	static bool g_devMode = true;

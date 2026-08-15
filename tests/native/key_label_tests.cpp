@@ -1,12 +1,12 @@
-// Native desktop tests for the localized keycap-label pipeline (input/KeyLabels):
+// Native desktop tests for the localized keycap-label pipeline (Input/KeyLabels):
 // fixed short forms for non-printing keys (localizable via chrome.keys.*),
 // layout glyphs for printable keys, the fallback chain, and layout fixtures
 // modelled on US ANSI and German QWERTZ (Z/Y swap, umlaut OEM row, dead keys,
 // the ISO <> key). Fakes stand in for the one platform source
 // (Platform::MakeKeyLabelSource). Assert-style; exit code = failure count.
 
-#include "input/KeyLabels.h"
-#include "input/KeyNames.h"
+#include "Input/KeyLabels.h"
+#include "Input/KeyNames.h"
 
 #include <map>
 #include "check.h"

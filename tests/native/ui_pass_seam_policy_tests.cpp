@@ -1,4 +1,4 @@
-#include "composite/UiPassSeamPolicy.h"
+#include "Composite/UiPassSeamPolicy.h"
 
 #include <iostream>
 

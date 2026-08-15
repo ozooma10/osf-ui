@@ -1,4 +1,4 @@
-#include "core/Plugin.h"
+#include "Core/Plugin.h"
 
 SFSE_PLUGIN_PRELOAD(const SFSE::PreLoadInterface* a_sfse)
 {

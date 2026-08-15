@@ -23,32 +23,31 @@ implementations.
 ```
                  SFSE_PLUGIN_PRELOAD / SFSE_PLUGIN_LOAD   (src/main.cpp)
                                    │
-                            core/Plugin.cpp        entry glue, SFSE messages
+                            Core/Plugin.cpp        entry glue, SFSE messages
                                    │
-                          runtime/Runtime          owns everything below
-        ┌───────────────┬──────────┼──────────────┬──────────────────┐
-        │               │          │              │                  │
-   core/Config    runtime/      render/       composite/         input/
-   core/Paths     ViewManager   IWebRenderer  ICompositor        KeyNames
-                  ViewManifest     │              │              OverlayInputHook
-                  RetainedStateStore ┌──┴───────┐  ┌──┴─────────┐  (WndProc subclass)
-                                 │ WebView2 │  │ D3D12      │   HardwareCursor
-                                 │ renderer │  │ compositor │   UiLayoutGuard
-                                 └──────────┘  └────────────┘   MenuEventSink
-                                                               FocusMenu / ControlLayer
-                                   │    ▲
-                          runtime/MessageBridge    JSON envelopes, two endpoint registries
-                                   │
-                           ┌───────┴────────┐
-                         api/             api/
-                         BridgeApi        PapyrusApi
-                         (C ABI for       (OSFUI.psc
-                          SFSE mods)       natives)
+                         Runtime/Runtime          coordinates everything below
+       ┌──────────────┬──────────────┬──────────────┬──────────────┐
+       │              │              │              │              │
+     Core/          Views/         Bridge/       Settings/    Diagnostics/
+ Config, Paths   manifests and   MessageBridge   schemas and      health
+                 presentation    retained state  persistence
+       │              │              │              │              │
+       └──────────────┴──────────────┼──────────────┴──────────────┘
+                                    │
+                ┌───────────────────┼────────────────────┐
+                │                   │                    │
+             Render/            Composite/            Input/
+          WebView2 renderer   D3D12 compositor   engine integration
+                │                   │                    │
+                └───────────────────┴────────────────────┘
+                                    │
+                                  API/
+                         BridgeApi and PapyrusApi
 ```
 
 The public extension APIs hang off the bridge rather than the render path:
 
-- `api/` is the public extension surface — `BridgeApi` backs the exported
+- `API/` is the public extension surface — `BridgeApi` backs the exported
   `OSFUI_RequestBridge` C ABI ([native-plugin-api.md](native-plugin-api.md)),
   `PapyrusApi` backs the shipped `OSFUI` script's natives
   ([authoring-dynamic-data.md](authoring-dynamic-data.md)). Both marshal onto
@@ -57,7 +56,7 @@ The public extension APIs hang off the bridge rather than the render path:
 
 ### Data flow per frame
 
-1. An SFSE permanent task (registered in `core/Plugin.cpp`) runs on the engine's render-graph workers and posts one coalesced `Runtime::Tick(dt)` through `RE::BSService::TaskQueue`. The queue drains Tick on the game main thread; if BSService cannot enqueue yet, the worker drops that notification and retries next frame rather than taking the queue's unsafe inline fallback. Tick self-times on the main thread and clamps `dt` to 100 ms.
+1. An SFSE permanent task (registered in `Core/Plugin.cpp`) runs on the engine's render-graph workers and posts one coalesced `Runtime::Tick(dt)` through `RE::BSService::TaskQueue`. The queue drains Tick on the game main thread; if BSService cannot enqueue yet, the worker drops that notification and retries next frame rather than taking the queue's unsafe inline fallback. Tick self-times on the main thread and clamps `dt` to 100 ms.
 2. `IWebRenderer::Update(dt)` advances the web content.
 3. The browser host publishes frames through a shared D3D12 texture ring; `IWebRenderer::Render()` returns the frame-ready slot and fence serial.
 4. `ICompositor::Submit(frame)` records that slot; the overlay is drawn later, inside the engine's Scaleform UI pass (see *How the D3D12 compositor works*), sampling the shared texture directly with no CPU readback or upload.
@@ -177,7 +176,7 @@ asserted — which covers an F5 the OSF UI runtime is never told about.
 
 ### Retained mod state
 
-`runtime/RetainedStateStore` holds mod-backend-owned values scoped by publishing
+`Bridge/RetainedStateStore` holds mod-backend-owned values scoped by publishing
 mod and replayed to each of that mod's fresh documents. It does not store an
 independent value per view. This is the systemic fix for the blank-after-F5
 bug class: a mod backend that knows when a value changes publishes it once,
@@ -228,7 +227,7 @@ fault budget. Details are in [troubleshooting.md](troubleshooting.md) and
 
 ### Feature modules ("apps" on the platform)
 
-Features are `IUiModule`s (`runtime/UiModule.h`). `IUiModule` is a uniform lifecycle fan-out: the OSF UI runtime drives every module through the same points — `OnStart()` (applies persisted state at load), `RegisterEndpoints(bridge)` (wire its own send/request endpoints), `OnBridgeDown()`, `OnViewDestroyed()` — from one loop in registration order, rather than a per-module call at each site. It is not a decoupling seam: the OSF UI runtime still owns and reaches through the concrete module types directly.
+Features are `IUiModule`s (`Runtime/UiModule.h`). `IUiModule` is a uniform lifecycle fan-out: the OSF UI runtime drives every module through the same points — `OnStart()` (applies persisted state at load), `RegisterEndpoints(bridge)` (wire its own send/request endpoints), `OnBridgeDown()`, `OnViewDestroyed()` — from one loop in registration order, rather than a per-module call at each site. It is not a decoupling seam: the OSF UI runtime still owns and reaches through the concrete module types directly.
 `Runtime::BuildModules()` is the composition root - the one place that names concrete modules and injects their dependencies
 
 ### Views
@@ -305,7 +304,7 @@ directly.
 
 ## How the D3D12 compositor works
 
-`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Frames are sampled directly from the browser host's shared texture ring with no CPU readback or upload. The overlay quad is drawn *inside the engine's Scaleform UI pass* (`composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the seam reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
+`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Frames are sampled directly from the browser host's shared texture ring with no CPU readback or upload. The overlay quad is drawn *inside the engine's Scaleform UI pass* (`Composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the seam reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
 
 Remaining open areas: alternate UI-target formats and broader in-game validation across frame-generation and external-overlay combinations.
 

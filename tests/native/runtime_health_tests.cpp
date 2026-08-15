@@ -1,6 +1,6 @@
-#include "runtime/HealthReconciler.h"
+#include "Diagnostics/HealthReconciler.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 
 #include <cassert>
 #include <iostream>

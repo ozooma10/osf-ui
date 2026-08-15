@@ -48,9 +48,9 @@ console.log("this document is", info.view, "of mod", info.mod);
 
 `bridgeVersion` is informational — gate on nothing, declare `targetVersion`.
 
-The version constants live in [`src/core/Version.h`](../src/core/Version.h)
+The version constants live in [`src/Core/Version.h`](../src/Core/Version.h)
 (`kOsfuiReleaseVersion`, `kBridgeProtocolVersion`); the envelopes and dispatch are in
-[`src/runtime/MessageBridge.cpp`](../src/runtime/MessageBridge.cpp). CI checks
+[`src/Bridge/MessageBridge.cpp`](../src/Bridge/MessageBridge.cpp). CI checks
 that the headline above still names the version the code claims — the "docs say
 0.1, code says 0.4" drift class is not allowed to recur.
 

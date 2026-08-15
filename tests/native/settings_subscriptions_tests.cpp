@@ -1,14 +1,14 @@
 // Native desktop unit tests for the SubscribeSettings bookkeeping: the REAL
-// src/api/SettingsSubscriptions.cpp — replay on
+// src/API/SettingsSubscriptions.cpp — replay on
 // subscribe, queued change dispatch, unsubscribe semantics, and its
 // integration with the real SettingsStore + SettingsMirror wired exactly like
 // Runtime::BuildModules does — compiled against stubs/pch.h on the desktop
 // toolchain. Assert-style; process exit code is the failure count.
 
-#include "api/SettingsSubscriptions.h"
-#include "runtime/SettingsStore.h"
+#include "API/SettingsSubscriptions.h"
+#include "Settings/SettingsStore.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace
@@ -58,7 +58,7 @@ namespace
 	}
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub, as in the other
+// Core/Log.h declarations (real impl pulls game deps — stub, as in the other
 // suites).
 namespace OSFUI::Log
 {

@@ -1,13 +1,13 @@
 // Native desktop unit tests for the native ABI settings mirror:
-// the REAL src/api/SettingsMirror.cpp — plus its integration with the real
+// the REAL src/API/SettingsMirror.cpp — plus its integration with the real
 // SettingsStore, wired exactly like Runtime::BuildModules does — compiled
 // against stubs/pch.h on the desktop toolchain. Assert-style; process exit
 // code is the failure count.
 
-#include "api/SettingsMirror.h"
-#include "runtime/SettingsStore.h"
+#include "API/SettingsMirror.h"
+#include "Settings/SettingsStore.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace
@@ -15,7 +15,7 @@ namespace
 
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub, as in the other
+// Core/Log.h declarations (real impl pulls game deps — stub, as in the other
 // suites).
 namespace OSFUI::Log
 {

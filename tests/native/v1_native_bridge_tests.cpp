@@ -1,8 +1,8 @@
-#include "compat/v1/NativeBridge.h"
+#include "Compat/V1/NativeBridge.h"
 
-#include "api/BridgeApi.h"
+#include "API/BridgeApi.h"
 #include "check.h"
-#include "runtime/MessageBridge.h"
+#include "Bridge/MessageBridge.h"
 
 namespace
 {

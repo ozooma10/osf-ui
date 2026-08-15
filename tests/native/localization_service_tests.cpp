@@ -1,9 +1,9 @@
 // Native desktop coverage for the English-source localization catalog and locale
 // fallback rules. Compiles the real service; no game/Windows dependency.
 
-#include "runtime/LocalizationService.h"
+#include "Localization/LocalizationService.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace

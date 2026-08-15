@@ -1,7 +1,7 @@
 // Bounded browser-host restart policy: automatic backoff, response timeout,
 // terminal-disable behavior, and the explicit-open retry escape hatch.
 
-#include "runtime/BrowserHostRecovery.h"
+#include "Render/BrowserHostRecovery.h"
 
 #include <cassert>
 #include <iostream>
