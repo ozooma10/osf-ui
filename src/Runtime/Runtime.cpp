@@ -69,6 +69,17 @@ namespace OSFUI
 		return *instance;
 	}
 
+	bool Runtime::LoadRuntimeConfig()
+	{
+		if(!Paths::Initialize()) {
+			return false;
+		}
+
+		_config = Config::Load(Paths::ConfigFile());
+		Log::SetDevMode(_config.devMode);
+		return true;
+	}
+
 	bool Runtime::Initialize()
 	{
 		if (_initialized) {
@@ -78,12 +89,9 @@ namespace OSFUI
 		_rendererFailureLatched = false;
 		_browserHostRecovery.Reset();
 
-		if (!Paths::Initialize()) {
+		if(!LoadRuntimeConfig()) {
 			return false;
 		}
-
-		_config = Config::Load(Paths::ConfigFile());
-		Log::SetDevMode(_config.devMode);
 
 		if (!_config.enabled) {
 			REX::INFO("Runtime: disabled via config; nothing further will be initialized");

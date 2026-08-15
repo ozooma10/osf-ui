@@ -28,9 +28,6 @@
 
 namespace OSFUI
 {
-	// Owns the whole plugin runtime: config, views, renderer, compositor,
-	// bridge, input, and the overlay visibility state. Constructed and
-	// initialized from SFSE_PLUGIN_LOAD.
 	class Runtime
 	{
 	public:
@@ -107,6 +104,7 @@ namespace OSFUI
 		friend class RuntimeHealthCoordinator;
 		Runtime() = default;
 
+		bool LoadRuntimeConfig();
 
 		// Internally owned renderer and load-state edges.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
