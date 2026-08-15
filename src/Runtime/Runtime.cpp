@@ -80,6 +80,33 @@ namespace OSFUI
 		return true;
 	}
 
+	void Runtime::LoadStartupContent()
+	{
+		const auto documents = Platform::GetDocumentsPath();
+		const auto starfieldDir = documents.empty() ? std::filesystem::path{} : documents / "My Games" / "Starfield";
+
+		_localization.Load(Paths::DataDir() / "l10n", LocalizationService::DetectGameLocale(starfieldDir));
+
+		PauseMenuEntry::Configure(
+			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
+			_config.pauseMenuEntryView
+		);
+
+		PauseMenuEntry::SetEnabled(_config.pauseMenuEntry);
+
+		_views.DiscoverAll(Paths::ViewsDir());
+		_viewPolicy.Load(Paths::DataDir() / "state" / "view-policy.json");
+
+		std::vector<std::string> discoveredViewIds;
+		discoveredViewIds.reserve(_views.All().size());
+
+		for (const auto& manifest : _views.All()) {
+			discoveredViewIds.push_back(manifest.id);
+		}
+
+		API::BridgeApi::Get().SetViewCatalog(discoveredViewIds);
+	}
+
 	bool Runtime::Initialize()
 	{
 		if (_initialized) {
@@ -97,29 +124,8 @@ namespace OSFUI
 			REX::INFO("Runtime: disabled via config; nothing further will be initialized");
 			return true;
 		}
-		const auto documents = Platform::GetDocumentsPath();
-		const auto starfieldDir = documents.empty() ? std::filesystem::path{} :
-			documents / "My Games" / "Starfield";
-		_localization.Load(Paths::DataDir() / "l10n",
-			LocalizationService::DetectGameLocale(starfieldDir));
 
-		// Label + target view for the injected PauseMenu entry; the main-thread
-		// pump gates Reconcile on config.pauseMenuEntry via SetEnabled.
-		PauseMenuEntry::Configure(
-			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
-			_config.pauseMenuEntryView);
-		PauseMenuEntry::SetEnabled(_config.pauseMenuEntry);
-
-		_views.DiscoverAll(Paths::ViewsDir());
-		// Player startup choices live beside the settings values, never in the
-		// shipped mod files; loaded before the boot loads below consult it.
-		_viewPolicy.Load(Paths::DataDir() / "state" / "view-policy.json");
-		std::vector<std::string> discoveredViewIds;
-		discoveredViewIds.reserve(_views.All().size());
-		for (const auto& manifest : _views.All()) {
-			discoveredViewIds.push_back(manifest.id);
-		}
-		API::BridgeApi::Get().SetViewCatalog(discoveredViewIds);
+		LoadStartupContent();
 
 		_renderer = std::make_unique<WebView2HostWebRenderer>();
 		const auto* view = _views.Find(_config.view);

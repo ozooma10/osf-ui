@@ -105,6 +105,7 @@ namespace OSFUI
 		Runtime() = default;
 
 		bool LoadRuntimeConfig();
+		void LoadStartupContent();
 
 		// Internally owned renderer and load-state edges.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
