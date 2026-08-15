@@ -75,6 +75,7 @@ Windows pipe suite is built separately through xmake. Currently:
 | `deferred_main_thread_work_tests.cpp` | `Runtime/DeferredMainThreadWork`: coalescing cross-thread notification consumed at proven main-thread checkpoints |
 | `runtime_lifecycle_contract_tests.cpp` | Source-linked static characterization of the mature cross-component view lifecycle: hidden preparation before bridge delivery and reveal, pending-open cancellation, presentation epochs and stale-frame rejection, fail-closed menu admission, transition-menu CloseAll, reveal timeout cleanup, HUD-preserving menu replacement, and reusable-document close versus idle destruction. It does not execute Starfield, WebView2, D3D12, or prove host/in-game behavior |
 | `view_lifecycle_tests.cpp` | `Views/ViewLifecycle`: main-thread open/hidden policy, idle TTL, and the non-pinned closed-view cap |
+| `view_reveal_gate_tests.cpp` | `Views/ViewRevealGate`: cached-frame rejection, output-size gating, held-time accounting, successful reveal, cancellation, and fail-closed timeout |
 | `view_policy_store_tests.cpp` | `Views/ViewPolicyStore`: player HUD-autostart overrides retained beside the settings values, shipped manifests untouched |
 | `view_presentation_controller_tests.cpp` | `Views/ViewPresentationController`: instantiated views, the single active-menu slot invariant, the HUD shown set, and the derived policy/layers Runtime applies |
 | `local_view_uri_tests.cpp` | `Wv2LocalUri` — security-model rule 2's single decision point: view virtual-host matching, including the lookalike/egress cases |

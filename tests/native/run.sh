@@ -75,6 +75,7 @@ SUITES=(
 "runtime_lifecycle_contract_tests runtime_lifecycle_contract_tests.cpp"
 "view_lifecycle_tests view_lifecycle_tests.cpp ../../src/Views/ViewLifecycle.cpp"
 "view_policy_store_tests view_policy_store_tests.cpp ../../src/Views/ViewPolicyStore.cpp ../../src/Core/Json.cpp"
+"view_reveal_gate_tests view_reveal_gate_tests.cpp ../../src/Views/ViewRevealGate.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"
 "wv2_messages_tests wv2_messages_tests.cpp ../../src/Core/Json.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"

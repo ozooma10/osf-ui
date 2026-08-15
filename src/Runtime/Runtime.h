@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <unordered_set>  // not in pch.h
 
 #include "API/BridgeApi.h"
@@ -24,6 +23,7 @@
 #include "Views/ViewManager.h"
 #include "Views/ViewLifecycle.h"
 #include "Views/ViewPolicyStore.h"
+#include "Views/ViewRevealGate.h"
 #include "Bridge/RetainedStateStore.h"
 
 namespace OSFUI
@@ -477,26 +477,10 @@ namespace OSFUI
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
 
-		// Deferred compositor reveal (main thread only). The UI-seam hook
-		// compositor keeps drawing its last cached texture while visible, so on
-		// the closed->open edge ApplyViewPresentationPolicy arms this instead of calling
-		// SetVisible(true): SubmitFrameIfVisible holds the reveal until the
-		// renderer hands over a frame with a new serial — one produced after the
-		// open, i.e. after every queued message was delivered (ABI 1.3
-		// message-before-first-paint). D3D12 additionally waits until the UI seam
-		// has reported the output size and the renderer has painted at that size.
-		// Normally costs only a couple of frames. A deadline closes the menu and
-		// releases its pause/input policy if the renderer never produces a frame
-		// for this presentation, so a transparent or stalled browser host cannot trap the
-		// player in an invisible modal state. The deadline accumulates per-tick
-		// with a clamped delta rather than reading a wall clock: Tick stalls
-		// wholesale when the game loses focus (engine pause) or hitches, and that
-		// stalled time must not count against the reveal.
-		bool          _revealPending{ false };
-		bool          _revealFrameReady{ false };
-		double        _revealHeldSeconds{ 0.0 };
-		std::chrono::steady_clock::time_point _revealLastPolledAt{};
-		std::uint64_t _lastSubmittedFrame{ 0 };
+		// Deferred compositor reveal policy (main thread only). Runtime performs
+		// the renderer/compositor and fail-closed engine side effects; the gate
+		// owns the fresh-frame, output-size, and bounded-timeout decisions.
+		ViewRevealGate                 m_viewReveal;
 
 		// The view shown as the overlay's active menu — the last one sent
 		// ui.visibility{visible:true}. Any change (overlay close, menu.open view

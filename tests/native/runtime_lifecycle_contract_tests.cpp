@@ -210,14 +210,12 @@ int main()
 		"central presentation policy must fail closed when capture integration is unavailable");
 	Check(ContainsInOrder(applyPolicy, {
 		"visible && !wasVisible",
-		"_revealPending = true",
-		"_revealFrameReady = false" }),
-		"a cold or reopened presentation must stay hidden until a fresh frame arrives");
+		"m_viewReveal.Arm()" }),
+		"a cold or reopened presentation must arm the fresh-frame reveal gate");
 	Check(ContainsInOrder(applyPolicy, {
 		"if (!visible)",
-		"_revealPending = false",
-		"_revealFrameReady = false" }),
-		"closing during a held reveal must clear the pending reveal state");
+		"m_viewReveal.Cancel()" }),
+		"closing during a held reveal must cancel the reveal gate");
 
 	const auto setHidden = FunctionBody(rendererSource,
 		"void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden)");
@@ -239,15 +237,14 @@ int main()
 
 	const auto submitFrame = FunctionBody(runtimeSource, "void Runtime::SubmitFrameIfVisible()");
 	Check(ContainsInOrder(submitFrame, {
-		"frame->frameIndex != _lastSubmittedFrame",
-		"_revealFrameReady = true",
-		"if (!_revealFrameReady)",
-		"!_compositor->IsOutputSizeKnown()",
-		"frame->width != _viewWidth.load()",
+		"m_viewReveal.Observe(observation, _uptime)",
+		"if (decision.submitFrame && frame)",
+		"_compositor->Submit(*frame)",
+		"if (decision.reveal)",
 		"_compositor->SetVisible(true)" }),
-		"reveal must require a new, output-sized frame before compositor visibility");
+		"Runtime must submit the gate-approved frame before making the compositor visible");
 	Check(ContainsInOrder(submitFrame, {
-		"_revealHeldSeconds >= kRevealTimeoutSeconds",
+		"if (!decision.timedOut)",
 		"CancelPendingOpen()",
 		"_presentation.CloseAll()",
 		"ApplyViewPresentationPolicy()",

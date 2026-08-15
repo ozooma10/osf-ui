@@ -29,8 +29,9 @@ implementations.
        ┌──────────────┬──────────────┬──────────────┬──────────────┐
        │              │              │              │              │
      Core/          Views/         Bridge/       Settings/    Diagnostics/
- Config, Paths   manifests and   MessageBridge   schemas and      health
-                 presentation    retained state  persistence
+ Config, Paths   manifests,      MessageBridge   schemas and      health
+                presentation,    retained state  persistence
+                reveal policy
        │              │              │              │              │
        └──────────────┴──────────────┼──────────────┴──────────────┘
                                     │
@@ -59,7 +60,8 @@ The public extension APIs hang off the bridge rather than the render path:
 1. An SFSE permanent task (registered in `Core/Plugin.cpp`) runs on the engine's render-graph workers and posts one coalesced `Runtime::Tick(dt)` through `RE::BSService::TaskQueue`. The queue drains Tick on the game main thread; if BSService cannot enqueue yet, the worker drops that notification and retries next frame rather than taking the queue's unsafe inline fallback. Tick self-times on the main thread and clamps `dt` to 100 ms.
 2. `IWebRenderer::Update(dt)` advances the web content.
 3. The browser host publishes frames through a shared D3D12 texture ring; `IWebRenderer::Render()` returns the frame-ready slot and fence serial.
-4. `ICompositor::Submit(frame)` records that slot; the overlay is drawn later, inside the engine's Scaleform UI pass (see *How the D3D12 compositor works*), sampling the shared texture directly with no CPU readback or upload.
+4. On a closed-to-open edge, `Views/ViewRevealGate` keeps the compositor hidden until it observes a fresh frame, a known output size, and a texture matching that size. `Runtime` submits gate-approved frames and performs the real compositor side effects. If the bounded wait expires, Runtime closes the presentation and immediately releases focus, input, pause, and cursor ownership.
+5. `ICompositor::Submit(frame)` records the approved slot; the overlay is drawn later, inside the engine's Scaleform UI pass (see *How the D3D12 compositor works*), sampling the shared texture directly with no CPU readback or upload.
 
 The same Tick is where the bridge does its main-thread work: it drains the
 Papyrus and native-plugin queues (retained state, events, replies), expires
