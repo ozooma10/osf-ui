@@ -113,6 +113,7 @@ namespace OSFUI
 		void InitializeFeatureModules();
 		void InitializeBridge();
 		void InitializeStartupViews();
+		void ConfigureInputRouting();
 
 		// Internally owned renderer and load-state edges.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);

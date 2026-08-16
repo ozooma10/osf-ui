@@ -359,6 +359,20 @@ namespace OSFUI
 		}
     }
 
+    void Runtime::ConfigureInputRouting()
+    {
+		const auto toggleKey = ResolveKeyName(_config.toggleKey);
+		_toggleKey.store(toggleKey, std::memory_order_release);
+
+		if (toggleKey != kInvalidScanCode) {
+			REX::INFO("Runtime: toggleKey '{}' resolved to scan code {:#x}", _config.toggleKey, toggleKey);
+		}
+
+		_renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down) {
+			return OnNativeAcceleratorKey(a_vkCode, a_scanCode, a_down);
+		});
+    }
+
     bool Runtime::Initialize()
 	{
 		if (_initialized) {
@@ -392,22 +406,7 @@ namespace OSFUI
 		InitializeFeatureModules();
 		InitializeBridge();
 		InitializeStartupViews();
-		
-
-		// Key events reach OnGameWindowKey from the WndProc subclass, installed on the
-		// first main-thread tick after
-		// kPostPostDataLoad.
-		const auto toggleKey = ResolveKeyName(_config.toggleKey);
-		_toggleKey.store(toggleKey, std::memory_order_release);
-		if (toggleKey != kInvalidScanCode) {
-			REX::INFO("Runtime: toggleKey '{}' resolved to scan code {:#x}", _config.toggleKey, toggleKey);
-		}
-		REX::INFO("Runtime: production input path selected — WndProc keyboard/mouse, hardware cursor, FocusMenu and engine-routed gamepad");
-
-		_renderer->SetNativeAcceleratorHandler(
-			[this](std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down) {
-				return OnNativeAcceleratorKey(a_vkCode, a_scanCode, a_down);
-			});
+		ConfigureInputRouting();
 
 		if (_config.devMode) {
 			_devViewReload = std::make_unique<DevViewReloadWorker>(
