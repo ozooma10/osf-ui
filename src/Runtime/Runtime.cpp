@@ -486,26 +486,28 @@ namespace OSFUI
 		}
 	}
 
-	void Runtime::Tick(double a_deltaSeconds)
+    void Runtime::ProcessLifecycleWork()
+    {
+		if(_controlMapInit.Take()) {
+			InitializeDataLoadedState();
+		}
+
+		if(_uiIntegrationInit.Take()) {
+			InitializePostDataLoadIntegration();
+		}
+
+		DriveBrowserHostRecovery();
+    }
+
+    void Runtime::Tick(double a_deltaSeconds)
 	{
 		if (!_initialized) {
 			return;
 		}
 		_uptime += a_deltaSeconds;
-		// kPostDataLoad only signals this latch. Consume it here, on the same
-		// serialized main-thread path that owns every later ControlMap read.
-		if (_controlMapInit.Take()) {
-			InitializeDataLoadedState();
-		}
-		// Keep all post-data-load UI object access and trampoline mutation on this
-		// same serialized path. If both lifecycle notifications arrived before a
-		// tick, data-loaded setup deliberately completes first.
-		if (_uiIntegrationInit.Take()) {
-			InitializePostDataLoadIntegration();
-		}
-		// A failure callback fires near the end of the prior Tick. Restart only now,
-		// after IWebRenderer::Update has returned and its notification drain is idle.
-		DriveBrowserHostRecovery();
+
+		ProcessLifecycleWork();
+
 		// The pause-menu entry (PauseMenuEntry::Reconcile) is NOT driven from
 		// here: although Tick runs on the game main thread, arbitrary Scaleform
 		// access must also avoid re-entering the AS3 VM. MainThreadMenuPump drives
@@ -2961,7 +2963,7 @@ namespace OSFUI
 		REX::DEBUG("Runtime: game-binding conflict warnings {} (read-only game-binding catalog remains available)", a_enabled ? "enabled" : "disabled");
 	}
 
-	void Runtime::SyncLiveControlMapBindings()
+    void Runtime::SyncLiveControlMapBindings()
 	{
 		if (!_settings) return;
 		std::vector<SettingsStore::GameBinding> bindings;
