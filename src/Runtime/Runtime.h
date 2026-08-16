@@ -24,6 +24,7 @@
 #include "Views/ViewManager.h"
 #include "Views/ViewLifecycle.h"
 #include "Views/ViewLoadTracker.h"
+#include "Views/ViewOpenSession.h"
 #include "Views/ViewPolicyStore.h"
 #include "Views/ViewRevealGate.h"
 #include "Views/ViewRequestQueue.h"
@@ -370,17 +371,8 @@ namespace OSFUI
 		ViewLifecycle                 _viewLifecycle;
 		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
 		std::unordered_set<std::string> _pinnedViews;
-		struct PendingViewOpen
-		{
-			std::string target;
-			double      startedAt{ 0.0 };
-			double      loadedAt{ -1.0 };
-			std::string phase;
-			bool        handoffVisible{ false };
-			bool        error{ false };
-			bool        retryRequested{ false };
-		};
-		std::optional<PendingViewOpen> _pendingViewOpen;
+
+		ViewOpenSession m_viewOpen;
 
 		// Last value pushed to IWebRenderer::SetNativeFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.

@@ -584,7 +584,7 @@ namespace OSFUI
 				prepare(request.view, "on demand");
 			}
 		}
-		if (!_pendingViewOpen && !_presentation.ActiveMenu() &&
+		if (!m_viewOpen.Active() && !_presentation.ActiveMenu() &&
 			std::ranges::find(a_work.local, PresentationRequest::ToggleDefault) != a_work.local.end()) {
 			prepare(_config.view, "for the default-menu toggle");
 		}
@@ -600,7 +600,7 @@ namespace OSFUI
 		for (const auto req : reqs) {
 			switch (req) {
 			case PresentationRequest::ToggleDefault:
-				if (_pendingViewOpen) {
+				if (m_viewOpen.Active()) {
 					CancelPendingOpen();
 				} else if (_presentation.ActiveMenu()) {
 					_presentation.CloseActiveMenu();
@@ -616,7 +616,7 @@ namespace OSFUI
 				// that hides the overlay). The toggle key never delegates, so a
 				// broken page cannot strand the user.
 				const auto active = _presentation.ActiveMenu();
-				if (_pendingViewOpen && (!active || *active == kHandoffViewId)) {
+				if (m_viewOpen.Active() && (!active || *active == kHandoffViewId)) {
 					CancelPendingOpen();
 				} else if (active && m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
 					constexpr std::uint32_t kVkEscape = 0x1B;
@@ -648,8 +648,7 @@ namespace OSFUI
 					BeginViewOpen(r.view);
 				}
 			} else {
-				if (_pendingViewOpen &&
-					(_pendingViewOpen->target == r.view || r.view == kHandoffViewId)) {
+				if (m_viewOpen.Active() && (m_viewOpen.Target() == r.view || r.view == kHandoffViewId)) {
 					CancelPendingOpen();
 				}
 				_presentation.Close(r.view);
@@ -709,47 +708,39 @@ namespace OSFUI
 			CancelPendingOpen();
 			return _presentation.Open(a_id);
 		}
-		if (_pendingViewOpen && _pendingViewOpen->target == a_id) {
+		if (m_viewOpen.Active() && m_viewOpen.Targets(a_id)) {
 			return false;
 		}
 
 		CancelPendingOpen();
-		PendingViewOpen pending;
-		pending.target = std::string(a_id);
-		pending.startedAt = _uptime;
-		if (loadState == ViewLoadState::Finished) {
-			pending.loadedAt = _uptime;
-		}
-		_pendingViewOpen = std::move(pending);
+		m_viewOpen.Begin(a_id, _uptime, loadState == ViewLoadState::Finished);
 		REX::DEBUG("Runtime: holding first open of '{}' until its reveal gate is reached", a_id);
 		return true;
 	}
 
 	bool Runtime::CancelPendingOpen()
 	{
-		if (!_pendingViewOpen) {
+		if (!m_viewOpen.Active()) {
 			return false;
 		}
-		const auto target = _pendingViewOpen->target;
+		const auto target = std::string(m_viewOpen.Target());
 		const bool changed = _presentation.Close(kHandoffViewId);
-		_pendingViewOpen.reset();
+		m_viewOpen.Cancel();
 		REX::DEBUG("Runtime: cancelled pending open of '{}'", target);
 		return changed;
 	}
 
 	void Runtime::ShowHandoff(std::string_view a_phase, bool a_retry)
 	{
-		if (!_pendingViewOpen || !_bridge) {
+		if (!m_viewOpen.Active() || !_bridge) {
 			return;
 		}
-		auto& pending = *_pendingViewOpen;
-		const auto* target = _views.Find(pending.target);
+		const auto* target = _views.Find(m_viewOpen.Target());
 		if (!target || !_presentation.IsInstantiated(kHandoffViewId)) {
 			return;
 		}
-		const bool stateChanged = !pending.handoffVisible || pending.phase != a_phase ||
-			pending.error != a_retry;
-		if (!stateChanged) {
+
+		if(!m_viewOpen.UpdateHandoff(a_phase, a_retry)) {
 			return;
 		}
 
@@ -772,93 +763,84 @@ namespace OSFUI
 		};
 		_bridge->PublishState(kHandoffViewId, "osfui", "handoff", _handoffState);
 		_presentation.Open(kHandoffViewId);
-		pending.handoffVisible = true;
-		pending.phase = std::string(a_phase);
-		pending.error = a_retry;
 		ApplyViewPresentationPolicy();
 	}
 
 	void Runtime::FinishPendingOpen()
 	{
-		if (!_pendingViewOpen) {
+		if (!m_viewOpen.Active()) {
 			return;
 		}
-		const auto target = _pendingViewOpen->target;
 		_presentation.Close(kHandoffViewId);
-		_presentation.Open(target);
-		_pendingViewOpen.reset();
-		REX::DEBUG("Runtime: first-load handoff completed for '{}'", target);
+		_presentation.Open(m_viewOpen.Target());
+		m_viewOpen.Cancel();
+		REX::DEBUG("Runtime: first-load handoff completed for '{}'", m_viewOpen.Target());
 		ApplyViewPresentationPolicy();
 	}
 
 	void Runtime::DrivePendingOpen()
 	{
-		if (!_pendingViewOpen) {
+		if (!m_viewOpen.Active()) {
 			return;
 		}
-		auto& pending = *_pendingViewOpen;
-		const auto* manifest = _views.Find(pending.target);
+		const auto target = std::string(m_viewOpen.Target());
+		const auto* manifest = _views.Find(target);
 		if (!manifest) {
 			ShowHandoff("error", true);
 			return;
 		}
-		// An uninstantiated target is exactly the state the retry exists to
-		// recover from (OnViewLoad's exhaustion path destroys the view and
-		// removes its instance), so only park on the error screen when no retry is
-		// pending.
-		if (!_presentation.IsInstantiated(pending.target) && !pending.retryRequested) {
+
+		if(!_presentation.IsInstantiated(target) && !m_viewOpen.RetryRequested()) {
 			ShowHandoff("error", true);
 			return;
 		}
-		if (pending.retryRequested) {
-			pending.retryRequested = false;
-			if (!_renderer) {
+
+		if(m_viewOpen.TakeRetryRequest()) {
+			if(!_renderer) {
 				return;
 			}
-			if (!_presentation.IsInstantiated(pending.target)) {
-				if (!InstantiateView(*manifest, "for first-load handoff retry")) {
+
+			if(!_presentation.IsInstantiated(target)) {
+				if(!InstantiateView(*manifest, "via handoff retry")) {
 					ShowHandoff("error", true);
 					return;
 				}
 			} else {
-				_recovery.erase(pending.target);
-				// ReloadViewInPlace re-arms the bridge `ready` handshake itself now, for every
-				// reload path rather than only this one.
-				ReloadViewInPlace(pending.target, *manifest);
+				_recovery.erase(target);
+				ReloadViewInPlace(target, *manifest);
 			}
-			pending.startedAt = _uptime;
-			pending.loadedAt = -1.0;
-			pending.phase.clear();
-			pending.error = false;
+
+			m_viewOpen.Restart(_uptime);
 			ShowHandoff("linking", false);
-			BroadcastViewsData();
+			BroadcastViewsData();  // Mod Settings picks the new view up live
 			return;
 		}
 
-		const auto state = m_viewLoads.GetState(pending.target);
-		if (state == ViewLoadState::Finished && pending.loadedAt < 0.0) {
-			pending.loadedAt = _uptime;
+		const auto state = m_viewLoads.GetState(target);
+		if (state == ViewLoadState::Finished) {
+			m_viewOpen.NoteLoaded(_uptime);
 		}
-		if (m_viewLoads.IsRevealReady(pending.target, manifest->readySignal)) {
+
+		if(m_viewLoads.IsRevealReady(target, manifest->readySignal)) {
 			FinishPendingOpen();
 			return;
 		}
-		if (manifest->readySignal && pending.loadedAt >= 0.0 &&
-			_uptime - pending.loadedAt >= kReadySignalTimeoutSeconds) {
+
+		if(manifest->readySignal && m_viewOpen.ReadySignalTimedOut(_uptime, kReadySignalTimeoutSeconds)) {
 			ShowHandoff("error", true);
 			return;
 		}
-		if (_uptime - pending.startedAt < kHandoffDelaySeconds) {
+
+		if(!m_viewOpen.HandoffDelayElapsed(_uptime, kHandoffDelaySeconds)) {
 			return;
 		}
+
 		ShowHandoff(state == ViewLoadState::Failed ? "retrying" : "linking", false);
 	}
 
 	void Runtime::RetryPendingOpen()
 	{
-		if (_pendingViewOpen && _pendingViewOpen->error) {
-			_pendingViewOpen->retryRequested = true;
-		}
+		m_viewOpen.RequestRetry();
 	}
 
 	void Runtime::DrainSchemaOps()
@@ -1209,12 +1191,10 @@ namespace OSFUI
 		}
 		const auto actions = _viewLifecycle.CollectDueActions(_uptime);
 		const auto unavailable = [this](const std::string& a_id) {
-			return !_presentation.IsInstantiated(a_id) || m_viewLoads.GetState(a_id) == ViewLoadState::Loading ||
-			       _recovery.contains(a_id) || (_pendingViewOpen && _pendingViewOpen->target == a_id);
+			return !_presentation.IsInstantiated(a_id) || m_viewLoads.GetState(a_id) == ViewLoadState::Loading || _recovery.contains(a_id) || m_viewOpen.Targets(a_id);
 		};
 		for (const auto& id : actions.suspend) {
-			if (unavailable(id) ||
-				(id == kHandoffViewId && _pendingViewOpen.has_value())) {
+			if (unavailable(id) || (id == kHandoffViewId && m_viewOpen.Active())) {
 				continue;
 			}
 			_renderer->SuspendView(id);
@@ -2248,8 +2228,7 @@ namespace OSFUI
 				id = std::string(a_b.CurrentSource());
 			}
 			bool cancelled = false;
-			if (_pendingViewOpen &&
-				(_pendingViewOpen->target == id || id == kHandoffViewId)) {
+			if (m_viewOpen.Active() && (m_viewOpen.Targets(id) || id == kHandoffViewId)) {
 				cancelled = CancelPendingOpen();
 			}
 			if (_presentation.Close(id)) {
