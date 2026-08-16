@@ -230,7 +230,7 @@ fault budget. Details are in [troubleshooting.md](troubleshooting.md) and
 ### Feature modules ("apps" on the platform)
 
 Features are `IUiModule`s (`Runtime/UiModule.h`). `IUiModule` is a uniform lifecycle fan-out: the OSF UI runtime drives every module through the same points — `OnStart()` (applies persisted state at load), `RegisterEndpoints(bridge)` (wire its own send/request endpoints), `OnBridgeDown()`, `OnViewDestroyed()` — from one loop in registration order, rather than a per-module call at each site. It is not a decoupling seam: the OSF UI runtime still owns and reaches through the concrete module types directly.
-`Runtime::BuildModules()` is the composition root - the one place that names concrete modules and injects their dependencies
+`Runtime::InitializeFeatureModules()` is the composition root - the one place that names concrete modules and injects their dependencies
 
 ### Views
 

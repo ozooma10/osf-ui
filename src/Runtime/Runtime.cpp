@@ -107,6 +107,207 @@ namespace OSFUI
 		API::BridgeApi::Get().SetViewCatalog(discoveredViewIds);
 	}
 
+	bool Runtime::InitializeRenderer()
+	{
+		_renderer = std::make_unique<WebView2HostWebRenderer>();
+
+		const auto* view = _views.Find(_config.view);
+		const auto initialWidth = view ? view->width : kDefaultViewWidth;
+		const auto initialHeight = view ? view->height : kDefaultViewHeight;
+
+		_viewWidth.store(initialWidth);
+		_viewHeight.store(initialHeight);
+		_cursorX = initialWidth * 0.5f;
+		_cursorY = initialHeight * 0.5f;
+
+		RendererConfig rendererConfig{
+			.width = initialWidth,
+			.height = initialHeight,
+			.devMode = _config.devMode,
+			.dataDir = Paths::DataDir(),
+		};
+
+		if (!_renderer->Initialize(rendererConfig)) {
+			REX::ERROR("Runtime: WebView2 renderer failed to initialize");
+			return false;
+		}
+
+		REX::INFO("Runtime: renderer = {}", _renderer->Name());
+		return true;
+	}
+
+	void Runtime::WireRendererLifecycleCallbacks()
+	{
+		_renderer->SetLoadHandler([this](const IWebRenderer::LoadEvent& a_e) {
+			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
+		});
+
+		_renderer->SetFailureHandler([this](const IWebRenderer::FailureEvent& a_e) {
+			OnRendererFailure(a_e);
+		});
+
+		_renderer->SetHealthHandler([this](const IWebRenderer::HealthEvent& a_e) {
+			_runtimeHealth.OnRendererHealth(a_e);
+		});
+
+		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
+			HardwareCursor::SetShape(a_shape);
+		});
+	}
+
+	bool Runtime::InitializeCompositor()
+	{
+		_compositor = std::make_unique<D3D12Compositor>();
+		if (!_compositor->Initialize()) {
+			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
+			return false;
+		}
+		REX::INFO("Runtime: compositor = {}", _compositor->Name());
+		return true;
+	}
+
+	void Runtime::WireRenderPipeline()
+	{
+		_renderer->SetSharedRingHandler([this](const SharedRingDesc& a_desc) {
+			if (_compositor) {
+				_compositor->SetSharedRing(a_desc);
+			}
+		});
+
+		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) {
+			OnOutputResized(a_w, a_h);
+		});
+	}
+
+	void Runtime::InitializeFeatureModules()
+	{
+		// Settings: schemas ship read-only under <data>/settings/*.json; values persist per-mod under <data>/settings/values 
+		const auto schemaDir = Paths::DataDir() / "settings";
+		const auto valuesDir = schemaDir / "values";
+		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
+			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
+				OnSettingChanged(a_mod, a_key, a_value);
+			},
+			// v1 -> v2 values migration: pre-2.x key names were VK-anchored;
+			// re-anchor each one to the physical key that VK sits on under the
+			// layout active right now. Every failed step keeps the spelling —
+			// on US layouts the whole chain is an identity.
+			[](const std::string& a_name) -> std::string {
+				const auto vk = Legacy::ResolveKeyNameVk(a_name);
+				if (vk == 0) {
+					return a_name;
+				}
+				const auto scan = Platform::VkToDirectInputScan(vk);
+				if (scan == 0) {
+					return a_name;
+				}
+				auto name = KeyName(static_cast<ScanCode>(scan));
+				return name.empty() ? a_name : name;
+			});
+		_settings = settings.get();  // core needs schema facts (e.g. key-capture gating)
+		_settings->Store().SetTextResolver([this](std::string_view a_mod, std::string_view a_address, std::string_view a_english) {
+			return _localization.Resolve(a_mod, a_address, a_english);
+		});
+
+		// Native ABI feed: every committed value — including the
+		// OnStart NotifyAll replay below and the per-mod replay after an
+		// incremental RegisterSchema — lands in the any-thread mirror the C ABI
+		// typed getters read, then queues for SubscribeSettings consumers (drained
+		// on the main thread by BridgeApi::PumpMainThread). Mirror first: a
+		// subscribe replay snapshots the mirror, so it must never lag the queued
+		// event. Registry shape changes rebuild the mirror from the store document
+		// so a removed mod's values stop resolving.
+		auto& store = _settings->Store();
+		store.AddChangeListener([](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
+			auto& api = API::BridgeApi::Get();
+			api.Mirror().Update(a_mod, a_key, a_value);
+			api.Subscriptions().OnChanged(a_mod, a_key, a_value);
+			// Papyrus change callbacks, after the mirror
+			// update: the dispatched script call reads current values through the
+			// mirror-backed getters, so the mirror must never lag it.
+			API::Papyrus::OnSettingChanged(a_mod, a_key);
+		});
+		store.AddRegistryListener([this] {
+			if (_settings) {  // teardown guard (_settings nulls before modules die)
+				API::BridgeApi::Get().Mirror().Rebuild(_settings->Store().DataView());
+			}
+		});
+
+		// HotkeyService: every key-typed setting is a dispatchable mod-hotkey
+		// binding. The registry rebuilds on any key-typed commit (web, ABI or
+		// reset) and on registry shape change; the store's conflict grouping shares
+		// this key-name resolution, so the store stays input-agnostic. Suppression
+		// reads the same capture state OnGameWindowKey consults, so a press while the
+		// user types in a settings field or mid-rebind cannot fire a hotkey.
+		store.SetKeyNameResolver(ResolveKeyName);
+
+		// Game bindings are not loaded here: the Mod Settings-owned
+		// osfui.vanillaKeyConflicts setting's OnStart replay drives
+		// ApplyGameBindingConflictWarnings with the persisted value (default
+		// on → loads then; off → never pays the parse).
+
+		_hotkeys.SetSuppression([this] { return IsInputCaptured() || _captureArmed.load(); });
+		store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json&) {
+			if (_settings && _settings->Store().GetSettingType(a_mod, a_key) == "key") {
+				_hotkeys.Rebuild(_settings->Store());
+			}
+		});
+		store.AddRegistryListener([this] {
+			if (_settings) {
+				_hotkeys.Rebuild(_settings->Store());
+			}
+		});
+		_hotkeys.Rebuild(store);  // LoadAll already ran in the module's constructor
+
+		// First keycap-label build (localized display for the current layout);
+		// later switches re-derive via WM_INPUTLANGCHANGE / locale / capture-arm.
+		RefreshKeyboardLabels("startup");
+
+		_modules.push_back(std::move(settings));
+
+		// System Health (introduced in web bridge protocol 1.4): a session-scoped registry every
+		// subsystem reports durable, actionable conditions to. Deliberately
+		// LAST, so a producer that fires during another module's OnStart finds
+		// the registry already constructed.
+		auto healthRegistry = std::make_unique<HealthRegistry>();
+		_healthRegistry = healthRegistry.get();
+		_modules.push_back(std::move(healthRegistry));
+
+		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
+
+		for (const auto& module : _modules) {
+			module->OnStart();
+		}
+	}
+
+	void Runtime::InitializeBridge()
+	{
+		_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
+			if (_renderer) {
+				_renderer->SendMessageToWeb(a_viewId, a_json);
+			}
+		});
+		
+		_bridge->SetHelloHook([this](std::string_view a_viewId) { OnViewGreeted(a_viewId); });
+
+		_bridge->SetProtocolFaultSink([this](std::string_view a_viewId, std::string_view a_code, std::string_view a_message, 
+			const nlohmann::json& a_detail, bool a_viewFault) {
+			OnProtocolFault(a_viewId, a_code, a_message, a_detail, a_viewFault);
+		});
+
+		RegisterPlatformEndpoints(*_bridge);
+
+		for(const auto& module : _modules) {
+			module->RegisterEndpoints(*_bridge);
+		}
+
+		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
+			if (_bridge) {
+				_bridge->HandleWebMessage(a_viewId, a_json);
+			}
+		});
+	}
+
 	bool Runtime::Initialize()
 	{
 		if (_initialized) {
@@ -127,109 +328,18 @@ namespace OSFUI
 
 		LoadStartupContent();
 
-		_renderer = std::make_unique<WebView2HostWebRenderer>();
-		const auto* view = _views.Find(_config.view);
-		const auto initialWidth = view ? view->width : kDefaultViewWidth;
-		const auto initialHeight = view ? view->height : kDefaultViewHeight;
-		_viewWidth.store(initialWidth);
-		_viewHeight.store(initialHeight);
-		_cursorX = initialWidth * 0.5f;
-		_cursorY = initialHeight * 0.5f;
-		RendererConfig rendererConfig{
-			.width = initialWidth,
-			.height = initialHeight,
-			.devMode = _config.devMode,
-			.dataDir = Paths::DataDir(),
-		};
-		if (!_renderer->Initialize(rendererConfig)) {
-			REX::ERROR("Runtime: WebView2 renderer failed to initialize");
+		if(!InitializeRenderer()) {
 			return false;
 		}
-		REX::INFO("Runtime: renderer = {}", _renderer->Name());
 
-		// A failed load never fires DOM-ready, so this is the only signal a view
-		// didn't come up. Drives crash-recovery.
-		_renderer->SetLoadHandler([this](const IWebRenderer::LoadEvent& a_e) {
-			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
-		});
-		_renderer->SetFailureHandler([this](const IWebRenderer::FailureEvent& a_e) {
-			OnRendererFailure(a_e);
-		});
+		WireRendererLifecycleCallbacks();
 
-		// Degraded-but-alive web-renderer conditions into System Health. Game
-		// thread, both edges — see IWebRenderer::HealthEvent.
-		_renderer->SetHealthHandler([this](const IWebRenderer::HealthEvent& a_e) {
-			_runtimeHealth.OnRendererHealth(a_e);
-		});
-
-		// The input-target document's CSS `cursor` drives the real OS pointer. Unlike the
-		// other handlers this fires on the renderer's worker thread (IWebRenderer
-		// contract) — SetShape is one atomic store, applied by the WndProc hook on
-		// the next mouse message.
-		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
-			HardwareCursor::SetShape(a_shape);
-		});
-
-
-		_compositor = std::make_unique<D3D12Compositor>();
-		if (!_compositor->Initialize()) {
-			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
+		if(!InitializeCompositor()) {
 			return false;
 		}
-		// GPU frame transport (out-of-process browser host): the compositor owns
-		// the shared-texture ring handles once handed over. Fires on the game
-		// thread (renderer Update()); no-op for CPU-only renderer/compositor pairs.
-		_renderer->SetSharedRingHandler([this](const SharedRingDesc& a_desc) {
-			if (_compositor) {
-				_compositor->SetSharedRing(a_desc);
-			}
-		});
-		// Size the view to the real output so the page renders aspect-correct.
-		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
-
-		// The Scaleform vtables are static, but hook installation is deliberately
-		// deferred to SFSE kPostLoad. Luma edits the vanilla Composite body and
-		// installs a call-through VMT hook during its Plugin_Load; chaining it is
-		// safe only after that work is complete.
-		REX::INFO("Runtime: compositor = {}", _compositor->Name());
-
-		// Composition root for feature modules (hosted generically via IUiModule).
-		// OnStart() applies persisted state before the first frame.
-		BuildModules();
-		for (const auto& module : _modules) {
-			module->OnStart();
-		}
-
-		// One bridge serves every bridge-enabled view. Build it before any view is
-		// instantiated so a first-open on-demand view gets exactly the same handler wiring
-		// as a startup view. BridgeApi becomes available only when InstantiateView
-		// actually instantiates a bridge-enabled view, preserving the public
-		// IsBridgeReady compatibility contract and pre-availability SendToWeb queue.
-		_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
-			if (_renderer) {
-				_renderer->SendMessageToWeb(a_viewId, a_json);
-			}
-		});
-		// The whole OSF UI runtime obligation under a page-initiated handshake: answer
-		// hellos, in order, with ready then state. Installing it here (rather
-		// than open-coding a greeting at each view-creation site) is what makes
-		// the ordering guarantee structural.
-		_bridge->SetHelloHook([this](std::string_view a_viewId) { OnViewGreeted(a_viewId); });
-		_bridge->SetProtocolFaultSink([this](std::string_view a_viewId, std::string_view a_code,
-									  std::string_view a_message, const nlohmann::json& a_detail,
-									  bool a_viewFault) {
-			OnProtocolFault(a_viewId, a_code, a_message, a_detail, a_viewFault);
-		});
-		RegisterPlatformEndpoints(*_bridge);
-		for (const auto& module : _modules) {
-			module->RegisterEndpoints(*_bridge);
-		}
-		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
-			if (_bridge) {
-				_bridge->HandleWebMessage(a_viewId, a_json);
-			}
-		});
-
+		WireRenderPipeline();
+		InitializeFeatureModules();
+		InitializeBridge();
 
 
 		// The pinned core set: platform views that must never pay a cold
@@ -2204,107 +2314,6 @@ namespace OSFUI
 		// controls enabled. Apply edge-detects internally and retries until the
 		// manager exists.
 		ControlLayer::Apply(_presentation.DesiredCapture());
-	}
-
-	void Runtime::BuildModules()
-	{
-		// Settings: schemas ship read-only under <data>/settings/*.json; values
-		// persist per-mod under <data>/settings/values — in the Data tree, not
-		// Documents, because under MO2 the write is VFS-captured (Overwrite), so
-		// settings are per-profile, travel with instance backups, and sit next to
-		// the mod (the same profile-local persistence convention as other mod settings).
-		const auto schemaDir = Paths::DataDir() / "settings";
-		const auto valuesDir = schemaDir / "values";
-		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
-			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
-				OnSettingChanged(a_mod, a_key, a_value);
-			},
-			// v1 -> v2 values migration: pre-2.x key names were VK-anchored;
-			// re-anchor each one to the physical key that VK sits on under the
-			// layout active right now. Every failed step keeps the spelling —
-			// on US layouts the whole chain is an identity.
-			[](const std::string& a_name) -> std::string {
-				const auto vk = Legacy::ResolveKeyNameVk(a_name);
-				if (vk == 0) {
-					return a_name;
-				}
-				const auto scan = Platform::VkToDirectInputScan(vk);
-				if (scan == 0) {
-					return a_name;
-				}
-				auto name = KeyName(static_cast<ScanCode>(scan));
-				return name.empty() ? a_name : name;
-			});
-		_settings = settings.get();  // core needs schema facts (e.g. key-capture gating)
-		_settings->Store().SetTextResolver([this](std::string_view a_mod, std::string_view a_address, std::string_view a_english) {
-			return _localization.Resolve(a_mod, a_address, a_english);
-		});
-
-		// Native ABI feed: every committed value — including the
-		// OnStart NotifyAll replay below and the per-mod replay after an
-		// incremental RegisterSchema — lands in the any-thread mirror the C ABI
-		// typed getters read, then queues for SubscribeSettings consumers (drained
-		// on the main thread by BridgeApi::PumpMainThread). Mirror first: a
-		// subscribe replay snapshots the mirror, so it must never lag the queued
-		// event. Registry shape changes rebuild the mirror from the store document
-		// so a removed mod's values stop resolving.
-		auto& store = _settings->Store();
-		store.AddChangeListener([](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
-			auto& api = API::BridgeApi::Get();
-			api.Mirror().Update(a_mod, a_key, a_value);
-			api.Subscriptions().OnChanged(a_mod, a_key, a_value);
-			// Papyrus change callbacks, after the mirror
-			// update: the dispatched script call reads current values through the
-			// mirror-backed getters, so the mirror must never lag it.
-			API::Papyrus::OnSettingChanged(a_mod, a_key);
-		});
-		store.AddRegistryListener([this] {
-			if (_settings) {  // teardown guard (_settings nulls before modules die)
-				API::BridgeApi::Get().Mirror().Rebuild(_settings->Store().DataView());
-			}
-		});
-
-		// HotkeyService: every key-typed setting is a dispatchable mod-hotkey
-		// binding. The registry rebuilds on any key-typed commit (web, ABI or
-		// reset) and on registry shape change; the store's conflict grouping shares
-		// this key-name resolution, so the store stays input-agnostic. Suppression
-		// reads the same capture state OnGameWindowKey consults, so a press while the
-		// user types in a settings field or mid-rebind cannot fire a hotkey.
-		store.SetKeyNameResolver(ResolveKeyName);
-
-		// Game bindings are not loaded here: the Mod Settings-owned
-		// osfui.vanillaKeyConflicts setting's OnStart replay drives
-		// ApplyGameBindingConflictWarnings with the persisted value (default
-		// on → loads then; off → never pays the parse).
-
-		_hotkeys.SetSuppression([this] { return IsInputCaptured() || _captureArmed.load(); });
-		store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json&) {
-			if (_settings && _settings->Store().GetSettingType(a_mod, a_key) == "key") {
-				_hotkeys.Rebuild(_settings->Store());
-			}
-		});
-		store.AddRegistryListener([this] {
-			if (_settings) {
-				_hotkeys.Rebuild(_settings->Store());
-			}
-		});
-		_hotkeys.Rebuild(store);  // LoadAll already ran in the module's constructor
-
-		// First keycap-label build (localized display for the current layout);
-		// later switches re-derive via WM_INPUTLANGCHANGE / locale / capture-arm.
-		RefreshKeyboardLabels("startup");
-
-		_modules.push_back(std::move(settings));
-
-		// System Health (introduced in web bridge protocol 1.4): a session-scoped registry every
-		// subsystem reports durable, actionable conditions to. Deliberately
-		// LAST, so a producer that fires during another module's OnStart finds
-		// the registry already constructed.
-		auto healthRegistry = std::make_unique<HealthRegistry>();
-		_healthRegistry = healthRegistry.get();
-		_modules.push_back(std::move(healthRegistry));
-
-		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
 	}
 
 	void Runtime::DrainKeyCapture()

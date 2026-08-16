@@ -106,6 +106,12 @@ namespace OSFUI
 
 		bool LoadRuntimeConfig();
 		void LoadStartupContent();
+		bool InitializeRenderer();
+		void WireRendererLifecycleCallbacks();
+		bool InitializeCompositor();
+		void WireRenderPipeline();
+		void InitializeFeatureModules();
+		void InitializeBridge();
 
 		// Internally owned renderer and load-state edges.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
@@ -115,14 +121,6 @@ namespace OSFUI
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
 		void SubmitFrameIfVisible();
 
-		// Composition root for feature modules (settings, health) and the
-		// platform's own bridge endpoints. Ownership is through the base type —
-		// `_modules` holds `unique_ptr<IUiModule>` — while `_settings`/`_healthRegistry`
-		// keep non-owning concrete-typed pointers the core reaches through directly.
-		// Both are real: the modules are driven polymorphically through the shared
-		// IUiModule lifecycle loops in registration order (health last), AND
-		// named concretely at the ~38 sites that need module-specific facts.
-		void BuildModules();
 		void RegisterPlatformEndpoints(MessageBridge& a_bridge);
 
 		// Instantiate and add one discovered view with exactly the same
@@ -356,7 +354,7 @@ namespace OSFUI
 		RuntimeHealthCoordinator                      _runtimeHealth{ *this };
 		// Live key-typed bindings -> owner dispatch. Fed by OnGameWindowKey (window
 		// thread), rebuilt from the store's listeners and drained in Tick (main
-		// thread); wired in BuildModules.
+		// thread); wired in InitializeFeatureModules.
 		HotkeyService                           _hotkeys;
 		LiveControlMap                          _controlMap;
 		DeferredMainThreadWork                  _controlMapInit;
