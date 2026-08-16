@@ -499,6 +499,36 @@ namespace OSFUI
 		DriveBrowserHostRecovery();
     }
 
+    void Runtime::ProcessControlMapUpdates()
+    {
+		if(_keyboardLayoutChanged.exchange(false)) {
+			RefreshKeyboardLabels("input language change");
+
+			if(_controlMap.RefreshLabels(false)) {
+				SyncLiveControlMapBindings();
+				PublishPlatformState("keybindings");
+			} else if(_controlMap.Initialized() && !_controlMap.Available()) {
+				SyncLiveControlMapBindings();
+				SyncLiveControlMapHealth();
+				PublishPlatformState("keybindings");
+				PublishPlatformState("input-context");
+			}
+		}
+
+		const auto changes = _controlMap.Pump();
+
+		if(changes.keybindings) {
+			SyncLiveControlMapBindings();
+			SyncLiveControlMapHealth();
+			PublishPlatformState("keybindings");
+		}
+
+		if(changes.engineInputContext) {
+			SyncLiveControlMapHealth();
+			PublishPlatformState("input-context");
+		}
+	}
+
     void Runtime::Tick(double a_deltaSeconds)
 	{
 		if (!_initialized) {
@@ -508,67 +538,14 @@ namespace OSFUI
 
 		ProcessLifecycleWork();
 
-		// The pause-menu entry (PauseMenuEntry::Reconcile) is NOT driven from
-		// here: although Tick runs on the game main thread, arbitrary Scaleform
-		// access must also avoid re-entering the AS3 VM. MainThreadMenuPump drives
-		// it post-UI_AdvanceActiveMenus, when every admitted movie has finished
-		// its frame; a click's EnqueueOpenView lands below on the next tick.
-		// Validate plugin-supplied view registrations (ABI 1.5) before the menu-
-		// request snapshot below. Ordinary views remain uninstantiated; openOnStart
-		// views are instantiated here.
 		DrainViewRegistrations();
-		// Snapshot queued menu requests (toggle/Esc/transition + plugin
-		// RequestMenu) now, but apply them after the bridge pump below — the ABI
-		// 1.3 ordering guarantee: a consumer that called SendToWeb(v, ...) then
-		// RequestMenu(v, true) has its send in _pendingSends before the request
-		// entered this snapshot, so the pump flushes the message into v's queue
-		// before the open unhides v (message before first visible paint).
 		const auto presentationWork = TakePresentationRequests();
-		// Instantiate discovered targets while they are still hidden, before queued sends
-		// are pumped. ApplyPresentationRequests performs only the visibility transition.
 		PreparePresentationRequests(presentationWork);
-		// Layout switch flagged by the window thread (WM_INPUTLANGCHANGE):
-		// republish keycap labels before any capture answer this tick reads
-		// them.
-		if (_keyboardLayoutChanged.exchange(false)) {
-			RefreshKeyboardLabels("input language change");
-			// Keyboard records are Win32 VKs; their physical scan-code projection
-			// must be re-derived under the new layout alongside display keycaps.
-			if (_controlMap.RefreshLabels(/*localizationChanged*/ false)) {
-				SyncLiveControlMapBindings();
-				PublishPlatformState("keybindings");
-			} else if (_controlMap.Initialized() && !_controlMap.Available()) {
-				// A rebuild can fail a layout safety gate after previously being
-				// available. Clear the old conflict projection and publish both
-				// unavailable states immediately; never leave stale claims behind.
-				SyncLiveControlMapBindings();
-				SyncLiveControlMapHealth();
-				PublishPlatformState("keybindings");
-				PublishPlatformState("input-context");
-			}
-		}
-		// Live ControlMap maintenance is game-thread-only. Repeated remap events
-		// coalesce behind the provider generation and rebuild once here; the much
-		// smaller active engine-input-context stack is sampled every tick for scoped dispatch.
-		const auto controlMapChanges = _controlMap.Pump();
-		if (controlMapChanges.keybindings) {
-			SyncLiveControlMapBindings();
-			SyncLiveControlMapHealth();
-			PublishPlatformState("keybindings");
-		}
-		if (controlMapChanges.engineInputContext) {
-			SyncLiveControlMapHealth();
-			PublishPlatformState("input-context");
-		}
-		// Deliver a captured rebind key back to Mod Settings (main thread).
+
+		ProcessControlMapUpdates();
+
 		DrainKeyCapture();
-		// Deliver queued mod-hotkey fires (window thread -> main).
-		// before the bridge pump below, so the C ABI callbacks they queue are
-		// invoked this same tick.
 		DrainHotkeys();
-		// Apply queued runtime schema (un)registrations to the store first, so
-		// their value replay is already queued when the pump below drains
-		// SubscribeSettings callbacks — registration lands in one tick.
 		DrainSchemaOps();
 		// Papyrus Set*/Reset operations go through the same validated
 		// store path as every other writer. After DrainSchemaOps so a set against a

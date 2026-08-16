@@ -218,9 +218,12 @@ namespace OSFUI
 		// read-only game catalog. Re-broadcasts `osfui/settings` state because per-setting
 		// conflict annotations are carried there.
 		void ApplyGameBindingConflictWarnings(bool a_enabled);
-		void ProcessLifecycleWork();
 		void InitializeDataLoadedState();
 		void InitializePostDataLoadIntegration();
+		
+		void ProcessLifecycleWork();
+		void ProcessControlMapUpdates();
+
 		void SyncLiveControlMapBindings();
 		void SyncLiveControlMapHealth();
 		// Invalidate and re-broadcast every projection that contains localized
