@@ -618,7 +618,7 @@ namespace OSFUI
 				const auto active = _presentation.ActiveMenu();
 				if (_pendingViewOpen && (!active || *active == kHandoffViewId)) {
 					CancelPendingOpen();
-				} else if (active && _backOwnerViews.contains(*active) && _renderer) {
+				} else if (active && m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
 					constexpr std::uint32_t kVkEscape = 0x1B;
 					_renderer->InjectKeyEvent(kVkEscape, true);
 					_renderer->InjectKeyEvent(kVkEscape, false);
@@ -1122,10 +1122,7 @@ namespace OSFUI
 				attempts);
 		}
 		m_viewLoads.FinishLoad(id, a_failed);
-		// The gamepad-raw and back-owner grants are sticky for a page's lifetime,
-		// so a (re)loaded page starts un-granted and re-asserts in its own boot code.
-		_gamepadRawViews.erase(id);
-		_backOwnerViews.erase(id);
+		m_viewInputGrants.ResetPage(id);
 		if (!a_failed) {
 			// A healthy load clears the strikes, so a later failure gets the full
 			// retry budget again.
@@ -1260,8 +1257,7 @@ namespace OSFUI
 			// Drops the view's event gate and reaps every request it still owns.
 			_bridge->OnViewDestroyed(a_id);
 		}
-		_gamepadRawViews.erase(a_id);
-		_backOwnerViews.erase(a_id);
+		m_viewInputGrants.ResetPage(a_id);
 		for (const auto& mod : _modules) {
 			mod->OnViewDestroyed(a_id);
 		}
@@ -1492,11 +1488,7 @@ namespace OSFUI
 				_bridge->PublishState(a_viewId, mod, entry.key, entry.value);
 			}
 		}
-		// A greeting means a FRESH document, which cannot still hold the input
-		// grants the previous one asserted. Dropping them here (rather than only
-		// in OnViewLoad) also covers an F5 the runtime never hears about.
-		_gamepadRawViews.erase(std::string(a_viewId));
-		_backOwnerViews.erase(std::string(a_viewId));
+		m_viewInputGrants.ResetPage(a_viewId);
 	}
 
 	void Runtime::OnProtocolFault(std::string_view a_viewId, std::string_view a_code,
@@ -1583,8 +1575,7 @@ namespace OSFUI
 
 		_recovery.clear();
 		m_viewLoads.ClearAllContentReady();
-		_gamepadRawViews.clear();
-		_backOwnerViews.clear();
+		m_viewInputGrants.ResetAll();
 		_pendingMouseMove.store(kNoPendingMouseMove);
 		m_viewReveal.Reset();
 		_nativeFocusGranted = false;
@@ -1891,7 +1882,7 @@ namespace OSFUI
 		// Raw mode is the active menu's sticky flag — per view, so menu switches
 		// can't leak one page's grant to another. The EngineInput global mirrors
 		// it, keeping the mode-flip log in one place.
-		const bool raw = active && _gamepadRawViews.contains(*active);
+		const bool raw = active && m_viewInputGrants.UsesRawGamepad(*active);
 		EngineInput::SetRawMode(raw);
 		// While capturing, the receiver thunks consume gamepad events after
 		// recording them (status=kStop): the ControlLayer disable flags do not
@@ -2461,11 +2452,7 @@ namespace OSFUI
 			if (src.empty()) {
 				return;
 			}
-			if (Json::Get(a_p, "raw", false)) {
-				_gamepadRawViews.insert(src);
-			} else {
-				_gamepadRawViews.erase(src);
-			}
+			m_viewInputGrants.SetGamepadRaw(src, Json::Get(a_p, "raw", false));
 		});
 		// `osfui.textFocus` is gone. It was registered as a no-op purely so a
 		// pre-session-focus view would not trip the legacy `unknown-command` error; an unknown
@@ -2558,11 +2545,7 @@ namespace OSFUI
 			if (src.empty()) {
 				return;
 			}
-			if (Json::Get(a_p, "handle", false)) {
-				_backOwnerViews.insert(src);
-			} else {
-				_backOwnerViews.erase(src);
-			}
+			m_viewInputGrants.SetBackOwnership(src, Json::Get(a_p, "handle", false));
 		});
 
 		// Read-only game data: bridge handlers dispatch from main-thread Tick, so

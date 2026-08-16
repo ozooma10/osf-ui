@@ -20,6 +20,7 @@
 #include "Bridge/MessageBridge.h"
 #include "Settings/SettingsModule.h"
 #include "Runtime/UiModule.h"
+#include "Input/ViewInputGrants.h"
 #include "Views/ViewManager.h"
 #include "Views/ViewLifecycle.h"
 #include "Views/ViewLoadTracker.h"
@@ -381,23 +382,13 @@ namespace OSFUI
 		};
 		std::optional<PendingViewOpen> _pendingViewOpen;
 
-		// Views holding the gamepad raw-passthrough grant (osfui.gamepadRaw).
-		// Sticky per view: survives overlay hide/show, cleared on page (re)load
-		// and view destroy. DrainEngineInput applies the active menu's flag each
-		// tick. Main thread only.
-		std::unordered_set<std::string> _gamepadRawViews;
-		// Views owning the back action (osfui.handleBack): while such a view is
-		// the active menu, Esc / pad-B are delegated to the page as a synthetic
-		// Escape instead of closing the active menu (the page navigates, peels an
-		// inner panel, or sends `close` itself). Same stickiness/cleanup rules
-		// as _gamepadRawViews. Main thread only.
-		std::unordered_set<std::string> _backOwnerViews;
 		// Last value pushed to IWebRenderer::SetNativeFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.
 		bool _nativeFocusGranted{ false };
 
 		ViewRequestQueue m_viewRequests;
 		ViewLoadTracker m_viewLoads;
+		ViewInputGrants m_viewInputGrants;
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
 		// gameplay, so raw deltas are accumulated instead). Position is written
