@@ -112,6 +112,7 @@ namespace OSFUI
 		void WireRenderPipeline();
 		void InitializeFeatureModules();
 		void InitializeBridge();
+		void InitializeStartupViews();
 
 		// Internally owned renderer and load-state edges.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);

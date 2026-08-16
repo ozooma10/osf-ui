@@ -308,7 +308,58 @@ namespace OSFUI
 		});
 	}
 
-	bool Runtime::Initialize()
+    void Runtime::InitializeStartupViews()
+    {
+		_pinnedViews.clear();
+		for (const auto id : { kHandoffViewId, kSettingsViewId }) {
+			if (_views.Find(id)) {
+				_pinnedViews.emplace(id);
+			}
+		}
+
+		std::size_t instantiated = 0;
+		const auto instantiatePinned = [this, &instantiated](std::string_view a_id, std::string_view a_reason) {
+			const auto* manifest = _views.Find(a_id);
+			const bool wasInstantiated = _presentation.IsInstantiated(a_id);
+			if (!manifest || !InstantiateView(*manifest, a_reason)) {
+				return;
+			}
+			if (!wasInstantiated) {
+				++instantiated;
+			}
+			// prewarm view so first open is immediateish
+			_renderer->PrewarmView(a_id);
+		};
+		instantiatePinned(kHandoffViewId, "as the pinned first-load handoff");
+		instantiatePinned(kSettingsViewId, "as the pinned Mod Settings view");
+
+		for (const auto& manifest : _views.All()) {
+			if (manifest.kind != ViewKind::Hud || _pinnedViews.contains(manifest.id)) {
+				continue;
+			}
+			if (!HudAutoStartEligible(manifest)) {
+				if (_viewPolicy.HasHudOverride(manifest.id)) {
+					REX::DEBUG("Runtime: HUD '{}' has an auto-start override but is not eligible (catalog-hidden via hub:false, or debugOnly without developer mode); ignored", manifest.id);
+				}
+				continue;
+			}
+			if (!_viewPolicy.HudAutoStart(manifest.id, manifest.openOnStart)) {
+				continue;
+			}
+			if (InstantiateView(manifest, "for HUD auto-start")) {
+				++instantiated;
+				if (_presentation.IsInstantiated(manifest.id)) {
+					_presentation.Open(manifest.id);
+				}
+			}
+		}
+		REX::INFO("Runtime: instantiated {} pinned/auto-start view(s); default menu = '{}'", instantiated, _config.view);
+		if (!_views.Find(_config.view)) {
+			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open", _config.view);
+		}
+    }
+
+    bool Runtime::Initialize()
 	{
 		if (_initialized) {
 			return true;
@@ -340,70 +391,8 @@ namespace OSFUI
 		WireRenderPipeline();
 		InitializeFeatureModules();
 		InitializeBridge();
-
-
-		// The pinned core set: platform views that must never pay a cold
-		// first paint. Established before the first InstantiateView so lifecycle
-		// policy records the correct never-destroy bit. Deliberately not
-		// configurable — everything else is discovered and instantiated on first open.
-		_pinnedViews.clear();
-		for (const auto id : { kHandoffViewId, kSettingsViewId }) {
-			if (_views.Find(id)) {
-				_pinnedViews.emplace(id);
-			}
-		}
-
-		std::size_t instantiated = 0;
-		const auto instantiatePinned = [this, &instantiated](std::string_view a_id,
-			std::string_view a_reason) {
-			const auto* manifest = _views.Find(a_id);
-			const bool wasInstantiated = _presentation.IsInstantiated(a_id);
-			if (!manifest || !InstantiateView(*manifest, a_reason)) {
-				return;
-			}
-			if (!wasInstantiated) {
-				++instantiated;
-			}
-			// Prime one hidden paint so latency-sensitive views do not pay both
-			// controller startup and page paint on their first reveal.
-			_renderer->PrewarmView(a_id);
-		};
-		instantiatePinned(kHandoffViewId, "as the pinned first-load handoff");
-		instantiatePinned(kSettingsViewId, "as the pinned Mod Settings view");
-
-		// HUD automatic start: the manifest's openOnStart is only the author
-		// default — the player's per-HUD choice (ViewPolicyStore, set from the
-		// Mod Settings view) wins. Menus never auto-start from discovery; a plugin's
-		// explicit RegisterView still honors openOnStart (ABI 1.5), and every
-		// other view is instantiated on its first open.
-		for (const auto& manifest : _views.All()) {
-			if (manifest.kind != ViewKind::Hud || _pinnedViews.contains(manifest.id)) {
-				continue;
-			}
-			if (!HudAutoStartEligible(manifest)) {
-				if (_viewPolicy.HasHudOverride(manifest.id)) {
-					REX::DEBUG("Runtime: HUD '{}' has an auto-start override but is not "
-							   "eligible (catalog-hidden via hub:false, or debugOnly without developer mode); ignored",
-						manifest.id);
-				}
-				continue;
-			}
-			if (!_viewPolicy.HudAutoStart(manifest.id, manifest.openOnStart)) {
-				continue;
-			}
-			if (InstantiateView(manifest, "for HUD auto-start")) {
-				++instantiated;
-				if (_presentation.IsInstantiated(manifest.id)) {
-					_presentation.Open(manifest.id);
-				}
-			}
-		}
-		REX::INFO("Runtime: instantiated {} pinned/auto-start view(s); default menu = '{}'",
-			instantiated, _config.view);
-		if (!_views.Find(_config.view)) {
-			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open",
-				_config.view);
-		}
+		InitializeStartupViews();
+		
 
 		// Key events reach OnGameWindowKey from the WndProc subclass, installed on the
 		// first main-thread tick after
