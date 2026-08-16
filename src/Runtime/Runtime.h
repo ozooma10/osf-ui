@@ -223,6 +223,10 @@ namespace OSFUI
 		
 		void ProcessLifecycleWork();
 		void ProcessControlMapUpdates();
+		void ProcessBackendQueues();
+		void ProcessSettingsMaintenance();
+		void ReconcileFrameState(double a_deltaSeconds);
+		void ProcessRendererFrame(double a_deltaSeconds);
 
 		void SyncLiveControlMapBindings();
 		void SyncLiveControlMapHealth();

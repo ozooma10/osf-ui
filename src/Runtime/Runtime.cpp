@@ -529,103 +529,58 @@ namespace OSFUI
 		}
 	}
 
-    void Runtime::Tick(double a_deltaSeconds)
-	{
-		if (!_initialized) {
-			return;
-		}
-		_uptime += a_deltaSeconds;
-
-		ProcessLifecycleWork();
-
-		DrainViewRegistrations();
-		const auto presentationWork = TakePresentationRequests();
-		PreparePresentationRequests(presentationWork);
-
-		ProcessControlMapUpdates();
-
+    void Runtime::ProcessBackendQueues()
+    {
 		DrainKeyCapture();
 		DrainHotkeys();
 		DrainSchemaOps();
-		// Papyrus Set*/Reset operations go through the same validated
-		// store path as every other writer. After DrainSchemaOps so a set against a
-		// just-registered schema resolves this tick.
-		if (_settings) {
+
+		if(_settings) {
 			API::Papyrus::DrainSettingsOps(_settings->Store());
 		}
-		// Papyrus state and events reach the publishing mod's instantiated views before
-		// PumpMainThread/Update flush the per-view outbound queues, so both land
-		// in this tick's frame. No subscriber set: the target list is derived
-		// fresh from the instantiated views each time, so there is nothing to prune
-		// or go stale.
-		if (_bridge) {
-			// A game load reset the VM: drop retained PAPYRUS state, whose values
-			// can hold session-scoped form identities. Native plugin state is
-			// left alone — a plugin's HUD config has no such lifetime, and
-			// wiping it on every load would be the bug.
-			if (API::Papyrus::TakeSessionReset()) {
+
+		if(_bridge) {
+			if(API::Papyrus::TakeSessionReset()) {
 				_retainedState.ClearSessionScoped();
 				Compat::V1::Papyrus::ClearPendingPushes();
 			}
-			// SetView* is RETAINED: it goes into the shared store first, so a
-			// document that greets the bridge later is replayed the same value.
-			// This is why a Papyrus-backed HUD survives F5 with no re-push
-			// handshake in the script.
+
 			API::Papyrus::DrainViewState([this](const API::Papyrus::ViewState& a_state) {
 				_retainedState.Set(a_state.mod, a_state.key, a_state.value, /*sessionScoped*/ true);
 				PublishModState(a_state.mod, a_state.key, a_state.value);
 			});
-			// Temporary 1.x PushToView/PushFormsToView adapter: transient by
-			// contract, so emit data.push and never retain/replay it.
+
 			Compat::V1::Papyrus::DrainPushes([this](const Compat::V1::Papyrus::Push& a_push) {
 				const auto targets = InstantiatedViewsOfMod(a_push.mod);
 				if (!targets.empty()) _bridge->Emit(targets, "data.push", a_push.payload);
 			});
-			// The native ABI's half of the same grid (SetViewState). Same store,
-			// same replay — a plugin sets a value once and every fresh document
-			// of its mod is handed it, exactly like Papyrus state. NOT
-			// session-scoped: a plugin's state holds no form identities.
-			for (auto& op : API::BridgeApi::Get().TakeViewStateOps()) {
+
+			for(auto& op : API::BridgeApi::Get().TakeViewStateOps()) {
 				_retainedState.Set(op.mod, op.key, op.value, /*sessionScoped*/ false);
 				PublishModState(op.mod, op.key, op.value);
 			}
-			// SendViewEvent is a one-shot happening: never retained, never
-			// replayed. Encoding one as state would re-fire its effect on every
-			// reload, which is exactly the bug the split exists to prevent.
+
 			API::Papyrus::DrainViewEvents([this](const API::Papyrus::ViewEvent& a_event) {
 				const auto targets = InstantiatedViewsOfMod(a_event.mod);
-				if (targets.empty()) {
-					REX::DEBUG("Runtime: SendViewEvent {}.{} had no instantiated '{}/...' view to deliver to",
-						a_event.mod, a_event.name, a_event.mod);
-					return;
+				if (!targets.empty()) {
+					_bridge->Emit(targets, std::format("{}.{}", a_event.mod, a_event.name), nlohmann::json{ { "args", a_event.args } });
 				}
-				_bridge->Emit(targets, std::format("{}.{}", a_event.mod, a_event.name),
-					nlohmann::json{ { "args", a_event.args } });
 			});
 			API::Papyrus::DrainViewReplies([this](const API::Papyrus::ViewReply& reply) {
-				if (reply.rejected) {
+				if(reply.rejected) {
 					_bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
 					_bridge->RespondTo(reply.deferToken, nlohmann::json{ { "value", reply.value } });
 				}
 			});
-		}
-		// Expire deferred requests past the OSF UI runtime deadline with `no-response`,
-		// before the pump below, so an endpoint handler that stopped answering frees the
-		// caller's in-flight capacity this tick rather than next.
-		if (_bridge) {
+
 			_bridge->Tick();
 		}
-		// Apply the native plugin API's queued ops (endpoint (re)registration +
-		// off-thread sends) on the main thread, before Update() flushes the
-		// per-view outbound queues to the pages.
 		API::BridgeApi::Get().PumpMainThread();
-		// Apply the snapshot now, so the reconcilers below and the frame submitted
-		// this tick reflect the new menu state.
-		ApplyPresentationRequests(presentationWork);
-		// Land coalesced settings value writes once their write-behind window
-		// elapses — a slider drag costs one disk write per
-		// ~500ms, not one per step.
+    }
+
+    void Runtime::ProcessSettingsMaintenance()
+    {
 		if (_settings) {
 			_settings->Store().PumpPersistence(_uptime);
 			// Schema hot-reload (developer mode): edited
@@ -641,62 +596,69 @@ namespace OSFUI
 				}
 			}
 		}
-		// Reconcile engine menu-mode + control-disable toward the derived capture
-		// state (not visibility): an open HUD must not disable controls.
+    }
+
+    void Runtime::ReconcileFrameState(double a_deltaSeconds)
+    {
 		ReconcileFocusMenu();
-		// Unconditional, so losing capture releases any engaged lock (a gate here
-		// would stop reconciling and strand the player's controls).
 		ReconcileControlLayer();
-		// Sim pause (manifest pausesGame) — unconditional: a direct
-		// Main::isGameMenuPaused write, independent of the engine focus menu.
 		ReconcileSimPause();
-		// OS-cursor release — unconditional, tracks capture (the same policy that
-		// activates the hardware cursor): while a menu captures input, hold a
-		// reference on MenuCursor::freeCursorRefCount so the per-frame clip
-		// releases the pointer (no engine arrow — the focus menu carries no
-		// ShowCursor bit). Edge-triggered inside Apply.
 		FreeCursor::Apply(_presentation.DesiredCapture());
 		DrainEngineInput(a_deltaSeconds);
+    }
+
+    void Runtime::ProcessRendererFrame(double a_deltaSeconds)
+    {
 		if (!_renderer) {
 			return;
 		}
-		// Fire any due crash-recovery reloads before Update pumps the renderer.
+
 		DriveRecovery();
 		DriveViewLifecycle();
 		DriveDevTools();
 		PumpDevViewReload();
-		// Flush the coalesced mouse move (QueueMouseMove): one injected move
-		// per frame carrying the latest position, however many raw packets the
-		// window thread recorded since the last tick.
+
 		if (const auto packed = _pendingMouseMove.exchange(kNoPendingMouseMove);
 			packed != kNoPendingMouseMove) {
-			_renderer->InjectMouseMove(
-				static_cast<int>(packed >> 32),
-				static_cast<int>(packed & 0xFFFF'FFFFull));
+			_renderer->InjectMouseMove(static_cast<int>(packed >> 32), static_cast<int>(packed & 0xFFFF'FFFFull));
 			++_mouseMoveSends;
 		}
 		if (_config.devMode && _uptime >= _nextMouseStatsLog) {
 			_nextMouseStatsLog = _uptime + 5.0;
 			const auto packets = _mouseMovePackets.exchange(0, std::memory_order_relaxed);
 			if (packets != 0 || _mouseMoveSends != 0) {
-				REX::DEBUG("Runtime: coalesced {} mouse-move packets into {} sends over ~5s",
-					packets, _mouseMoveSends);
+				REX::DEBUG("Runtime: coalesced {} mouse-move packets into {} sends over ~5s", packets, _mouseMoveSends);
 				_mouseMoveSends = 0;
 			}
 		}
 		{
-			// Out-of-process renderers mirror the accelerator state so their browser host
-			// process can decide `handled` synchronously; pushed every tick,
-			// web renderer implementations diff and forward only changes (default no-op).
-			_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),
-				IsInputCaptured(), _captureArmed.load(), _captureUpScan.load());
+			_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire), IsInputCaptured(), _captureArmed.load(), _captureUpScan.load());
 			_renderer->Update(a_deltaSeconds);
 			DrivePendingOpen();
 			SubmitFrameIfVisible();
 		}
-		// After Update(), so health edges raised by either renderer this tick are
-		// in the registry before the snapshot goes out.
 		_runtimeHealth.Pump();
+    }
+
+    void Runtime::Tick(double a_deltaSeconds)
+	{
+		if (!_initialized) {
+			return;
+		}
+		_uptime += a_deltaSeconds;
+
+		ProcessLifecycleWork();
+		DrainViewRegistrations();
+		const auto presentationWork = TakePresentationRequests();
+		PreparePresentationRequests(presentationWork);
+
+		ProcessControlMapUpdates();
+		ProcessBackendQueues();
+		ApplyPresentationRequests(presentationWork);
+
+		ProcessSettingsMaintenance();
+		ReconcileFrameState(a_deltaSeconds);
+		ProcessRendererFrame(a_deltaSeconds);
 	}
 
 	void Runtime::EnqueuePresentationRequest(PresentationRequest a_req)
