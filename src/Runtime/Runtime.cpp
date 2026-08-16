@@ -488,18 +488,12 @@ namespace OSFUI
 
 	void Runtime::EnqueuePresentationRequest(PresentationRequest a_req)
 	{
-		// Callable from any thread (WndProc toggle/Esc, MenuEventSink transition).
-		// Leaf lock: it only guards the queue; the request is acted on in Tick.
-		std::lock_guard lock(_reqMutex);
-		_presentationRequests.push_back(a_req);
+		m_viewRequests.Enqueue(a_req);
 	}
 
 	void Runtime::EnqueueOpenView(std::string a_viewId)
 	{
-		// Callable from any thread (PauseMenuEntry click). Same leaf-lock
-		// discipline as EnqueuePresentationRequest.
-		std::lock_guard lock(_reqMutex);
-		_openViewReqs.push_back(std::move(a_viewId));
+		m_viewRequests.EnqueueOpen(std::move(a_viewId));
 	}
 
 	bool Runtime::InstantiateView(const ViewManifest& a_manifest, std::string_view a_reason)
@@ -564,16 +558,10 @@ namespace OSFUI
 
 	Runtime::PendingPresentationWork Runtime::TakePresentationRequests()
 	{
-		// Snapshot under the lock, then act unlocked (in ApplyPresentationRequests): the
-		// actions call into the renderer/compositor and must never run while
-		// holding _reqMutex.
+		auto queued = m_viewRequests.Take();
 		PendingPresentationWork work;
-		{
-			std::lock_guard lock(_reqMutex);
-			work.local.swap(_presentationRequests);
-			work.openViews.swap(_openViewReqs);
-		}
-		// Sibling-plugin opens/closes by id; same policy path as the toggle key.
+		work.local = std::move(queued.presentation);
+		work.openViews = std::move(queued.openViews);
 		work.plugin = API::BridgeApi::Get().TakeViewPresentationRequests();
 		return work;
 	}

@@ -24,6 +24,7 @@
 #include "Views/ViewLifecycle.h"
 #include "Views/ViewPolicyStore.h"
 #include "Views/ViewRevealGate.h"
+#include "Views/ViewRequestQueue.h"
 #include "Bridge/RetainedStateStore.h"
 
 namespace OSFUI
@@ -52,12 +53,7 @@ namespace OSFUI
 
 		[[nodiscard]] bool IsVisible() const;
 
-		enum class PresentationRequest
-		{
-			ToggleDefault,  // F10: open the default menu, or close the top one
-			Back,           // Esc / pad-B: delegate to a back-owning view, else close the active menu
-			CloseAll,       // transition/panic: close every view
-		};
+		using PresentationRequest = ViewPresentationRequest;
 		void EnqueuePresentationRequest(PresentationRequest a_req);
 
 		// Open one discovered view by id on the next tick (any thread; same
@@ -409,11 +405,8 @@ namespace OSFUI
 		// Last value pushed to IWebRenderer::SetNativeFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.
 		bool _nativeFocusGranted{ false };
-		// Presentation requests raised off the main thread, drained in Tick. _reqMutex is
-		// a strict leaf lock: snapshot under it, release, then act.
-		std::mutex                    _reqMutex;
-		std::vector<PresentationRequest> _presentationRequests;
-		std::vector<std::string>      _openViewReqs;  // EnqueueOpenView, same lock/drain discipline
+
+		ViewRequestQueue m_viewRequests;
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
 		// gameplay, so raw deltas are accumulated instead). Position is written
