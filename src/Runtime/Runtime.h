@@ -22,6 +22,7 @@
 #include "Runtime/UiModule.h"
 #include "Views/ViewManager.h"
 #include "Views/ViewLifecycle.h"
+#include "Views/ViewLoadTracker.h"
 #include "Views/ViewPolicyStore.h"
 #include "Views/ViewRevealGate.h"
 #include "Views/ViewRequestQueue.h"
@@ -113,8 +114,6 @@ namespace OSFUI
 
 		// Internally owned renderer and load-state edges.
 		bool SetViewHidden(std::string_view a_id, bool a_hidden);
-		enum class ViewLoadState { Loading, Finished, Failed };
-		[[nodiscard]] ViewLoadState GetViewLoadState(std::string_view a_id) const;
 		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down);
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
 		void SubmitFrameIfVisible();
@@ -263,12 +262,6 @@ namespace OSFUI
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
 			std::string_view a_description, int a_errorCode);
 
-		// Has this view reached its reveal gate? A manifest that declares readySignal
-		// reaches it only once the document signals content readiness (osfui.markReady);
-		// everything else reaches it when main-frame loading finishes. a_state is the caller's already-resolved
-		// GetViewLoadState, so this does not re-look it up.
-		[[nodiscard]] bool IsViewRevealReady(std::string_view a_id, const ViewManifest& a_manifest, ViewLoadState a_state) const;
-
 		// Reload one view's URL in place: mark it Loading, clear its content-ready state,
 		// IWebRenderer::CreateOrNavigateView, then restore the output-matched size.
 		// The shared core of crash-recovery, dev-reload, and pending-open retry.
@@ -387,9 +380,6 @@ namespace OSFUI
 			bool        retryRequested{ false };
 		};
 		std::optional<PendingViewOpen> _pendingViewOpen;
-		// Explicit readiness is page-lifetime state. Cleared before every
-		// navigation and set only by that page's `view.ready` send endpoint.
-		std::unordered_set<std::string> _contentReadyViews;
 
 		// Views holding the gamepad raw-passthrough grant (osfui.gamepadRaw).
 		// Sticky per view: survives overlay hide/show, cleared on page (re)load
@@ -407,6 +397,7 @@ namespace OSFUI
 		bool _nativeFocusGranted{ false };
 
 		ViewRequestQueue m_viewRequests;
+		ViewLoadTracker m_viewLoads;
 
 		// Virtual cursor in view-pixel space (the OS cursor is hidden during
 		// gameplay, so raw deltas are accumulated instead). Position is written
@@ -513,10 +504,6 @@ namespace OSFUI
 		// leak through as an activation.
 		bool                          _directPadActive{ false };
 		std::uint32_t                 _directPadButtons{ 0 };
-
-		// Written from the renderer's load hook, read by GetViewLoadState.
-		// Game-thread only.
-		std::unordered_map<std::string, ViewLoadState> _viewLoadState;
 
 		// URL crash-recovery. A failed main-frame load schedules bounded reloads
 		// with backoff; exhaustion destroys and removes the instantiated view

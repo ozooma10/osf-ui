@@ -524,8 +524,7 @@ namespace OSFUI
 		}
 
 		_recovery.erase(id);
-		_viewLoadState[id] = ViewLoadState::Loading;
-		_contentReadyViews.erase(id);
+		m_viewLoads.BeginLoad(id);
 		_renderer->CreateOrNavigateView(a_manifest);
 		// A fresh view starts at manifest dimensions; restore the current
 		// output-matched size. Before first present these are the initialized
@@ -705,8 +704,8 @@ namespace OSFUI
 			return _presentation.Open(a_id);
 		}
 
-		const auto loadState = GetViewLoadState(a_id);
-		if (IsViewRevealReady(a_id, *manifest, loadState)) {
+		const auto loadState = m_viewLoads.GetState(a_id);
+		if(m_viewLoads.IsRevealReady(a_id, manifest->readySignal)) {
 			CancelPendingOpen();
 			return _presentation.Open(a_id);
 		}
@@ -836,11 +835,11 @@ namespace OSFUI
 			return;
 		}
 
-		const auto state = GetViewLoadState(pending.target);
+		const auto state = m_viewLoads.GetState(pending.target);
 		if (state == ViewLoadState::Finished && pending.loadedAt < 0.0) {
 			pending.loadedAt = _uptime;
 		}
-		if (IsViewRevealReady(pending.target, *manifest, state)) {
+		if (m_viewLoads.IsRevealReady(pending.target, manifest->readySignal)) {
 			FinishPendingOpen();
 			return;
 		}
@@ -1122,7 +1121,7 @@ namespace OSFUI
 					  "the overlay remains closed until the player opens it",
 				attempts);
 		}
-		_viewLoadState[id] = a_failed ? ViewLoadState::Failed : ViewLoadState::Finished;
+		m_viewLoads.FinishLoad(id, a_failed);
 		// The gamepad-raw and back-owner grants are sticky for a page's lifetime,
 		// so a (re)loaded page starts un-granted and re-asserts in its own boot code.
 		_gamepadRawViews.erase(id);
@@ -1168,16 +1167,9 @@ namespace OSFUI
 		BroadcastViewsData();  // loadState -> failed
 	}
 
-	bool Runtime::IsViewRevealReady(std::string_view a_id, const ViewManifest& a_manifest, ViewLoadState a_state) const
-	{
-		return a_manifest.readySignal ? _contentReadyViews.contains(std::string(a_id)) :
-										a_state == ViewLoadState::Finished;
-	}
-
 	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest)
 	{
-		_viewLoadState[a_id] = ViewLoadState::Loading;
-		_contentReadyViews.erase(a_id);
+		m_viewLoads.BeginLoad(a_id);
 		_viewLifecycle.NoteActivity(a_id, _uptime);
 		_renderer->CreateOrNavigateView(a_manifest);
 		if (a_manifest.permissions.nativeBridge && _bridge) {
@@ -1220,10 +1212,8 @@ namespace OSFUI
 		}
 		const auto actions = _viewLifecycle.CollectDueActions(_uptime);
 		const auto unavailable = [this](const std::string& a_id) {
-			return !_presentation.IsInstantiated(a_id) ||
-			       GetViewLoadState(a_id) == ViewLoadState::Loading ||
-			       _recovery.contains(a_id) ||
-			       (_pendingViewOpen && _pendingViewOpen->target == a_id);
+			return !_presentation.IsInstantiated(a_id) || m_viewLoads.GetState(a_id) == ViewLoadState::Loading ||
+			       _recovery.contains(a_id) || (_pendingViewOpen && _pendingViewOpen->target == a_id);
 		};
 		for (const auto& id : actions.suspend) {
 			if (unavailable(id) ||
@@ -1244,9 +1234,10 @@ namespace OSFUI
 	void Runtime::TearDownView(const std::string& a_id, ViewTeardownReason a_reason)
 	{
 		_recovery.erase(a_id);
-		_contentReadyViews.erase(a_id);
 		if (a_reason == ViewTeardownReason::IdleReclaim) {
-			_viewLoadState.erase(a_id);
+			m_viewLoads.Forget(a_id);  // idle-reclaim is a normal lifecycle event, not a load failure
+		} else {
+			m_viewLoads.ClearContentReady(a_id);  // a failed load is a content problem, not a lifecycle event
 		}
 		if (_renderer) {
 			_renderer->DestroyView(a_id);
@@ -1340,7 +1331,7 @@ namespace OSFUI
 			// caught below before the instantiated/unloaded split. Catalog-hidden
 			// (`hub:false`) and debugOnly views are still withheld here.
 			const bool instantiated = _presentation.IsInstantiated(m.id);
-			const auto state = GetViewLoadState(m.id);
+			const auto state = m_viewLoads.GetState(m.id);
 			const char* loadState =
 				state == ViewLoadState::Failed   ? "failed" :
 				state == ViewLoadState::Finished ? "loaded" :
@@ -1550,12 +1541,6 @@ namespace OSFUI
 		_healthRegistry->Broadcast();
 	}
 
-	Runtime::ViewLoadState Runtime::GetViewLoadState(std::string_view a_id) const
-	{
-		const auto it = _viewLoadState.find(std::string(a_id));
-		return it == _viewLoadState.end() ? ViewLoadState::Loading : it->second;
-	}
-
 	void Runtime::DriveBrowserHostRecovery()
 	{
 		if (_browserHostRecovery.ExpireResponseWait(_uptime)) {
@@ -1597,7 +1582,7 @@ namespace OSFUI
 		}
 
 		_recovery.clear();
-		_contentReadyViews.clear();
+		m_viewLoads.ClearAllContentReady();
 		_gamepadRawViews.clear();
 		_backOwnerViews.clear();
 		_pendingMouseMove.store(kNoPendingMouseMove);
@@ -1610,7 +1595,7 @@ namespace OSFUI
 			if (!_presentation.IsInstantiated(manifest.id)) {
 				continue;
 			}
-			_viewLoadState[manifest.id] = ViewLoadState::Loading;
+			m_viewLoads.BeginLoad(manifest.id);
 			_renderer->CreateOrNavigateView(manifest);
 			if (manifest.permissions.nativeBridge) {
 				// RestartAfterFailure discarded messages addressed to the dead
@@ -2301,7 +2286,7 @@ namespace OSFUI
 				a_b.ReportProtocolFault(source, "forbidden", "view.ready requires nativeBridge");
 				return;
 			}
-			_contentReadyViews.insert(source);
+			m_viewLoads.MarkContentReady(source);
 			REX::DEBUG("Runtime: view '{}' declared meaningful readiness", source);
 		});
 		a_bridge.RegisterSend("osfui.handoffRetry", [this](const nlohmann::json&, MessageBridge& a_b) {
