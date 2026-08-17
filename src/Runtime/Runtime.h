@@ -26,6 +26,7 @@
 #include "Views/ViewLoadTracker.h"
 #include "Views/ViewOpenSession.h"
 #include "Views/ViewPolicyStore.h"
+#include "Views/ViewRecoveryTracker.h"
 #include "Views/ViewRevealGate.h"
 #include "Views/ViewRequestQueue.h"
 #include "Bridge/RetainedStateStore.h"
@@ -488,17 +489,7 @@ namespace OSFUI
 		bool                          _directPadActive{ false };
 		std::uint32_t                 _directPadButtons{ 0 };
 
-		// URL crash-recovery. A failed main-frame load schedules bounded reloads
-		// with backoff; exhaustion destroys and removes the instantiated view
-		// so nothing can reopen a dead view. attempts counts reloads already
-		// fired; a successful load clears the entry. Game-thread only.
-		struct RecoveryState
-		{
-			std::uint32_t attempts{ 0 };
-			double        retryAt{ 0.0 };  // in _uptime seconds
-			bool          pending{ false };
-		};
-		std::unordered_map<std::string, RecoveryState> _recovery;
+		ViewRecoveryTracker				m_viewRecovery;  // main-thread only; schedules and drives view reloads after load failures
 
 		// Retained mod state, shared by Papyrus SetView* and the native ABI's
 		// SetViewState. Replayed to every document that greets the bridge, which

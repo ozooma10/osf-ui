@@ -523,7 +523,7 @@ namespace OSFUI
 			});
 		}
 
-		_recovery.erase(id);
+		m_viewRecovery.Clear(id);
 		m_viewLoads.BeginLoad(id);
 		_renderer->CreateOrNavigateView(a_manifest);
 		// A fresh view starts at manifest dimensions; restore the current
@@ -806,7 +806,7 @@ namespace OSFUI
 					return;
 				}
 			} else {
-				_recovery.erase(target);
+				m_viewRecovery.Clear(target);
 				ReloadViewInPlace(target, *manifest);
 			}
 
@@ -1090,8 +1090,7 @@ namespace OSFUI
 		return true;
 	}
 
-	void Runtime::OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
-		std::string_view a_description, int a_errorCode)
+	void Runtime::OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode)
 	{
 		const std::string id(a_viewId);
 		if (_rendererFailed && _browserHostRecovery.CanAcceptResponse()) {
@@ -1108,7 +1107,7 @@ namespace OSFUI
 		if (!a_failed) {
 			// A healthy load clears the strikes, so a later failure gets the full
 			// retry budget again.
-			if (_recovery.erase(id) > 0) {
+			if (m_viewRecovery.Clear(id)) {
 				REX::INFO("Runtime: view '{}' recovered ({})", a_viewId, a_url);
 			} else {
 				REX::INFO("Runtime: view '{}' finished loading ({})", a_viewId, a_url);
@@ -1118,32 +1117,20 @@ namespace OSFUI
 			return;
 		}
 
-		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]",
-			a_viewId, a_url, a_description, a_errorCode);
+		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]", a_viewId, a_url, a_description, a_errorCode);
 
-		// Crash-recovery: schedule a bounded reload with backoff. attempts counts
-		// reloads already fired; an exhausted budget means the content is broken,
-		// so tear down and unregister the view — otherwise the toggle
-		// key / menu.open can re-open an invisible, input-capturing shell.
-		constexpr std::uint32_t kMaxAttempts = 3;
-		constexpr double        kBackoffSec[kMaxAttempts] = { 2.0, 5.0, 15.0 };
-		auto& rec = _recovery[id];
-		if (rec.attempts >= kMaxAttempts) {
-			REX::ERROR("Runtime: view '{}' still failing after {} reload attempts; giving up — "
-					   "destroying and unregistering the view (fix its files and relaunch)",
-				a_viewId, rec.attempts);
-			// The retry budget is spent: this is the error a player has to act on.
+		const auto recovery = m_viewRecovery.ScheduleFailure(id, _uptime);
+		if(recovery.exhausted) {
+			REX::ERROR("view '{}' has exhausted its crash-recovery budget; destroying and unregistering the view (fix its files and relaunch)", a_viewId);
 			_runtimeHealth.ReportViewLoad(a_viewId, true, a_description, a_errorCode, 0);
 			TearDownView(id, ViewTeardownReason::LoadExhausted);
 			return;
 		}
-		rec.pending = true;
-		rec.retryAt = _uptime + kBackoffSec[rec.attempts];
-		REX::WARN("Runtime: view '{}' reload attempt {}/{} scheduled in {:.0f}s",
-			a_viewId, rec.attempts + 1, kMaxAttempts, kBackoffSec[rec.attempts]);
-		_runtimeHealth.ReportViewLoad(a_viewId, true, a_description, a_errorCode,
-			kMaxAttempts - rec.attempts);
-		BroadcastViewsData();  // loadState -> failed
+
+		REX::WARN("view '{}' load failed; crash-recovery will attempt reload in {:.0f} seconds (attempt {} of {})", a_viewId, recovery.retryDelay, recovery.nextAttempt, ViewRecoveryTracker::kMaxAttempts);
+		_runtimeHealth.ReportViewLoad(a_viewId, true, a_description, a_errorCode, recovery.attemptsRemaining);
+
+		BroadcastViewsData();  // loadState loading -> failed
 	}
 
 	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest)
@@ -1166,20 +1153,18 @@ namespace OSFUI
 
 	void Runtime::DriveRecovery()
 	{
-		if (_rendererFailed || _recovery.empty() || !_renderer) {
+		if (_rendererFailed || !_renderer) {
 			return;
 		}
-		for (auto& [id, rec] : _recovery) {
-			if (!rec.pending || _uptime < rec.retryAt) {
+
+		for(const auto& id : m_viewRecovery.TakeDue(_uptime)) {
+			const auto* manifest = _views.Find(id);
+			if(!manifest) {
 				continue;
 			}
-			rec.pending = false;
-			const auto* manifest = _views.Find(id);
-			if (!manifest) {
-				continue;  // only instantiated views can emit document-load events
-			}
-			++rec.attempts;
-			REX::INFO("Runtime: crash-recovery reloading view '{}' (attempt {})", id, rec.attempts);
+
+			const auto attempt = m_viewRecovery.BeginAttempt(id);
+			REX::INFO("Runtime: crash-recovery reloading view '{}' (attempt {} of {})", id, attempt, ViewRecoveryTracker::kMaxAttempts);
 			ReloadViewInPlace(id, *manifest);
 		}
 	}
@@ -1191,7 +1176,7 @@ namespace OSFUI
 		}
 		const auto actions = _viewLifecycle.CollectDueActions(_uptime);
 		const auto unavailable = [this](const std::string& a_id) {
-			return !_presentation.IsInstantiated(a_id) || m_viewLoads.GetState(a_id) == ViewLoadState::Loading || _recovery.contains(a_id) || m_viewOpen.Targets(a_id);
+			return !_presentation.IsInstantiated(a_id) || m_viewLoads.GetState(a_id) == ViewLoadState::Loading || m_viewRecovery.Contains(a_id) || m_viewOpen.Targets(a_id);
 		};
 		for (const auto& id : actions.suspend) {
 			if (unavailable(id) || (id == kHandoffViewId && m_viewOpen.Active())) {
@@ -1210,7 +1195,7 @@ namespace OSFUI
 
 	void Runtime::TearDownView(const std::string& a_id, ViewTeardownReason a_reason)
 	{
-		_recovery.erase(a_id);
+		m_viewRecovery.Clear(a_id);
 		if (a_reason == ViewTeardownReason::IdleReclaim) {
 			m_viewLoads.Forget(a_id);  // idle-reclaim is a normal lifecycle event, not a load failure
 		} else {
@@ -1553,7 +1538,7 @@ namespace OSFUI
 			return;
 		}
 
-		_recovery.clear();
+		m_viewRecovery.ClearAll();
 		m_viewLoads.ClearAllContentReady();
 		m_viewInputGrants.ResetAll();
 		_pendingMouseMove.store(kNoPendingMouseMove);
@@ -1616,7 +1601,7 @@ namespace OSFUI
 					   "closing the overlay and disabling it for this session",
 				a_event.stage, a_event.viewId, a_event.errorCode, a_event.description);
 		}
-		_recovery.clear();
+		m_viewRecovery.ClearAll();
 
 		CancelPendingOpen();
 		_presentation.CloseAll();
