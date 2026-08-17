@@ -10,21 +10,6 @@ namespace OSFUI
 {
 	namespace
 	{
-		using GetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
-
-		GetStateFn ResolveGetState()
-		{
-			for (const auto* dll : { L"xinput1_4.dll", L"xinput9_1_0.dll" }) {
-				if (const auto module = LoadLibraryExW(dll, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) {
-					if (const auto proc = GetProcAddress(module, "XInputGetState")) {
-						return reinterpret_cast<GetStateFn>(proc);
-					}
-					FreeLibrary(module);
-				}
-			}
-			return nullptr;
-		}
-
 		float NormalizeThumb(SHORT a_value)
 		{
 			// The negative endpoint has one extra representable value. Clamping keeps both sides in the bridge's documented -1..1 range.
@@ -56,14 +41,9 @@ namespace OSFUI
 
 	XInputPoller::State XInputPoller::Poll()
 	{
-		static const auto getState = ResolveGetState();
-		if (!getState) {
-			return {};
-		}
-
 		if (m_latchedSlot != kNoSlot) {
 			XINPUT_STATE state{};
-			if (getState(m_latchedSlot, &state) == ERROR_SUCCESS) {
+			if (XInputGetState(m_latchedSlot, &state) == ERROR_SUCCESS) {
 				return ToState(state);
 			}
 			m_latchedSlot = kNoSlot;  // unplugged; fall through and rescan
@@ -72,7 +52,7 @@ namespace OSFUI
 		XInputPoller::State firstConnected{};
 		for (DWORD user = 0; user < XUSER_MAX_COUNT; ++user) {
 			XINPUT_STATE state{};
-			if (getState(user, &state) != ERROR_SUCCESS) {
+			if (XInputGetState(user, &state) != ERROR_SUCCESS) {
 				continue;
 			}
 			if (ShowsActivity(state)) {
