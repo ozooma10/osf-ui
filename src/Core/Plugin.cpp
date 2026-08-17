@@ -102,3 +102,4 @@ namespace OSFUI::Plugin
 
 		return true;
 	}
+}
