@@ -61,37 +61,18 @@ namespace OSFUI::Plugin
 			switch (a_msg->type) {
 				case SFSE::MessagingInterface::kPostLoad:
 					REX::INFO("Plugin: SFSE message kPostLoad");
-					if (Runtime::Get().GetConfig().enabled) {
-						Runtime::Get().InstallOverlayDrawPath();
-					}
+					Runtime::Get().InstallOverlayDrawPath();
 					break;
 				case SFSE::MessagingInterface::kPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostDataLoad");
-					if (Runtime::Get().GetConfig().enabled) {
-						Runtime::Get().OnDataLoaded();
-					} else if (NativeMainThreadQueue::Post(
-							   [] { API::Papyrus::Install(); }, "Plugin.InstallPapyrus") ==
-						   NativeMainThreadQueue::PostResult::Unavailable) {
-						REX::ERROR("Plugin: could not queue disabled-runtime Papyrus binding on the main thread; OSFUI.* natives remain unavailable");
-					}
+					Runtime::Get().OnDataLoaded();
 					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-					if (Runtime::Get().GetConfig().enabled) Runtime::Get().OnPostDataLoaded();
-					break;
-				default:
-					REX::DEBUG("Plugin: SFSE message type {}", a_msg->type);
+					Runtime::Get().OnPostDataLoaded();
 					break;
 			}
 		}
-	}
-
-	bool OnPreLoad()
-	{
-		// Keep preload minimal: no filesystem, no game objects. Anything that
-		// can fail belongs in OnLoad, where failure is observable.
-		REX::INFO("{} v{}: preload entered", kPluginName, kOsfuiReleaseVersion);
-		return true;
 	}
 
 	bool OnLoad()

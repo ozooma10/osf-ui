@@ -8,7 +8,7 @@ SFSE_PLUGIN_PRELOAD(const SFSE::PreLoadInterface* a_sfse)
 		.logRotate = 1,
 	});
 
-	return OSFUI::Plugin::OnPreLoad();
+	return true;
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)

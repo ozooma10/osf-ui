@@ -8,6 +8,5 @@ namespace SFSE
 
 namespace OSFUI::Plugin
 {
-	bool OnPreLoad();
 	bool OnLoad();
 }
