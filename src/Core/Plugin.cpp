@@ -14,14 +14,6 @@ namespace OSFUI::Plugin
 		public:
 			void Run() override
 			{
-				if (m_faulted.load(std::memory_order_acquire)) {
-					return;
-				}
-				++m_ticks;
-				if (m_ticks == 1) {
-					REX::INFO("FrameTick: first per-frame task received from SFSE TaskInterface");
-				}
-
 				// At most one tick may be queued or running. If main thread stalls, shed redundant notifications
 				if (m_tickPending.exchange(true, std::memory_order_acq_rel)) {
 					return;
@@ -58,9 +50,7 @@ namespace OSFUI::Plugin
 			}
 
 			std::atomic_bool                                      m_tickPending{ false };
-			std::atomic_bool                                      m_faulted{ false };
 			std::optional<std::chrono::steady_clock::time_point>  m_lastMainTick;
-			std::uint64_t                                         m_ticks{ 0 };
 		};
 
 		void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
@@ -82,14 +72,11 @@ namespace OSFUI::Plugin
 					} else if (NativeMainThreadQueue::Post(
 							   [] { API::Papyrus::Install(); }, "Plugin.InstallPapyrus") ==
 						   NativeMainThreadQueue::PostResult::Unavailable) {
-						REX::ERROR("Plugin: could not queue disabled-runtime Papyrus binding on the main thread; "
-							"OSFUI.* natives remain unavailable");
+						REX::ERROR("Plugin: could not queue disabled-runtime Papyrus binding on the main thread; OSFUI.* natives remain unavailable");
 					}
 					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-					// UI singletons now exist. Installation still belongs to the proven
-					// main-thread tick, not this lifecycle callback.
 					if (Runtime::Get().GetConfig().enabled) Runtime::Get().OnPostDataLoaded();
 					break;
 				default:
