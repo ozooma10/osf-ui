@@ -6,15 +6,11 @@ namespace OSFUI::NativeMainThreadQueue
 {
 	namespace
 	{
-		// The engine owns this delegate after QueueTask accepts it. If the
-		// observed drain owner does not match the executing thread, discard the
-		// payload instead of violating its main-thread contract.
 		class GuardedTask final : public RE::BSService::QueuedDelegate
 		{
 		public:
 			GuardedTask(std::function<void()> a_task, std::string_view a_label, std::function<void()> a_onDrop) :
-				_task(std::move(a_task)), _label(a_label), _onDrop(std::move(a_onDrop))
-			{}
+				_task(std::move(a_task)), _label(a_label), _onDrop(std::move(a_onDrop)) {}
 
 			void Run() override
 			{
@@ -28,9 +24,7 @@ namespace OSFUI::NativeMainThreadQueue
 							// Recovery must not escape the engine queue drain.
 						}
 					}
-					REX::CRITICAL(
-						"NativeMainThreadQueue: dropped '{}' on thread {} (drain owner {})",
-						_label, currentThreadId, drainOwnerThreadId);
+					REX::CRITICAL("NativeMainThreadQueue: dropped '{}' on thread {} (drain owner {})", _label, currentThreadId, drainOwnerThreadId);
 					return;
 				}
 
@@ -59,8 +53,7 @@ namespace OSFUI::NativeMainThreadQueue
 		auto* queue = RE::BSService::TaskQueue::GetSingleton();
 		state.singleton = reinterpret_cast<std::uintptr_t>(queue);
 		state.queueEnabled = queue && RE::BSService::TaskQueue::IsQueueEnabled();
-		state.insideDrain = state.drainOwnerThreadId != 0 &&
-			state.currentThreadId == state.drainOwnerThreadId;
+		state.insideDrain = state.drainOwnerThreadId != 0 && state.currentThreadId == state.drainOwnerThreadId;
 		return state;
 	}
 
@@ -70,10 +63,7 @@ namespace OSFUI::NativeMainThreadQueue
 		return state.insideDrain || (state.singleton != 0 && state.queueEnabled);
 	}
 
-	PostResult Post(
-		std::function<void()> a_task,
-		std::string_view a_label,
-		std::function<void()> a_onDrop)
+	PostResult Post(std::function<void()> a_task, std::string_view a_label, std::function<void()> a_onDrop)
 	{
 		if (SnapshotState().insideDrain) {
 			a_task();
@@ -85,8 +75,7 @@ namespace OSFUI::NativeMainThreadQueue
 			return PostResult::Unavailable;
 		}
 
-		RE::BSService::QueuedDelegate* task =
-			new GuardedTask(std::move(a_task), a_label, std::move(a_onDrop));
+		RE::BSService::QueuedDelegate* task = new GuardedTask(std::move(a_task), a_label, std::move(a_onDrop));
 		queue->QueueTask(task);
 		if (!task) {
 			return PostResult::Queued;

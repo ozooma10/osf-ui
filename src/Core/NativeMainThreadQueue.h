@@ -22,13 +22,10 @@ namespace OSFUI::NativeMainThreadQueue
 		bool insideDrain{ false };
 	};
 
-	[[nodiscard]] QueueState SnapshotState();
-	[[nodiscard]] bool IsAvailable();
+	QueueState SnapshotState();
+	bool IsAvailable();
 
-	[[nodiscard]] PostResult Post(
-		std::function<void()> a_task,
-		std::string_view a_label,
-		std::function<void()> a_onDrop = {});
+	PostResult Post(std::function<void()> a_task, std::string_view a_label, std::function<void()> a_onDrop = {});
 
-	[[nodiscard]] const char* ToString(PostResult a_result);
+	const char* ToString(PostResult a_result);
 }
