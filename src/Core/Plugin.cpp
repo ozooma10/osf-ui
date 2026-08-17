@@ -91,28 +91,15 @@ namespace OSFUI::Plugin
 				return false;
 			}
 		} catch (const std::exception& e) {
-			REX::ERROR("{}: Runtime initialization threw '{}'; plugin load aborted",
-				kPluginName, e.what());
+			REX::ERROR("{}: Runtime initialization threw '{}'; plugin load aborted", kPluginName, e.what());
 			return false;
 		} catch (...) {
-			REX::ERROR("{}: Runtime initialization threw an unknown exception; plugin load aborted",
-				kPluginName);
+			REX::ERROR("{}: Runtime initialization threw an unknown exception; plugin load aborted", kPluginName);
 			return false;
 		}
 
-		if (Runtime::Get().GetConfig().enabled) {
-			if (const auto* tasks = SFSE::GetTaskInterface();
-				tasks && tasks->Version() >= SFSE::TaskInterface::kVersion) {
-				static FrameTickTask s_frameTick;
-				tasks->AddPermanentTask(&s_frameTick);
-				REX::INFO("Plugin: per-frame tick registered via SFSE TaskInterface (v{})", tasks->Version());
-			} else {
-				REX::ERROR("Plugin: SFSE TaskInterface unavailable; Runtime::Tick will never run "
-						   "(overlay stays dormant, plugin remains loaded)");
-			}
-		}
-		// SFSE has no shutdown/unload callback. OS teardown at process exit ends
-		// the process-owned runtime and browser-host connection.
+		static FrameTickTask s_frameTick;
+		tasks->AddPermanentTask(&s_frameTick);
 		return true;
 	}
 }
