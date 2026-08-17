@@ -1,38 +1,14 @@
 #include "Core/Plugin.h"
 
 #include "API/PapyrusApi.h"
+#include "Core/NativeMainThreadQueue.h"
 #include "Core/Version.h"
 #include "Runtime/Runtime.h"
-
-#include "RE/B/BSService.h"
 
 namespace OSFUI::Plugin
 {
 	namespace
 	{
-		// Queue-only counterpart to BSService::TaskQueue::AddTask. QueueTask
-		// leaves the caller's reference intact when it would use an inline
-		// fallback; destroy that delegate without running it so worker-owned
-		// producers can retry rather than violating main-thread affinity.
-		template <class Fn>
-			requires(std::invocable<std::remove_cvref_t<Fn>&>)
-		[[nodiscard]] bool TryQueueMainThread(Fn&& a_fn)
-		{
-			auto* queue = RE::BSService::TaskQueue::GetSingleton();
-			if (!queue) {
-				return false;
-			}
-			RE::BSService::QueuedDelegate* task =
-				new RE::BSService::detail::QueuedFunctorDelegate<std::remove_cvref_t<Fn>>(
-					std::forward<Fn>(a_fn));
-			queue->QueueTask(task);
-			if (task) {
-				delete task;
-				return false;
-			}
-			return true;
-		}
-
 		// Per-frame tick source. SFSE permanent tasks drain on rotating
 		// render-graph workers, not the game main thread. This delegate is only a
 		// lightweight producer: it coalesces and posts Runtime::Tick through the
@@ -64,9 +40,13 @@ namespace OSFUI::Plugin
 				if (_tickPending.exchange(true, std::memory_order_acq_rel)) {
 					return;
 				}
-				if (!TryQueueMainThread([this]() { RunTickOnMain(); })) {
+				const auto result = NativeMainThreadQueue::Post(
+					[this]() { RunTickOnMain(); },
+					"FrameTick.RuntimeTick",
+					[this]() { _tickPending.store(false, std::memory_order_release); });
+				if (result == NativeMainThreadQueue::PostResult::Unavailable) {
 					// Queueing can be disabled during early boot. This wrapper
-					// deliberately refuses BSService's off-main inline fallback;
+					// refuses BSService's off-main inline fallback;
 					// retry on the next SFSE frame instead.
 					_tickPending.store(false, std::memory_order_release);
 				}
@@ -137,7 +117,9 @@ namespace OSFUI::Plugin
 					// directly through the same BSService main-thread queue.
 					if (Runtime::Get().GetConfig().enabled) {
 						Runtime::Get().OnDataLoaded();
-					} else if (!TryQueueMainThread([] { API::Papyrus::Install(); })) {
+					} else if (NativeMainThreadQueue::Post(
+							   [] { API::Papyrus::Install(); }, "Plugin.InstallPapyrus") ==
+						   NativeMainThreadQueue::PostResult::Unavailable) {
 						REX::ERROR("Plugin: could not queue disabled-runtime Papyrus binding on the main thread; "
 							"OSFUI.* natives remain unavailable");
 					}
