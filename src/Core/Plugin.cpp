@@ -1,6 +1,5 @@
 #include "Core/Plugin.h"
 
-#include "API/PapyrusApi.h"
 #include "Core/NativeMainThreadQueue.h"
 #include "Core/Version.h"
 #include "Runtime/Runtime.h"
@@ -40,10 +39,8 @@ namespace OSFUI::Plugin
 				try {
 					Runtime::Get().Tick(dt);
 				} catch (const std::exception& e) {
-					m_faulted.store(true, std::memory_order_release);
 					REX::ERROR("FrameTick: Runtime::Tick threw '{}'; disabling further UI ticks to contain the failure", e.what());
 				} catch (...) {
-					m_faulted.store(true, std::memory_order_release);
 					REX::ERROR("FrameTick: Runtime::Tick threw an unknown exception; disabling further UI ticks to contain the failure");
 				}
 				m_tickPending.store(false, std::memory_order_release);
@@ -98,8 +95,10 @@ namespace OSFUI::Plugin
 			return false;
 		}
 
-		static FrameTickTask s_frameTick;
-		tasks->AddPermanentTask(&s_frameTick);
+		if (const auto* tasks = SFSE::GetTaskInterface()) {
+			static FrameTickTask s_frameTick;
+			tasks->AddPermanentTask(&s_frameTick);
+		}
+
 		return true;
 	}
-}
