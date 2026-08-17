@@ -1,6 +1,6 @@
 // The built-in views' dev mock for `osfui dev`: a simulated OSF UI runtime and
 // bridge with fixture mod-backend behavior (devmock/mockbridge — settings
-// round-trips, schemas, key capture, locales, drag-drop),
+// round-trips, schemas, key capture, health scenarios, locales, drag-drop),
 // installed as an @osfui/cli mock module.
 //
 // install() runs inside the view iframe before the view's module entry.
@@ -11,6 +11,8 @@
 import type { MockContext } from '@osfui/cli';
 
 import { installMock, type MockApi } from './devmock/mockbridge';
+
+const HEALTH = ['clean', 'warnings', 'errors', 'mixed', 'resolved', 'catalog'];
 
 export function install(ctx: MockContext): void {
   const mock: MockApi = installMock({ selfView: ctx.meta.qualifiedId });
@@ -37,6 +39,14 @@ export function install(ctx: MockContext): void {
           'Show fictional sample panels/HUDs that exercise every catalog state (failed load, HUD live/hidden, …)',
       },
       {
+        id: 'health',
+        kind: 'cycle',
+        label: 'Health',
+        options: HEALTH,
+        value: mock.healthScenario(),
+        title: 'Cycle the local System Health scenario',
+      },
+      {
         id: 'hotkey',
         kind: 'button',
         label: 'Hotkey',
@@ -48,6 +58,7 @@ export function install(ctx: MockContext): void {
     (id, value) => {
       if (id === 'reset') mock.reset();
       else if (id === 'fixtures') mock.fixtures(value === true);
+      else if (id === 'health') mock.health(String(value));
       else if (id === 'hotkey') mock.hotkey();
       else if (id === 'pad-lb') mock.gamepad('LB');
       else if (id === 'pad-rb') mock.gamepad('RB');

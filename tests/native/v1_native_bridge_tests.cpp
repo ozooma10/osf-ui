@@ -184,12 +184,11 @@ int main()
 	bridgeVtable->UnsubscribeHotkey(first);
 	bridgeVtable->UnsubscribeHotkey(second);
 
-	// Frozen ABI 1.7 reporting slots remain callable but fail closed now that
-	// the reporting destination is gone.
-	CHECK(!bridgeVtable->ReportIssue("acme.widgets", "legacy", "catalog.old", 0,
+	CHECK(bridgeVtable->ReportIssue("acme.widgets", "legacy", "catalog.old", 0,
 		"panel", R"({"format":1})"));
-	CHECK(!bridgeVtable->ClearIssue("acme.widgets", "legacy"));
-	CHECK(!bridgeVtable->ClearIssuesExcept("acme.widgets", R"([])"));
+	CHECK(bridgeVtable->ClearIssue("acme.widgets", "legacy"));
+	CHECK(bridgeVtable->ClearIssuesExcept("acme.widgets", R"([])"));
+	CHECK(api.TakeHealthIssueOps().size() == 3);
 
 	CHECK(bridgeVtable->SetViewState("acme.widgets", "status", R"({"ready":true})"));
 	CHECK(api.TakeViewStateOps().size() == 1);

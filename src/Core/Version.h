@@ -61,8 +61,8 @@ namespace OSFUI
 
 	// True when a DECLARED `targetVersion` predates the 2.0 mod API — an
 	// artifact authored against the 1.x helper and wire protocol. During 2.0.x
-	// such a view receives the temporary façade through 2.0.x; the branch is
-	// removed in 2.1.0.
+	// such a view receives the temporary façade and is surfaced through System
+	// Health; the branch is removed in 2.1.0.
 	// An UNDECLARED targetVersion ("") is deliberately excluded: it is
 	// indistinguishable from "declared and unparsable" after parsing, and
 	// guessing would badge every undeclared artifact as broken.

@@ -36,9 +36,25 @@ namespace OSFUI::API
 		// renderer's per-view queue bound; overflow drops the oldest so the view
 		// still converges on the newest pushed state when it comes up.
 		constexpr std::size_t kMaxPendingSendsPerView = 64;
+		constexpr std::size_t kMaxPendingHealthIssueOps = 256;
 
 		constexpr std::size_t kMaxInflightRequestsPerView = 64;
 		constexpr auto kRequestTimeout = std::chrono::seconds(30);
+
+		bool ValidateHealthReporter(std::string_view a_fn, const char* a_modId)
+		{
+			if (!a_modId || !a_modId[0]) {
+				REX::WARN("BridgeApi: [content] refused {} — no mod id", a_fn);
+				return false;
+			}
+			if (!Ids::IsValidModId(a_modId)) {
+				REX::WARN("BridgeApi: [content] refused {}('{}') — mod ids are '<author>.<modname>' "
+					"(lowercase [a-z0-9-] segments)",
+					a_fn, std::string_view(a_modId).substr(0, 128));
+				return false;
+			}
+			return true;
+		}
 
 	}
 
@@ -267,6 +283,25 @@ namespace OSFUI::API
 		return true;
 	}
 
+	void BridgeApi::NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major,
+		std::uint32_t a_minor, bool a_supported)
+	{
+		std::lock_guard lock(_mutex);
+		for (const auto& seen : _legacyCallers) {
+			if (seen.module == a_moduleName && seen.supported == a_supported) return;
+		}
+		if (_legacyCallers.size() >= kMaxLegacyCallers) return;
+		_legacyCallers.push_back(LegacyCaller{ std::move(a_moduleName), a_major, a_minor, a_supported });
+	}
+
+	std::vector<BridgeApi::LegacyCaller> BridgeApi::TakeLegacyApiCallers()
+	{
+		std::lock_guard lock(_mutex);
+		std::vector<LegacyCaller> out;
+		out.swap(_legacyCallers);
+		return out;
+	}
+
 	std::vector<BridgeApi::ViewStateOp> BridgeApi::TakeViewStateOps()
 	{
 		std::lock_guard lock(_mutex);
@@ -442,6 +477,90 @@ namespace OSFUI::API
 		std::lock_guard lock(_mutex);
 		std::vector<std::string> out;
 		out.swap(_pendingViewRegs);
+		return out;
+	}
+
+	bool BridgeApi::ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
+		std::uint32_t a_severity, const char* a_subject, const char* a_contextJson)
+	{
+		if (!ValidateHealthReporter("ReportIssue", a_modId)) return false;
+		if (!a_id || !a_id[0] || !a_code || !a_code[0]) {
+			REX::WARN("BridgeApi: [content] refused ReportIssue from '{}' — both an id and code are required", a_modId);
+			return false;
+		}
+		nlohmann::json context = nlohmann::json::object();
+		if (a_contextJson && a_contextJson[0]) {
+			auto parsed = Json::Parse(a_contextJson);
+			if (!parsed || !parsed->is_object()) {
+				REX::WARN("BridgeApi: [content] refused ReportIssue('{}', '{}') — context must be a JSON object", a_modId, a_id);
+				return false;
+			}
+			context = std::move(*parsed);
+		}
+		if (a_severity > 1u) {
+			REX::WARN("BridgeApi: [content] ReportIssue('{}', '{}') — unknown severity {}, treating as error",
+				a_modId, a_id, a_severity);
+		}
+		std::lock_guard lock(_mutex);
+		if (_pendingHealthIssueOps.size() >= kMaxPendingHealthIssueOps) {
+			REX::WARN("BridgeApi: [content] refused ReportIssue('{}', '{}') — {} health reports already queued for this tick",
+				a_modId, a_id, kMaxPendingHealthIssueOps);
+			return false;
+		}
+		_pendingHealthIssueOps.push_back(HealthIssueOp{
+			.kind = HealthIssueOp::Kind::kReport,
+			.modId = a_modId,
+			.id = a_id,
+			.code = a_code,
+			.error = a_severity >= 1u,
+			.subject = a_subject ? a_subject : "",
+			.context = std::move(context),
+		});
+		return true;
+	}
+
+	bool BridgeApi::ClearIssue(const char* a_modId, const char* a_id)
+	{
+		if (!ValidateHealthReporter("ClearIssue", a_modId) || !a_id || !a_id[0]) return false;
+		std::lock_guard lock(_mutex);
+		if (_pendingHealthIssueOps.size() >= kMaxPendingHealthIssueOps) return false;
+		_pendingHealthIssueOps.push_back(HealthIssueOp{
+			.kind = HealthIssueOp::Kind::kClear, .modId = a_modId, .id = a_id,
+		});
+		return true;
+	}
+
+	bool BridgeApi::ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson)
+	{
+		if (!ValidateHealthReporter("ClearIssuesExcept", a_modId)) return false;
+		std::vector<std::string> keep;
+		if (a_keepIdsJson && a_keepIdsJson[0]) {
+			const auto parsed = Json::Parse(a_keepIdsJson);
+			if (!parsed || !parsed->is_array()) {
+				REX::WARN("BridgeApi: [content] refused ClearIssuesExcept('{}') — keep list must be a JSON array of ids", a_modId);
+				return false;
+			}
+			for (const auto& entry : *parsed) {
+				if (!entry.is_string()) {
+					REX::WARN("BridgeApi: [content] refused ClearIssuesExcept('{}') — keep list holds a non-string entry", a_modId);
+					return false;
+				}
+				keep.push_back(entry.get<std::string>());
+			}
+		}
+		std::lock_guard lock(_mutex);
+		if (_pendingHealthIssueOps.size() >= kMaxPendingHealthIssueOps) return false;
+		_pendingHealthIssueOps.push_back(HealthIssueOp{
+			.kind = HealthIssueOp::Kind::kClearExcept, .modId = a_modId, .keep = std::move(keep),
+		});
+		return true;
+	}
+
+	std::vector<BridgeApi::HealthIssueOp> BridgeApi::TakeHealthIssueOps()
+	{
+		std::lock_guard lock(_mutex);
+		std::vector<HealthIssueOp> out;
+		out.swap(_pendingHealthIssueOps);
 		return out;
 	}
 

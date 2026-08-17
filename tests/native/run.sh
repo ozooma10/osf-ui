@@ -53,6 +53,8 @@ SUITES=(
 "settings_module_tests settings_module_tests.cpp ../../src/Settings/SettingsModule.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Settings/SettingsStore.cpp ../../src/Core/Json.cpp"
 "settings_mirror_tests settings_mirror_tests.cpp ../../src/API/SettingsMirror.cpp ../../src/Settings/SettingsStore.cpp ../../src/Core/Json.cpp"
 "settings_subscriptions_tests settings_subscriptions_tests.cpp ../../src/API/SettingsSubscriptions.cpp ../../src/API/SettingsMirror.cpp ../../src/Settings/SettingsStore.cpp ../../src/Core/Json.cpp"
+"health_registry_tests health_registry_tests.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
+"runtime_health_tests runtime_health_tests.cpp ../../src/Diagnostics/HealthReconciler.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "hotkey_service_tests hotkey_service_tests.cpp ../../src/Bindings/HotkeyService.cpp ../../src/Settings/SettingsStore.cpp ../../src/Core/Json.cpp ../../src/Input/KeyNames.cpp"
 "hotkey_subscriptions_tests hotkey_subscriptions_tests.cpp ../../src/API/HotkeySubscriptions.cpp"
 "scan_code_tests scan_code_tests.cpp ../../src/Input/KeyNames.cpp"

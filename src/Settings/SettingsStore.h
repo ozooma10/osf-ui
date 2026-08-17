@@ -102,6 +102,14 @@ namespace OSFUI
 			bool operator==(const PapyrusHotkeyTarget&) const = default;
 		};
 
+		struct HotkeyTargetIssue
+		{
+			std::string mod;
+			std::string key;
+			std::string file;
+			std::string message;
+		};
+
 		// Fired after a mod's values file write lands (the write-behind flush,
 		// not the commit — Set/Reset notify through ChangeListener immediately).
 		// The web layer pushes `settings.persisted` off this for save feedback.
@@ -181,9 +189,10 @@ namespace OSFUI
 		// Empty-key and non-string-valued entries are skipped.
 		[[nodiscard]] std::vector<KeySetting> KeySettings() const;
 		// Validated schema-owned static Papyrus target for one key. Invalid
-		// metadata is ignored here after being logged during registration.
+		// metadata is ignored here and surfaced through HotkeyTargetIssues().
 		[[nodiscard]] std::optional<PapyrusHotkeyTarget> GetHotkeyTarget(
 			std::string_view a_modId, std::string_view a_key) const;
+		[[nodiscard]] std::vector<HotkeyTargetIssue> HotkeyTargetIssues() const;
 
 		// Dev-mode schema hot-reload: re-parse one drop-in settings/<id>.json and
 		// replace the same-id registered schema in place. Values survive — a
@@ -284,6 +293,15 @@ namespace OSFUI
 		// RegisterSchema, RemoveMod). Consumers re-broadcast `osfui/settings` state
 		// when it moves.
 		[[nodiscard]] std::uint64_t Generation() const { return _generation; }
+
+		struct LoadError
+		{
+			std::string kind;
+			std::string file;
+			std::string mod;
+			std::string message;
+		};
+		[[nodiscard]] const std::vector<LoadError>& LoadErrors() const { return _loadErrors; }
 
 		// The document the settings view consumes:
 		// { "mods": [ { id, title, schema, values }, ... ] }. Data() returns the
@@ -392,6 +410,7 @@ namespace OSFUI
 			// (first wins). Reported additively in Data() so Mod Settings
 			// can badge the conflict.
 			std::vector<std::string> shadowed;
+			std::vector<HotkeyTargetIssue> hotkeyTargetIssues;
 			Source                source{ Source::kDropIn };
 			bool                  dirty{ false };  // has unflushed write-behind changes
 			double                dueAt{ 0.0 };    // when the open window flushes (store clock)
@@ -461,6 +480,9 @@ namespace OSFUI
 		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;
 		void        NotifyRegistryChanged() const;
 		void        InvalidateData() { _dataCache.reset(); }
+		void        RecordLoadError(std::string a_kind, std::string a_file, std::string a_mod, std::string a_message);
+		bool        EraseLoadErrorsForFile(std::string_view a_file);
+		bool        EraseLoadErrorsForMod(std::string_view a_modId);
 		std::vector<Mod>              _mods;
 		KeyNameResolver               _keyResolver;
 		LegacyKeyMigrator             _legacyKeyMigrator;
@@ -473,6 +495,7 @@ namespace OSFUI
 		std::vector<RegistryListener> _registryListeners;
 		std::vector<PersistListener>  _persistListeners;
 		mutable std::optional<nlohmann::json> _dataCache;
+		std::vector<LoadError>      _loadErrors;
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
 		bool                        _loaded{ false };

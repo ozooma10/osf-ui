@@ -39,8 +39,13 @@ A "MOD SETTINGS" pause-menu entry opens the same overlay. Controllers navigate w
 ## Where are my settings?
 
 Everything user-facing is in Mod Settings (F10 → OSF UI): open/close key,
-language, the pause-menu entry, and game-binding collision warnings.
-Third-party developer views appear in the catalog only in developer mode.
+language, the pause-menu entry, game-binding collision warnings, and System
+Health. System Health is local-only: it shows current errors and warnings,
+resolved session history, system facts, safe retry actions, and copyable details
+for one visible issue. It has no report export, upload/submission, log-folder
+action, crash prompt, or external issue opener. Third-party developer views
+appear in the catalog only in developer mode; Mod Settings shows an amber
+**DEV MODE** tag while it is active.
 
 Gameplay controls, gamepad included, always freeze while a menu captures input; there's no setting for it. To use the game console, close the overlay first — the console key is swallowed while it's open.
 
@@ -55,7 +60,8 @@ Choices persist to `Data\SFSE\Plugins\OSFUI\settings\values\` (one JSON file per
 **The game-bindings table is unavailable:** OSF UI reads Starfield's live
 `ControlMap`; it does not load `vanillakeys.json`, `ControlMap.txt`, or
 `vanillakeys.user.json`. On an unsupported game build or a failed layout safety
-gate, `OSF UI.log` names why Starfield's key map is unavailable, game input
+gate, System Health reports **Starfield's key map is unavailable** and
+`OSF UI.log` names why, while game input
 action rows and collision warnings are disabled, and mode-scoped mod hotkeys
 fail closed. Update OSF UI for that exact Starfield version. Existing
 `Documents\My Games\Starfield\OSFUI\vanillakeys.user.json` files are left
@@ -72,8 +78,8 @@ Check `OSF UI.log` first.
 | "WebView2 Runtime missing" dialog at launch | Install the Evergreen runtime (https://go.microsoft.com/fwlink/p/?LinkId=2124703), restart the game. No mod reinstall needed. |
 | Overlay never appears, renderer/compositor warnings in log | The Microsoft WebView2 Runtime, browser-host executable, or the game's device wasn't available, so the overlay disabled itself. Install the WebView2 Runtime and re-install the archive intact. |
 | Overlay appears but is blank | Check the log for browser-host launch, pipe, navigation or shared-texture errors, then verify `OSFUI/bin/osfui_webview2_host.exe` exists. |
-| Log warns that a page or HUD uses the 1.x API | OSF UI 2.0.x kept the view running through temporary compatibility. Update the named mod before OSF UI 2.1.0 removes that bridge. |
-| Log warns that a `.dll` uses ABI 1.x | OSF UI 2.0.x kept that plugin connected through the frozen 1.8 adapter. Update the named DLL before 2.1.0. A genuinely unrelated ABI major is still refused and logged as a distinct error. |
+| System Health warns that a page or HUD uses the 1.x API | OSF UI 2.0.x kept the view running through temporary compatibility. Update the named mod before OSF UI 2.1.0 removes that bridge. |
+| System Health warns that a `.dll` uses ABI 1.x | OSF UI 2.0.x kept that plugin connected through the frozen 1.8 adapter. Update the named DLL before 2.1.0. A genuinely unrelated ABI major is still refused and appears as a distinct error. |
 | Overlay lingers during a load | It should auto-hide on loading screens and the main menu. If not, hide with F10 and report the log. |
 | Overlay never appears (or vanishes) with ReShade / RTSS / Steam overlay / frame-gen tools | Current builds don't join the DXGI Present hook chain. Check the log for `seam-only overlay armed`, `shared ring adopted`, `FIRST SEAM OVERLAY DRAW`; report the missing stage and your overlay stack. No injection/load-order workaround should be needed. |
 | Crash opening the overlay with BetterConsole installed | Fixed: current builds never create a probe swapchain or hook Present. Update OSF UI and confirm the log has `seam-only overlay armed`. |
@@ -96,7 +102,7 @@ For precise component, lifecycle, bridge, and input names, see the
   author-mode marker. Debug a background HUD from the browser harness
   ([view-toolchain.md](view-toolchain.md)).
 - **Read the `[osfui]` errors.** A rejected request prints `[osfui] request "<name>" failed: <code> — <message>` with the rejecting payload attached, before any `Uncaught (in promise)` noise. Same prefix covers a missing bridge, a client timeout, and an exception your own event or state handler threw.
-- **Faults the page couldn't otherwise hear about come back to it.** Sending to a request endpoint, naming a nonexistent endpoint, or a malformed envelope arrives as a developer-mode `osfui.debug.error` event and prints `[osfui] OSF UI runtime rejected <code>: <message>`. A mod backend or OSF UI runtime handler that never answers is reported to the waiting page as `no-response`. Release builds keep these failures in `OSF UI.log`.
+- **Faults the page couldn't otherwise hear about come back to it.** Sending to a request endpoint, naming a nonexistent endpoint, or a malformed envelope arrives as a developer-mode `osfui.debug.error` event and prints `[osfui] OSF UI runtime rejected <code>: <message>`. A mod backend or OSF UI runtime handler that never answers is reported to the waiting page as `no-response`, but never counts against that view. Repeated view-caused protocol faults also raise a local System Health issue.
 - **Trace the traffic** when the question is what actually crossed the bridge: `localStorage["osfui:trace"] = "1"` in the view's console, then reload. Every envelope both directions is logged via `console.debug` — kind, name, id, payload, reply latency. It answers the blank-HUD question directly: either your state key arrives at boot (your view's bug) or it doesn't (your mod backend's).
 - **It all lands in `OSF UI.log` too** while developer mode is on: `console.error` → ERROR, `console.warn` → WARN, everything else → DEBUG, as `Runtime: view '<id>' console: …`. Keep the trace flag off when you're not reading it — it turns the log into a full bridge capture. The native side of the same failures is logged regardless, tagged `[content]`; see [logging.md](logging.md).
 
@@ -113,8 +119,8 @@ For precise component, lifecycle, bridge, and input names, see the
 - Other overlay tools (ReShade, Steam overlay, RTSS) are no longer a load-order problem: OSF UI installs no `Present` hook. Broken combinations still log the diagnostics above.
 - Tied to a game build via the Address Library; a patch can require an update.
 - Text entry follows your OS keyboard layout (dead keys and AltGr work), but IME composition (e.g. CJK) isn't supported yet. Key *bindings* are physical and layout-independent, and the binding UI shows your layout's keycaps (see "Keys and keyboard layouts" above). Gamepad navigation is basic (D-pad/sticks/A/B) and being refined.
-- For authors: the `window.osfui` protocol and native C ABI are both **2.0** breaking cuts. OSF UI 2.0.x temporarily adapts declared pre-2.0 views, ABI 1.x DLLs, and the six deprecated Papyrus natives; the log names each consumer and warns that support ends in 2.1.0. A migrated 2.0 consumer gets no compatibility warning. From here, additive changes bump the minor and breaking changes the major — declare `targetVersion`, see [authoring-views.md](authoring-views.md).
+- For authors: the `window.osfui` protocol and native C ABI are both **2.0** breaking cuts. OSF UI 2.0.x temporarily adapts declared pre-2.0 views, ABI 1.x DLLs, and the six deprecated Papyrus natives; System Health names each consumer and warns that support ends in 2.1.0. A migrated 2.0 consumer gets no compatibility warning. From here, additive changes bump the minor and breaking changes the major — declare `targetVersion`, see [authoring-views.md](authoring-views.md).
 
 ## Reporting issues
 
-Attach `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log` and, for browser-host failures, `OSF UI.webview2-host.log` to a new [OSF UI issue](https://github.com/ozooma10/osf-ui/issues). OSF UI does not collect or upload these files.
+Review **Mod Settings → System Health** for the current condition and use **Copy details** on a specific issue if useful. If you choose to file an issue manually, attach `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log` and, for browser-host failures, `OSF UI.webview2-host.log` to a new [OSF UI issue](https://github.com/ozooma10/osf-ui/issues). OSF UI does not collect, package, submit, or upload these files, and it does not open that page for you.

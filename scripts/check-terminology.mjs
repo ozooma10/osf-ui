@@ -35,7 +35,7 @@ function sourceFiles(directory) {
 }
 
 const retiredBridgeNames = [
-  [/\b(?:settings|views|i18n)\.data\b/, 'use the qualified 2.0 state key'],
+  [/\b(?:settings|views|i18n|diagnostics)\.data\b/, 'use the qualified 2.0 state key'],
   [/\bruntime\.ready\b/, 'call this the bridge ready handshake'],
   [/\bhandoff\.state\b/, 'the first-load handoff protocol was removed'],
   [/\bosfui\/handoff\b/, 'the first-load handoff state was removed'],

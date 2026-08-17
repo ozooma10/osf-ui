@@ -65,9 +65,12 @@ that behavior reach the OSF UI runtime and authoring tools.
 - `packages/cli/src/config.mjs` must reject pre-2.0 projects again; remove
   `isPre2Target`, its warning, and the legacy toolchain/navigation tests. New
   scaffolds and published typings already remain 2.0-only.
-- Remove the compatibility WARN-once paths along with their corresponding view,
-  native-ABI, and Papyrus adapters. Keep a distinct log error for genuinely
-  unsupported ABI majors.
+- `src/Runtime/RuntimeHealthCoordinator.{h,cpp}` and `HealthReconciler.{h,cpp}`:
+  remove the legacy ABI/Papyrus warning producers and compatibility-log ledger.
+  Keep genuinely unsupported ABI-major reporting.
+- `frontend/src/lib/settings/health.ts`: remove the three temporary 1.x
+  compatibility health issues and restore unsupported pre-2/ABI copy
+  appropriate for 2.1.
 - Update `CHANGELOG.md`, migration/authoring docs, `frontend/COMPATIBILITY.md`,
   and their tests so none promises 2.0.x compatibility after it is gone.
 

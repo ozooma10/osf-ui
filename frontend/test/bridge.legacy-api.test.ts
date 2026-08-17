@@ -162,12 +162,13 @@ describe('temporary 1.x helper facade', () => {
     await expect(papyrus).resolves.toBe(17);
   });
 
-  it('serves all three registry reads from replayed 2.0 state', async () => {
+  it('serves all four registry reads from replayed 2.0 state', async () => {
     const { helper, sent } = load('?osfui-api=1');
     const fixtures = [
       ['settings.get', 'settings', 'settings.data', { mods: [{ id: 'acme.widgets' }] }],
       ['views.get', 'views', 'views.data', { views: [{ id: 'acme.widgets/panel' }] }],
       ['i18n.get', 'i18n', 'i18n.data', { locale: 'en', strings: {} }],
+      ['diagnostics.get', 'diagnostics', 'diagnostics.data', { issues: [] }],
     ] as const;
     for (const [, key, , value] of fixtures) {
       deliver(helper, { kind: 'state', mod: 'osfui', key, value });
@@ -189,7 +190,7 @@ describe('temporary 1.x helper facade', () => {
     await vi.waitFor(() => {
       expect(pushedRead).toHaveBeenLastCalledWith(
         fixtures[1][3],
-        { type: 'views.data', requestId: 'q4', payload: fixtures[1][3] },
+        { type: 'views.data', requestId: 'q5', payload: fixtures[1][3] },
       );
     });
     expect(sent).toHaveLength(before);

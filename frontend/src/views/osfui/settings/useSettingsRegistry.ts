@@ -2,8 +2,8 @@
 // everything it is currently DOING.
 //
 // What lives here: the two registries the pane paints from (`osfui/settings`
-// schemas and `osfui/views` catalog entries), the runtime version, the undo
-// baseline, and the bridge subscriptions that keep all of them
+// schemas and `osfui/views` catalog entries), the health snapshot, the runtime
+// version, the undo baseline, and the bridge subscriptions that keep all of them
 // current. What deliberately does not: selection, filter, collapse state, the
 // save indicator, key capture, gamepad and visibility handling. Those are about
 // what the user is doing right now, they change on nearly every interaction, and
@@ -23,6 +23,7 @@ import { useEffect, useState } from 'preact/hooks';
 import type { Bridge } from '@lib/bridge';
 import { useLatest, useStateRef } from '@ui/useStateRef';
 import type { ModRecord, ViewRecord } from '@lib/settings/rail';
+import { EMPTY_HEALTH, readHealth, type HealthModel } from '@lib/settings/health';
 import { applyConflictUpdate } from '@lib/settings/conflicts';
 import {
   findSettingInMod,
@@ -62,6 +63,7 @@ export interface SettingsRegistry {
    * in normal menus.
    */
   discoveredViews: ViewRecord[];
+  health: HealthModel;
   /** From the bridge `ready` handshake; "" until it arrives. */
   osfuiReleaseVersion: string;
   baseline: Baseline;
@@ -89,6 +91,9 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
   const [views, setViews, viewsRef] = useStateRef<ViewRecord[]>([]);
   const [discoveredViews, setDiscoveredViews] = useState<ViewRecord[]>([]);
   const [osfuiReleaseVersion, setOsfuiReleaseVersion] = useState('');
+
+  /** The session health snapshot behind the fixed System Health destination. */
+  const [health, setHealth] = useState<HealthModel>(EMPTY_HEALTH);
 
   /**
    * `baseline[modId][key]` — the value when this visit began. Drives the undo
@@ -150,8 +155,12 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
       const list = (data?.mods || []) as ModRecord[];
       setMods(list);
       setKeyboard(data && typeof data.keyboard === 'object' ? data.keyboard : undefined);
+      // The same load failures arrive as richer System Health issues, so the
+      // legacy loadErrors field is not painted separately.
       captureBaseline(list);
     });
+
+    const offHealth = bridge.state('osfui/diagnostics', (data) => setHealth(readHealth(data)));
 
     const offViews = bridge.state('osfui/views', (data) => {
       const all = (data?.views || []) as ViewRecord[];
@@ -218,6 +227,7 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
 
     return () => {
       offSettings();
+      offHealth();
       offViews();
       offI18n();
       offChanged();
@@ -233,6 +243,7 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
     views,
     viewsRef,
     discoveredViews,
+    health,
     osfuiReleaseVersion,
     baseline,
     applyLocal,

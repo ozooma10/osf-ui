@@ -69,7 +69,7 @@ This is `osfui dev` on this directory's `osfui.config.ts` — the same authoring
 harness third-party mods get, serving the built-ins through their real
 `index.html` → shared-kit → padnav boot contract in an iframe. The rich mock
 (`devmock/`, installed by `osfui.mock.ts`) registers the extra toolbar tools:
-Reset values, Sample views, and Hotkey/LB/RB.
+Reset values, Sample views, System Health scenarios, and Hotkey/LB/RB.
 
 Pick a view from the toolbar's view select, or deep-link:
 
@@ -90,9 +90,14 @@ links keep working):
 | `?fixtures=1` | load the richer demo dataset (also the "Sample views" tool) |
 | `?locale=<code>` | switch locale; `pseudo` expands strings to catch tight layouts and hardcoded text |
 | `?schema=<url>` | load a settings schema from a URL instead of the fixtures |
+| `?health=<name>` | select the local System Health snapshot (also the "Health" cycle tool) |
 
 You can also drag-and-drop a settings schema JSON or a `<modId>_<locale>.json`
 catalog onto the page.
+
+### System Health scenarios
+
+System Health renders the `osfui/diagnostics` state snapshot, so it needs no broken game to exercise. The harness scenarios in `devmock/fixtures/health.ts` are `clean`, `warnings`, `errors`, `mixed`, `resolved`, and the full copy catalog. They exercise only the local display and recovery surface; the mock exposes no report upload, submission, log-folder, or external issue-opening endpoint.
 
 ### The stage
 

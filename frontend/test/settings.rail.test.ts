@@ -85,9 +85,10 @@ describe('findEntry', () => {
 describe('railNodes — paint order', () => {
   const model: RailModel = { mods: [zeta, framework, alpha], views: [] };
 
-  it('is Home, framework, "Mods" header, then sorted mods', () => {
-	expect(ids(railNodes(model, ''))).toEqual([
-	  'home',
+  it('is Health, Home, framework, "Mods" header, then sorted mods', () => {
+    expect(ids(railNodes(model, ''))).toEqual([
+      'health',
+      'home',
       FRAMEWORK_ID,
       'section',
       // localeCompare sensitivity "base": "alpha works" sorts before "Zeta
@@ -102,15 +103,15 @@ describe('railNodes — paint order', () => {
       mods: [{ id: 'b', title: 'beta' }, { id: 'a', title: 'Alpha' }],
       views: [],
     };
-	expect(ids(railNodes(mixed, ''))).toEqual(['home', 'section', 'a', 'b']);
+    expect(ids(railNodes(mixed, ''))).toEqual(['health', 'home', 'section', 'a', 'b']);
   });
 
-  it('DROPS Home while a filter is active', () => {
-	expect(ids(railNodes(model, 'zeta'))).toEqual(['section', 'acme.zeta']);
+  it('keeps Health but drops Home while a filter is active', () => {
+    expect(ids(railNodes(model, 'zeta'))).toEqual(['health', 'section', 'acme.zeta']);
   });
 
   it('shows the filtered-empty state when the filter matches nothing', () => {
-	expect(ids(railNodes({ mods: [], views: [] }, 'zzz'))).toEqual(['section', 'empty']);
+    expect(ids(railNodes({ mods: [], views: [] }, 'zzz'))).toEqual(['health', 'section', 'empty']);
   });
 
   it('always emits the "Mods" header, even with an empty list', () => {
@@ -126,6 +127,6 @@ describe('railNodes — paint order', () => {
   });
 
   it('hides the framework entry when it does not match the filter', () => {
-	expect(ids(railNodes(model, 'alpha'))).toEqual(['section', 'acme.alpha']);
+    expect(ids(railNodes(model, 'alpha'))).toEqual(['health', 'section', 'acme.alpha']);
   });
 });

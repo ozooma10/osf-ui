@@ -151,7 +151,7 @@ describe('handshake', () => {
     });
     // Every platform state key is replayed, so a view needs no read roundtrip
     // and nothing to re-request after F5.
-    for (const key of ['settings', 'views', 'i18n']) {
+    for (const key of ['settings', 'views', 'diagnostics', 'i18n']) {
       const state = lastState(key);
       expect(state, key).toBeDefined();
       expect(state?.mod, key).toBe('osfui');
@@ -162,6 +162,7 @@ describe('handshake', () => {
   });
 
   it('pushes NOTHING before the page greets', async () => {
+    mock.health('errors');
     mock.visibility(false);
     await settle(600);
     expect(frames).toHaveLength(0);
@@ -477,7 +478,7 @@ describe('platform requests', () => {
   });
 });
 
-describe('i18n state', () => {
+describe('i18n and diagnostics state', () => {
   it('publishes the catalog for the DOCUMENT`s own mod', async () => {
     await greet();
     expect(lastState('i18n')?.value).toMatchObject({ mod: 'osfui', locale: 'en' });
@@ -496,6 +497,17 @@ describe('i18n state', () => {
     expect(lastState('i18n')?.value).toMatchObject({ locale: 'pseudo' });
     expect(lastState('settings')).toBeDefined();
     expect(lastState('views')).toBeDefined();
+  });
+
+  it('publishes the System Health snapshot and every scenario switch', async () => {
+    await greet();
+    expect(lastState('diagnostics')?.value).toMatchObject({ issues: [] });
+
+    frames = [];
+    expect(mock.health('errors')).toBe('errors');
+    await settle();
+    const value = lastState('diagnostics')?.value as { issues: unknown[] };
+    expect(value.issues.length).toBeGreaterThan(0);
   });
 
 });

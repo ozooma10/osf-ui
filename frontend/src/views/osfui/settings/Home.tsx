@@ -13,6 +13,7 @@ import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { modIconSrc, type AssetRoots } from '@lib/settings/assets';
 import { titleOf, type ModRecord, type ViewRecord } from '@lib/settings/rail';
+import { issueForSubject, type HealthModel } from '@lib/settings/health';
 import type { Translator } from '@lib/i18n';
 import { homeAccentFor, initials, Mark } from './marks';
 import { OPEN_COOLDOWN_MS } from './openCooldown';
@@ -20,22 +21,27 @@ import { OPEN_COOLDOWN_MS } from './openCooldown';
 export interface HomeProps {
   views: ViewRecord[];
   mods: ModRecord[];
+  health: HealthModel;
   tr: Translator;
   assetRoots: AssetRoots | undefined;
   /** Resolved open state for a HUD, including any optimistic override. */
   hudOn: (view: ViewRecord) => boolean;
   onOpen: (viewId: string) => void;
   onHud: (viewId: string, next: boolean) => void;
+  /** Jump to System Health with this issue expanded. */
+  onOpenIssue: (issueId: string) => void;
 }
 
 export function Home({
   views,
   mods,
+  health,
   tr,
   assetRoots,
   hudOn,
   onOpen,
   onHud,
+  onOpenIssue,
 }: HomeProps) {
   const menus = views.filter((v) => v.kind === 'menu');
   // Anything that is not a menu is treated as a HUD, so an unknown future
@@ -86,7 +92,9 @@ export function Home({
                       tr={tr}
                       iconSrc={ownerIcon(v.mod)}
                       caption={caption(v)}
+                      issueId={(issueForSubject(health.issues, v.id) || {}).id ?? null}
                       onOpen={onOpen}
+                      onOpenIssue={onOpenIssue}
                     />
                   ))}
                 </div>
@@ -196,10 +204,12 @@ interface MenuCardProps {
   tr: Translator;
   iconSrc: string | null;
   caption: string;
+  issueId: string | null;
   onOpen: (viewId: string) => void;
+  onOpenIssue: (issueId: string) => void;
 }
 
-function MenuCard({ view: v, tr, iconSrc, caption, onOpen }: MenuCardProps) {
+function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue }: MenuCardProps) {
   const failed = v.loadState === 'failed';
   const accent = homeAccentFor(v.id);
   // Single-menu policy: the opened menu replaces this view, so there is no
@@ -208,14 +218,19 @@ function MenuCard({ view: v, tr, iconSrc, caption, onOpen }: MenuCardProps) {
   const [cooling, setCooling] = useState(false);
   const [iconFailed, setIconFailed] = useState(false);
   const showIcon = !!iconSrc && !iconFailed;
+  const reviewable = failed && !!issueId;
 
   return (
     <button
       type="button"
       class={failed ? 'home-tile failed' : 'home-tile'}
-        disabled={failed || cooling}
-        onClick={() => {
-          onOpen(v.id);
+      disabled={(failed && !reviewable) || cooling}
+      onClick={() => {
+        if (reviewable) {
+          onOpenIssue(issueId as string);
+          return;
+        }
+        onOpen(v.id);
         setCooling(true);
         setTimeout(() => setCooling(false), OPEN_COOLDOWN_MS);
       }}
@@ -239,7 +254,11 @@ function MenuCard({ view: v, tr, iconSrc, caption, onOpen }: MenuCardProps) {
       </span>
 
       <span class="home-tile-foot">
-        {failed ? tr('failedSeeLog', 'FAILED — SEE OSF UI.LOG') : tr('openArrow', 'OPEN ▸')}
+        {reviewable
+          ? tr('failedReviewIssue', 'FAILED — REVIEW ISSUE ▸')
+          : failed
+            ? tr('failedSeeLog', 'FAILED — SEE OSF UI.LOG')
+            : tr('openArrow', 'OPEN ▸')}
       </span>
     </button>
   );

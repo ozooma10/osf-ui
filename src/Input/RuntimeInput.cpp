@@ -326,13 +326,16 @@ namespace OSFUI
 			if (_settings) {
 				if (const auto target = _settings->Store().GetHotkeyTarget(a_mod, a_key)) {
 					const auto result = API::Papyrus::DispatchStaticHotkey(target->script, target->function, a_mod, a_key);
-					if (result != API::Papyrus::StaticDispatchResult::kQueued) {
+					if (result == API::Papyrus::StaticDispatchResult::kQueued) {
+						_runtimeHealth.ResolveHotkeyTarget(a_mod, a_key);
+					} else {
 						const auto reason = result == API::Papyrus::StaticDispatchResult::kVmUnavailable ?
 							"the Papyrus VM is unavailable" :
 							"Papyrus rejected the call; the script may be missing, the function may be absent or non-GLOBAL, or its signature may not be (string, string)";
-						REX::ERROR("Runtime: [content] declarative hotkey {}.{} could not queue {}.{} — {}",
-							a_mod, a_key, target->script, target->function, reason);
+						_runtimeHealth.ReportHotkeyTargetFailure(a_mod, a_key, target->script, target->function, reason);
 					}
+				} else {
+					_runtimeHealth.ResolveHotkeyTarget(a_mod, a_key);
 				}
 			}
 			REX::DEBUG("Runtime: hotkey fired for {}.{}", a_mod, a_key);

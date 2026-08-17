@@ -255,7 +255,7 @@ script and function, so OSF UI dispatches straight here — no quest, no plugin
 record, no registration, and nothing to re-arm after a save load.}
 
 ; The signature must be exactly (string, string) and the function must be
-; GLOBAL. Anything else and the dispatch fails and is logged
+; GLOBAL. Anything else and the dispatch fails, and System Health reports it
 ; under settings.hotkey-target:${options.modId}.notifyKey.
 Function OnHotkey(string asModId, string asKey) Global
     ; Reads are cheap and always safe: an unknown key or a type mismatch

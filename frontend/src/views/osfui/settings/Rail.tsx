@@ -2,25 +2,34 @@
 // comes from @lib/settings/rail's `railNodes` so this file and the LB/RB
 // `cycleRail` walk cannot drift apart; the order itself is argued there.
 //
-// The modified-count badge is derived from the model on every render, so there
-// is no row state to reconcile.
+// System Health is fixed above the installed-mod list and never filtered. The
+// modified-count badge and health severity markers are derived on every render.
 
 import { modifiedCount } from '@lib/settings/modified';
 import { modIconSrc, type AssetRoots } from '@lib/settings/assets';
 import {
   FRAMEWORK_ID,
+  HEALTH_ID,
   HOME_ID,
   railNodes,
   type ModRecord,
   type RailEntry,
   type ViewRecord,
 } from '@lib/settings/rail';
+import {
+  countIssues,
+  overallSeverity,
+  severityForMod,
+  type HealthModel,
+  type Severity,
+} from '@lib/settings/health';
 import type { Translator } from '@lib/i18n';
 import { initials, Mark } from './marks';
 
 export interface RailProps {
   mods: ModRecord[];
   views: ViewRecord[];
+  health: HealthModel;
   /** Pre-trimmed, pre-lowercased — railNodes does not normalise it. */
   query: string;
   selectedId: string | null;
@@ -31,7 +40,7 @@ export interface RailProps {
 }
 
 export function Rail(props: RailProps) {
-  const { mods, views, query, selectedId, tr, assetRoots, onSelect } = props;
+  const { mods, views, health, query, selectedId, tr, assetRoots, onSelect } = props;
 
   const nodes = railNodes({ mods, views }, query);
 
@@ -39,6 +48,10 @@ export function Rail(props: RailProps) {
     <nav id="rail-list" class="rail-list" aria-label="Installed mods">
       {nodes.map((node, i) => {
         switch (node.kind) {
+          case 'health':
+            // App paints the fixed destination in the rail head. Retaining the
+            // node here keeps controller cycle order sourced from railNodes.
+            return null;
           case 'home':
             return (
               <HomeItem
@@ -75,6 +88,11 @@ export function Rail(props: RailProps) {
                 key={node.entry.id}
                 entry={node.entry}
                 selected={node.entry.id === selectedId}
+                severity={severityForMod(
+                  health.issues,
+                  node.entry.mod ? node.entry.mod.id : node.entry.id,
+                  node.entry.views.map((v) => v.id),
+                )}
                 tr={tr}
                 assetRoots={assetRoots}
                 onSelect={onSelect}
@@ -112,12 +130,14 @@ function railSub(entry: RailEntry, tr: Translator): string {
 interface RailItemProps {
   entry: RailEntry;
   selected: boolean;
+  /** Worst active health severity attributable to this entry, or null. */
+  severity: Severity | null;
   tr: Translator;
   assetRoots: AssetRoots | undefined;
   onSelect: (id: string) => void;
 }
 
-function RailItem({ entry, selected, tr, assetRoots, onSelect }: RailItemProps) {
+function RailItem({ entry, selected, severity, tr, assetRoots, onSelect }: RailItemProps) {
   const isFramework = entry.id === FRAMEWORK_ID;
   const count = entry.mod ? modifiedCount(entry.mod) : 0;
 
@@ -142,6 +162,18 @@ function RailItem({ entry, selected, tr, assetRoots, onSelect }: RailItemProps) 
         <span class="rail-item-title">{entry.title}</span>
         <span class="rail-item-sub">{railSub(entry, tr)}</span>
       </span>
+      {severity ? (
+        <span
+          class={`rail-item-severity rail-item-severity--${severity}`}
+          title={
+            severity === 'error'
+              ? tr('railSeverityError', 'An error affects this mod — see System Health')
+              : tr('railSeverityWarning', 'A warning affects this mod — see System Health')
+          }
+        >
+          {severity === 'error' ? '✕' : '!'}
+        </span>
+      ) : null}
       {count ? (
         <span
           class="rail-item-count"
@@ -182,6 +214,43 @@ function HomeItem({ views, selected, tr, onSelect }: HomeItemProps) {
             : tr('standby', 'Standby')}
         </span>
       </span>
+    </button>
+  );
+}
+
+export interface HealthItemProps {
+  health: HealthModel;
+  selected: boolean;
+  tr: Translator;
+  onSelect: (id: string) => void;
+}
+
+/** Fixed System Health destination painted above the installed-mod label. */
+export function HealthItem({ health, selected, tr, onSelect }: HealthItemProps) {
+  const counts = countIssues(health.issues);
+  const severity = overallSeverity(counts);
+  const classes = [
+    'rail-item--health',
+    severity ? `rail-item--health-${severity}` : '',
+    selected ? 'selected' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const status =
+    counts.errors > 0
+      ? tr.plural('errorCount', counts.errors, '{count} error', '{count} errors')
+      : counts.warnings > 0
+        ? tr.plural('warningCount', counts.warnings, '{count} warning', '{count} warnings')
+        : tr('nominal', 'Nominal');
+
+  return (
+    <button type="button" class={classes} onClick={() => onSelect(HEALTH_ID)}>
+      <span class="rail-health-mark" aria-hidden="true">
+        {severity === 'error' ? '✕' : severity === 'warning' ? '!' : '✓'}
+      </span>
+      <span class="rail-health-title">{tr('systemHealth', 'System Health')}</span>
+      <span class={`rail-health-status rail-health-status--${severity ?? 'ok'}`}>{status}</span>
+      <span class="rail-health-chevron" aria-hidden="true">▸</span>
     </button>
   );
 }

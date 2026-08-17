@@ -52,6 +52,10 @@ namespace OSFUI::API
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
 		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 		bool          RegisterView(const char* a_viewId) override;
+		bool          ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
+					 std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) override;
+		bool          ClearIssue(const char* a_modId, const char* a_id) override;
+		bool          ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) override;
 		// Temporary ABI 1.x endpoint kind. Kept out of IOSFUIBridge 2.0 so modern
 		// consumers cannot opt back into request-id injection or auto-ack.
 		void RegisterLegacyCommand(const char* a_name, SendFn a_handler, void* a_user);
@@ -92,6 +96,20 @@ namespace OSFUI::API
 		// (Source::kNative) in DrainSchemaOps.
 		std::vector<SchemaOp> TakeSchemaOps();
 
+		struct HealthIssueOp
+		{
+			enum class Kind { kReport, kClear, kClearExcept };
+			Kind kind{ Kind::kReport };
+			std::string modId;
+			std::string id;
+			std::string code;
+			bool error{ false };
+			std::string subject;
+			nlohmann::json context;
+			std::vector<std::string> keep;
+		};
+		std::vector<HealthIssueOp> TakeHealthIssueOps();
+
 		// One queued SetViewState, already validated and parsed
 		// synchronously; the store write happens on the main tick.
 		struct ViewStateOp
@@ -104,6 +122,18 @@ namespace OSFUI::API
 		// RetainedStateStore (NOT session-scoped: unlike Papyrus values these hold
 		// no form identities) and publishes it to the mod's instantiated views.
 		std::vector<ViewStateOp> TakeViewStateOps();
+
+		void NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major,
+			std::uint32_t a_minor, bool a_supported = false);
+		struct LegacyCaller
+		{
+			std::string module;
+			std::uint32_t major{ 0 };
+			std::uint32_t minor{ 0 };
+			bool supported{ false };
+		};
+		static constexpr std::size_t kMaxLegacyCallers = 32;
+		std::vector<LegacyCaller> TakeLegacyApiCallers();
 
 		// Drain queued RegisterView ids. Runtime validates each before the menu
 		// request snapshot; openOnStart views are instantiated there, while ordinary
@@ -212,7 +242,9 @@ namespace OSFUI::API
 		bool                                          _viewCatalogReady{ false };
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
+		std::vector<LegacyCaller>                     _legacyCallers;
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
+		std::vector<HealthIssueOp>                    _pendingHealthIssueOps;
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // endpoint set changed since apply

@@ -229,6 +229,7 @@ state:
 ```js
 osfui.state.on('osfui/views', render);        // replay now + every change; no read roundtrip
 osfui.state.on('osfui/settings', render);
+osfui.state.on('osfui/diagnostics', renderHealth);
 osfui.state.on('osfui/i18n', applyCatalog);   // consumed by the i18n namespace internally
 ```
 

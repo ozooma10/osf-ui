@@ -4,7 +4,7 @@ The logs exist to answer one question after a bad session: **what was OSF UI doi
 when things went wrong?** Every line either helps answer that or costs the reader
 time. This doc is the contract; `src/Core/Log.h` points here.
 
-Component names follow the [terminology glossary](terminology.md).
+Component and health names follow the [terminology glossary](terminology.md).
 
 ## Files
 
@@ -157,8 +157,8 @@ the plugin log into a full bridge capture; that is useful and expensive, and it
 is why the flag is opt-in per view rather than a config key. And console
 forwarding is registered only in developer mode (a release build would cross the pipe
 just to be dropped), so a player's log contains none of this page-console text.
-Native code should log a player-visible failure at WARN or ERROR with the
-component and actionable cause; page code should use its typed error path.
+For a durable player-visible condition, raise a health issue and log the same
+cause at WARN or ERROR; don't `console.error` and hope.
 
 The native side of the same events is logged whether or not anyone is watching
 the page. The lines that matter when reading a bad session:
@@ -174,7 +174,7 @@ the page. The lines that matter when reading a bad session:
 | `MessageBridge: [web] <text>` | DEBUG | the view's own `log` send, truncated at 512 chars |
 
 Unsolicited outbound pushes are deliberately near-silent: state logs one DEBUG
-line for the three platform keys (`settings`, `views`, `i18n`) and
+line for the four platform keys (`settings`, `views`, `diagnostics`, `i18n`) and
 nothing for a mod's own keys, and an unsolicited event logs nothing at all —
 `ui.gamepad` and friends push far too often to trace. Turn on the page-side
 trace flag when you need to see those; that is what it is for.

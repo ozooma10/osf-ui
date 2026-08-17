@@ -152,6 +152,9 @@ int main()
 	pushes.clear();
 	Compat::V1::Papyrus::DrainPushes([&](const auto& push) { pushes.push_back(push); });
 	CHECK(pushes.empty());
+	const auto legacyCallers = Compat::V1::Papyrus::TakeCallers();
+	CHECK(legacyCallers.size() == 1);
+	if (!legacyCallers.empty()) CHECK(legacyCallers[0] == "t.legacy");
 	// Interned casing folds to the grammar's lowercase and is accepted.
 	const auto tokenStatic = listenStatic(*vm, 0, {}, "MyLib", "T.Alpha");
 	CHECK(tokenStatic != 0);

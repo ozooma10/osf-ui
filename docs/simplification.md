@@ -15,10 +15,13 @@ sanctioned in-game pass, or a larger refactor window:
   beside the native encoder and the page helper.
 - Treat marketing SVG/PNG generation as a separate asset-pipeline project.
 - God-object decomposition: `src/Runtime/Runtime.cpp` (input coordination, view
-  presentation, and bridge publishing are candidates for extraction) and the
+  presentation, and bridge publishing are candidates for extraction alongside
+  `RuntimeHealthCoordinator`) and the
   WebView2 host's `struct App` (input,
   view presentation, WebView2 setup, and the ~350-line `InstallEvents`).
   Deferred until they carry test coverage that can gate a split.
+- Replace `friend class RuntimeHealthCoordinator` (`src/Runtime/Runtime.h`) with
+  an explicit inputs struct.
 - Typed structs for the `MessageBridge::Encode*` envelope builders, plus a
   dispatch-exhaustiveness test that every `msg::` wire struct is routed and
   every route is backed by a struct.

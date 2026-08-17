@@ -143,7 +143,7 @@ Request rejection codes: `no-bridge` (local), `timeout` (client timer, default 1
 
 ## 3. Endpoint reclassification
 
-The four-verb model dissolves 1.x's subscribe-on-read wart: `settings.get`, `views.get`, and `i18n.get` were requests whose real job was to *subscribe* you. Reads-with-replay are exactly what state is, so those three registries became state keys and the requests were deleted.
+The four-verb model dissolves 1.x's subscribe-on-read wart: `settings.get`, `views.get`, `i18n.get`, and `diagnostics.get` were requests whose real job was to *subscribe* you. Reads-with-replay are exactly what state is, so those four registries became state keys and the requests were deleted.
 
 ### 3.1 State keys — `osfui.state.on(key, fn)`
 
@@ -151,6 +151,7 @@ The four-verb model dissolves 1.x's subscribe-on-read wart: `settings.get`, `vie
 |---|---|---|
 | `osfui/settings` | `settings.get` → `settings.data` | the whole settings registry (`SettingsData`) |
 | `osfui/views` | `views.get` → `views.data` | every discovered view with live open/focus/load state |
+| `osfui/diagnostics` | `diagnostics.get` → `diagnostics.data` | the local System Health snapshot |
 | `osfui/i18n` | `i18n.get` → `i18n.data` | `{ mod, locale, strings }` — **computed per view**, the owning mod's catalog |
 
 Plus every mod key a mod backend publishes: Papyrus `SetView*` and the ABI's `SetViewState` both land under `"<yourModId>/<key>"`.
@@ -191,8 +192,8 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 |---|---|
 | `hud.show`, `hud.hide` | Pure aliases of `menu.open`/`menu.close` — registered to the *same handler lambdas* in 1.x. Use `menu.open` / `menu.close` as **requests**. |
 | `osfui.textFocus` | A registered **no-op** in 1.x, purely so a pre-session-focus view wouldn't trip `unknown-command`. An unknown send is now a dev-only debug event, so it bought nothing. Nothing replaces it. |
-| `settings.get`, `views.get`, `i18n.get` | The three subscribe-on-read requests. Use the state keys in §3.1. |
-| `diagnostics.get`, `osfui.openModPage`, `osfui.openLogFolder` | The diagnostic-reporting feature was removed; there is no replacement endpoint. |
+| `settings.get`, `views.get`, `i18n.get`, `diagnostics.get` | The four subscribe-on-read requests. Use the state keys in §3.1. |
+| `osfui.openModPage`, `osfui.openLogFolder` | The reporting-oriented shell actions were removed; there is no replacement endpoint. |
 | `ui.action` | Renamed `papyrus.send`. |
 | `ui.papyrusRequest` | Renamed `papyrus.request`. |
 
@@ -342,7 +343,8 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run ve
 | Papyrus state is session-scoped and dropped on game load; native state is not | `tests/native/papyrus_action_tests.cpp`, `tests/native/papyrus_form_tests.cpp` |
 | ABI `SetViewState` validation, queue cap, retained-not-session-scoped delivery | `tests/native/bridge_api_tests.cpp` |
 | ABI 2.0 constants, strict send/request routing, all current features baseline | `tests/native/bridge_api_tests.cpp` |
-| ABI 1.0–1.8 adapter selection, frozen vtable behavior, settings/hotkeys, command auto-ack, typed requests, retained state, and fail-closed historical reporting slots | `tests/native/v1_native_bridge_tests.cpp`, `tests/native/bridge_api_tests.cpp` |
+| ABI 1.0–1.8 adapter selection, frozen vtable behavior, settings/hotkeys, command auto-ack, typed requests, local health publication, and retained state | `tests/native/v1_native_bridge_tests.cpp`, `tests/native/bridge_api_tests.cpp` |
+| Compatibility-health lifecycle and the `osfui/diagnostics` greeting replay | `tests/native/runtime_health_tests.cpp`, `tests/native/health_registry_tests.cpp` |
 | Harness mock speaks the same protocol as the shipped shared bridge helper, end to end | `frontend/test/devmock.mockbridge.test.ts` |
 | Built views load the shipped shared bridge helper and pass the output gates | `frontend/test/build.output.test.ts` |
 | `targetVersion` comparison feeding the "needs update" badge | `frontend/test/version.test.ts` |

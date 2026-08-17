@@ -172,6 +172,7 @@ int main()
 	{
 		const auto target = store.GetHotkeyTarget("t.alpha", "bind");
 		CHECK(target && target->script == "MyMod:Hotkeys" && target->function == "OnHotkey");
+		CHECK(store.HotkeyTargetIssues().empty());
 	}
 
 	// --- multicast listeners --------------------------------------------------
@@ -261,6 +262,7 @@ int main()
 		CHECK(!store.GetHotkeyTarget("t.targets", "extra"));
 		CHECK(!store.GetHotkeyTarget("t.targets", "wrongType"));
 		CHECK(!store.GetHotkeyTarget("t.targets", "tooLong"));
+		CHECK(store.HotkeyTargetIssues().size() == 5);
 		CHECK(store.Set("t.targets", "good", "\"F10\""));
 		CHECK(!store.Set("t.targets", "onPress", R"({"script":"Evil","function":"Run"})"));
 		CHECK(store.GetHotkeyTarget("t.targets", "good") == target);  // values cannot alter schema metadata
@@ -272,6 +274,7 @@ int main()
 			}
 		});
 		CHECK(store.RegisterSchema(targetSchema, SettingsStore::Source::kNative));
+		CHECK(store.HotkeyTargetIssues().empty());
 		const auto replacement = store.GetHotkeyTarget("t.targets", "good");
 		CHECK(replacement && replacement->script == "Target_Lib2" && replacement->function == "Fire2");
 		CHECK(store.RemoveMod("t.targets"));
@@ -1019,7 +1022,7 @@ int main()
 		CHECK(s.ConflictsForSetting("t.keya", "nope").empty());
 	}
 
-	// --- Skipped schemas + corrupt values remain fail-closed -------------------
+	// --- Load-error surfacing: skipped schemas + corrupt values ----------------
 	{
 		const auto sd = root / "loaderr" / "settings";
 		const auto vd = root / "loaderr" / "values";
@@ -1039,17 +1042,42 @@ int main()
 		CHECK(!fs::exists(vd / "t.good.json"));
 		CHECK(fs::exists(vd / "t.good.json.bad"));
 
-		// Hot reload keeps the last good registration when a later parse fails.
+		CHECK(s.LoadErrors().size() == 3);
+		const auto& data = s.DataView();
+		const auto errs = data.contains("loadErrors") ? data["loadErrors"] : nlohmann::json::array();
+		CHECK(errs.size() == 3);
+		const auto findKind = [&](const char* a_kind) {
+			for (const auto& e : errs) {
+				if (e["kind"] == a_kind) return e;
+			}
+			return nlohmann::json{};
+		};
+		const auto parseErr = findKind("schema-parse");
+		CHECK(!parseErr.is_null() && parseErr["file"] == "t.broken.json");
+		CHECK(!parseErr.is_null() && parseErr["message"].get<std::string>().find("parse error") != std::string::npos);
+		CHECK(!parseErr.is_null() && !parseErr.contains("mod"));
+		const auto nameErr = findKind("schema-name");
+		CHECK(!nameErr.is_null() && nameErr["file"] == "badname.json");
+		const auto valuesErr = findKind("values-parse");
+		CHECK(!valuesErr.is_null() && valuesErr["file"] == "t.good.json" && valuesErr["mod"] == "t.good");
+
+		// A fixed file clears its issue; repeated failures replace rather than stack.
 		WriteFile(sd / "t.broken.json", R"json({ "id": "t.broken",
 			"groups": [ { "settings": [ { "key": "x", "type": "int", "default": 1 } ] } ] })json");
 		CHECK(s.ReloadDropInFile(sd / "t.broken.json"));
+		CHECK(s.LoadErrors().size() == 2);
 		CHECK(s.DataView()["mods"].size() == 2);
+		int registryPings = 0;
+		s.AddRegistryListener([&] { ++registryPings; });
 		WriteFile(sd / "t.broken.json", R"json({ "id": )json");
 		CHECK(!s.ReloadDropInFile(sd / "t.broken.json"));
 		CHECK(!s.ReloadDropInFile(sd / "t.broken.json"));
+		CHECK(s.LoadErrors().size() == 3);
+		CHECK(registryPings >= 1);
 		CHECK(s.DataView()["mods"].size() == 2);  // the last good parse stays registered
 
 		CHECK(s.RemoveMod("t.good"));
+		CHECK(s.LoadErrors().size() == 2);
 	}
 
 	// --- CanonicalEnumValue: the Papyrus write path's casing tolerance -------

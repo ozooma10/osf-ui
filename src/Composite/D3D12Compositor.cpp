@@ -117,6 +117,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		//
 		// All GPU work happens at the engine seam. ringMutex guards the opened
 		// ring between Submit (adoption) and the seam render workers (sampling).
+		std::atomic<bool> seamActive{ false };
 		std::mutex        ringMutex;
 		// One descriptor is enough: the whole create-and-bind sequence runs
 		// under ringMutex, and OMSetRenderTargets snapshots the CPU descriptor
@@ -237,6 +238,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				SafeRelease(engine.directQueue);
 				SafeRelease(engine.device);
 			}
+		}
+
+		[[nodiscard]] CompositorStatus GetStatus() const
+		{
+			return {
+				.seamActive = seamActive.load(std::memory_order_relaxed),
+				.frameGeneration = frameGenActiveSignal.load(std::memory_order_relaxed),
+			};
 		}
 
 		// Drain the engine's DIRECT queue up to this point. We submit no work of
@@ -967,6 +976,21 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		if (_impl) {
 			_impl->visible.store(a_visible, std::memory_order_relaxed);
 		}
+	}
+
+	void D3D12Compositor::SetSeamDrawMode(const bool a_enabled)
+	{
+		if (_impl) {
+			_impl->seamActive.store(a_enabled, std::memory_order_relaxed);
+		}
+	}
+
+	CompositorStatus D3D12Compositor::GetStatus() const
+	{
+		if (_impl) {
+			return _impl->GetStatus();
+		}
+		return {};
 	}
 
 	void D3D12Compositor::SetOutputResizeCallback(OutputResizeCallback a_callback)

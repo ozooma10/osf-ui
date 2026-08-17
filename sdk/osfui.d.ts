@@ -166,6 +166,8 @@ export interface PlatformState {
   "osfui/settings": SettingsData;
   /** One entry per discovered view, with current open/active-menu/main-frame-load state. */
   "osfui/views": ViewsData;
+  /** Session-local conditions shown by Mod Settings. No report submission or upload surface is attached. */
+  "osfui/diagnostics": DiagnosticsData;
   /** Starfield's complete read-only keyboard map, copied from the live engine ControlMap. */
   "osfui/keybindings": KeybindingsData;
   /** The exact active engine input-context stack and OSF UI's derived semantic gameplay mode. */
@@ -347,6 +349,8 @@ export interface SettingsData {
     layout: string;
     labels: Record<string, string>;
   };
+  /** Settings artifacts that failed to load; filenames only, never absolute paths. */
+  loadErrors?: Array<{ kind: string; file: string; mod?: string; message: string }>;
 }
 
 /** Value of the `osfui/views` state key. */
@@ -384,6 +388,25 @@ export interface SerializedForm {
   formType: string;  // record signature ("KYWD" | "WEAP" | "FLST" | ...); numeric string for unknown types
   name?: string;     // TESFullName when the form has one
   editorId?: string; // best-effort: usually UNAVAILABLE at runtime in Starfield
+}
+
+export interface DiagnosticIssue {
+  id: string;
+  code: string;
+  severity: "warning" | "error";
+  status: "active" | "resolved";
+  source: string;
+  subject: string;
+  context: Record<string, string | number | boolean>;
+  occurrences: number;
+  firstAt: number;
+  lastAt: number;
+  resolvedAt?: number;
+}
+
+export interface DiagnosticsData {
+  system: Record<string, string | number | boolean>;
+  issues: DiagnosticIssue[];
 }
 
 // ---------------------------------------------------------------------------

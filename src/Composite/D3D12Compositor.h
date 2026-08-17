@@ -50,6 +50,8 @@ namespace OSFUI
 		// sharedSlot frames submitted afterwards are sampled directly at the
 		// engine seam (produce/consume fence synchronized, no CPU upload).
 		void SetSharedRing(const SharedRingDesc& a_desc) override;
+		void SetSeamDrawMode(bool a_enabled) override;
+		[[nodiscard]] CompositorStatus GetStatus() const override;
 		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
 
 	private:

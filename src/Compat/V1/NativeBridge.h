@@ -77,8 +77,6 @@ namespace OSFUI::Compat::V1
 		virtual std::uint32_t SubscribeHotkey(const char*, const char*, HotkeyFn, void*) = 0;
 		virtual void UnsubscribeHotkey(std::uint32_t) = 0;
 		virtual bool RegisterView(const char*) = 0;
-		// Frozen ABI 1.7 slots. Reporting was removed; the adapter keeps the
-		// vtable shape and returns false to old binaries.
 		virtual bool ReportIssue(const char*, const char*, const char*, std::uint32_t,
 			const char*, const char*) = 0;
 		virtual bool ClearIssue(const char*, const char*) = 0;
@@ -117,9 +115,9 @@ namespace OSFUI::Compat::V1
 		void UnsubscribeHotkey(std::uint32_t) override;
 		bool RegisterView(const char*) override;
 		bool ReportIssue(const char*, const char*, const char*, std::uint32_t,
-			const char*, const char*) override { return false; }
-		bool ClearIssue(const char*, const char*) override { return false; }
-		bool ClearIssuesExcept(const char*, const char*) override { return false; }
+			const char*, const char*) override;
+		bool ClearIssue(const char*, const char*) override;
+		bool ClearIssuesExcept(const char*, const char*) override;
 		void RegisterRequest(const char*, RequestFn, void*) override;
 		void UnregisterRequest(const char*) override;
 		bool SetViewState(const char*, const char*, const char*) override;

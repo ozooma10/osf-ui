@@ -207,7 +207,7 @@ Each publish sends mod state immediately to the publishing mod's instantiated
 views, resolved fresh on that publish, while the retained value remains ready
 for the mod's future documents. There is no subscriber set to prune or to go
 stale. The platform's own registries are state keys on the
-`osfui` mod: `osfui/settings`, `osfui/views`, `osfui/keybindings`,
+`osfui` mod: `osfui/settings`, `osfui/views`, `osfui/diagnostics`, `osfui/keybindings`,
 `osfui/input-context`, `osfui/i18n` (computed per view —
 a document's catalog is its owning mod's). The original registries replaced the 1.x
 `*.get` requests, each of which was a read with the invisible side effect of
@@ -221,14 +221,15 @@ bridge's protocol-fault callback, which `Runtime` wires to `OnProtocolFault`.
 In developer mode the offending view is handed an `osfui.debug.error` event,
 so the failure lands in that page's own console and therefore in F12 DevTools.
 In developer mode those faults are returned only to their originating page;
-release builds keep the rejection in the native log. A mod backend or OSF UI
+recurring faults also become a bounded System Health issue, while release
+builds keep the individual rejection in the native log. A mod backend or OSF UI
 runtime handler missing its deadline is also reported to the waiting page as
 `no-response`. Details are in [troubleshooting.md](troubleshooting.md) and
 [logging.md](logging.md).
 
 ### Feature modules ("apps" on the platform)
 
-Features are `IUiModule`s (`Runtime/UiModule.h`). `IUiModule` is a uniform lifecycle fan-out: the OSF UI runtime drives every module through the same points — `OnStart()` (applies persisted state at load), `RegisterEndpoints(bridge)` (wire its own send/request endpoints), `OnBridgeDown()`, `OnViewDestroyed()` — from one loop in registration order, rather than a per-module call at each site. It is not a decoupling seam: the OSF UI runtime still owns and reaches through the concrete module types directly.
+Features are `IUiModule`s (`Runtime/UiModule.h`). `IUiModule` is a uniform lifecycle fan-out: the OSF UI runtime drives every module through the same points — `OnStart()` (applies persisted state at load), `RegisterEndpoints(bridge)` (wire its own send/request endpoints), `OnBridgeDown()`, `OnViewDestroyed()` — from one loop in registration order, rather than a per-module call at each site. `HealthRegistry` owns the bounded session-local issue model and publishes `osfui/diagnostics`; `RuntimeHealthCoordinator` reconciles settings, input, view, browser-host, compositor, and compatibility observations into it. Neither component exports or uploads a report. It is not a decoupling seam: the OSF UI runtime still owns and reaches through the concrete module types directly.
 `Runtime::InitializeFeatureModules()` is the composition root - the one place that names concrete modules and injects their dependencies
 
 ### Views

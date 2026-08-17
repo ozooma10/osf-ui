@@ -72,6 +72,8 @@ starter does not create a view.
   current UI the *Mods surface*, *settings hub*, or *MCM*.
 - **Keybindings** is the built-in `osfui/keybinds` view. Do not call the current
   UI the *Keybinds board* or *input map*.
+- **System Health** is a fixed destination inside Mod Settings, not a separate
+  view and not a bug-reporting workflow.
 
 ## View lifecycle and presentation
 
@@ -87,6 +89,10 @@ These states describe different axes and must not be used interchangeably:
 | **input-target view** | The instantiated browser view selected by the renderer/browser host for mouse, real focus, cursor, and synthetic-key delivery. It follows the active menu during an input session, but names a transport target rather than presentation state. |
 | **captures input** | The active menu's effective policy routes input to its document. This is not synonymous with menu kind or with `interactive`. |
 | **resident** | After first instantiation, the document stays alive across ordinary close/reopen transitions until process exit. Browser-host recovery recreates it in the replacement host. |
+
+A rail item that always stays in place, such as System Health, is a **fixed
+destination**; it says nothing about the browser lifetime of the containing
+view.
 
 The public `osfui/views` payload retains compatibility field names:
 
@@ -143,6 +149,15 @@ the browser's main-frame load milestone.
   remain named `SetViewState`/`SetView*`; their storage scope is not per view.
 - **Platform** is an adjective for endpoints and state keys owned by OSF UI,
   normally in the `osfui` namespace. It is not another process or backend.
+
+## Health and diagnostics
+
+- The **health registry** contains bounded, durable, actionable **health issues** for the current process.
+- **System Health** is the built-in player-facing destination that renders that registry.
+- **System information** is the factual environment summary attached to it.
+- Logs remain chronological event streams. Do not use the health registry as a log, toast, crash reporter, or report-submission queue.
+
+The public state key remains `osfui/diagnostics`, and public types retain names such as `DiagnosticIssue`. An issue's `source` is its producer identity, not a report destination.
 
 ## Input
 

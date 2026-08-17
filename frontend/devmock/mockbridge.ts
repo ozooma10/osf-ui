@@ -57,6 +57,8 @@ import { pseudoize } from '@osfui/cli/pseudo';
 import {
   FALLBACK_SCHEMAS,
   HARNESS_PAGES,
+  HEALTH_SCENARIOS,
+  MOCK_HEALTH,
   MOCK_VIEWS,
   MOD_ASSET_ROOTS,
   GAME_BINDINGS,
@@ -125,6 +127,9 @@ export interface MockApi {
   cancelCapture(): boolean;
   /** Point the omitted-`view` requests (and the i18n domain) at the currently mounted view. */
   setSelfView(id: string): void;
+  /** Switch the System Health scenario (no arg = advance the cycle). */
+  health(name?: string): string;
+  healthScenario(): string;
   /** True once the document has greeted: state is published and events flow. */
   greeted(): boolean;
   /** Resolves when the initial source load (and the version read) has settled. */
@@ -877,6 +882,26 @@ export function installMock(opts: MockOptions = {}): MockApi {
     publish('osfui', 'views', { views: out });
   }
 
+  let healthScenario = (() => {
+    const wanted = params.get('health') || '';
+    return Object.prototype.hasOwnProperty.call(MOCK_HEALTH, wanted) ? wanted : 'clean';
+  })();
+
+  function publishHealth(): void {
+    publish('osfui', 'diagnostics', MOCK_HEALTH[healthScenario] ?? MOCK_HEALTH['clean']);
+  }
+
+  function setHealth(name?: string): string {
+    if (name && Object.prototype.hasOwnProperty.call(MOCK_HEALTH, name)) {
+      healthScenario = name;
+    } else if (name === undefined) {
+      const at = HEALTH_SCENARIOS.indexOf(healthScenario);
+      healthScenario = HEALTH_SCENARIOS[(at + 1) % HEALTH_SCENARIOS.length] as string;
+    }
+    publishHealth();
+    return healthScenario;
+  }
+
   /**
    * The i18n catalog is computed PER DOCUMENT: a view's catalog is its owning
    * mod's, which is why this one key carries a different value to each view.
@@ -1055,6 +1080,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         publishSettings();
         publishInputMap();
         publishViews();
+        publishHealth();
         publishI18n();
         eventsOpen = true;
         for (const env of queuedEvents.splice(0)) deliver(env);
@@ -1660,6 +1686,8 @@ export function installMock(opts: MockOptions = {}): MockApi {
       // it rather than keeping the old view's catalog.
       publishI18n();
     },
+    health: setHealth,
+    healthScenario: () => healthScenario,
     greeted: () => greeted,
     loaded: () => initial,
   };

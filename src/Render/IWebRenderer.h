@@ -188,6 +188,15 @@ namespace OSFUI
 		using FailureHandler = std::function<void(const FailureEvent& a_event)>;
 		virtual void SetFailureHandler(FailureHandler) {}
 
+		struct HealthEvent
+		{
+			std::string_view code;
+			bool             active{ true };
+			std::string_view detail;
+		};
+		using HealthHandler = std::function<void(const HealthEvent& a_event)>;
+		virtual void SetHealthHandler(HealthHandler) {}
+
 		// Fires when the input-target view's requested cursor changes, so the
 		// OSF UI runtime can switch the real OS pointer (hover feedback, text I-beam).
 		// WARNING: unlike the other handlers, this may be invoked from a

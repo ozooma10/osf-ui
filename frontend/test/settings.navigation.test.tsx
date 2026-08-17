@@ -45,9 +45,9 @@ describe('detail modes', () => {
     expect(el.querySelector('.detail-head h2')!.textContent).toContain('slider');
   });
 
-  it('mode 3 (not found): nothing installed keeps the empty rail usable', async () => {
-	const { el } = await mountWith({ mods: [] });
-	expect(el.querySelector('.rail-empty')).not.toBeNull();
+  it('mode 3 (not found): nothing installed still keeps System Health fixed', async () => {
+    const { el } = await mountWith({ mods: [] });
+    expect(el.querySelector('.rail-item--health')).not.toBeNull();
   });
 
   it('mode 4 (view-only): a views-but-no-schema entry shows "registers no settings"', async () => {
@@ -152,5 +152,44 @@ describe('rail cycling (LB/RB)', () => {
     bridge.deliver('ui.gamepad', { kind: 'button', button: { id: 0x0200, down: true } });
     await flush();
     expect(el.querySelector('.rail-item.selected')!.textContent).toBe(before);
+  });
+});
+
+describe('System Health rail entry', () => {
+  it('stays fixed even while a filter matches nothing', async () => {
+    const { el } = await mountWith({ mods: [] });
+    await typeFilter(el, 'anything');
+    expect(el.querySelector('.rail-item--health')).not.toBeNull();
+  });
+
+  it('reflects health severity and clears search when selected', async () => {
+    const { bridge, el } = await mountWith(WIDGETS, VIEWS);
+    bridge.publish('osfui/diagnostics', {
+      system: {},
+      issues: [
+        {
+          id: 'view.load-failed:x/y',
+          code: 'view.load-failed',
+          severity: 'error',
+          status: 'active',
+          source: 'views',
+          subject: 'x/y',
+          context: {},
+          occurrences: 1,
+          firstAt: 1,
+          lastAt: 1,
+        },
+      ],
+    });
+    await flush();
+    const health = el.querySelector('.rail-item--health')!;
+    expect(health.classList.contains('rail-item--health-error')).toBe(true);
+    expect(health.querySelector('.rail-health-status--error')!.textContent).toBe('1 error');
+
+    await typeFilter(el, 'zzz');
+    (health as HTMLButtonElement).click();
+    await flush();
+    expect(el.querySelector('#health-summary')).not.toBeNull();
+    expect(el.querySelector<HTMLInputElement>('#filter')!.value).toBe('');
   });
 });

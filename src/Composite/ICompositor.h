@@ -4,6 +4,12 @@
 
 namespace OSFUI
 {
+	struct CompositorStatus
+	{
+		bool seamActive{ false };
+		bool frameGeneration{ false };
+	};
+
 	// Consumes shared-texture frames and composites them over the game image.
 	class ICompositor
 	{
@@ -36,6 +42,9 @@ namespace OSFUI
 		// The compositor takes ownership of the handles (see SharedRingDesc).
 		// Default no-op for compositors that draw nothing.
 		virtual void SetSharedRing(const SharedRingDesc& /*a_desc*/) {}
+
+		virtual void SetSeamDrawMode(bool /*a_enabled*/) {}
+		[[nodiscard]] virtual CompositorStatus GetStatus() const { return {}; }
 
 		[[nodiscard]] virtual std::string_view Name() const = 0;
 	};

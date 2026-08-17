@@ -1,5 +1,6 @@
 #include "Runtime/Runtime.h"
 
+#include <format>
 #include <utility>
 #include <vector>
 
@@ -66,6 +67,10 @@ namespace OSFUI
 				if (_settings) {
 					_bridge->PublishState(a_view, "osfui", "settings", _settings->Store().DataView());
 				}
+			} else if (a_key == "diagnostics") {
+				if (_healthRegistry) {
+					_bridge->PublishState(a_view, "osfui", "diagnostics", _healthRegistry->Snapshot());
+				}
 			} else if (a_key == "keybindings") {
 				_bridge->PublishState(a_view, "osfui", "keybindings", _controlMap.KeybindingsState());
 			} else if (a_key == "input-context") {
@@ -95,7 +100,7 @@ namespace OSFUI
 		if (!_bridge) {
 			return;
 		}
-		for (const auto* key : { "settings", "views", "keybindings", "input-context", "i18n" }) {
+		for (const auto* key : { "settings", "views", "diagnostics", "keybindings", "input-context", "i18n" }) {
 			PublishPlatformState(key, a_viewId);
 		}
 		const std::string mod{ Ids::ModOf(a_viewId) };
@@ -118,7 +123,23 @@ namespace OSFUI
 			});
 		}
 		
-		(void)a_viewFault;
+		constexpr std::uint32_t kProtocolFaultThreshold = 10;
+		if (!a_viewFault || a_viewId.empty() || !_healthRegistry) {
+			return;
+		}
+		const auto count = ++_viewProtocolFaultCounts[std::string(a_viewId)];
+		if (count != kProtocolFaultThreshold) {
+			return;
+		}
+		_healthRegistry->Upsert({
+			.id = std::format("view.protocol-misuse:{}", a_viewId),
+			.code = "view.protocol-misuse",
+			.severity = HealthRegistry::Severity::Warning,
+			.source = "views",
+			.subject = std::string(a_viewId),
+			.context = nlohmann::json{ { "code", std::string(a_code) }, { "count", count } },
+		}, _uptime);
+		_healthRegistry->Broadcast();
 	}
 
     void Runtime::RegisterPlatformEndpoints(MessageBridge& a_bridge)

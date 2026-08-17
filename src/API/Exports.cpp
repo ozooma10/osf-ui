@@ -9,23 +9,21 @@
 // kPostLoad, via GetModuleHandleW("OSFUI.dll") + GetProcAddress (see
 // OSFUI::API::RequestBridge in sdk/OSFUI_API.h and docs/native-plugin-api.md).
 //
-// ABI 1.x is temporarily adapted. Future ABI 2.x minors remain additive.
+// ABI 1.x is temporarily adapted and surfaced as a bounded local health issue.
+// Future ABI 2.x minors remain additive.
 extern "C" __declspec(dllexport) OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(std::uint32_t a_abiVersion) noexcept
 {
 	const auto major = a_abiVersion >> 16;
 	const auto minor = a_abiVersion & 0xFFFFu;
 	if (OSFUI::Compat::V1::SupportsRequestedAbi(a_abiVersion)) {
-		const auto module = OSFUI::Platform::ModuleNameForAddress(_ReturnAddress());
-		REX::WARN("BridgeApi: plugin '{}' requested legacy ABI {}.{}; the temporary adapter is removed in 2.1.0",
-			module.empty() ? "(unidentified)" : module, major, minor);
+		OSFUI::API::BridgeApi::Get().NoteLegacyApiCaller(
+			OSFUI::Platform::ModuleNameForAddress(_ReturnAddress()), major, minor, true);
 		return reinterpret_cast<OSFUI::API::IOSFUIBridge*>(
 			&OSFUI::Compat::V1::NativeBridge::Get());
 	}
 	if (major != OSFUI::API::kBridgeAPIMajor) {
-		const auto module = OSFUI::Platform::ModuleNameForAddress(_ReturnAddress());
-		REX::WARN("BridgeApi: plugin '{}' requested unsupported ABI {}.{}; runtime ABI is {}.{}",
-			module.empty() ? "(unidentified)" : module, major, minor,
-			OSFUI::API::kBridgeAPIMajor, OSFUI::API::kBridgeAPIMinor);
+		OSFUI::API::BridgeApi::Get().NoteLegacyApiCaller(
+			OSFUI::Platform::ModuleNameForAddress(_ReturnAddress()), major, minor, false);
 		return nullptr;
 	}
 	// A caller minor above the OSF UI runtime's is legal: it must gate tail vmethods on

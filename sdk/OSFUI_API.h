@@ -123,6 +123,12 @@ namespace OSFUI::API
 	                          const char* a_key,
 	                          void*       a_user) noexcept;
 
+	enum class IssueSeverity : std::uint32_t
+	{
+		kWarning = 0,
+		kError = 1,
+	};
+
 	struct IOSFUIBridge
 	{
 		// --- versioning / status. ANY thread, synchronous. ---
@@ -242,6 +248,13 @@ namespace OSFUI::API
 		// Returns false only on a null/empty/invalid id; true = queued.
 		virtual bool RegisterView(const char* a_viewId) = 0;
 
+		// Publish and withdraw durable, local-only conditions shown in System
+		// Health. These methods never upload data or open an external page.
+		virtual bool ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
+			std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) = 0;
+		virtual bool ClearIssue(const char* a_modId, const char* a_id) = 0;
+		virtual bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) = 0;
+
 		// Same name grammar and first-wins namespace as sends.
 		virtual void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) = 0;
 		virtual void UnregisterRequest(const char* a_name) = 0;
@@ -310,6 +323,7 @@ namespace OSFUI::API
 		kHotkeys = 0,
 		kRegisterView = 0,
 		kEndpointShape = 0,
+		kDiagnostics = 0,
 		kRequests = 0,
 		kViewState = 0,
 	};
@@ -458,6 +472,23 @@ namespace OSFUI::API
 		bool RegisterView(const char* a_viewId) const noexcept
 		{
 			return Has(Feature::kRegisterView) && _bridge->RegisterView(a_viewId);
+		}
+
+		bool ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
+			IssueSeverity a_severity, const char* a_subject = "",
+			const char* a_contextJson = nullptr) const noexcept
+		{
+			return Has(Feature::kDiagnostics) &&
+				_bridge->ReportIssue(a_modId, a_id, a_code,
+					static_cast<std::uint32_t>(a_severity), a_subject, a_contextJson);
+		}
+		bool ClearIssue(const char* a_modId, const char* a_id) const noexcept
+		{
+			return Has(Feature::kDiagnostics) && _bridge->ClearIssue(a_modId, a_id);
+		}
+		bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) const noexcept
+		{
+			return Has(Feature::kDiagnostics) && _bridge->ClearIssuesExcept(a_modId, a_keepIdsJson);
 		}
 
 		// --- request/response ---

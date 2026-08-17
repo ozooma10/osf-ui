@@ -20,6 +20,7 @@ Writing a view (HTML/JS) instead? [authoring-views.md](authoring-views.md) is th
 - [6. Native → web — state and events](#6-native--web--state-and-events)
 - [7. Status & readiness](#7-status--readiness)
 - [8. Settings, hotkeys, and views](#8-settings-hotkeys-and-views)
+- [8d. System Health publication](#8d-system-health-publication)
 - [9. Threading & lifetime](#9-threading--lifetime)
 - [10. Method reference](#10-method-reference)
 - [11. Example plugin](#11-example-plugin)
@@ -36,7 +37,7 @@ Most mods need no native code:
 - A view reads/writes its own settings and reacts to hotkeys from JS.
 - Papyrus can publish view state, send view events and answer view requests with no DLL ([authoring-dynamic-data.md](authoring-dynamic-data.md)).
 
-Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder dynamically, or open or close a view.
+Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder dynamically, open or close a view, or publish a durable local condition into System Health.
 
 If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Plugins should be rebuilt against ABI 2.0 before the temporary 1.x adapter is removed in OSF UI 2.1.0.
 
@@ -46,7 +47,7 @@ If OSF UI is missing, every call is a safe no-op — you never special-case "not
 
 `kBridgeAPIVersion` is `(2 << 16) | 0`. ABI 2.0 replaces the ambiguous command callback with strict `RegisterSend` / `SendFn`, retains `RegisterRequest`, and includes retained state in the baseline. A send receives exactly the caller's payload and never produces an acknowledgement; a request naming it is rejected `wrong-endpoint-kind`.
 
-During OSF UI 2.0.x, ABI 1.x callers receive an isolated adapter exposing the frozen final 1.8 vtable. Older 1.x binaries use the prefix they were compiled against; feature-minor gates, settings, hotkeys, view registration, retained state, registered requests, and `RegisterCommand` request-ID/auto-ack behavior remain available. The historical issue-reporting slots remain in the frozen vtable only for binary safety and return `false`. OSF UI warns in the log that the adapter is removed in 2.1.0. ABI 2.x callers still receive the strict bridge below, and unrelated majors receive `nullptr` plus a distinct unsupported-ABI error. Rebuild against the 2.0 header now.
+During OSF UI 2.0.x, ABI 1.x callers receive an isolated adapter exposing the frozen final 1.8 vtable. Older 1.x binaries use the prefix they were compiled against; feature-minor gates, settings, hotkeys, view registration, local System Health publication, retained state, registered requests, and `RegisterCommand` request-ID/auto-ack behavior remain available. System Health names the DLL and warns that the adapter is removed in 2.1.0. ABI 2.x callers still receive the strict bridge below, and unrelated majors receive `nullptr` plus a distinct unsupported-ABI error. Rebuild against the 2.0 header now.
 
 Future ABI 2.x additions append methods at the vtable tail and bump the minor. The `Client` wrapper feature-gates those additions.
 
@@ -222,7 +223,7 @@ if (!jsonUi.SetViewState("acme.mymod", "ship", { { "hull", 88 }, { "grav", 3 } }
 }
 ```
 
-`JsonClient` accepts JSON (or any `nlohmann`-convertible struct) for `SetViewState`, `SendToWeb`, and `RegisterSettingsSchema`. The dependency-free `const char*` forms stay available.
+`JsonClient` accepts JSON (or any `nlohmann`-convertible struct) for `SetViewState`, `SendToWeb`, `RegisterSettingsSchema`, `ReportIssue`, and `ClearIssuesExcept`. The dependency-free `const char*` forms stay available.
 
 ### 6b. SendToWeb — something happened
 
@@ -376,6 +377,26 @@ Doesn't fire while the overlay captures text or during a rebind, and key repeats
 
 It's an optional declaration for a **plugin-shipped** folder. A plain drop-in view is found at boot and loads on first open with no plugin at all.
 
+### 8d. System Health publication
+
+`ReportIssue` publishes a durable, actionable condition to the built-in System Health destination. This is local session state—not a log channel, report submission, upload, toast, or external issue opener.
+
+```cpp
+constexpr const char* kMod = "acme.mymod";
+
+g_ui.ReportIssue(kMod, "pack-parse:highlights", "catalog.parse-failed",
+    OSFUI::API::IssueSeverity::kError, "highlights",
+    R"({"file":"highlights.json","line":12})");
+
+g_ui.ClearIssue(kMod, "pack-parse:highlights");
+```
+
+- `id` is the producer-local dedupe key. Re-reporting an active id increments its occurrence count instead of adding a card.
+- `code` is stable machine identity, not player-facing prose. Unknown codes still render with bounded technical context.
+- `ClearIssue` moves the condition to resolved session history.
+- `ClearIssuesExcept(mod, keepIdsJson)` reconciles a recomputed set. The keep list is scoped to the whole mod and ordered FIFO with preceding reports.
+- Context must be a JSON object. The registry bounds and sanitizes values, strips path/URL/command-shaped data to its trailing component, and never uploads or opens anything from it.
+
 ## 9. Threading & lifetime
 
 **Threading**
@@ -426,6 +447,9 @@ All on `IOSFUIBridge`, mirrored on `Client`. Every listed method is part of the 
 | `SubscribeHotkey(mod,key,fn,user)` | 2.0 | any | no replay; returns token/0 |
 | `UnsubscribeHotkey(token)` | 2.0 | any | |
 | `RegisterView(view)` | 2.0 | any | `<modId>/<viewName>`; idempotent |
+| `ReportIssue(mod,id,code,sev,subject,context)` | 2.0 | any | publishes a local System Health condition; false on invalid identity or non-object context |
+| `ClearIssue(mod,id)` | 2.0 | any | true means queued, not “was active” |
+| `ClearIssuesExcept(mod,keepJson)` | 2.0 | any | keep list is a JSON array of ids |
 
 ---
 

@@ -119,6 +119,10 @@ namespace OSFUI
 			OnRendererFailure(a_e);
 		});
 
+		_renderer->SetHealthHandler([this](const IWebRenderer::HealthEvent& a_e) {
+			_runtimeHealth.OnRendererHealth(a_e);
+		});
+
 		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
 			HardwareCursor::SetShape(a_shape);
 		});
@@ -233,6 +237,10 @@ namespace OSFUI
 		RefreshKeyboardLabels("startup");
 
 		_modules.push_back(std::move(settings));
+
+		auto healthRegistry = std::make_unique<HealthRegistry>();
+		_healthRegistry = healthRegistry.get();
+		_modules.push_back(std::move(healthRegistry));
 
 		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
 
@@ -369,6 +377,7 @@ namespace OSFUI
 		}
 		const bool installed = UiPassSeam::Install();
 		_overlayDrawAvailable.store(installed, std::memory_order_release);
+		_compositor->SetSeamDrawMode(installed);
 		if (!installed) {
 			REX::ERROR("Runtime: the Scaleform UI seam could not be hooked — menu opens will be "
 					   "refused this session so OSF UI cannot capture input without a draw path. "
@@ -396,6 +405,7 @@ namespace OSFUI
 		API::Papyrus::Install();
 		_controlMap.Initialize();
 		SyncLiveControlMapBindings();
+		SyncLiveControlMapHealth();
 		PublishPlatformState("keybindings");
 		PublishPlatformState("input-context");
 	}
@@ -1059,6 +1069,7 @@ namespace OSFUI
 				PublishPlatformState("keybindings");
 			} else if (_controlMap.Initialized() && !_controlMap.Available()) {
 				SyncLiveControlMapBindings();
+				SyncLiveControlMapHealth();
 				PublishPlatformState("keybindings");
 				PublishPlatformState("input-context");
 			} else {
@@ -1078,7 +1089,7 @@ namespace OSFUI
 		REX::DEBUG("Runtime: game-binding conflict warnings {} (read-only game-binding catalog remains available)", a_enabled ? "enabled" : "disabled");
 	}
 
-    void Runtime::SyncLiveControlMapBindings()
+	void Runtime::SyncLiveControlMapBindings()
 	{
 		if (!_settings) return;
 		std::vector<SettingsStore::GameBinding> bindings;
@@ -1099,6 +1110,23 @@ namespace OSFUI
 		if (bindingsChanged || warningChanged) {
 			_settings->BroadcastData();
 		}
+	}
+
+	void Runtime::SyncLiveControlMapHealth()
+	{
+		if (!_healthRegistry || !_controlMap.Initialized()) return;
+		constexpr std::string_view id{ "input.control-map-unavailable" };
+		if (_controlMap.Available()) {
+			_healthRegistry->Resolve(id, _uptime);
+		} else {
+			_healthRegistry->Upsert({
+				.id = std::string(id), .code = std::string(id),
+				.severity = HealthRegistry::Severity::Warning,
+				.source = "input", .subject = "Starfield ControlMap",
+				.context = { { "gameVersion", _controlMap.GameVersion() }, { "reason", _controlMap.FailureReason() } },
+			}, _uptime);
+		}
+		_healthRegistry->Broadcast();
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)

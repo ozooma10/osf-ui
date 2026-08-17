@@ -1,8 +1,8 @@
 // Semver-ish comparison and the "needs update" badge derivation.
 //
 // This module owns only the newer-than-installed-release advisory badge.
-// Compatibility for explicitly pre-2.0 views is handled elsewhere; settings
-// schemas continue to load best-effort.
+// Explicitly pre-2.0 view manifests are refused natively and reported through
+// System Health; settings schemas continue to load best-effort.
 
 /**
  * Dotted-version compare, numeric per component, missing parts are 0 — so
