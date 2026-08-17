@@ -53,7 +53,7 @@ export default defineMock({
 });
 ```
 
-The mock enforces endpoint **kinds**, since a wrong kind otherwise only shows up against the real OSF UI runtime: a `request` naming a built-in send endpoint is rejected `wrong-endpoint-kind`, a `send` naming an unhandled endpoint surfaces `unknown-endpoint`, and a scenario answering a `send` warns that the view sent it one-way. Current platform endpoints (`close`, `setVisible`, `view.ready`, `log`, `menu.open`, `ping`, `game.get`, `settings.set`, `settings.reset`, `settings.captureKey`, …) receive protocol-shaped stand-ins, including own-mod and platform-private authority checks. Use an `install(ctx)` handler when the preview also needs application-specific state fan-out or a later human-time event such as `settings.captured`.
+The mock enforces endpoint **kinds**, since a wrong kind otherwise only shows up against the real OSF UI runtime: a `request` naming a built-in send endpoint is rejected `wrong-endpoint-kind`, a `send` naming an unhandled endpoint surfaces `unknown-endpoint`, and a scenario answering a `send` warns that the view sent it one-way. Current platform endpoints (`close`, `setVisible`, `view.ready`, `log`, `menu.open`, `ping`, `settings.set`, `settings.reset`, `settings.captureKey`, …) receive protocol-shaped stand-ins, including own-mod and platform-private authority checks. Use an `install(ctx)` handler when the preview also needs application-specific state fan-out or a later human-time event such as `settings.captured`.
 
 For full control, export `install(ctx)`. It runs in the view page before your code and can layer handlers ahead of the scenario engine, push messages, and add toolbar controls:
 

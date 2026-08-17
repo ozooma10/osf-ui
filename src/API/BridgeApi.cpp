@@ -14,7 +14,7 @@ namespace OSFUI::API
 		// "<modId>.<name>" with modId the item-1 "<author>.<modname>" grammar, so
 		// every registrable name carries two dots minimum. That makes platform
 		// endpoints structurally unregisterable (dotless verbs like "close",
-		// single-dot "menu.open"/"game.get"/"osfui.gamepadRaw") without a
+		// single-dot "menu.open"/"osfui.gamepadRaw") without a
 		// reserved-prefix list that could drift. The mod id must be pattern-valid
 		// but need not have a registered schema; the name after it is free-form
 		// and may contain dots ("acme.mymod.catalog.get").

@@ -205,7 +205,7 @@ int main()
 	// Every platform endpoint is structurally unregisterable — dotless verbs,
 	// single-dot names (including the osfui.* built-ins), bad mod ids. The 2.0
 	// rename changed which names the platform owns, not the rule that owns them.
-	for (const auto* bad : { "close", "ping", "setVisible", "menu.open", "game.get",
+	for (const auto* bad : { "close", "ping", "setVisible", "menu.open",
 	                         "settings.set", "papyrus.call", "papyrus.send", "osfui.hello",
 	                         "osfui.gamepadRaw",
 	                         "Acme.Mod.x", "under_score.mod.x", "acme.mymod.",

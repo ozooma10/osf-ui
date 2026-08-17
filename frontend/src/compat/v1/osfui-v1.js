@@ -136,7 +136,6 @@
     if (command === "views.get") return "views.data";
     if (command === "i18n.get") return "i18n.data";
     if (command === "diagnostics.get") return "diagnostics.data";
-    if (command === "game.get") return "game.data";
     if (command === "ui.papyrusRequest") return "papyrus.result";
     if (command === "ping") return "runtime.pong";
     return "ui.result";
@@ -283,7 +282,7 @@
 
   const requestOnly = new Set([
     "menu.open", "menu.close", "hud.show", "hud.hide", "setViewHidden",
-    "ping", "game.get", "settings.get", "views.get", "i18n.get", "diagnostics.get",
+    "ping", "settings.get", "views.get", "i18n.get", "diagnostics.get",
     "settings.set", "settings.reset", "settings.captureKey",
     "osfui.openModPage", "osfui.openLogFolder", "osfui.setViewAutoStart",
     "ui.papyrusRequest",

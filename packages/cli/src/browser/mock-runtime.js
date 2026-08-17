@@ -54,12 +54,12 @@ function reportIoProtocolFault(io, code, message) {
  * A mock does not need to declare any of these.
  */
 export const PLATFORM_SENDS = new Set([
-  'osfui.hello', 'close', 'setVisible', 'view.ready', 'log',
+  'osfui.hello', 'close', 'setVisible', 'view.ready',
   'osfui.handleBack', 'osfui.gamepadRaw', 'osfui.handoffRetry',
   'papyrus.call', 'papyrus.send',
 ]);
 export const PLATFORM_REQUESTS = new Set([
-  'menu.open', 'menu.close', 'setViewHidden', 'ping', 'game.get',
+  'menu.open', 'menu.close', 'setViewHidden', 'ping',
   'settings.set', 'settings.reset', 'settings.captureKey',
   'osfui.openModPage', 'osfui.openLogFolder', 'osfui.setViewAutoStart',
   'papyrus.request',
@@ -89,9 +89,6 @@ function answerPlatformRequest(name, payload, meta, io) {
     return;
   }
   switch (name) {
-    case 'game.get':
-      io.resolve({ calendar: { available: false } });
-      return;
     case 'settings.set': {
       const target = ownSettings(payload, meta, io, 'write');
       if (!target) return;

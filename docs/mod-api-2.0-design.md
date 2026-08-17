@@ -244,7 +244,7 @@ payload-or-error:
 - `settings.set` / `settings.reset` — a failed set **rejects** with the code
   (1.x resolved a `settings.ack { ok:false }` payload the caller had to
   inspect).
-- `game.get`, `ping`, `osfui.setViewAutoStart`, `menu.open`/`menu.close` and
+- `ping`, `osfui.setViewAutoStart`, `menu.open`/`menu.close` and
   the other view operations with failure outcomes.
 
 Events keep the true one-shots: `ui.hotkey`, `ui.visibility`, `ui.gamepad`,

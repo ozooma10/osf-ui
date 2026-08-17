@@ -214,11 +214,9 @@ describe('request envelopes', () => {
   it('generates "q" + a monotonic counter starting at 1', () => {
     const { helper, sent } = loadHelper();
     void helper.request('ping').catch(() => {});
-    void helper.request('game.get').catch(() => {});
 
     // The greeting is a send and consumes no id, so the first request is q1.
     expect(sent[1]!.id).toBe('q1');
-    expect(sent[2]!.id).toBe('q2');
   });
 
   it('gives two calls to the SAME endpoint distinct ids', () => {

@@ -209,7 +209,6 @@ const SEND_ENDPOINTS = new Set([
   'close',
   'setVisible',
   'view.ready',
-  'log',
   'osfui.gamepadRaw',
   'osfui.handleBack',
   'osfui.handoffRetry',
@@ -221,7 +220,6 @@ const REQUEST_ENDPOINTS = new Set([
   'menu.close',
   'setViewHidden',
   'ping',
-  'game.get',
   'settings.set',
   'settings.reset',
   'settings.captureKey',
@@ -1193,11 +1191,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
         log('info', `view.ready — ${selfView} declared meaningful readiness`);
         break;
 
-      case 'log':
-        // Native writes this to OSF UI.log; the console is the harness's log.
-        console.log('%c[view log]', 'color:#8b95a1', str(p, 'text'));
-        break;
-
       case 'osfui.gamepadRaw':
         // The grant only suppresses the runtime's default pad mapping; the harness
         // has no such mapping (padnav is view-side and unaffected), so it is a
@@ -1455,21 +1448,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
 
       case 'ping':
         ok({});
-        break;
-
-      case 'game.get':
-        // Nested per-provider: future providers are siblings of `calendar`. Fixed
-        // sample date, enough to render a HUD clock.
-        ok({
-          calendar: {
-            available: true,
-            day: 12,
-            month: 7,
-            year: 2330,
-            hour: 14.52,
-            daysPassed: 87.3,
-          },
-        });
         break;
 
       case 'osfui.openLogFolder':

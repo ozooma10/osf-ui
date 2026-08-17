@@ -282,7 +282,6 @@ Anything not listed is dropped and surfaced as `unknown-endpoint`.
 | `close` | — | close the calling view (closing the active menu hides the menu layer; a coexisting open HUD stays up) |
 | `setVisible` | `visible: bool` | open/close the calling view |
 | `view.ready` | — | declare this page has meaningful content ready for its first reveal; only for manifests with `readySignal:true`. Sugar: `osfui.markReady()` |
-| `log` | `text: string` | write to `OSF UI.log` (truncated to 512 chars) |
 | `osfui.gamepadRaw` | `raw: bool` | *(experimental — exempt from the stability guarantee)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events. Cleared whenever your document greets the bridge, i.e. on every (re)load — re-assert it from ordinary boot code, not a reload handler; there is no reload handler |
 | `osfui.handleBack` | `handle: bool` | own the back action. While your menu is active, Esc / gamepad B are delivered to your page as a synthetic Escape keydown/keyup instead of closing the active menu — handle it and decide: navigate (`menu.open`), dismiss an inner panel, or `send("close")`. Same per-document lifetime as `osfui.gamepadRaw`. The overlay toggle key always closes natively, so a page that stops responding can't strand the player |
 | `papyrus.call` | `script: string`, `function: string`, scalar `args?` | queue an arbitrary GLOBAL Papyrus function. JavaScript integers become Papyrus `int`, fractional numbers become `float`, and strings/booleans retain their types; use `osfui.papyrus.float(3)` when a whole-valued number must be a `float`. Fire-and-forget: use `SetView*` or `SendViewEvent` for observable results. Sugar: `osfui.papyrus.call(script, function, ...args)` |
@@ -297,7 +296,6 @@ Anything not listed is dropped and surfaced as `unknown-endpoint`.
 | `menu.close` | `view?: string` | `{}` | `unknown-view` |
 | `setViewHidden` | `view?: string`, `hidden: bool` | `{}` | `unknown-view` |
 | `ping` | — | `{}` | — |
-| `game.get` | — | `{ calendar: { available, day, month, year, hour, daysPassed } }` | — |
 | `settings.set` | `mod`, `key`, `value` | `{ mod, key, value }` — `value` is the **post-clamp committed** value, so you can tell clamped from accepted without a re-fetch | `forbidden`, `unknown-setting`, `read-only`, `invalid-value` |
 | `settings.reset` | `mod`, `key?` | `{}` — the refreshed registry arrives to everyone as `osfui/settings` state | `forbidden`, `unknown-setting` |
 | `settings.captureKey` | `mod`, `key` | `{ armed: true, mod, key }` — settles in MACHINE time | `forbidden`, `capture-busy`, `not-rebindable` |

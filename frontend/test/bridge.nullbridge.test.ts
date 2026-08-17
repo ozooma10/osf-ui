@@ -66,7 +66,7 @@ describe('nullBridge — request', () => {
   it('rejects immediately rather than waiting out a timeout', async () => {
     // No deadline is honoured; even the "client timer disabled" option rejects
     // at once, because there is nothing that could ever answer.
-    await expect(nullBridge.request('game.get', {}, { timeoutMs: 0 })).rejects.toThrow();
+    await expect(nullBridge.request('ping', {}, { timeoutMs: 0 })).rejects.toThrow();
   });
 
   it('makes a FRESH error per call, so a caller may annotate it safely', async () => {

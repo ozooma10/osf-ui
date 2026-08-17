@@ -104,7 +104,6 @@ export type PlatformSend =
   | { name: "setVisible"; payload: { visible: boolean } }
   /** Declare meaningful first paint. Only for a manifest with readySignal:true; helper sugar: markReady(). */
   | { name: "view.ready"; payload?: Record<string, never> }
-  | { name: "log"; payload: { text: string } }
   /**
    * EXPERIMENTAL. Take over gamepad handling: suppress the default nav/scroll
    * mapping and consume raw `ui.gamepad` events. Cleared when your document
@@ -133,7 +132,6 @@ export type PlatformRequest =
   /** Show/hide one instantiated view, independent of the overlay toggle; `view` omitted = self. */
   | { name: "setViewHidden"; payload: { view?: string; hidden: boolean }; reply: Record<string, never> }
   | { name: "ping"; payload?: Record<string, never>; reply: Record<string, never> }
-  | { name: "game.get"; payload?: Record<string, never>; reply: GameData }
   /**
    * Write one setting. Resolves with the post-clamp COMMITTED value, so you can
    * tell clamped from accepted without a re-fetch. REJECTS on failure
@@ -388,18 +386,6 @@ export interface ViewsData {
     autoStartMutable: boolean; // catalog-visible HUDs the player may change
     pinned: boolean;           // always-resident core view; distinct from one-time prewarming
   }>;
-}
-
-/** Reply to `game.get`. Each provider nests under its own object; future ones are SIBLINGS of `calendar`. */
-export interface GameData {
-  calendar: {
-    available: boolean;  // false before a save loads
-    day?: number;
-    month?: number;
-    year?: number;
-    hour?: number;       // 0..24 (fractional)
-    daysPassed?: number;
-  };
 }
 
 /**

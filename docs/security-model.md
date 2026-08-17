@@ -62,8 +62,7 @@ Each rule notes where it is enforced and any known gaps.
    input-routing declarations `osfui.gamepadRaw` / `osfui.handleBack`, the
    platform-private `osfui.handoffRetry`, direct GLOBAL Papyrus dispatch
    `papyrus.call`, and owning-mod Papyrus delivery `papyrus.send`. Requests (settle payload-or-error): view control
-   `menu.open` / `menu.close` / `setViewHidden`, diagnostics `ping`, read-only
-   game data `game.get`, the settings writes `settings.set` / `settings.reset` /
+   `menu.open` / `menu.close` / `setViewHidden`, diagnostics `ping`, the settings writes `settings.set` / `settings.reset` /
    `settings.captureKey`, the fixed-target shell openers `osfui.openModPage` /
    `osfui.openLogFolder`, correlated Papyrus delivery `papyrus.request`, the
    platform-private startup-policy write `osfui.setViewAutoStart`.

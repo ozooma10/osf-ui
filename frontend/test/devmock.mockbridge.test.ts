@@ -437,12 +437,10 @@ describe('platform requests', () => {
     frames = [];
   });
 
-  it('answers ping and game.get', async () => {
+  it('answers ping', async () => {
     const ping = request('ping');
-    const game = request('game.get');
     await settle();
     expect(replyTo(ping)?.payload).toEqual({});
-    expect(replyTo(game)?.payload?.['calendar']).toMatchObject({ available: true });
   });
 
   it('answers the fixed-target shell requests', async () => {
