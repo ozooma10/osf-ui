@@ -9,49 +9,29 @@ namespace OSFUI
 {
 	inline constexpr const char* kPluginName = "OSF UI";
 	inline constexpr const char* kOsfuiReleaseVersion = "2.0.0";
-	// Numeric form of the OSF UI release, exposed through the compatibility-named
-	// IOSFUIBridge::GetPluginVersion method. Keep these in lockstep.
+	// Numeric OSF UI release, exposed through OSFUIBridge::GetPluginVersion. Keep these in lockstep.
 	inline constexpr std::uint32_t kOsfuiReleaseVersionMajor = 2;
 	inline constexpr std::uint32_t kOsfuiReleaseVersionMinor = 0;
 	inline constexpr std::uint32_t kOsfuiReleaseVersionPatch = 0;
 
-	// Web bridge protocol version (message envelope, endpoint whitelist, and
-	// OSF UI runtime-to-web message types). Distinct from the OSF UI release
-	// version: views see this as the `bridgeVersion` field of the bridge ready
-	// handshake. Keep in lockstep
-	// with docs/authoring-views.md, docs/schema/*, and sdk/*.d.ts (CI enforces the
-	// headline sites). Additive changes bump the minor, anything that breaks a
-	// shipped view bumps the major — 2.0 is such a break (four verbs, envelopes
-	// carrying routing beside the payload, a page-initiated handshake). Newer
-	// targets are advisory; during 2.0.x explicitly pre-2.0 views are routed
-	// through the isolated temporary compatibility façade and warned.
 	inline constexpr const char* kBridgeProtocolVersion = "2.0";
 
-	// "<major>[.<minor>[.<patch>]]", digits only — missing parts are 0.
-	// Shared by every `targetVersion` site (view manifests, settings
-	// schemas) so all of them accept exactly the same format.
-	inline bool ParseDottedVersion(std::string_view a_text, std::array<std::uint32_t, 3>& a_out)
+	inline std::optional<std::array<std::uint32_t, 3>> ParseDottedVersion(std::string_view a_text)
 	{
-		a_out = {};
-		std::size_t part = 0;
-		const char* pos = a_text.data();
-		const char* end = a_text.data() + a_text.size();
-		while (part < 3) {
-			const auto [next, ec] = std::from_chars(pos, end, a_out[part]);
-			if (ec != std::errc{} || next == pos) {
-				return false;
+		std::array<std::uint32_t, 3> parts{};
+		for(auto& part : parts) {
+			const auto dot = a_text.find('.');
+			const auto token = a_text.substr(0, dot);
+			const auto [end, error] = std::from_chars(token.data(), token.data() + token.size(), part);
+			if(error != std::errc{} || end != token.data() + token.size()) {
+				return std::nullopt;
 			}
-			pos = next;
-			++part;
-			if (pos == end) {
-				return true;
+			if(dot == std::string_view::npos) {
+				return parts;
 			}
-			if (*pos != '.') {
-				return false;
-			}
-			++pos;
+			a_text.remove_prefix(dot + 1);
 		}
-		return false;  // more than three parts (or trailing dot)
+		return std::nullopt;
 	}
 
 	// Numeric form of the running OSF UI release, for targetVersion comparisons.
@@ -59,28 +39,18 @@ namespace OSFUI
 		kOsfuiReleaseVersionMajor, kOsfuiReleaseVersionMinor, kOsfuiReleaseVersionPatch
 	};
 
-	// True when a DECLARED `targetVersion` predates the 2.0 mod API — an
-	// artifact authored against the 1.x helper and wire protocol. During 2.0.x
-	// such a view receives the temporary façade and is surfaced through System
-	// Health; the branch is removed in 2.1.0.
-	// An UNDECLARED targetVersion ("") is deliberately excluded: it is
-	// indistinguishable from "declared and unparsable" after parsing, and
-	// guessing would badge every undeclared artifact as broken.
-	[[nodiscard]] inline bool IsPre2Target(std::string_view a_target)
+	inline bool IsPre2Target(std::string_view a_target)
 	{
-		std::array<std::uint32_t, 3> parts{};
-		return !a_target.empty() && ParseDottedVersion(a_target, parts) && parts[0] < 2;
+		const auto version = ParseDottedVersion(a_target);
+		return version && (*version)[0] < 2;
 	}
 
-	[[nodiscard]] inline bool IsTargetNewerThanInstalledRelease(std::string_view a_target)
+	inline bool IsTargetNewerThanInstalledRelease(std::string_view a_target)
 	{
-		// The "needs update" condition behind Mod Settings. Empty or unparsable
-		// targets are never newer.
-		std::array<std::uint32_t, 3> parts{};
-		return !a_target.empty() && ParseDottedVersion(a_target, parts) && kOsfuiReleaseVersionParts < parts;
+		const auto version = ParseDottedVersion(a_target);
+		return version && kOsfuiReleaseVersionParts < *version;
 	}
 
-	// Name of the plugin data folder, resolved relative to the plugin DLL:
-	//   Data/SFSE/Plugins/OSFUI/
+	// Name of the plugin data folder, resolved relative to the plugin DLL: Data/SFSE/Plugins/OSFUI/
 	inline constexpr const char* kDataFolderName = "OSFUI";
 }
