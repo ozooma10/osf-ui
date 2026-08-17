@@ -33,9 +33,8 @@ export const MOCK_VIEWS: MockView[] = [
     open: false,
     focused: false,
     loadState: 'loaded',
-    autoStart: true,
+    autoStart: false,
     autoStartMutable: false,
-    pinned: true,
   },
   {
     id: 'osfui/keybinds',
@@ -51,7 +50,6 @@ export const MOCK_VIEWS: MockView[] = [
     loadState: 'loaded',
     autoStart: false,
     autoStartMutable: false,
-    pinned: false,
   },
   {
     id: 'acme.shipworks/almanac',
@@ -67,7 +65,6 @@ export const MOCK_VIEWS: MockView[] = [
     loadState: 'loaded',
     autoStart: false,
     autoStartMutable: false,
-    pinned: false,
     fixture: true,
   },
   {
@@ -84,7 +81,6 @@ export const MOCK_VIEWS: MockView[] = [
     loadState: 'loaded',
     autoStart: true,
     autoStartMutable: true,
-    pinned: false,
     fixture: true,
   },
   // targetVersion newer than any real OSF UI — with fixtures on, the rail head
@@ -103,7 +99,6 @@ export const MOCK_VIEWS: MockView[] = [
     loadState: 'loaded',
     autoStart: false,
     autoStartMutable: false,
-    pinned: false,
     fixture: true,
   },
   {
@@ -120,7 +115,6 @@ export const MOCK_VIEWS: MockView[] = [
     loadState: 'failed',
     autoStart: false,
     autoStartMutable: false,
-    pinned: false,
     fixture: true,
   },
   {
@@ -137,7 +131,6 @@ export const MOCK_VIEWS: MockView[] = [
     loadState: 'loaded',
     autoStart: false,
     autoStartMutable: true,
-    pinned: false,
     fixture: true,
   },
   // Discovered on disk but never instantiated: a drop-in content view with no
@@ -157,7 +150,6 @@ export const MOCK_VIEWS: MockView[] = [
     loadState: 'unloaded',
     autoStart: false,
     autoStartMutable: false,
-    pinned: false,
     fixture: true,
   },
 ];

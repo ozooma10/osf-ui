@@ -157,7 +157,7 @@ namespace OSFUI::API
 		// --- native -> web EVENTS. Thread-safe; queued to the target view. ---
 		// Delivers { kind:"event", name: a_type, payload: <a_payloadJson> } to
 		// a_viewId, where it arrives at osfui.on(a_type). a_payloadJson must be
-		// valid JSON. A known discovered-but-uninstantiated or idle-reclaimed target retains a bounded
+		// valid JSON. A known discovered-but-uninstantiated target retains a bounded
 		// FIFO until its page is created and greets the bridge.
 		//
 		// An event is a ONE-SHOT HAPPENING: delivered at most once, never

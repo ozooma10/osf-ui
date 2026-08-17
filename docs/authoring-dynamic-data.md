@@ -4,9 +4,9 @@ For mod authors whose view shows live game state or sends player actions back to
 
 Your **mod backend** (Papyrus or native plugin) owns the game. A view's browser
 content is a **reload-prone document instance**: recreated on F5, on a
-developer-mode hot reload, after a crash-recovery reload, and when OSF UI
-reclaims an idle view the player then reopens. Every rule below follows from
-that. See [terminology.md](terminology.md) for the lifecycle and bridge names.
+developer-mode hot reload, and after a crash-recovery reload. Every rule below
+follows from that. See [terminology.md](terminology.md) for the lifecycle and
+bridge names.
 
 ## One decision, and it is the whole design
 
@@ -162,7 +162,7 @@ OSFUI::API::JsonClient json{ g_ui };
 
 The asymmetry is deliberate: `SetViewState` addresses your **mod** (everyone now and later), `SendToWeb` addresses **one view id** — an event has a specific audience and moment. Name events `<yourModId>.<name>`, matching the Papyrus channel; the platform's own names are undotted or `osfui.*`, so staying inside your mod id keeps you from shadowing one.
 
-If the target view is known but not instantiated (lazy, or reclaimed), the message is held in a bounded per-view queue. After instantiation, its event gate preserves the message until that document greets, then flushes it after `ready` and state — the ABI's message-before-first-paint guarantee. The queue drops the *oldest* on overflow. This holdback is not replay: after delivery, a later document does not receive the event again.
+If the target view is known but not yet instantiated, the message is held in a bounded per-view queue. After instantiation, its event gate preserves the message until that document greets, then flushes it after `ready` and state — the ABI's message-before-first-paint guarantee. The queue drops the *oldest* on overflow. This holdback is not replay: after delivery, a later document does not receive the event again.
 
 ---
 

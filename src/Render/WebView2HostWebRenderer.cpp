@@ -222,7 +222,6 @@ namespace OSFUI
 			bool        bridge{ false };
 			bool        legacyApi{ false };
 			bool        hidden{ true };
-			bool        prewarm{ false };
 			int         order{ 0 };
 			// Manifest (authoring) height. The browser host divides output height by this
 			// for the rasterization scale, so the page lays out at logical size
@@ -923,7 +922,6 @@ namespace OSFUI
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
 						.bridge = view.bridge, .legacyApi = view.legacyApi,
 						.logicalHeight = view.logicalHeight }));
-					if (view.prewarm) addBootstrap(ToJson(msg::Prewarm{ .view = view.id }));
 					addBootstrap(ToJson(msg::SetHidden{ .view = view.id,
 						.hidden = view.hidden, .presentationEpoch = presentationEpoch }));
 					addBootstrap(ToJson(msg::SetOrder{ .view = view.id, .order = view.order }));
@@ -1776,26 +1774,6 @@ namespace OSFUI
 		}
 		_impl->Send(ToJson(msg::SetHidden{ .view = std::string(a_viewId),
 			.hidden = a_hidden, .presentationEpoch = presentation }));
-	}
-
-	void WebView2HostWebRenderer::PrewarmView(std::string_view a_viewId)
-	{
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			auto* view = _impl->FindView(a_viewId);
-			if (!view || view->prewarm) return;
-			view->prewarm = true;
-		}
-		_impl->Send(ToJson(msg::Prewarm{ .view = std::string(a_viewId) }));
-	}
-
-	void WebView2HostWebRenderer::SuspendView(std::string_view a_viewId)
-	{
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			if (!_impl->FindView(a_viewId)) return;
-		}
-		_impl->Send(ToJson(msg::SuspendView{ .view = std::string(a_viewId) }));
 	}
 
 	void WebView2HostWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)

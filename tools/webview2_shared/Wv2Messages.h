@@ -173,7 +173,7 @@ namespace osfui::wv2::msg
 
 	// The view-scoped messages that carry nothing but their target. Written out
 	// rather than sharing a base: a base member cannot be reached by a
-	// designated initializer, and `msg::Prewarm{ .view = id }` at the call site
+	// designated initializer, and `msg::SetInputTarget{ .view = id }` at the call site
 	// is worth more than the handful of lines a base would save.
 #define OSFUI_WV2_VIEW_ONLY_MESSAGE(Name, TypeString)                        \
 	struct Name                                                              \
@@ -183,8 +183,6 @@ namespace osfui::wv2::msg
 		static constexpr auto kFields = std::tuple{ F("view", &Name::view) }; \
 	}
 
-	OSFUI_WV2_VIEW_ONLY_MESSAGE(Prewarm, "prewarm");
-	OSFUI_WV2_VIEW_ONLY_MESSAGE(SuspendView, "suspendView");
 	// `setActive` is the compatibility wire spelling; it selects only the
 	// mouse/focus/synthetic-key target.
 	OSFUI_WV2_VIEW_ONLY_MESSAGE(SetInputTarget, "setActive");

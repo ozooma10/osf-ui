@@ -47,7 +47,6 @@
 				}
 				auto* view = FindView(a_msg.id);
 				if (!view) view = &CreateView(a_msg.id);
-				NoteViewActivity(*view, /*a_clearSuspendRequest=*/true);
 				view->bridge = a_msg.bridge;
 				view->logicalHeight = (std::max)(1u, a_msg.logicalHeight);
 				ApplyScale(*view);
@@ -66,22 +65,6 @@
 			{
 				const auto a_msg = msg::FromJson<msg::Resize>(a_raw);
 				ApplyResize(a_msg.width, a_msg.height);
-			}
-
-			void HandlePrewarm(const json& a_msg)
-			{
-				if (auto* view = ResolveView(a_msg)) {
-					view->prewarm = true;
-					BeginPrewarm(*view);
-				}
-			}
-
-			void HandleSuspendView(const json& a_msg)
-			{
-				if (auto* view = ResolveView(a_msg); view && view->hidden) {
-					view->suspendRequested = true;
-					view->nextSuspendAttemptMs = ::GetTickCount64();
-				}
 			}
 
 			void HandleSetHidden(const json& a_raw)
@@ -171,7 +154,6 @@
 				}
 				handledKeys.erase(VK_F12);
 				if (auto* view = ResolveView(a_msg); view && view->webView) {
-					NoteViewActivity(*view, /*a_clearSuspendRequest=*/false);
 					const auto hr = view->webView->OpenDevToolsWindow();
 					if (FAILED(hr)) {
 						log.Warn(std::format(
@@ -225,8 +207,6 @@
 					{ msg::Init::kType, &App::HandleInit },
 					{ msg::Navigate::kType, &App::HandleNavigate },
 					{ msg::Resize::kType, &App::HandleResize },
-					{ msg::Prewarm::kType, &App::HandlePrewarm },
-					{ msg::SuspendView::kType, &App::HandleSuspendView },
 					{ msg::SetHidden::kType, &App::HandleSetHidden },
 					{ msg::SetOrder::kType, &App::HandleSetOrder },
 					// SetInputTarget's kType is the `setActive` compatibility spelling.

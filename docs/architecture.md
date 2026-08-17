@@ -243,9 +243,8 @@ mod id and view name. Manifest entries may not point outside the view folder.
 Discovery does not create browser content, and there is no configured view
 list: every valid manifest is discovered (sorted by qualified id, so creation
 order and z tie-breaks are deterministic), and its view is instantiated on
-first open. The exceptions are the pinned `osfui/settings` view (instantiated,
-prewarmed, never reclaimed) and HUDs whose effective auto-start
-is on. That policy is the player's: `ViewPolicyStore` persists per-HUD
+first open. The only startup instances are HUDs whose effective auto-start is
+on. That policy is the player's: `ViewPolicyStore` persists per-HUD
 choices from Mod Settings (`state/view-policy.json`, temp-file replaced,
 quarantined to `.bad` when malformed, retained for uninstalled views); the
 manifest's `openOnStart` is only the author's HUD auto-start default,
@@ -254,13 +253,13 @@ never auto-start from discovery. Explicit native-plugin `RegisterView` is a
 separate entry path: there, `openOnStart` means open on registration, including
 for a menu.
 
-A hidden instantiated view becomes eligible for best-effort WebView2 suspension after
-90 seconds of clamped game time. Non-pinned views are destroyed after 25
-hidden minutes — or earlier once more than four closed views sit hidden
-(least recently hidden first; open or visible views never count) — and
-return to the discovered state. Destroying a view drops its event gate and
-reaps its in-flight requests; the next time it opens, its document greets the
-bridge and is replayed everything, exactly as after an F5.
+Once instantiated, a view's document remains resident until Starfield exits;
+ordinary close only hides it. This deliberately trades session memory for a
+smaller lifecycle: there is no idle suspension, TTL, hidden-view cap, or LRU
+reclamation. If the browser host dies, recovery recreates every instantiated
+view in the replacement host and leaves the overlay closed for the player to
+reopen. A document that exhausts its own load-recovery budget is still torn
+down as a terminal failure rather than retained as a usable view.
 
 ### Frontend build
 
@@ -290,9 +289,9 @@ deadline and a heartbeat deadline so an alive but stalled browser host is recove
 
 The browser host owns one WebView2 environment and one composition controller
 for each instantiated view. These remain separate browsing instances for fault and DOM
-isolation; Chromium decides their renderer-process assignment. Because lazy or
-idle-reclaimed views have no controller, browser resource use generally tracks
-views used in the current session rather than every installed manifest.
+isolation; Chromium decides their renderer-process assignment. Lazy views have
+no controller until first use; after that, browser resource use can grow with
+the number of distinct views opened during the session.
 
 Page → browser-host traffic is bounded in the browser host before it can
 allocate anything downstream: a single page message over 64 KiB is dropped,

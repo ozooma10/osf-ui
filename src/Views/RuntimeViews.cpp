@@ -39,7 +39,6 @@ namespace OSFUI
 			_renderer->Resize(w, h);
 		}
 		_presentation.AddInstantiated({ id, a_manifest.kind, a_manifest.capturesInput, a_manifest.pausesGame, a_manifest.order });
-		_viewLifecycle.NoteInstantiated(id, _pinnedViews.contains(id), _uptime);
 		API::BridgeApi::Get().SetViewInstantiated(id, true);
 
 		REX::INFO("Runtime: view '{}' instantiated {} ({}, capturesInput={}, pausesGame={})", id, a_reason, a_manifest.kind == ViewKind::Hud ? "hud" : "menu", a_manifest.capturesInput, a_manifest.pausesGame);
@@ -60,7 +59,6 @@ namespace OSFUI
 			_renderer->SetViewHidden(a_id, a_hidden);
 		}
 
-		_viewLifecycle.NoteVisibility(a_id, !a_hidden, _uptime);
 		REX::DEBUG("Runtime: view '{}' hidden -> {}", a_id, a_hidden);
 		return true;
 	}
@@ -94,7 +92,7 @@ namespace OSFUI
 		if(recovery.exhausted) {
 			REX::ERROR("view '{}' has exhausted its crash-recovery budget; destroying and unregistering the view (fix its files and relaunch)", a_viewId);
 			_runtimeHealth.ReportViewLoad(a_viewId, true, a_description, a_errorCode, 0);
-			TearDownView(id, ViewTeardownReason::LoadExhausted);
+			TearDownFailedView(id);
 			return;
 		}
 
@@ -107,7 +105,6 @@ namespace OSFUI
 	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest)
 	{
 		m_viewLoads.BeginLoad(a_id);
-		_viewLifecycle.NoteActivity(a_id, _uptime);
 		_renderer->CreateOrNavigateView(a_manifest);
 		if (a_manifest.permissions.nativeBridge && _bridge) {
 			_bridge->OnViewCreated(a_id, IsPre2Target(a_manifest.targetVersion));
@@ -133,37 +130,9 @@ namespace OSFUI
 		}
 	}
 
-	void Runtime::DriveViewLifecycle()
-	{
-		if (_rendererFailed || !_renderer) {
-			return;
-		}
-		const auto actions = _viewLifecycle.CollectDueActions(_uptime);
-		const auto unavailable = [this](const std::string& a_id) {
-			return !_presentation.IsInstantiated(a_id) || m_viewLoads.GetState(a_id) == ViewLoadState::Loading ||
-				m_viewRecovery.Contains(a_id) || (_pendingViewOpen && *_pendingViewOpen == a_id);
-		};
-		for (const auto& id : actions.suspend) {
-			if (unavailable(id)) {
-				continue;
-			}
-			_renderer->SuspendView(id);
-			_viewLifecycle.NoteSuspendRequested(id);
-		}
-		for (const auto& id : actions.destroy) {
-			if (unavailable(id) || _presentation.IsOpen(id)) {
-				continue;
-			}
-			TearDownView(id, ViewTeardownReason::IdleReclaim);
-		}
-	}
-
-	void Runtime::TearDownView(const std::string& a_id, ViewTeardownReason a_reason)
+	void Runtime::TearDownFailedView(const std::string& a_id)
 	{
 		m_viewRecovery.Clear(a_id);
-		if (a_reason == ViewTeardownReason::IdleReclaim) {
-			m_viewLoads.Forget(a_id);  // idle-reclaim is a normal lifecycle event, not a load failure
-		}
 		if (_renderer) {
 			_renderer->DestroyView(a_id);
 		}
@@ -187,10 +156,6 @@ namespace OSFUI
 		m_viewInputGrants.ResetPage(a_id);
 		for (const auto& mod : _modules) {
 			mod->OnViewDestroyed(a_id);
-		}
-		_viewLifecycle.NoteDestroyed(a_id);
-		if (a_reason == ViewTeardownReason::IdleReclaim) {
-			REX::INFO("Runtime: reclaimed idle view '{}' after {:.0f} minutes hidden; it will be reinstantiated on next open", a_id, ViewLifecycle::kDestroyAfterHiddenSeconds / 60.0);
 		}
 		BroadcastViewsData();
 	}
@@ -235,7 +200,6 @@ namespace OSFUI
 	bool Runtime::HudAutoStartEligible(const ViewManifest& a_manifest) const
 	{
 		return a_manifest.kind == ViewKind::Hud &&
-		       !_pinnedViews.contains(a_manifest.id) &&
 		       a_manifest.catalogVisible && (!a_manifest.debugOnly || _config.devMode);
 	}
 
@@ -250,9 +214,8 @@ namespace OSFUI
 				state == ViewLoadState::Failed   ? "failed" :
 				state == ViewLoadState::Finished ? "loaded" :
 				instantiated                     ? "loading" : "unloaded";
-			const bool pinned = _pinnedViews.contains(m.id);
 			const bool autoStartMutable = HudAutoStartEligible(m);
-			const bool autoStart = pinned || (autoStartMutable && _viewPolicy.HudAutoStart(m.id, m.openOnStart));
+			const bool autoStart = autoStartMutable && _viewPolicy.HudAutoStart(m.id, m.openOnStart);
 			views.push_back(nlohmann::json{
 				{ "id", m.id },
 				{ "title", _localization.Resolve(m.mod, "views." + std::string(Ids::ViewNameOf(m.id)) + ".title", m.title) },
@@ -267,7 +230,6 @@ namespace OSFUI
 				{ "loadState", loadState },
 				{ "autoStart", autoStart },
 				{ "autoStartMutable", autoStartMutable },
-				{ "pinned", pinned },
 			});
 		}
 		return nlohmann::json{ { "views", std::move(views) } };

@@ -191,7 +191,7 @@ bounded and time-throttled.
 Boot: SFSE milestones, config summary, effective developer mode and activation source. Hooks:
 every vtable/trampoline hook armed or refused (address + slot). Renderer: browser-host
 launch, device/queue located, seam enabled. Views: loaded / finished loading /
-recovered / reclaimed / destroyed. Teardown: shutdown reached. If a crash log's
+recovered / terminally failed / destroyed. Teardown: shutdown reached. If a crash log's
 last line leaves you unable to say which of these were live, promote the missing
 transition.
 

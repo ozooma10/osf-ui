@@ -283,28 +283,9 @@ namespace OSFUI
 
     void Runtime::InitializeStartupViews()
     {
-		_pinnedViews.clear();
-		if (_views.Find(kSettingsViewId)) {
-			_pinnedViews.emplace(kSettingsViewId);
-		}
-
 		std::size_t instantiated = 0;
-		const auto instantiatePinned = [this, &instantiated](std::string_view a_id, std::string_view a_reason) {
-			const auto* manifest = _views.Find(a_id);
-			const bool wasInstantiated = _presentation.IsInstantiated(a_id);
-			if (!manifest || !InstantiateView(*manifest, a_reason)) {
-				return;
-			}
-			if (!wasInstantiated) {
-				++instantiated;
-			}
-			// prewarm view so first open is immediateish
-			_renderer->PrewarmView(a_id);
-		};
-		instantiatePinned(kSettingsViewId, "as the pinned Mod Settings view");
-
 		for (const auto& manifest : _views.All()) {
-			if (manifest.kind != ViewKind::Hud || _pinnedViews.contains(manifest.id)) {
+			if (manifest.kind != ViewKind::Hud) {
 				continue;
 			}
 			if (!HudAutoStartEligible(manifest)) {
@@ -323,7 +304,7 @@ namespace OSFUI
 				}
 			}
 		}
-		REX::INFO("Runtime: instantiated {} pinned/auto-start view(s); default menu = '{}'", instantiated, _config.view);
+		REX::INFO("Runtime: instantiated {} auto-start HUD view(s); default menu = '{}'", instantiated, _config.view);
 		if (!_views.Find(_config.view)) {
 			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open", _config.view);
 		}
@@ -755,8 +736,6 @@ namespace OSFUI
 		// by `order` beneath the one active menu.
 		for (const auto& layer : _presentation.DesiredLayers()) {
 			_renderer->SetViewHidden(layer.id, layer.hidden);
-			_viewLifecycle.NoteVisibility(layer.id, !layer.hidden, _uptime);
-			_viewLifecycle.NoteOpenState(layer.id, _presentation.IsOpen(layer.id), _uptime);
 			_renderer->SetViewOrder(layer.id, layer.z);
 		}
 		// The renderer's input target follows the active menu; HUD-only means no
@@ -932,8 +911,6 @@ namespace OSFUI
 		_pendingMouseMove.store(kNoPendingMouseMove);
 		m_viewReveal.Reset();
 		_nativeFocusGranted = false;
-		_viewLifecycle.OnBrowserHostRestart(_uptime);
-
 		std::size_t reloaded = 0;
 		for (const auto& manifest : _views.All()) {
 			if (!_presentation.IsInstantiated(manifest.id)) {
@@ -950,11 +927,6 @@ namespace OSFUI
 			++reloaded;
 		}
 
-		for (const auto& id : _pinnedViews) {
-			if (_presentation.IsInstantiated(id)) {
-				_renderer->PrewarmView(id);
-			}
-		}
 		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
 		_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),
 			false, _captureArmed.load(), _captureUpScan.load());

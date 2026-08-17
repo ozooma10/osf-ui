@@ -284,22 +284,6 @@ namespace osfui::wv2
 				std::uint32_t pageMessagesThisWindow{ 0 };
 				bool pageMessageTooLargeWarned{ false };
 				bool pageMessageFloodWarned{ false };
-				// One-shot hidden paint requested by the game. Unlike leaving the
-				// controller visible indefinitely, this primes Chromium without
-				// running closed-view animations for the rest of the session.
-				bool prewarm{ false };
-				bool prewarmPending{ false };
-				std::uint64_t prewarmDeadline{ 0 };
-				// Explicit idle suspension is latched by the game. Attempts are async;
-				// activityGeneration plus the browser-host-unique attempt id prevent a late
-				// callback from re-suspending an active or newly recreated view.
-				bool suspendRequested{ false };
-				bool suspendInFlight{ false };
-				bool suspended{ false };
-				bool suspendFailureLogged{ false };
-				std::uint64_t suspendActivityGeneration{ 0 };
-				std::uint64_t suspendAttemptId{ 0 };
-				std::uint64_t nextSuspendAttemptMs{ 0 };
 				// Manifest (authoring) height, set by `navigate`: the page lays out at
 				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
@@ -316,7 +300,7 @@ namespace osfui::wv2
 				std::string   revealToken;
 				std::uint64_t pendingPresentationEpoch{ 0 };
 				int  order{ 0 };
-				bool domSeen{ false }, navigationSucceeded{ false };
+				bool domSeen{ false };
 				std::wstring currentUrl;
 				std::optional<std::wstring> pendingNavigate;
 				std::deque<std::string> queuedPostWeb;
@@ -324,8 +308,6 @@ namespace osfui::wv2
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
 			View* inputTarget{ nullptr };  // mouse/focus/synthetic-key target
 			bool  captureStarted{ false };
-			std::uint64_t nextSuspendAttemptId{ 1 };
-
 			// accel state pushed by the game (touched only on the STA thread).
 			// Physical scan codes (DIK convention, Input/ScanCode.h) since
 			// protocol 6.
@@ -498,13 +480,7 @@ namespace osfui::wv2
 			// out — the old content stays up and the switch is one composition change.
 
 			static constexpr std::string_view kRevealSentinelPrefix = "__osfuiRevealReady:";
-			static constexpr const wchar_t* kPrewarmSentinelScript =
-				L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
-				L"setTimeout(function(){chrome.webview.postMessage('__osfuiPrewarmReady');},0);"
-				L"});});";
-			static constexpr std::string_view kPrewarmSentinel = "__osfuiPrewarmReady";
 			static constexpr std::uint64_t kRevealTimeoutMs = 300;
-			static constexpr std::uint64_t kSuspendRetryMs = 5000;
 
 			std::string NewRevealToken()
 			{
@@ -519,69 +495,6 @@ namespace osfui::wv2
 					kRevealSentinelPrefix,
 					::GetCurrentProcessId(),
 					fallback.fetch_add(1, std::memory_order_relaxed) + 1);
-			}
-
-			void ResumeCore(View& a_view)
-			{
-				if (!a_view.webView) return;
-				ComPtr<ICoreWebView2_3> webView3;
-				if (FAILED(a_view.webView.As(&webView3)) || !webView3) return;
-				const auto hr = webView3->Resume();
-				if (FAILED(hr)) {
-					log.Warn(std::format("view '{}': Resume failed (0x{:08X})",
-						a_view.id, static_cast<unsigned>(hr)));
-				} else {
-					a_view.suspended = false;
-				}
-			}
-
-			void NoteViewActivity(View& a_view, bool a_clearSuspendRequest)
-			{
-				const bool mayNeedResume = a_view.suspendRequested ||
-					a_view.suspendInFlight || a_view.suspended;
-				++a_view.suspendActivityGeneration;
-				if (a_clearSuspendRequest) {
-					a_view.suspendRequested = false;
-					a_view.nextSuspendAttemptMs = 0;
-				} else if (a_view.suspendRequested) {
-					a_view.nextSuspendAttemptMs = ::GetTickCount64() + kSuspendRetryMs;
-				}
-				if (mayNeedResume) {
-					// Explicit even though visibility/navigation can also auto-resume:
-					// PostWebMessage has no such documented guarantee, and a suspend
-					// attempt may still be completing asynchronously.
-					ResumeCore(a_view);
-				}
-			}
-
-			void BeginPrewarm(View& a_view)
-			{
-				if (!a_view.prewarm || !a_view.hidden) return;
-				if (!a_view.prewarmPending) {
-					NoteViewActivity(a_view, /*a_clearSuspendRequest=*/false);
-					a_view.prewarmPending = true;
-					a_view.prewarmDeadline = 0;
-					if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
-				}
-				// The request may arrive before navigation reaches DOMContentLoaded.
-				// Calling again there arms the paint handshake once rAF exists.
-				if (a_view.webView && a_view.domSeen) {
-					a_view.prewarmDeadline = ::GetTickCount64() + kRevealTimeoutMs;
-					a_view.webView->ExecuteScript(kPrewarmSentinelScript,
-						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
-				}
-			}
-
-			void CompletePrewarm(View& a_view)
-			{
-				if (!a_view.prewarmPending) return;
-				a_view.prewarmPending = false;
-				a_view.prewarmDeadline = 0;
-				if (a_view.hidden && a_view.controller) {
-					a_view.controller->put_IsVisible(FALSE);
-				}
-				log.Info(std::format("view '{}': hidden prewarm complete", a_view.id));
 			}
 
 			bool AnyRevealPending() const
@@ -609,15 +522,12 @@ namespace osfui::wv2
 				a_view.pendingPresentationEpoch = 0;
 				a_view.revealPending = false;  // cancel an in-flight reveal
 				a_view.revealToken.clear();
-				a_view.prewarmPending = false;
-				a_view.prewarmDeadline = 0;
 				a_view.hideDeferred = true;    // applied at batch end / reveal end
 				log.Info(std::format("view '{}': hide (deferred to batch end)", a_view.id));
 			}
 
 			void ShowView(View& a_view)
 			{
-				NoteViewActivity(a_view, /*a_clearSuspendRequest=*/true);
 				if (!a_view.hidden) {
 					a_view.hideDeferred = false;
 					log.Info(std::format("view '{}': show — already visible (visual={})",
@@ -631,10 +541,6 @@ namespace osfui::wv2
 				}
 				a_view.hidden = false;
 				a_view.hideDeferred = false;
-				a_view.prewarmPending = false;
-				a_view.prewarmDeadline = 0;
-				// Visibility also auto-resumes, after the explicit Resume above; nothing
-				// paints while a successful TrySuspend remains in force.
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				if (a_view.visual && a_view.visual.IsVisible()) {
 					log.Info(std::format(
@@ -692,98 +598,6 @@ namespace osfui::wv2
 				for (auto& view : views) {
 					if (view->revealPending && now >= view->revealDeadline) {
 						CompleteReveal(*view, /*a_timedOut=*/true);
-					}
-					if (view->prewarmPending && view->prewarmDeadline != 0 &&
-						now >= view->prewarmDeadline) {
-						log.Info(std::format(
-							"view '{}': hidden prewarm sentinel timed out", view->id));
-						CompletePrewarm(*view);
-					}
-				}
-			}
-
-			void TickSuspends()
-			{
-				const auto now = ::GetTickCount64();
-				for (auto& owned : views) {
-					auto& view = *owned;
-					if (!view.suspendRequested || !view.hidden || view.hideDeferred ||
-						view.revealPending || view.prewarmPending || view.pendingNavigate ||
-						!view.domSeen || !view.controller || !view.webView ||
-						view.suspendInFlight || now < view.nextSuspendAttemptMs) {
-						continue;
-					}
-					BOOL controllerVisible = TRUE;
-					if (FAILED(view.controller->get_IsVisible(&controllerVisible)) ||
-						controllerVisible == TRUE) {
-						continue;
-					}
-					ComPtr<ICoreWebView2_3> webView3;
-					if (FAILED(view.webView.As(&webView3)) || !webView3) {
-						if (!view.suspendFailureLogged) {
-							view.suspendFailureLogged = true;
-							log.Warn(std::format("view '{}': TrySuspend API unavailable", view.id));
-						}
-						view.nextSuspendAttemptMs = now + kSuspendRetryMs;
-						continue;
-					}
-					BOOL actuallySuspended = FALSE;
-					if (SUCCEEDED(webView3->get_IsSuspended(&actuallySuspended)) &&
-						actuallySuspended == TRUE) {
-						view.suspended = true;
-						continue;
-					}
-					if (view.suspended) {
-						// An API resumed it outside the explicit activity paths. Observe
-						// reality and allow a short sync window before trying again.
-						view.suspended = false;
-						view.nextSuspendAttemptMs = now + kSuspendRetryMs;
-						continue;
-					}
-
-					const auto id = view.id;
-					const auto generation = view.suspendActivityGeneration;
-					const auto attemptId = nextSuspendAttemptId++;
-					view.suspendAttemptId = attemptId;
-					view.suspendInFlight = true;
-					view.nextSuspendAttemptMs = now + kSuspendRetryMs;
-					const auto hr = webView3->TrySuspend(
-						Callback<ICoreWebView2TrySuspendCompletedHandler>(
-							[this, id, generation, attemptId](HRESULT a_error, BOOL a_success) -> HRESULT {
-								auto* current = FindView(id);
-								if (!current || current->suspendAttemptId != attemptId) return S_OK;
-								current->suspendInFlight = false;
-								const bool stale = current->suspendActivityGeneration != generation ||
-									!current->suspendRequested || !current->hidden;
-								if (stale) {
-									if (SUCCEEDED(a_error) && a_success == TRUE) ResumeCore(*current);
-									return S_OK;
-								}
-								if (SUCCEEDED(a_error) && a_success == TRUE) {
-									current->suspended = true;
-									current->suspendFailureLogged = false;
-									log.Info(std::format("view '{}': idle suspend accepted", id));
-								} else {
-									current->suspended = false;
-									current->nextSuspendAttemptMs =
-										::GetTickCount64() + kSuspendRetryMs;
-									if (!current->suspendFailureLogged) {
-										current->suspendFailureLogged = true;
-										log.Warn(std::format(
-											"view '{}': TrySuspend declined (0x{:08X}); retrying while hidden",
-											id, static_cast<unsigned>(a_error)));
-									}
-								}
-								return S_OK;
-							}).Get());
-					if (FAILED(hr)) {
-						view.suspendInFlight = false;
-						if (!view.suspendFailureLogged) {
-							view.suspendFailureLogged = true;
-							log.Warn(std::format(
-								"view '{}': TrySuspend call failed (0x{:08X}); retrying while hidden",
-								view.id, static_cast<unsigned>(hr)));
-						}
 					}
 				}
 			}
@@ -855,8 +669,8 @@ namespace osfui::wv2
 				// backgrounding is disabled. Native occlusion can also be applied directly
 				// to Chromium's compositor through a separately field-trialled feature, so
 				// disable both the calculation and compositor policy for this capture-only
-				// HWND. Explicit put_IsVisible(FALSE) remains the lifecycle gate that
-				// suspends hidden OSF UI views.
+				// HWND. Explicit put_IsVisible(FALSE) remains the visibility gate for
+				// hidden OSF UI views.
 				auto environmentOptions = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
 				if (!environmentOptions) {
 					log.Error("could not allocate WebView2 environment options");
@@ -1040,10 +854,7 @@ namespace osfui::wv2
 				a_view.controller->put_Bounds(
 					RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
 				ApplyScale(a_view);
-				// Apply the current hidden state, except during the one-shot prewarm:
-				// an invisible controller suspends Chromium rendering entirely.
-				a_view.controller->put_IsVisible(
-					a_view.hidden && !a_view.prewarmPending ? FALSE : TRUE);
+				a_view.controller->put_IsVisible(a_view.hidden ? FALSE : TRUE);
 				ComPtr<ICoreWebView2Controller2> controller2;
 				if (SUCCEEDED(a_view.controller.As(&controller2))) {
 					controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 });
@@ -1435,11 +1246,6 @@ namespace osfui::wv2
 								}
 								return S_OK;
 							}
-							if (text == kPrewarmSentinel) {
-								// Browser-host-internal one-shot warmup; not forwarded.
-								CompletePrewarm(*view);
-								return S_OK;
-							}
 							static constexpr std::string_view kNativePopupPrefix = "__osfuiNativePopup:";
 							if (text.starts_with(kNativePopupPrefix)) {
 								// Browser-host-internal input handshake; authored controls
@@ -1514,10 +1320,6 @@ namespace osfui::wv2
 								.url = ToUtf8(view->currentUrl),
 								.description = success ? "" : "WebView2 navigation failed",
 								.code = static_cast<std::int32_t>(status) }));
-							view->navigationSucceeded = success == TRUE;
-							if (!view->navigationSucceeded && view->prewarmPending) {
-								CompletePrewarm(*view);
-							}
 							return S_OK;
 						}).Get(), &token);
 				ComPtr<ICoreWebView2_2> webView2;
@@ -1527,7 +1329,6 @@ namespace osfui::wv2
 							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs*) -> HRESULT {
 								view->domSeen = true;
 								DrainQueuedViewWork(*view);
-								BeginPrewarm(*view);
 								return S_OK;
 							}).Get(), &token);
 				}
@@ -1556,7 +1357,6 @@ namespace osfui::wv2
 								// a failed load so the game's crash-recovery reload
 								// reacts (Runtime::OnViewLoad) rather than leaving a
 								// blank input-capturing shell.
-								view->navigationSucceeded = false;
 								view->domSeen = false;
 								Send(msg::ToJson(msg::LoadEvent{
 									.view = view->id,
@@ -1746,15 +1546,11 @@ namespace osfui::wv2
 			{
 				if (!a_view.webView) return;
 				if (a_view.pendingNavigate) {
-					a_view.domSeen = a_view.navigationSucceeded = false;
-					a_view.prewarmPending = false;
-					a_view.prewarmDeadline = 0;
+					a_view.domSeen = false;
 					a_view.currentUrl = *a_view.pendingNavigate;
 					a_view.pendingNavigate.reset();
-					if (a_view.prewarm && a_view.hidden) BeginPrewarm(a_view);
 					const auto hr = a_view.webView->Navigate(a_view.currentUrl.c_str());
 					if (FAILED(hr)) {
-						CompletePrewarm(a_view);
 						Send(msg::ToJson(msg::LoadEvent{ .view = a_view.id,
 							.failed = true,
 							.url = ToUtf8(a_view.currentUrl),
@@ -1763,9 +1559,6 @@ namespace osfui::wv2
 					}
 				}
 				if (!a_view.domSeen) return;
-				if (!a_view.queuedPostWeb.empty()) {
-					NoteViewActivity(a_view, /*a_clearSuspendRequest=*/false);
-				}
 				for (auto& message : a_view.queuedPostWeb) {
 					const auto wide = ToWide(message);
 					a_view.webView->PostWebMessageAsString(wide.c_str());
@@ -2340,7 +2133,6 @@ namespace osfui::wv2
 						}
 						DrainGameMessages();
 						TickReveals();
-						TickSuspends();
 						MSG message{};
 						while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
 							::TranslateMessage(&message);

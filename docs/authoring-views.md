@@ -134,11 +134,13 @@ Several views can be hosted and composited at once, with no central list to main
 
 Whether a HUD starts with the game is player policy: each eligible HUD row in Mod Settings has a "Start automatically" switch, persisted outside shipped mod files and applied at the next launch. A HUD manifest's `openOnStart: true` only sets the auto-start default for players who haven't chosen. Hidden utility views (`hub: false`, the compatibility spelling for catalog visibility) aren't eligible — a view the player can't see in the catalog may not silently run in the background — and `debugOnly` views qualify only while developer mode is on. Discovered menus never auto-start; a plugin's explicit `RegisterView` is a different entry path and honors `openOnStart` as open-on-registration opt-in ([native-plugin-api.md](native-plugin-api.md) §8c).
 
-The OSF UI runtime keeps Mod Settings pinned and prewarms its first paint.
-**Pinned** means never reclaimed;
-**prewarmed** describes paint priming and is not itself a lifetime promise.
-
-A closed view keeps its document instance initially. After ~90 seconds of hidden game time, OSF UI asks WebView2 to suspend it, pausing JS timers and animation until activity resumes it. A non-pinned view is reclaimed and returned to the discovered state after ~25 hidden minutes — or earlier when more than four closed views sit hidden (least recently used first; open views, e.g. a HUD beneath a pausing menu, never count). Reopening a reclaimed view creates a fresh document instance, which greets the bridge and is replayed all of its state (§3), so an idle reclaim is invisible to a correctly written view. Treat `ui.visibility` as the active-menu visit boundary; don't rely on hidden timers for required work.
+Mod Settings follows the same lazy rule as authored menus: it creates no browser
+document until first open. Once any view is instantiated, ordinary close hides
+its existing document and keeps it resident until Starfield exits. There is no
+idle suspension, TTL, or hidden-view cap. If the browser host dies, recovery
+recreates every instantiated view in the replacement host. Treat
+`ui.visibility` as the active-menu visit boundary; browsers may throttle hidden
+content, so don't rely on hidden timers for required work.
 
 - Layering is set by the menu/HUD framework, not array order: every HUD composites beneath the single active menu. HUDs order among themselves by manifest `order` (higher on top, clamped 0..999). Opening a menu replaces the previous active menu; there is no menu stack. The active menu always sits above every HUD.
 - The focus model is a versioned guarantee. Input can go only to the active menu, subject to its effective `capturesInput` policy. A `"kind": "hud"` view is passive: never focused and never receives input, even as the top HUD layer. There is no user-facing focus-cycle key.
@@ -185,7 +187,7 @@ document loads
                  └─ then the event gate opens and queued events flush
 ```
 
-First open, a raw F5, a developer-mode hot reload, a crash-recovery reload and a view recreated after an idle reclaim are all *the same sequence*. The shared bridge helper sends the hello for you; you never write it. Because the document initiates, the OSF UI runtime never has to guess whether a greeting was consumed — which is why an F5 the OSF UI runtime never hears about still works.
+First open, a raw F5, a developer-mode hot reload, and a crash-recovery reload are all *the same sequence*. The shared bridge helper sends the hello for you; you never write it. Because the document initiates, the OSF UI runtime never has to guess whether a greeting was consumed — which is why an F5 the OSF UI runtime never hears about still works.
 
 Two orderings you can rely on:
 
@@ -314,7 +316,7 @@ Every one of these replays to every fresh document. Nothing here is requested or
 | `osfui/settings` | `{ mods: [{ id, title, schema, values, shadowed?, targetVersion? }], keyboard?, loadErrors? }` | the registry SHAPE changes (a schema registers, hot-reloads or goes away), a whole-mod reset lands, or the OS keyboard layout switches. Individual commits arrive as the `settings.changed` event. `keyboard` is `{ layout, labels: { keyName -> keycap } }` — the player's localized keycaps (display only; fall back to the physical key name when absent). `loadErrors` names settings files that failed to load, so a view can say so instead of a mod silently vanishing |
 | `osfui/keybindings` | `{ available, revision, gameVersion, error?, actions: [{ event, label, category, context, classification, modes, sortIndex, required, bindings }] }` | the live engine ControlMap is first copied or remapped. Complete read-only game-input-action order, including unbound, main/alternate, and chorded keyboard rows. `classification` is `core` \| `special` \| `menu` \| `unknown`; `bindings[].key` is an OSF UI physical key name or `null`. `available:false` is fail-closed and carries no actions |
 | `osfui/input-context` | `{ available, revision, mode, contexts: [{ id, name }] }` | the exact active **engine input context** stack or derived semantic mode changes. This is distinct from a settings schema's authored hotkey contexts. `mode` is `onFoot` \| `ship` \| `vehicle` \| `zeroG` \| `null` |
-| `osfui/views` | `{ views: [{ id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState, autoStart, autoStartMutable, pinned }] }` | any presentation or main-frame load-state change. `loadState` is `"unloaded"` (discovered, not instantiated) \| `"loading"` \| `"loaded"` (main-frame load complete) \| `"failed"`. `open` is presentation policy; `focused` identifies the active menu; `interactive` is a menu-kind capability summary, not current input capture; `hub` is the compatibility field for catalog visibility; `pinned` means not reclaimable. Do not list `hub:false` views |
+| `osfui/views` | `{ views: [{ id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState, autoStart, autoStartMutable }] }` | any presentation or main-frame load-state change. `loadState` is `"unloaded"` (discovered, not instantiated) \| `"loading"` \| `"loaded"` (main-frame load complete) \| `"failed"`. `open` is presentation policy; `focused` identifies the active menu; `interactive` is a menu-kind capability summary, not current input capture; `hub` is the compatibility field for catalog visibility. Do not list `hub:false` views |
 | `osfui/diagnostics` | `{ system, issues: [{ id, code, severity, status, source, subject, context, occurrences, firstAt, lastAt, resolvedAt? }] }` | the health registry changes. Each health issue carries a stable machine `code` — map it to your own copy, the payload never contains player-facing prose. Powers the System Health destination in Mod Settings; a normal content view rarely needs it |
 | `osfui/i18n` | `{ mod, locale, strings }` | language change or a developer-mode catalog reload. **Per view**: the value is your own mod's catalog. The shared bridge helper consumes this for you — use `osfui.i18n.t()` |
 | `<yourModId>/<key>` | whatever your mod backend published | your Papyrus `OSFUI.SetView*` or your plugin's `SetViewState`. See [authoring-dynamic-data.md](authoring-dynamic-data.md) |

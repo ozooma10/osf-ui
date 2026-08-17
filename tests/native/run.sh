@@ -74,7 +74,6 @@ SUITES=(
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"
 "deferred_main_thread_work_tests deferred_main_thread_work_tests.cpp"
 "runtime_lifecycle_contract_tests runtime_lifecycle_contract_tests.cpp"
-"view_lifecycle_tests view_lifecycle_tests.cpp ../../src/Views/ViewLifecycle.cpp"
 "view_policy_store_tests view_policy_store_tests.cpp ../../src/Views/ViewPolicyStore.cpp ../../src/Core/Json.cpp"
 "view_reveal_gate_tests view_reveal_gate_tests.cpp ../../src/Views/ViewRevealGate.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"

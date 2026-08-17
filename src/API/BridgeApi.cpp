@@ -239,8 +239,8 @@ namespace OSFUI::API
 		}
 		std::lock_guard lock(_mutex);
 		// ABI 1.3 queues until the target page exists, not merely until any bridge
-		// is available. Discovered-but-uninstantiated and idle-reclaimed views can therefore retain bounded
-		// first-open state while unrelated pinned views are already running.
+		// is available. Discovered-but-uninstantiated views can therefore retain
+		// bounded first-open state while unrelated views are already running.
 		std::size_t sameView = 0;
 		for (const auto& s : _pendingSends) {
 			sameView += (s.view == a_viewId) ? 1u : 0u;

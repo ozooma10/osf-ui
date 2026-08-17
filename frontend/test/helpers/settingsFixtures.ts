@@ -146,7 +146,6 @@ export const VIEWS: ViewsData = {
       targetVersion: '',
       autoStart: false,
       autoStartMutable: true,
-      pinned: false,
     },
     {
       id: 'acme.viewonly/browser',

@@ -380,7 +380,6 @@ export interface ViewsData {
     loadState: "unloaded" | "loading" | "loaded" | "failed";
     autoStart: boolean;        // effective choice for the NEXT launch
     autoStartMutable: boolean; // catalog-visible HUDs the player may change
-    pinned: boolean;           // always-resident core view; distinct from one-time prewarming
   }>;
 }
 

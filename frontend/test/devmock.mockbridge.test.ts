@@ -426,7 +426,7 @@ describe('views', () => {
 
     const bad = request('osfui.setViewAutoStart', { view: 'osfui/settings', enabled: true });
     await settle(200);
-    // A pinned core view is not player-configurable.
+    // Menus are not player-configurable auto-start views.
     expect(errorTo(bad)?.payload).toMatchObject({ code: 'not-configurable' });
   });
 });

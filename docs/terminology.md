@@ -51,9 +51,8 @@ web bridge protocol version.
 - **View** — the stable, manifest-addressed authored unit. Its identity comes
   from `views/<modId>/<viewName>/`; `manifest.json` declares no `id`. A legacy
   manifest `id` is ignored.
-- **Document instance** — one Chromium load of a view. F5, hot reload, recovery,
-  or reopening a reclaimed view creates a new document instance without
-  creating a new view.
+- **Document instance** — one Chromium load of a view. F5, hot reload, or
+  recovery creates a new document instance without creating a new view.
 - **View kind** — `menu` or `hud`. A menu occupies the single active-menu slot;
   opening another menu replaces it. Multiple HUD views may remain open and are
   ordered by `order` beneath the active menu.
@@ -74,7 +73,7 @@ starter does not create a view.
 - **Keybindings** is the built-in `osfui/keybinds` view. Do not call the current
   UI the *Keybinds board* or *input map*.
 - **System Health** is a fixed destination inside Mod Settings, not a separate
-  view and not a pinned-residency claim.
+  view.
 
 ## View lifecycle and presentation
 
@@ -89,14 +88,11 @@ These states describe different axes and must not be used interchangeably:
 | **active menu** | The one open menu selected for menu presentation and focus policy. There is no menu stack. |
 | **input-target view** | The instantiated browser view selected by the renderer/browser host for mouse, real focus, cursor, and synthetic-key delivery. It follows the active menu during an input session, but names a transport target rather than presentation state. |
 | **captures input** | The active menu's effective policy routes input to its document. This is not synonymous with menu kind or with `interactive`. |
-| **suspended** | The document instance is retained, but WebView2 has paused its activity while hidden. |
-| **reclaimed** | The document instance was destroyed and the stable view returned to the discovered state. |
-| **pinned** | A residency policy: the view's live instance is not reclaimed. |
-| **prewarmed** | The renderer primed a hidden first paint. Prewarming alone does not promise residency. |
+| **resident** | After first instantiation, the document stays alive across ordinary close/reopen transitions until process exit. Browser-host recovery recreates it in the replacement host. |
 
-Reserve **pinned** for view residency. A rail item that always stays in place,
-such as System Health, is a **fixed destination**; it says nothing about the
-browser lifetime of the containing view.
+A rail item that always stays in place, such as System Health, is a **fixed
+destination**; it says nothing about the browser lifetime of the containing
+view.
 
 The public `osfui/views` payload retains compatibility field names:
 
@@ -105,8 +101,7 @@ The public `osfui/views` payload retains compatibility field names:
 - `open` reports presentation policy;
 - `focused` identifies the active menu;
 - `interactive` is a menu-kind capability summary, not current input capture;
-- `hub` means catalog-visible; and
-- `pinned` means not eligible for reclaim.
+- `hub` means catalog-visible.
 
 ### Catalog and startup policy
 

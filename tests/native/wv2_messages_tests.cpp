@@ -48,7 +48,7 @@ int main()
 		Check(msg::ToJson(msg::Ready{}).at("type") == "ready", "ready stamps type");
 		// The compatibility spelling is easy to "fix" by accident.
 		Check(msg::SetInputTarget::kType == "setActive", "setActive wire spelling preserved");
-		Check(msg::Shutdown::kType != msg::SuspendView::kType, "distinct types");
+		Check(msg::Shutdown::kType != msg::DestroyView::kType, "distinct types");
 	}
 
 	// ---- round-trip fidelity across every field kind: u64, u32, i32, bool, string.

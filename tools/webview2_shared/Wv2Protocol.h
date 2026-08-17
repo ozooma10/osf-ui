@@ -28,7 +28,8 @@ namespace osfui::wv2
 	// revealed. The game rejects frames from an earlier/hidden presentation.
 	// v4: verified named-pipe peers, bounded hello, and browser-host heartbeats make a
 	// connected-but-stalled or impersonating browser host a terminal recoverable failure.
-	// v5: game-directed, best-effort suspension for idle hidden views.
+	// v5 was an unreleased idle-suspension iteration; current peers deliberately
+	// keep instantiated documents resident instead.
 	// v6: physical key identity — `accelerator` messages carry `scan` (DIK
 	// convention, Input/ScanCode.h) alongside `vk`, and accelState's
 	// toggleVk/captureUpVk become toggleScan/captureUpScan.

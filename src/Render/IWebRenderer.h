@@ -297,13 +297,6 @@ namespace OSFUI
 		// Per-view state mutated at runtime. Honored by multi-view implementations in
 		// the compositing/scroll path; others ignore.
 		virtual void SetViewHidden(std::string_view /*a_viewId*/, bool /*a_hidden*/) {}
-		// Prime a hidden view's first Chromium paint, then hide it again. This
-		// keeps an on-demand platform view cheap while removing the cold
-		// renderer/controller path from its first reveal.
-		virtual void PrewarmView(std::string_view /*a_viewId*/) {}
-		// Best-effort idle suspension. Implementations without a suspendable page process
-		// ignore it; visibility and destruction remain separate lifecycle edges.
-		virtual void SuspendView(std::string_view /*a_viewId*/) {}
 		virtual void SetViewOrder(std::string_view /*a_viewId*/, int /*a_order*/) {}
 
 		virtual void DestroyView(std::string_view /*a_viewId*/) {}

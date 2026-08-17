@@ -100,42 +100,5 @@ describe('discovered views inventory', () => {
       name: 'menu.open',
       payload: { view: 'example.tools/hidden-lab' },
     });
-
-    // Idle reclaim is an instantiated -> reclaimed lifecycle transition,
-    // reported by the compatibility `loadState` values loaded -> unloaded. The
-    // row must stay present and openable rather than being treated as a removal.
-    bridge.publish('osfui/views', {
-      views: [
-        {
-          id: 'osfui/settings',
-          title: 'Mod Settings',
-          kind: 'menu',
-          mod: 'osfui',
-          hub: true,
-          loadState: 'loaded',
-        },
-        {
-          id: 'example.tools/hidden-lab',
-          title: 'Hidden Lab',
-          kind: 'menu',
-          mod: 'example.tools',
-          hub: false,
-          loadState: 'unloaded',
-        },
-        {
-          id: 'example.tools/passive-hud',
-          title: 'Passive HUD',
-          kind: 'hud',
-          mod: 'example.tools',
-          hub: false,
-          loadState: 'unloaded',
-        },
-      ],
-    });
-    await flush();
-    const reclaimed = [...el.querySelectorAll<HTMLElement>('.discovered-view')]
-      .find((row) => row.textContent!.includes('example.tools/passive-hud'))!;
-    expect(reclaimed.textContent).toContain('unloaded');
-    expect(reclaimed.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
   });
 });

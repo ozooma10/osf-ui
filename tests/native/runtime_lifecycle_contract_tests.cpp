@@ -146,9 +146,11 @@ int main()
 		ReadSource("../../src/Bridge/RuntimeBridge.cpp") +
 		ReadSource("../../src/Views/RuntimeViews.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
+	const auto hostSource = ReadSource("../../tools/webview2_host/HostApp.cpp") +
+		ReadSource("../../tools/webview2_host/GameMessages.inl");
+	const auto hostMessages = ReadSource("../../tools/webview2_shared/Wv2Messages.h");
 	const auto menuEventSource = ReadSource("../../src/Input/MenuEventSink.cpp");
 	const auto presentationSource = ReadSource("../../src/Views/ViewPresentationController.cpp");
-	const auto lifecycleHeader = ReadSource("../../src/Views/ViewLifecycle.h");
 
 	const auto tick = FunctionBody(runtimeSource, "void Runtime::Tick(double a_deltaSeconds)");
 	Check(ContainsInOrder(tick, {
@@ -303,15 +305,38 @@ int main()
 	Check(ContainsInOrder(closeAll, { "_activeMenu.reset()", "_hudShown.clear()" }),
 		"CloseAll must close both the active menu and every HUD");
 
-	const auto driveLifecycle = FunctionBody(runtimeSource, "void Runtime::DriveViewLifecycle()");
-	Check(ContainsInOrder(driveLifecycle, {
-		"actions.destroy",
-		"_presentation.IsOpen(id)",
-		"TearDownView(id, ViewTeardownReason::IdleReclaim)" }),
-		"document destruction must remain behind the closed-view idle lifecycle");
-	Check(lifecycleHeader.find("kSuspendAfterHiddenSeconds = 90.0") != std::string::npos &&
-		lifecycleHeader.find("kDestroyAfterHiddenSeconds = 1500.0") != std::string::npos,
-		"the mature reusable-document suspend and destruction thresholds must remain explicit");
+	const auto startup = FunctionBody(runtimeSource, "void Runtime::InitializeStartupViews()");
+	Check(startup.find("kSettingsViewId") == std::string::npos &&
+		startup.find("PrewarmView") == std::string::npos &&
+		ContainsInOrder(startup, {
+			"manifest.kind != ViewKind::Hud",
+			"_viewPolicy.HudAutoStart",
+			"InstantiateView(manifest, \"for HUD auto-start\")" }),
+		"startup must instantiate only HUDs whose effective auto-start policy is on");
+
+	Check(runtimeSource.find("DriveViewLifecycle") == std::string::npos &&
+		runtimeSource.find("IdleReclaim") == std::string::npos,
+		"ordinary closed documents must have no timed suspension or reclamation driver");
+	Check(rendererSource.find("SuspendView") == std::string::npos &&
+		hostMessages.find("suspendView") == std::string::npos &&
+		hostSource.find("TrySuspend") == std::string::npos,
+		"the game-host boundary must not carry an asynchronous idle-suspension state machine");
+	Check(rendererSource.find("PrewarmView") == std::string::npos &&
+		hostMessages.find("prewarm") == std::string::npos &&
+		hostSource.find("Prewarm") == std::string::npos,
+		"unused menus must not be instantiated or painted through a prewarm path");
+
+	const auto onViewLoad = FunctionBody(runtimeSource,
+		"void Runtime::OnViewLoad(std::string_view a_viewId");
+	Check(ContainsInOrder(onViewLoad, {
+		"if(recovery.exhausted)",
+		"TearDownFailedView(id)" }),
+		"explicit teardown must remain limited to a document that exhausts load recovery");
+	const auto teardownFailed = FunctionBody(runtimeSource,
+		"void Runtime::TearDownFailedView(const std::string& a_id)");
+	Check(teardownFailed.find("_renderer->DestroyView(a_id)") != std::string::npos &&
+		teardownFailed.find("IdleReclaim") == std::string::npos,
+		"terminally failed documents may be destroyed without creating an idle-reclaim policy");
 
 	Check(Count(applyRequests, "CancelPendingOpen()") >= 4,
 		"all four queued close paths must retain pending-open cancellation");

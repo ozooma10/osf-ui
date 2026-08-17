@@ -133,7 +133,6 @@ namespace OSFUI
 		}
 
 		DriveRecovery();
-		DriveViewLifecycle();
 		DriveDevTools();
 		PumpDevViewReload();
 

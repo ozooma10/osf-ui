@@ -22,7 +22,6 @@
 #include "Runtime/UiModule.h"
 #include "Input/ViewInputGrants.h"
 #include "Views/ViewManager.h"
-#include "Views/ViewLifecycle.h"
 #include "Views/ViewLoadTracker.h"
 #include "Views/ViewPolicyStore.h"
 #include "Views/ViewRecoveryTracker.h"
@@ -266,23 +265,13 @@ namespace OSFUI
 		// the game thread.
 		void DriveRecovery();
 
-		// Suspend hidden views after a short grace and reclaim non-pinned views after
-		// a much longer idle period (or past the hidden-view cap). The pure policy
-		// lives in ViewLifecycle; this method applies due actions to instantiated
-		// Runtime/renderer state.
-		void DriveViewLifecycle();
-
 		// Player-configurable automatic start is reserved for catalog-visible
 		// HUDs: catalog-hidden (`hub:false`) views cannot silently run in the background, and
-		// debugOnly views qualify only while developer mode is on. Pinned core
-		// views are resident anyway and never configurable.
+		// debugOnly views qualify only while developer mode is on.
 		[[nodiscard]] bool HudAutoStartEligible(const ViewManifest& a_manifest) const;
-		enum class ViewTeardownReason
-		{
-			LoadExhausted,
-			IdleReclaim,
-		};
-		void TearDownView(const std::string& a_id, ViewTeardownReason a_reason);
+		// Terminal document-load failure is the only in-session teardown. Ordinary
+		// closes hide the document and retain it until process exit.
+		void TearDownFailedView(const std::string& a_id);
 
 		// DevTools request raised by F12 on the window/browser-host thread. Resolve the
 		// active menu and talk to the renderer from Tick on the game thread.
@@ -359,9 +348,7 @@ namespace OSFUI
 		// Instantiated views (menus/HUDs) + open state. Mutated only on the main
 		// thread (Tick / bridge handlers).
 		ViewPresentationController    _presentation;
-		ViewLifecycle                 _viewLifecycle;
 		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
-		std::unordered_set<std::string> _pinnedViews;
 
 		std::optional<std::string> _pendingViewOpen;
 
