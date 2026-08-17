@@ -5,7 +5,7 @@
 #include "API/BridgeApi.h"
 #include "Composite/ICompositor.h"
 #include "Core/Config.h"
-#include "Input/GamepadNavigation.h"
+#include "Input/GamepadSession.h"
 #include "Input/KeyLabels.h"
 #include "Render/IWebRenderer.h"
 #include "Diagnostics/HealthRegistry.h"
@@ -195,13 +195,8 @@ namespace OSFUI
 		// engine menu), every tick, main thread. See Input/SimPause.h.
 		void ReconcileSimPause();
 
-		// Drain the engine's per-menu gamepad input
-		// (marshalled by EngineInput from worker threads) on the main thread and
-		// route it into the active menu's document — default mapping (D-pad/left-stick
-		// -> arrows, A -> Enter, B -> close overlay, right-stick -> scroll) plus
-		// raw `ui.gamepad` bridge events.
-		// Keyboard/mouse stay on the WndProc path.
-		void DrainEngineInput(double a_deltaSeconds);
+		//Poll XInput and deliver events to active document (`ui.gamepad` events)
+		void RouteGamepadInput(double a_deltaSeconds);
 
 		// Engage/release the engine input-enable layer (device-agnostic control
 		// disable, incl. gamepad) to match the active menu's capture policy. No
@@ -475,19 +470,8 @@ namespace OSFUI
 		// past its grace window.
 		double                        _focusMenuMismatchSince{ -1.0 };
 
-		// Gamepad routing state (main-thread only; DrainEngineInput). Left-stick
-		// navigation is a single latched direction with release hysteresis and
-		// delayed hold-repeat. Right-stick scroll accumulates fractional notches.
-		// Sticks send raw bridge events only when they change past an epsilon.
-		GamepadNavigation             _padNavigation;
-		float                         _padScrollAccum{ 0.0f };
-		float                         _padLastSentSticks[4]{};  // lx,ly,rx,ry last sent as raw bridge event
-		// When the WebView owns foreground focus, Starfield's engine gamepad
-		// feed is suspended. XInput is polled directly for that interval; the
-		// first sample is a baseline so the button that opened the menu cannot
-		// leak through as an activation.
-		bool                          _directPadActive{ false };
-		std::uint32_t                 _directPadButtons{ 0 };
+		XInputPoller                  m_gamepadSource;
+		GamepadSession                 m_gamepadSession;
 
 		ViewRecoveryTracker				m_viewRecovery;  // main-thread only; schedules and drives view reloads after load failures
 

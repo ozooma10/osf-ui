@@ -1,7 +1,7 @@
 // padnav.js — gamepad/keyboard focus navigation for the first-party OSF UI
 // views (settings, keybinds).
 //
-// The runtime's default gamepad mapping (Runtime::DrainEngineInput) turns
+// The runtime's default gamepad mapping (Runtime::RouteGamepadInput) turns
 // D-pad / left-stick edges into injected arrow-key taps, A into Enter and B
 // into close, so a view has controller support exactly when its DOM is
 // arrow-key navigable — and keyboard-only users get the same fix. These pages

@@ -1,7 +1,6 @@
 #include "Runtime/Runtime.h"
 
 #include <algorithm>
-#include <cmath>
 #include <optional>
 
 #include "API/PapyrusApi.h"
@@ -13,7 +12,6 @@
 #include "Input/KeyNames.h"
 #include "Input/MenuMode.h"
 #include "Input/SimPause.h"
-#include "Input/XInputPoller.h"
 
 namespace OSFUI
 {
@@ -141,7 +139,6 @@ namespace OSFUI
 				FocusMenu::Open();
 			} else {
 				FocusMenu::Close();
-				EngineInput::ResetSessionRouting();
 			}
 			return;
 		}
@@ -176,131 +173,68 @@ namespace OSFUI
 		SimPause::Apply(_presentation.DesiredPause());
 	}
 
-	void Runtime::DrainEngineInput(double a_deltaSeconds)
+	void Runtime::RouteGamepadInput(double a_deltaSeconds)
 	{
-		if (!_renderer) {
+		const auto endSession = [this] {
+			if (m_gamepadSession.End()) {
+				m_gamepadSource.Reset();
+			}
+		};
+
+		if (!IsInputCaptured() || !_renderer) {
+			endSession();
 			return;
 		}
-		const bool captured = IsInputCaptured();
 		const auto active = _presentation.ActiveMenu();
-		const bool raw = active && m_viewInputGrants.UsesRawGamepad(*active);
-		EngineInput::SetRawMode(raw);
-		EngineInput::SetConsumeGamepad(captured);
-
-		const auto tap = [this](std::uint32_t a_vk) {
-			_renderer->InjectKeyEvent(a_vk, true);
-			_renderer->InjectKeyEvent(a_vk, false);
-		};
-
-		const auto routeButtonEdge = [&](const EngineInput::GamepadButtonEdge& e) {
-			if (_bridge && active) {
-				_bridge->Emit(*active, "ui.gamepad", nlohmann::json{ { "kind", "button" }, { "button", { { "id", e.idCode }, { "down", e.down } } } });
-			}
-			if (raw || !e.down) {
-				return;  // raw mode = page owns it; else act on the press edge only
-			}
-			switch (e.idCode) {
-			case XInputButton::kDPadUp:    tap(0x26); break;  // VK_UP
-			case XInputButton::kDPadDown:  tap(0x28); break;  // VK_DOWN
-			case XInputButton::kDPadLeft:  tap(0x25); break;  // VK_LEFT
-			case XInputButton::kDPadRight: tap(0x27); break;  // VK_RIGHT
-			case XInputButton::kA:         tap(0x0D); break;  // VK_RETURN — activate
-			case XInputButton::kB:         EnqueuePresentationRequest(PresentationRequest::Back); break;  // back - delegate (osfui.handleBack) or close
-			default: break;  // shoulders/thumbs/Start/Back -> raw event only
-			}
-		};
-
-		const bool directPad = captured && _nativeFocusGranted;
-		XInputPoller::State directState{};
-		EngineInput::GamepadButtonEdge e;
-		if (directPad) {
-			while (EngineInput::PollGamepadButton(e)) {}
-			directState = XInputPoller::Poll();
-			if (!_directPadActive) {
-				// Baseline only: a held menu-open button must not activate the page.
-				_directPadActive = true;
-				_directPadButtons = directState.buttons;
-			} else {
-				const auto changed = _directPadButtons ^ directState.buttons;
-				constexpr std::uint32_t masks[] = {
-					XInputButton::kDPadUp, XInputButton::kDPadDown,
-					XInputButton::kDPadLeft, XInputButton::kDPadRight,
-					XInputButton::kStart, XInputButton::kBack,
-					XInputButton::kLThumb, XInputButton::kRThumb,
-					XInputButton::kLShoulder, XInputButton::kRShoulder,
-					XInputButton::kA, XInputButton::kB,
-					XInputButton::kX, XInputButton::kY,
-				};
-				for (const auto mask : masks) {
-					if ((changed & mask) != 0) {
-						routeButtonEdge({ mask, (directState.buttons & mask) != 0 });
-					}
-				}
-				_directPadButtons = directState.buttons;
-			}
-		} else {
-			_directPadActive = false;
-			_directPadButtons = 0;
-			// Next session re-picks the pad the player is actually holding.
-			XInputPoller::ResetSlotLatch();
-			while (EngineInput::PollGamepadButton(e)) {
-				if (captured) {
-					routeButtonEdge(e);
-				}
-			}
-		}
-
-		if (!captured) {
-			// Reset routing timers so the next overlay open starts fresh.
-			_padNavigation.Reset();
-			_padScrollAccum = 0.0f;
+		if (!active) {
+			endSession();
 			return;
 		}
 
-		const auto s = directPad ? EngineInput::GamepadSticks{ directState.lx, directState.ly, directState.rx, directState.ry } : EngineInput::GetSticks();
-		constexpr float       kDeadzone = 0.25f;
+		const bool raw = m_viewInputGrants.UsesRawGamepad(*active);
+		const auto frame = m_gamepadSession.Update(m_gamepadSource.Poll(), !raw, a_deltaSeconds, _uptime);
 
-		if (_bridge && active) {
-			const float cur[4] = { s.lx, s.ly, s.rx, s.ry };
-			bool        changed = false;
-			for (int i = 0; i < 4; ++i) {
-				changed = changed || std::fabs(cur[i] - _padLastSentSticks[i]) > 0.04f;
+		const auto applyAction = [this](GamepadSession::Action a_action) {
+			std::uint32_t key = 0;
+			switch (a_action) {
+			case GamepadSession::Action::kUp:       key = 0x26; break;  // VK_UP
+			case GamepadSession::Action::kDown:     key = 0x28; break;  // VK_DOWN
+			case GamepadSession::Action::kLeft:     key = 0x25; break;  // VK_LEFT
+			case GamepadSession::Action::kRight:    key = 0x27; break;  // VK_RIGHT
+			case GamepadSession::Action::kActivate: key = 0x0D; break;  // VK_RETURN
+			case GamepadSession::Action::kBack:
+				EnqueuePresentationRequest(PresentationRequest::Back);
+				return;
+			case GamepadSession::Action::kNone:
+				return;
 			}
-			if (changed) {
-				_bridge->Emit(*active, "ui.gamepad", nlohmann::json{ { "kind", "stick" }, { "axes", { { "lx", s.lx }, { "ly", s.ly }, { "rx", s.rx }, { "ry", s.ry } } } });
-				for (int i = 0; i < 4; ++i) {
-					_padLastSentSticks[i] = cur[i];
-				}
+			// Discrete down+up tap: a missed release cannot leave a stuck key.
+			_renderer->InjectKeyEvent(key, true);
+			_renderer->InjectKeyEvent(key, false);
+		};
+
+		for (std::size_t i = 0; i < frame.buttonEdgeCount; ++i) {
+			const auto& edge = frame.buttonEdges[i];
+			if (_bridge) {
+				_bridge->Emit(*active, "ui.gamepad", nlohmann::json{ { "kind", "button" }, { "button", { { "id", edge.idCode }, { "down", edge.down } } } });
 			}
+			applyAction(edge.action);
 		}
 
-		if (raw) {
-			return;  // no default stick mapping in raw mode
+		if (_bridge && frame.axesChanged) {
+			_bridge->Emit(*active, "ui.gamepad", nlohmann::json{ { "kind", "stick" }, { "axes", { { "lx", frame.axes.lx }, { "ly", frame.axes.ly }, { "rx", frame.axes.rx }, { "ry", frame.axes.ry } } } });
 		}
 
-		const auto nav = _padNavigation.Update(s.lx, s.ly, _uptime);
-		const std::uint32_t dirVk[4] = { 0x26, 0x28, 0x25, 0x27 };
-		for (std::uint8_t i = 0; i < 4; ++i) {
-			if ((nav & (1u << i)) != 0) {
-				tap(dirVk[i]);
-			}
-		}
-
-		if (std::fabs(s.ry) > kDeadzone) {
-			constexpr float kScrollNotchesPerSec = 8.0f;
-			_padScrollAccum += s.ry * kScrollNotchesPerSec * static_cast<float>(a_deltaSeconds);
-			if (const int notches = static_cast<int>(_padScrollAccum); notches != 0) {
-				_renderer->InjectMouseWheel(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), notches * 120);
-				_padScrollAccum -= static_cast<float>(notches);
-			}
-		} else {
-			_padScrollAccum = 0.0f;
+		applyAction(frame.navigationAction);
+		if (frame.wheelDelta != 0) {
+			_renderer->InjectMouseWheel(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), frame.wheelDelta);
 		}
 	}
 
 	void Runtime::ReconcileControlLayer()
 	{
 		ControlLayer::Apply(_presentation.DesiredCapture());
+		EngineInput::SetGamepadCapture(IsInputCaptured());
 	}
 
 	void Runtime::DrainKeyCapture()

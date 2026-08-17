@@ -141,7 +141,8 @@ namespace
 
 int main()
 {
-	const auto runtimeSource = ReadSource("../../src/Runtime/Runtime.cpp");
+	const auto runtimeSource = ReadSource("../../src/Runtime/Runtime.cpp") +
+		ReadSource("../../src/Runtime/RuntimeFrame.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
 	const auto menuEventSource = ReadSource("../../src/Input/MenuEventSink.cpp");
 	const auto presentationSource = ReadSource("../../src/Views/ViewPresentationController.cpp");
@@ -151,9 +152,12 @@ int main()
 	Check(ContainsInOrder(tick, {
 		"TakePresentationRequests()",
 		"PreparePresentationRequests(presentationWork)",
-		"API::BridgeApi::Get().PumpMainThread()",
+		"ProcessBackendQueues()",
 		"ApplyPresentationRequests(presentationWork)" }),
 		"Tick must instantiate requested views hidden, flush native sends, then apply visibility");
+	const auto backendQueues = FunctionBody(runtimeSource, "void Runtime::ProcessBackendQueues()");
+	Check(backendQueues.find("API::BridgeApi::Get().PumpMainThread()") != std::string::npos,
+		"the extracted backend phase must still flush native sends before presentation is applied");
 
 	const auto applyRequests = FunctionBody(runtimeSource,
 		"void Runtime::ApplyPresentationRequests(const PendingPresentationWork& a_work)");
@@ -168,7 +172,7 @@ int main()
 		"toggle, Escape/Back, and CloseAll must cancel a pending open");
 	Check(ContainsInOrder(applyRequests, {
 		"if (r.open)",
-		"_pendingViewOpen->target == r.view",
+		"m_viewOpen.Target() == r.view",
 		"CancelPendingOpen()",
 		"_presentation.Close(r.view)" }),
 		"a native close request must cancel its pending open before closing the view");
@@ -176,7 +180,7 @@ int main()
 	const auto cancelPending = FunctionBody(runtimeSource, "bool Runtime::CancelPendingOpen()");
 	Check(ContainsInOrder(cancelPending, {
 		"_presentation.Close(kHandoffViewId)",
-		"_pendingViewOpen.reset()" }),
+		"m_viewOpen.Cancel()" }),
 		"pending-open cancellation must close the handoff surface before dropping ownership");
 
 	const auto endpoints = FunctionBody(runtimeSource,
@@ -188,7 +192,7 @@ int main()
 		"browser close must cancel a pending handoff or close the calling view");
 	Check(ContainsInOrder(endpoints, {
 		"const auto viewClose",
-		"_pendingViewOpen->target == id",
+		"m_viewOpen.Targets(id)",
 		"cancelled = CancelPendingOpen()",
 		"_presentation.Close(id)",
 		"RegisterRequest(\"menu.close\", viewClose)" }),

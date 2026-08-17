@@ -4,9 +4,7 @@
 
 namespace OSFUI
 {
-	// Focus-independent controller state for an input-capturing WebView session.
-	// Starfield's Windows.Gaming.Input delivery stops while another process owns
-	// foreground focus, so Runtime polls XInput only for that interval.
+	// Starfields input delivery stops when webview2 has focus, so poll XInput directly for gamepad events.
 	class XInputPoller
 	{
 	public:
@@ -20,12 +18,10 @@ namespace OSFUI
 			float         ry{ 0.0f };
 		};
 
-		[[nodiscard]] static State Poll();
+		[[nodiscard]] State Poll();
+		void Reset();
 
-		// Forget which slot the current capturing interval latched onto (the
-		// slot showing real input wins and then keeps winning). Called when
-		// direct polling ends so the next overlay session re-picks the pad the
-		// player is actually holding.
-		static void ResetSlotLatch();
+	private:
+		std::uint32_t m_latchedSlot{ 4 };
 	};
 }

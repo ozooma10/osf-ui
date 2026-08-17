@@ -123,7 +123,7 @@ namespace OSFUI
 		ReconcileControlLayer();
 		ReconcileSimPause();
 		FreeCursor::Apply(_presentation.DesiredCapture());
-		DrainEngineInput(a_deltaSeconds);
+		RouteGamepadInput(a_deltaSeconds);
     }
 
     void Runtime::ProcessRendererFrame(double a_deltaSeconds)

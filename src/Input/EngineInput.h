@@ -1,32 +1,10 @@
 #pragma once
 
-#include <cstdint>
-
 namespace OSFUI
 {
-	// XInput wButtons masks — a gamepad ButtonEvent's idCode carries these
-	// (0x1000 = A, confirmed in-game 2026-07-02).
-	namespace XInputButton
-	{
-		inline constexpr std::uint32_t kDPadUp = 0x0001;
-		inline constexpr std::uint32_t kDPadDown = 0x0002;
-		inline constexpr std::uint32_t kDPadLeft = 0x0004;
-		inline constexpr std::uint32_t kDPadRight = 0x0008;
-		inline constexpr std::uint32_t kStart = 0x0010;
-		inline constexpr std::uint32_t kBack = 0x0020;
-		inline constexpr std::uint32_t kLThumb = 0x0040;
-		inline constexpr std::uint32_t kRThumb = 0x0080;
-		inline constexpr std::uint32_t kLShoulder = 0x0100;
-		inline constexpr std::uint32_t kRShoulder = 0x0200;
-		inline constexpr std::uint32_t kA = 0x1000;
-		inline constexpr std::uint32_t kB = 0x2000;
-		inline constexpr std::uint32_t kX = 0x4000;
-		inline constexpr std::uint32_t kY = 0x8000;
-	}
-
-	// Engine-routed input: a tap on the engine's per-menu input dispatch,
-	// bringing gamepad input — which the
-	// WndProc never sees — into the runtime.
+	// Engine-side gamepad capture gate installed on the focus menu's input
+	// receiver. Controller routing itself is polled on the main thread; this
+	// hook exists only to stop Starfield from acting on the same input.
 	//
 	// Contract (OSF RE module ui.menu_input, 1.16.244): menus in the active array
 	// receive input through the BSInputEventUser subobject at IMenu+0x10.
@@ -34,21 +12,18 @@ namespace OSFUI
 	// by type to receiver vtable slots (1 ShouldHandleEvent, 4 thumbstick,
 	// 5 cursorMove, 6 mouseMove, 7 char, 8 button; base slot 9 stays =
 	// held/release admission). Dispatch arrives on a frame-worker thread pool, so
-	// the thunks only queue gamepad edges/sticks into fixed rings — no
-	// allocation, no game calls.
+	// the thunks only read an atomic flag and, when capturing, set gamepad event
+	// status to kStop. They allocate nothing and make no game calls.
 	//
 	// Keyboard/mouse events are never marked handled, so WndProc stays
 	// authoritative for them (no double input); while the overlay captures, the
 	// WndProc swallow starves the engine of keyboard/mouse, so the tap sees
-	// gamepad events only. GAMEPAD events, however, ARE consumed while the
-	// overlay captures (SetConsumeGamepad): the receiver records them for the
-	// runtime, then sets InputEvent::status = kStop so downstream receivers —
+	// gamepad events only. GAMEPAD events are consumed while the overlay captures:
+	// the receiver sets InputEvent::status = kStop so downstream receivers —
 	// notably the player controls, which ignore the ControlLayer disable flags
 	// for thumbstick movement — never act on them (the player walked around
-	// under the open overlay otherwise). Queued edges + sticks below are drained
-	// on the main thread by Runtime::DrainEngineInput and routed into the web
-	// view (nav/activate/close/scroll) plus raw `ui.gamepad` events. Verified
-	// in-game on 1.16.244 with a controller (2026-07-02).
+	// under the open overlay otherwise). Verified in-game on 1.16.244 with a
+	// controller (2026-07-02).
 	//
 	// The +0x10 vtable copy must carry its RTTI COL at [-1], as with the primary
 	// vtable copy: a COL-less copy access-violates the first time the engine
@@ -61,53 +36,6 @@ namespace OSFUI
 		// creator.
 		static void InstallReceiver(void* a_menuObj);
 
-		// Clear the gamepad routing queue and zero the sticks so a released
-		// stick / unpopped edge can't leak into the next overlay session.
-		// Runtime calls this on the focus-menu close edge.
-		static void ResetSessionRouting();
-
-		// Gamepad routing. Keyboard/mouse (text/IME + cursor position) stay on
-		// the WndProc path. Populated by the receiver thunks on engine worker
-		// threads; drained by Runtime on the game main thread.
-
-		struct GamepadButtonEdge
-		{
-			std::uint32_t idCode{ 0 };  // XInputButton mask
-			bool          down{ false };
-		};
-		struct GamepadSticks
-		{
-			float lx{ 0.0f }, ly{ 0.0f };  // left stick, per-axis (up = +y)
-			float rx{ 0.0f }, ry{ 0.0f };  // right stick
-		};
-
-		// Pop one queued gamepad button edge; false when the queue is empty.
-		// Fixed 64-slot ring — overflow drops the oldest edge.
-		static bool PollGamepadButton(GamepadButtonEdge& a_out);
-		// Latest stick deflection (raw, roughly -1..1 per axis). Reports zero
-		// when the last thumbstick dispatch is older than ~150ms: it is unknown
-		// whether the engine sends a final zero-deflection event on release or
-		// just stops dispatching, and the latter would leave the default nav
-		// auto-repeating forever.
-		[[nodiscard]] static GamepadSticks GetSticks();
-
-		// Raw passthrough mode: Runtime skips the default mapping
-		// (nav/activate/close/scroll) and forwards only raw `ui.gamepad` events,
-		// so a page can own the gamepad fully (e.g. stick-driven camera orbit).
-		// Toggled via the `osfui.gamepadRaw` send endpoint. Deliberately NOT
-		// reset on overlay close: the grant is a sticky per-view property
-		// (Runtime::_gamepadRawViews) that survives hide/show, and another menu
-		// cannot inherit it because DrainEngineInput re-derives this flag from
-		// the active menu each tick (see ApplyViewPresentationPolicy's close path, which
-		// documents the same absence).
-		static void SetRawMode(bool a_raw);
-
-		// Consume gamepad events at the receiver while the overlay captures
-		// input: the thunks record the event for the runtime, then mark it
-		// status=kStop so it never reaches the player controls (thumbstick
-		// walking is not gated by the ControlLayer disable flags). Mirrored
-		// from IsInputCaptured() each tick by Runtime::DrainEngineInput.
-		// Keyboard/mouse events are never touched.
-		static void SetConsumeGamepad(bool a_consume);
+		static void SetGamepadCapture(bool a_capture);
 	};
 }

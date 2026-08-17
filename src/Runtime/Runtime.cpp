@@ -1862,7 +1862,7 @@ namespace OSFUI
 			// A page that wants to own the gamepad (e.g. stick-driven camera orbit)
 			// sets this to suppress the default nav/scroll mapping and handle raw
 			// `ui.gamepad` events itself. Sticky per view: survives overlay
-			// hide/show, clears on page reload or view destroy. DrainEngineInput
+			// hide/show, clears on page reload or view destroy. RouteGamepadInput
 			// applies the active menu's flag each tick.
 			const std::string src(a_b.CurrentSource());
 			if (src.empty()) {

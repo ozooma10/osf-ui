@@ -71,6 +71,7 @@ Windows pipe suite is built separately through xmake. Currently:
 | `dev_view_files_tests.cpp` | `Views/Dev/DevViewFiles`: mod-folder view footprint resolution behind dev-mode reload |
 | `cursor_shape_tests.cpp` | `CursorShapeFromSystemCursorId` (`Render/IWebRenderer.h`): system cursor id → shape mapping |
 | `gamepad_navigation_tests.cpp` | `Input/GamepadNavigation`: analogue left stick → one digital navigation direction, with latch-through-jitter and deliberate-hold repeat |
+| `gamepad_session_tests.cpp` | `Input/GamepadSession`: capture-session button baselining and edge reconstruction, raw-mode suppression of default actions, stick navigation/scroll, axes dedupe, and complete close/reopen reset |
 | `browser_host_recovery_tests.cpp` | Bounded browser-host restart policy: automatic backoff, response timeout, terminal-disable behavior, and the explicit-open retry escape hatch |
 | `deferred_main_thread_work_tests.cpp` | `Runtime/DeferredMainThreadWork`: coalescing cross-thread notification consumed at proven main-thread checkpoints |
 | `runtime_lifecycle_contract_tests.cpp` | Source-linked static characterization of the mature cross-component view lifecycle: hidden preparation before bridge delivery and reveal, pending-open cancellation, presentation epochs and stale-frame rejection, fail-closed menu admission, transition-menu CloseAll, reveal timeout cleanup, HUD-preserving menu replacement, and reusable-document close versus idle destruction. It does not execute Starfield, WebView2, D3D12, or prove host/in-game behavior |

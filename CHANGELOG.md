@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- A newly opened menu now receives the current non-neutral controller stick position instead of potentially suppressing it because it matched the preceding capture session. Controller routing now has an explicit per-menu session, so button baselines, navigation repeat, scroll accumulation, selected controller and raw-axis dedupe all reset together when capture ends.
 - The complete discovered-view inventory is reachable again from OSF UI's own Mod Settings detail. It no longer depends on the retired Diagnostics settings group, so authors can inspect catalog-hidden and uninstantiated views against the current Interface settings schema.
 - Settings sliders now update their readout while dragging but commit only when the drag ends, and text and colour fields commit on their native change boundary instead of on every keystroke. Preact's compatibility transform had collapsed the deliberately separate `input` and `change` handlers onto the same event, causing slider write spam and inconsistent text-field commits.
 - The injected pause-menu entry no longer waits three extra menu-pump ticks after Starfield's list becomes live. Injection still runs only from the main-thread post-Scaleform pump and retains every movie-liveness, list-presence, and count guard that prevents stale AS3 access.
