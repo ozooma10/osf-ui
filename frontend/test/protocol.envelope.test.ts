@@ -37,7 +37,6 @@ interface Helper {
     payload?: Record<string, unknown>,
     opts?: { timeoutMs?: number },
   ): Promise<unknown>;
-  markReady(): boolean;
   papyrus: {
     float(value: number): { $papyrus: 'float'; value: number };
     call(script: string, fn: string, ...args: unknown[]): boolean;
@@ -152,17 +151,6 @@ describe('send envelopes', () => {
     // as an empty name, i.e. `invalid-request`. The coercion keeps a sloppy
     // caller routable instead of silently unroutable.
     expect(sent[1]!.name).toBe('42');
-  });
-
-  it('markReady() posts view.ready as a plain send', () => {
-    const { helper, sent } = loadHelper();
-
-    expect(helper.markReady()).toBe(true);
-    expect(sent[1]).toEqual({ kind: 'send', name: 'view.ready', payload: {} });
-    // Readiness is a notification, not a question: the reveal gate is the
-    // OSF UI runtime's business (manifest `readySignal:true`), so there is nothing to
-    // correlate.
-    expect('id' in sent[1]!).toBe(false);
   });
 
   it('papyrus.send() folds its varargs into one fixed endpoint', () => {
@@ -320,14 +308,13 @@ describe('OSF UI runtime envelope validation — 2.0 REJECTS where 1.x silently 
 
     helper.send('close');
     helper.send('log', { level: 'info', message: 'hi' });
-    helper.markReady();
     helper.papyrus.call('AcmeWidgets', 'Refresh');
     helper.papyrus.send('OnThing', 1);
     void helper.request('ping').catch(() => {});
     void helper.request('settings.set', { mod: 'm', key: 'k', value: 1 }).catch(() => {});
     void helper.papyrus.request('GetWeight', 0x14).catch(() => {});
 
-    expect(sent.length).toBe(9); // hello + the eight above
+    expect(sent.length).toBe(8); // hello + the seven above
     for (const frame of sent) {
       expect([frame.name, bridgeVerdict(frame as unknown as Record<string, unknown>)]).toEqual([
         frame.name,

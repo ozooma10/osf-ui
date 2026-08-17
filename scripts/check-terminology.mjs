@@ -37,7 +37,12 @@ function sourceFiles(directory) {
 const retiredBridgeNames = [
   [/\b(?:settings|views|diagnostics|i18n)\.data\b/, 'use the qualified 2.0 state key'],
   [/\bruntime\.ready\b/, 'call this the bridge ready handshake'],
-  [/\bhandoff\.state\b/, 'use the osfui/handoff state key'],
+  [/\bhandoff\.state\b/, 'the first-load handoff protocol was removed'],
+  [/\bosfui\/handoff\b/, 'the first-load handoff state was removed'],
+  [/\bosfui\.handoffRetry\b/, 'the first-load handoff retry endpoint was removed'],
+  [/\bview\.ready\b/, 'main-frame load now gates a pending first open'],
+  [/\breadySignal\b/, 'the manifest readiness extension was removed'],
+  [/\bmarkReady\b/, 'the shared helper readiness extension was removed'],
 ];
 
 // These names described older implementations rather than stable public

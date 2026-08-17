@@ -40,7 +40,6 @@
 // dropped onto the page.
 
 import type {
-  HandoffState,
   SettingValue,
   Setting,
   SettingsData,
@@ -179,9 +178,6 @@ const LS_PREFIX = 'osfui.mock.';
 const LOCALE_LS = LS_PREFIX + 'locale';
 const FIXTURES_LS = LS_PREFIX + 'fixtures';
 
-/** The platform's first-load handoff view; the only view served `osfui/handoff`. */
-const HANDOFF_VIEW = 'osfui/handoff';
-
 /** OSF UI's own settings views — the only views allowed to write a foreign mod (Ids::IsSettingsEditorView). */
 const SETTINGS_EDITOR_VIEWS = ['osfui/settings', 'osfui/keybinds'];
 
@@ -208,10 +204,8 @@ const SEND_ENDPOINTS = new Set([
   'osfui.hello',
   'close',
   'setVisible',
-  'view.ready',
   'osfui.gamepadRaw',
   'osfui.handleBack',
-  'osfui.handoffRetry',
   'papyrus.call', 'papyrus.send',
 ]);
 
@@ -939,28 +933,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
     publish('osfui', 'i18n', { mod, locale, strings: activeCatalogs[mod] || {} });
   }
 
-  // Handoff. Platform-private: only the built-in handoff view is ever served
-  // this key, so the harness models it only while that view is the one hosted.
-  let handoffTimer: ReturnType<typeof setTimeout> | undefined;
-  let handoff: HandoffState = (() => {
-    const wanted = params.get('handoff') || '';
-    const phase: HandoffState['phase'] =
-      wanted === 'retrying' || wanted === 'error' ? wanted : 'linking';
-    return {
-      target: 'acme.shipworks/almanac',
-      mod: 'acme.shipworks',
-      title: 'Almanac',
-      accent: '#3aa9c0',
-      phase,
-      retry: phase === 'error',
-    };
-  })();
-
-  function publishHandoff(): void {
-    if (selfView !== HANDOFF_VIEW) return;
-    publish('osfui', 'handoff', handoff);
-  }
-
   // Change / persist notifications
 
   function pushChanged(modId: string, key: string, value: SettingValue): void {
@@ -1132,7 +1104,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
         publishViews();
         publishHealth();
         publishI18n();
-        publishHandoff();
         eventsOpen = true;
         for (const env of queuedEvents.splice(0)) deliver(env);
         // The harness has no real overlay, so announce "shown" once per document —
@@ -1186,11 +1157,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
         raise('ui.visibility', { visible: p['visible'] === true, reason: 'overlay' });
         break;
 
-      case 'view.ready':
-        // Manifests with readySignal:true hold the handoff until this arrives.
-        log('info', `view.ready — ${selfView} declared meaningful readiness`);
-        break;
-
       case 'osfui.gamepadRaw':
         // The grant only suppresses the runtime's default pad mapping; the harness
         // has no such mapping (padnav is view-side and unaffected), so it is a
@@ -1203,23 +1169,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
         // overlay; the harness delivers DOM keys to the page anyway.
         log('info', `osfui.handleBack ${p['handle'] ? 'granted' : 'released'} (no-op in harness)`);
         break;
-
-      case 'osfui.handoffRetry': {
-        if (selfView !== HANDOFF_VIEW) {
-          reportProtocolFault('forbidden', 'osfui.handoffRetry is a platform action', { name });
-          break;
-        }
-        // Play the retry the runtime would: back to "retrying", then fail again so
-        // the view's error affordance stays reachable.
-        handoff = { ...handoff, phase: 'retrying', retry: false };
-        publishHandoff();
-        clearTimeout(handoffTimer);
-        handoffTimer = setTimeout(() => {
-          handoff = { ...handoff, phase: 'error', retry: true };
-          publishHandoff();
-        }, 1200);
-        break;
-      }
 
       case 'papyrus.call':
         log(
@@ -1767,10 +1716,9 @@ export function installMock(opts: MockOptions = {}): MockApi {
     },
     setSelfView(id: string) {
       selfView = id;
-      // The i18n domain and the handoff key both key off the hosted view, so a
-      // greeted document re-reads them rather than keeping the old view's.
+      // The i18n domain keys off the hosted view, so a greeted document re-reads
+      // it rather than keeping the old view's catalog.
       publishI18n();
-      publishHandoff();
     },
     health: setHealth,
     healthScenario: () => healthScenario,

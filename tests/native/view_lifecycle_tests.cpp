@@ -73,7 +73,7 @@ int main()
 
 	// --- hidden non-core LRU cap ---------------------------------------------
 	ViewLifecycle lru;
-	lru.NoteInstantiated("osfui/handoff", true, 0.0);  // pinned: never counts, never reclaimed
+	lru.NoteInstantiated("osfui/settings", true, 0.0);  // pinned: never counts, never reclaimed
 	lru.NoteInstantiated("m.a/hud", false, 0.0);
 	lru.NoteInstantiated("m.b/hud", false, 1.0);
 	lru.NoteInstantiated("m.c/hud", false, 2.0);

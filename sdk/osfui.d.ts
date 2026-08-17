@@ -102,8 +102,6 @@ export type PlatformSend =
   | { name: "close"; payload?: Record<string, never> }
   /** Open/close the calling view. */
   | { name: "setVisible"; payload: { visible: boolean } }
-  /** Declare meaningful first paint. Only for a manifest with readySignal:true; helper sugar: markReady(). */
-  | { name: "view.ready"; payload?: Record<string, never> }
   /**
    * EXPERIMENTAL. Take over gamepad handling: suppress the default nav/scroll
    * mapping and consume raw `ui.gamepad` events. Cleared when your document
@@ -180,8 +178,6 @@ export interface PlatformState {
   "osfui/input-context": EngineInputContextState;
   /** Active-locale overrides for THIS document's owning mod. Consumed by the i18n namespace for you. */
   "osfui/i18n": I18nCatalog;
-  /** (platform-private) The first-load handoff view's current state. */
-  "osfui/handoff": HandoffState;
 }
 
 // ---------------------------------------------------------------------------
@@ -457,18 +453,6 @@ export interface DiagnosticsData {
   issues: DiagnosticIssue[];
 }
 
-/** Value of the `osfui/handoff` state key (platform-private). */
-export interface HandoffState {
-  target: string;
-  mod: string;
-  title: string;
-  accent: string;
-  phase: "linking" | "retrying" | "error";
-  retry: boolean;
-}
-
-
-
 // ---------------------------------------------------------------------------
 // Settings schema shapes (mirror docs/schema/settings-schema.schema.json)
 // ---------------------------------------------------------------------------
@@ -726,9 +710,6 @@ export interface OSFUIHelper {
     /** Replays the current value SYNCHRONOUSLY on subscribe, then fires on every change. */
     on<T = unknown>(key: string, fn: (value: T) => void): () => void;
   };
-
-  /** Declare meaningful first paint; only for a manifest with readySignal:true. */
-  markReady(): boolean;
 
   /** Direct GLOBAL calls plus the owning-mod listener endpoints. */
   papyrus: {

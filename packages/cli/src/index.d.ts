@@ -21,9 +21,7 @@ export interface ViewConfig {
   /** Compatibility field for catalog visibility; false hides the view from catalogs. */
   hub?: boolean;
   debugOnly?: boolean;
-  readySignal?: boolean;
   targetVersion?: string;
-  accent?: string;
   permissions?: {
     nativeBridge?: boolean;
     filesystem?: boolean;

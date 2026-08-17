@@ -52,7 +52,6 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
     assert.match(config, new RegExp(`kind: '${surface}'`));
     assert.match(config, new RegExp(`targetVersion: '${OSFUI_RELEASE_VERSION.replaceAll('.', '\\.')}`));
     assert.match(config, /description: 'Generated/);
-    assert.match(config, /accent: '#7bdcff'/);
     // Only fields that differ from the CLI defaults are scaffolded.
     assert.doesNotMatch(config, /transparent:|hub:|permissions:/);
     assert.equal(config.match(/\bviews:/g)?.length, 1);
@@ -232,9 +231,8 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
     } else {
       assert.doesNotMatch(config, /openOnStart: true/);
       assert.match(config, /pausesGame: false/);
-      assert.match(config, /readySignal: true/);
       assert.match(source, /<button/);
-      assert.match(source, /osfui\.markReady\(\)/);
+      assert.doesNotMatch(source, /osfui\.markReady\(\)/);
       assert.match(source, /osfui\.i18n\.localize/);
       assert.match(source, /osfui\.theme\.applyAccent/);
       assert.match(source, /registry\.keyboard\?\.labels/);

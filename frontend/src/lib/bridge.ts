@@ -49,9 +49,6 @@ export interface Bridge {
   /** Latest value of a state key, or undefined. Imperative escape hatch; prefer state(). */
   peek<T extends StateKey>(key: T): StateValue<T> | undefined;
 
-  /** Declare meaningful readiness for a manifest with readySignal:true. */
-  markReady(): boolean;
-
   /** Resolves with OSF UI runtime handshake info. Rejects "no-bridge" standalone. */
   ready(): Promise<RuntimeInfo>;
 
@@ -131,8 +128,6 @@ export const windowBridge: Bridge = {
   peek: <T extends StateKey>(key: T) =>
     window.osfui?.state?.get?.call(window.osfui!.state, key) as StateValue<T> | undefined,
 
-  markReady: () => window.osfui?.markReady?.() ?? false,
-
   ready: () => window.osfui?.ready ?? Promise.reject(noBridgeError()),
 
   i18nReady: () => window.osfui?.i18n?.ready ?? Promise.resolve({ locale: 'en', strings: {} }),
@@ -175,7 +170,6 @@ export const nullBridge: Bridge = {
   onAny: () => () => {},
   state: () => () => {},
   peek: () => undefined,
-  markReady: () => false,
   ready: () => Promise.reject(noBridgeError()),
   i18nReady: () => Promise.resolve({ locale: 'en', strings: {} }),
   locale: () => 'en',

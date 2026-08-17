@@ -209,8 +209,7 @@ for the mod's future documents. There is no subscriber set to prune or to go
 stale. The platform's own registries are state keys on the
 `osfui` mod: `osfui/settings`, `osfui/views`, `osfui/diagnostics`,
 `osfui/keybindings`, `osfui/input-context`, `osfui/i18n` (computed per view —
-a document's catalog is its owning mod's), and the platform-private
-`osfui/handoff`. The original registries replaced the 1.x
+a document's catalog is its owning mod's). The original registries replaced the 1.x
 `*.get` requests, each of which was a read with the invisible side effect of
 subscribing the caller — which is the definition of state, not of a read.
 
@@ -244,9 +243,8 @@ mod id and view name. Manifest entries may not point outside the view folder.
 Discovery does not create browser content, and there is no configured view
 list: every valid manifest is discovered (sorted by qualified id, so creation
 order and z tie-breaks are deterministic), and its view is instantiated on
-first open. The two
-exceptions are the pinned core set (the handoff view and `osfui/settings` —
-instantiated, prewarmed, never reclaimed) and HUDs whose effective auto-start
+first open. The exceptions are the pinned `osfui/settings` view (instantiated,
+prewarmed, never reclaimed) and HUDs whose effective auto-start
 is on. That policy is the player's: `ViewPolicyStore` persists per-HUD
 choices from Mod Settings (`state/view-policy.json`, temp-file replaced,
 quarantined to `.bad` when malformed, retained for uninstalled views); the

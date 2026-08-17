@@ -95,8 +95,8 @@ test('built-in request endpoints resolve without configuration', async () => {
 });
 
 test('the endpoint registry mirrors the current native runtime', async () => {
-  const [runtime, settings] = await Promise.all([
-    readFile(resolve(import.meta.dirname, '../../../src/Runtime/Runtime.cpp'), 'utf8'),
+  const [runtimeBridge, settings] = await Promise.all([
+    readFile(resolve(import.meta.dirname, '../../../src/Bridge/RuntimeBridge.cpp'), 'utf8'),
     readFile(resolve(import.meta.dirname, '../../../src/Settings/SettingsModule.cpp'), 'utf8'),
   ]);
   const names = (source, kind) => [
@@ -104,11 +104,11 @@ test('the endpoint registry mirrors the current native runtime', async () => {
   ].map((match) => match[1]);
   assert.deepEqual(
     [...PLATFORM_SENDS].sort(),
-    ['osfui.hello', ...names(runtime, 'Send')].sort(),
+    ['osfui.hello', ...names(runtimeBridge, 'Send')].sort(),
   );
   assert.deepEqual(
     [...PLATFORM_REQUESTS].sort(),
-    [...names(runtime, 'Request'), ...names(settings, 'Request')].sort(),
+    [...names(runtimeBridge, 'Request'), ...names(settings, 'Request')].sort(),
   );
 });
 
@@ -128,13 +128,6 @@ test('platform requests return protocol-shaped stand-ins', async () => {
     ok: true,
     payload: { armed: true, mod: 'acme.widgets', key: 'toggleKey' },
   });
-
-  const game = harness({});
-  await game.request('game.get');
-  assert.deepEqual(game.settled[0], {
-    ok: true,
-    payload: { calendar: { available: false } },
-  });
 });
 
 test('platform request authority and papyrus.call security match the runtime', async () => {
@@ -145,22 +138,18 @@ test('platform request authority and papyrus.call security match the runtime', a
   const papyrus = harness({});
   await papyrus.send('papyrus.call', { script: 'OsFuI', function: 'SetString' });
   assert.equal(papyrus.faults[0].code, 'forbidden');
-
-  const handoff = harness({});
-  await handoff.send('osfui.handoffRetry');
-  assert.equal(handoff.faults[0].code, 'forbidden');
 });
 
-test('a built-in SEND is accepted silently — there is nothing to settle', async () => {
+test('a SEND endpoint is accepted silently — there is nothing to settle', async () => {
   const h = harness({});
-  await h.send('view.ready');
+  await h.send('close');
   assert.equal(h.settled.length, 0);
   assert.equal(h.faults.length, 0);
 });
 
 test('requesting a send endpoint is a kind mismatch, not a missing mock', async () => {
   const h = harness({});
-  await h.request('view.ready');
+  await h.request('close');
   assert.equal(h.settled[0].ok, false);
   assert.equal(h.settled[0].code, 'wrong-endpoint-kind');
 });

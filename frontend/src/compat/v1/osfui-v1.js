@@ -329,7 +329,6 @@
     const args = Array.prototype.slice.call(arguments, 1);
     return legacy.send("ui.action", args.length ? { action: name, args: args } : { action: name });
   };
-  legacy.viewReady = function () { return legacy.send("view.ready"); };
   legacy.data = {
     get: function (key) {
       const current = dataState.get(dataKey(key));

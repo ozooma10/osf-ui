@@ -142,7 +142,9 @@ namespace
 int main()
 {
 	const auto runtimeSource = ReadSource("../../src/Runtime/Runtime.cpp") +
-		ReadSource("../../src/Runtime/RuntimeFrame.cpp");
+		ReadSource("../../src/Runtime/RuntimeFrame.cpp") +
+		ReadSource("../../src/Bridge/RuntimeBridge.cpp") +
+		ReadSource("../../src/Views/RuntimeViews.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
 	const auto menuEventSource = ReadSource("../../src/Input/MenuEventSink.cpp");
 	const auto presentationSource = ReadSource("../../src/Views/ViewPresentationController.cpp");
@@ -172,30 +174,48 @@ int main()
 		"toggle, Escape/Back, and CloseAll must cancel a pending open");
 	Check(ContainsInOrder(applyRequests, {
 		"if (r.open)",
-		"m_viewOpen.Target() == r.view",
+		"*_pendingViewOpen == r.view",
 		"CancelPendingOpen()",
 		"_presentation.Close(r.view)" }),
 		"a native close request must cancel its pending open before closing the view");
 
+	const auto beginOpen = FunctionBody(runtimeSource, "bool Runtime::BeginViewOpen(std::string_view a_id)");
+	Check(ContainsInOrder(beginOpen, {
+		"manifest->kind == ViewKind::Hud",
+		"return _presentation.Open(a_id)",
+		"const auto loadState = m_viewLoads.GetState(a_id)",
+		"loadState == ViewLoadState::Finished",
+		"return _presentation.Open(a_id)",
+		"_pendingViewOpen = std::string(a_id)" }),
+		"menus must stay closed while loading; only HUDs and load-complete menus open immediately");
+
 	const auto cancelPending = FunctionBody(runtimeSource, "bool Runtime::CancelPendingOpen()");
 	Check(ContainsInOrder(cancelPending, {
-		"_presentation.Close(kHandoffViewId)",
-		"m_viewOpen.Cancel()" }),
-		"pending-open cancellation must close the handoff surface before dropping ownership");
+		"const auto target = std::move(*_pendingViewOpen)",
+		"_pendingViewOpen.reset()" }),
+		"pending-open cancellation must drop ownership without changing presentation");
+	const auto drivePending = FunctionBody(runtimeSource, "void Runtime::DrivePendingOpen()");
+	Check(ContainsInOrder(drivePending, {
+		"_presentation.IsInstantiated(target)",
+		"m_viewLoads.GetState(target) != ViewLoadState::Finished",
+		"_presentation.Open(target)",
+		"_pendingViewOpen.reset()",
+		"ApplyViewPresentationPolicy()" }),
+		"a pending menu must remain closed until main-frame load succeeds, then enter normal presentation policy");
 
 	const auto endpoints = FunctionBody(runtimeSource,
 		"void Runtime::RegisterPlatformEndpoints(MessageBridge& a_bridge)");
 	Check(ContainsInOrder(endpoints, {
 		"RegisterSend(\"close\"",
+		"*_pendingViewOpen == source",
 		"CancelPendingOpen()",
-		"_presentation.Close(a_b.CurrentSource())" }),
-		"browser close must cancel a pending handoff or close the calling view");
+		"_presentation.Close(source)" }),
+		"browser close must cancel a pending open or close the calling view");
 	Check(ContainsInOrder(endpoints, {
-		"const auto viewClose",
-		"m_viewOpen.Targets(id)",
+		"RegisterRequest(\"menu.close\"",
+		"*_pendingViewOpen == id",
 		"cancelled = CancelPendingOpen()",
-		"_presentation.Close(id)",
-		"RegisterRequest(\"menu.close\", viewClose)" }),
+		"_presentation.Close(id)" }),
 		"browser menu.close must cancel a pending open before applying the closed state");
 	Check(ContainsInOrder(endpoints, {
 		"const auto* manifest = _views.Find(id)",

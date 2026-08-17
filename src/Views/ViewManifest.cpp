@@ -3,7 +3,6 @@
 #include <array>
 
 #include "Core/Log.h"
-#include "Core/Color.h"
 #include "Core/Version.h"
 #include "Core/Ids.h"
 #include "Core/Json.h"
@@ -25,9 +24,9 @@ namespace OSFUI
 		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: [content] " + a_path.string());
 		if (Log::DevMode()) {
 			Json::ReportUnknownKeys(*json,
-				{ "manifestVersion", "mod", "title", "description", "accent", "hub", "debugOnly", "entry",
+				{ "manifestVersion", "mod", "title", "description", "hub", "debugOnly", "entry",
 					"width", "height", "transparent", "kind",
-					"capturesInput", "pausesGame", "openOnStart", "order", "readySignal", "permissions",
+					"capturesInput", "pausesGame", "openOnStart", "order", "permissions",
 					"targetVersion" },
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
@@ -59,16 +58,6 @@ namespace OSFUI
 
 		manifest.title = Json::Get(*json, "title", manifest.id);
 		manifest.description = Json::Get(*json, "description", "");
-		if (auto accent = Json::Get(*json, "accent", ""); !accent.empty()) {
-			if (IsHexColor(accent)) {
-				std::ranges::transform(accent, accent.begin(), [](char c) {
-					return (c >= 'A' && c <= 'F') ? static_cast<char>(c + 32) : c;
-				});
-				manifest.accent = std::move(accent);
-			} else {
-				REX::WARN("ViewManifest: [content] view '{}' accent '{}' is not #rrggbb or #rrggbbaa — ignored", manifest.id, accent);
-			}
-		}
 		manifest.entry = Json::Get(*json, "entry", manifest.entry);
 		manifest.width = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::Get(*json, "width", manifest.width), 1, 16384));
@@ -89,7 +78,6 @@ namespace OSFUI
 		manifest.order = static_cast<std::int32_t>(Json::Get(*json, "order", manifest.order));
 		manifest.catalogVisible = Json::Get(*json, "hub", manifest.catalogVisible);
 		manifest.debugOnly = Json::Get(*json, "debugOnly", manifest.debugOnly);
-		manifest.readySignal = Json::Get(*json, "readySignal", manifest.readySignal);
 
 		// A newer target remains advisory and badges "needs update". An explicitly
 		// pre-2.0 target is retained so the temporary v1 navigation façade and its
@@ -113,11 +101,6 @@ namespace OSFUI
 			manifest.permissions.filesystem = Json::Get(*permissions, "filesystem", false);
 			manifest.permissions.network = Json::Get(*permissions, "network", false);
 		}
-		if (manifest.readySignal && !manifest.permissions.nativeBridge) {
-			REX::WARN("ViewManifest: [content] view '{}' requests readySignal without nativeBridge; using load completion", manifest.id);
-			manifest.readySignal = false;
-		}
-
 		// Views may only reference their own local assets; reject entries that
 		// escape the view folder.
 		const auto entryPath = std::filesystem::path(manifest.entry);

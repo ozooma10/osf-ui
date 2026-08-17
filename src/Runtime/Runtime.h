@@ -24,7 +24,6 @@
 #include "Views/ViewManager.h"
 #include "Views/ViewLifecycle.h"
 #include "Views/ViewLoadTracker.h"
-#include "Views/ViewOpenSession.h"
 #include "Views/ViewPolicyStore.h"
 #include "Views/ViewRecoveryTracker.h"
 #include "Views/ViewRevealGate.h"
@@ -159,16 +158,12 @@ namespace OSFUI
 		void                          PreparePresentationRequests(const PendingPresentationWork& a_work);
 		void                          ApplyPresentationRequests(const PendingPresentationWork& a_work);
 
-		// First-open handoff: keep a newly-created menu hidden until its page is
-		// usable. Fast loads open directly; slower loads temporarily show the
-		// pinned osfui/handoff view with the target menu's input/pause
-		// policy. Views may opt into an explicit `view.ready` milestone.
+		// Keep a newly-created menu closed until its main-frame load succeeds.
+		// The target remains invisible and owns no input/pause state while loading;
+		// the normal fresh-frame gate still protects the eventual reveal.
 		bool BeginViewOpen(std::string_view a_id);
 		bool CancelPendingOpen();
-		void RetryPendingOpen();
 		void DrivePendingOpen();
-		void ShowHandoff(std::string_view a_phase, bool a_retry);
-		void FinishPendingOpen();
 
 		// Apply the native API's queued RegisterSettingsSchema /
 		// UnregisterSettingsSchema ops to the store (Source::kNative) on the main
@@ -260,9 +255,9 @@ namespace OSFUI
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url,
 			std::string_view a_description, int a_errorCode);
 
-		// Reload one view's URL in place: mark it Loading, clear its content-ready state,
+		// Reload one view's URL in place: mark it Loading,
 		// IWebRenderer::CreateOrNavigateView, then restore the output-matched size.
-		// The shared core of crash-recovery, dev-reload, and pending-open retry.
+		// The shared core of crash-recovery and dev-reload.
 		// The renderer must
 		// exist — every caller guards _renderer first.
 		void ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest);
@@ -368,7 +363,7 @@ namespace OSFUI
 		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
 		std::unordered_set<std::string> _pinnedViews;
 
-		ViewOpenSession m_viewOpen;
+		std::optional<std::string> _pendingViewOpen;
 
 		// Last value pushed to IWebRenderer::SetNativeFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.
@@ -483,9 +478,6 @@ namespace OSFUI
 		// doesn't re-send an unchanged catalog). There is no subscriber set any
 		// more: platform state goes to every greeted view.
 		std::string                     _lastViewsData;
-		// Latest handoff-view state, republished on that view's greeting so an
-		// F5 mid-handoff does not strand it on its cold pre-state look.
-		nlohmann::json                  _handoffState;
 		// Per-view count of view-caused protocol faults; crossing the threshold
 		// raises one `view.protocol-misuse` health issue.
 		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;

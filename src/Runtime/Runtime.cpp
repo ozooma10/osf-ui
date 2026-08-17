@@ -32,12 +32,6 @@
 
 namespace OSFUI
 {
-	namespace
-	{
-		constexpr double           kHandoffDelaySeconds{ 0.15 };
-		constexpr double           kReadySignalTimeoutSeconds{ 15.0 };
-	}
-
 	Runtime& Runtime::Get()
 	{
 		// ExitProcess stops worker threads before DLL static destruction. The
@@ -290,10 +284,8 @@ namespace OSFUI
     void Runtime::InitializeStartupViews()
     {
 		_pinnedViews.clear();
-		for (const auto id : { kHandoffViewId, kSettingsViewId }) {
-			if (_views.Find(id)) {
-				_pinnedViews.emplace(id);
-			}
+		if (_views.Find(kSettingsViewId)) {
+			_pinnedViews.emplace(kSettingsViewId);
 		}
 
 		std::size_t instantiated = 0;
@@ -309,7 +301,6 @@ namespace OSFUI
 			// prewarm view so first open is immediateish
 			_renderer->PrewarmView(a_id);
 		};
-		instantiatePinned(kHandoffViewId, "as the pinned first-load handoff");
 		instantiatePinned(kSettingsViewId, "as the pinned Mod Settings view");
 
 		for (const auto& manifest : _views.All()) {
@@ -505,7 +496,7 @@ namespace OSFUI
 				prepare(request.view, "on demand");
 			}
 		}
-		if (!m_viewOpen.Active() && !_presentation.ActiveMenu() &&
+		if (!_pendingViewOpen && !_presentation.ActiveMenu() &&
 			std::ranges::find(a_work.local, PresentationRequest::ToggleDefault) != a_work.local.end()) {
 			prepare(_config.view, "for the default-menu toggle");
 		}
@@ -521,7 +512,7 @@ namespace OSFUI
 		for (const auto req : reqs) {
 			switch (req) {
 			case PresentationRequest::ToggleDefault:
-				if (m_viewOpen.Active()) {
+				if (_pendingViewOpen) {
 					CancelPendingOpen();
 				} else if (_presentation.ActiveMenu()) {
 					_presentation.CloseActiveMenu();
@@ -537,7 +528,7 @@ namespace OSFUI
 				// that hides the overlay). The toggle key never delegates, so a
 				// broken page cannot strand the user.
 				const auto active = _presentation.ActiveMenu();
-				if (m_viewOpen.Active() && (!active || *active == kHandoffViewId)) {
+				if (_pendingViewOpen) {
 					CancelPendingOpen();
 				} else if (active && m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
 					constexpr std::uint32_t kVkEscape = 0x1B;
@@ -569,7 +560,7 @@ namespace OSFUI
 					BeginViewOpen(r.view);
 				}
 			} else {
-				if (m_viewOpen.Active() && (m_viewOpen.Target() == r.view || r.view == kHandoffViewId)) {
+				if (_pendingViewOpen && *_pendingViewOpen == r.view) {
 					CancelPendingOpen();
 				}
 				_presentation.Close(r.view);
@@ -618,150 +609,58 @@ namespace OSFUI
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
 			return false;
 		}
-		if (!manifest || manifest->kind == ViewKind::Hud ||
-			a_id == kHandoffViewId || !_presentation.IsInstantiated(kHandoffViewId)) {
+		if (!manifest || manifest->kind == ViewKind::Hud) {
 			CancelPendingOpen();
 			return _presentation.Open(a_id);
 		}
 
 		const auto loadState = m_viewLoads.GetState(a_id);
-		if(m_viewLoads.IsRevealReady(a_id, manifest->readySignal)) {
+		if (loadState == ViewLoadState::Finished) {
 			CancelPendingOpen();
 			return _presentation.Open(a_id);
 		}
-		if (m_viewOpen.Active() && m_viewOpen.Targets(a_id)) {
+		if (_pendingViewOpen && *_pendingViewOpen == a_id) {
 			return false;
 		}
 
 		CancelPendingOpen();
-		m_viewOpen.Begin(a_id, _uptime, loadState == ViewLoadState::Finished);
-		REX::DEBUG("Runtime: holding first open of '{}' until its reveal gate is reached", a_id);
+		_pendingViewOpen = std::string(a_id);
+		REX::DEBUG("Runtime: holding first open of '{}' until its main-frame load succeeds", a_id);
 		return true;
 	}
 
 	bool Runtime::CancelPendingOpen()
 	{
-		if (!m_viewOpen.Active()) {
+		if (!_pendingViewOpen) {
 			return false;
 		}
-		const auto target = std::string(m_viewOpen.Target());
-		const bool changed = _presentation.Close(kHandoffViewId);
-		m_viewOpen.Cancel();
+		const auto target = std::move(*_pendingViewOpen);
+		_pendingViewOpen.reset();
 		REX::DEBUG("Runtime: cancelled pending open of '{}'", target);
-		return changed;
-	}
-
-	void Runtime::ShowHandoff(std::string_view a_phase, bool a_retry)
-	{
-		if (!m_viewOpen.Active() || !_bridge) {
-			return;
-		}
-		const auto* target = _views.Find(m_viewOpen.Target());
-		if (!target || !_presentation.IsInstantiated(kHandoffViewId)) {
-			return;
-		}
-
-		if(!m_viewOpen.UpdateHandoff(a_phase, a_retry)) {
-			return;
-		}
-
-		// The pinned handoff view borrows the target menu's policy, so loading feels
-		// like entering that same target view instead of opening global UI chrome.
-		_presentation.AddInstantiated({ std::string(kHandoffViewId), ViewKind::Menu,
-			target->capturesInput, target->pausesGame, target->order });
-		const auto title = _localization.Resolve(target->mod,
-			"views." + std::string(Ids::ViewNameOf(target->id)) + ".title", target->title);
-		// STATE, not an event: this is latest-wins data the handoff view
-		// renders from. As a push it left the view showing its cold pre-state
-		// look forever after an F5, because nothing re-sent it.
-		_handoffState = nlohmann::json{
-			{ "target", target->id },
-			{ "mod", target->mod },
-			{ "title", title },
-			{ "accent", target->accent },
-			{ "phase", a_phase },
-			{ "retry", a_retry },
-		};
-		_bridge->PublishState(kHandoffViewId, "osfui", "handoff", _handoffState);
-		_presentation.Open(kHandoffViewId);
-		ApplyViewPresentationPolicy();
-	}
-
-	void Runtime::FinishPendingOpen()
-	{
-		if (!m_viewOpen.Active()) {
-			return;
-		}
-		_presentation.Close(kHandoffViewId);
-		_presentation.Open(m_viewOpen.Target());
-		m_viewOpen.Cancel();
-		REX::DEBUG("Runtime: first-load handoff completed for '{}'", m_viewOpen.Target());
-		ApplyViewPresentationPolicy();
+		return true;
 	}
 
 	void Runtime::DrivePendingOpen()
 	{
-		if (!m_viewOpen.Active()) {
+		if (!_pendingViewOpen) {
 			return;
 		}
-		const auto target = std::string(m_viewOpen.Target());
+		const auto target = *_pendingViewOpen;
 		const auto* manifest = _views.Find(target);
-		if (!manifest) {
-			ShowHandoff("error", true);
+		if (!manifest || !_presentation.IsInstantiated(target)) {
+			REX::WARN("Runtime: cancelling pending open of '{}' because the view is no longer available", target);
+			CancelPendingOpen();
 			return;
 		}
 
-		if(!_presentation.IsInstantiated(target) && !m_viewOpen.RetryRequested()) {
-			ShowHandoff("error", true);
+		if (m_viewLoads.GetState(target) != ViewLoadState::Finished) {
 			return;
 		}
 
-		if(m_viewOpen.TakeRetryRequest()) {
-			if(!_renderer) {
-				return;
-			}
-
-			if(!_presentation.IsInstantiated(target)) {
-				if(!InstantiateView(*manifest, "via handoff retry")) {
-					ShowHandoff("error", true);
-					return;
-				}
-			} else {
-				m_viewRecovery.Clear(target);
-				ReloadViewInPlace(target, *manifest);
-			}
-
-			m_viewOpen.Restart(_uptime);
-			ShowHandoff("linking", false);
-			BroadcastViewsData();  // Mod Settings picks the new view up live
-			return;
-		}
-
-		const auto state = m_viewLoads.GetState(target);
-		if (state == ViewLoadState::Finished) {
-			m_viewOpen.NoteLoaded(_uptime);
-		}
-
-		if(m_viewLoads.IsRevealReady(target, manifest->readySignal)) {
-			FinishPendingOpen();
-			return;
-		}
-
-		if(manifest->readySignal && m_viewOpen.ReadySignalTimedOut(_uptime, kReadySignalTimeoutSeconds)) {
-			ShowHandoff("error", true);
-			return;
-		}
-
-		if(!m_viewOpen.HandoffDelayElapsed(_uptime, kHandoffDelaySeconds)) {
-			return;
-		}
-
-		ShowHandoff(state == ViewLoadState::Failed ? "retrying" : "linking", false);
-	}
-
-	void Runtime::RetryPendingOpen()
-	{
-		m_viewOpen.RequestRetry();
+		_presentation.Open(target);
+		_pendingViewOpen.reset();
+		REX::DEBUG("Runtime: main-frame load completed; opening '{}'", target);
+		ApplyViewPresentationPolicy();
 	}
 
 	void Runtime::DrainSchemaOps()
@@ -818,7 +717,7 @@ namespace OSFUI
 				if (!InstantiateView(*m, "via plugin RegisterView openOnStart")) {
 					continue;
 				}
-				_presentation.Open(id);
+				BeginViewOpen(id);
 				catalogChanged = true;
 			} else {
 				// Discovery already made this id catalogued and RequestMenu-openable.
@@ -845,8 +744,8 @@ namespace OSFUI
 			_presentation.CloseActiveMenu();
 		}
 		// A capturing menu is safe only when the whole production input path is
-		// available. This central guard also covers plugin openOnStart and a view opening
-		// itself through setVisible, which do not pass through BeginViewOpen.
+		// available. This central guard remains the final safety net for every
+		// menu-opening path after BeginViewOpen performs its admission checks.
 		if (_presentation.DesiredCapture() && !_captureIntegrationAvailable) {
 			REX::WARN("Runtime: closing a requested menu because required input integration is unavailable");
 			CancelPendingOpen();
@@ -1029,7 +928,6 @@ namespace OSFUI
 		}
 
 		m_viewRecovery.ClearAll();
-		m_viewLoads.ClearAllContentReady();
 		m_viewInputGrants.ResetAll();
 		_pendingMouseMove.store(kNoPendingMouseMove);
 		m_viewReveal.Reset();

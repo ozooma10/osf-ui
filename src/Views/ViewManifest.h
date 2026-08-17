@@ -34,9 +34,6 @@ namespace OSFUI
 		std::string           id;
 		std::string           title;
 		std::string           description;  // one-line blurb for catalogs (`osfui/views` state / Mod Settings)
-		// Optional UI accent used by platform chrome such as the first-load
-		// handoff. Canonical #rrggbb; empty means the OSF UI default.
-		std::string           accent;
 		// Owning mod id = the mod folder name under views/. Matches the settings
 		// mod id (settings/<modId>.json / RegisterSettingsSchema) so Mod Settings
 		// groups a mod's menu/HUD views onto its settings page.
@@ -78,11 +75,6 @@ namespace OSFUI
 		// Kept out of Mod Settings unless config.json devMode is on; still loads
 		// and can be opened by id. Intended for developer-only tools.
 		bool debugOnly{ false };
-
-		// When true, a first on-demand open remains behind the handoff view
-		// until the page sends the `view.ready` endpoint. Requires
-		// nativeBridge; false falls back to successful main-frame load completion.
-		bool readySignal{ false };
 
 		// OSF UI release version this view was authored against ("1.2.0"). Advisory only,
 		// never gates loading; when newer than the running OSF UI, Mod Settings

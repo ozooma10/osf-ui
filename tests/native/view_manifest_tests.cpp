@@ -42,31 +42,22 @@ int main()
 	// No "id" field: identity comes from the folder path alone.
 	Write(path, R"({
 		"title": "Cargo terminal",
-		"accent": "#E6904A",
-		"readySignal": true,
 		"permissions": { "nativeBridge": true }
 	})");
 	auto manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);
 	assert(manifest->id == "demo.mod/terminal");
-	assert(manifest->accent == "#e6904a");
-	assert(manifest->readySignal);
+	assert(manifest->title == "Cargo terminal");
 
-	// Explicit readiness cannot work without a bridge. The parser degrades to
-	// load completion, so a typo cannot leave the handoff waiting forever.
 	// The legacy "id" field — even a stale one from a copied manifest — is
 	// ignored, not rejected.
 	Write(path, R"({
 		"id": "some-old-name",
-		"accent": "#nothex",
-		"readySignal": true,
 		"permissions": { "nativeBridge": false }
 	})");
 	manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);
 	assert(manifest->id == "demo.mod/terminal");
-	assert(manifest->accent.empty());
-	assert(!manifest->readySignal);
 
 	// During 2.0.x a valid pre-2.0 declaration remains in the catalog and keeps
 	// its exact target so navigation and diagnostics can select the v1 adapter.

@@ -59,7 +59,7 @@ Module scripts, dynamic `import()` and same-origin `fetch()` work under the WebV
 
 - Everything it exports is prefixed: classes `osf-*`, custom properties `--osf-*`. Nothing un-prefixed is part of the contract, so your own names can't collide with a kit update.
 - Linking it is opt-in and all-or-nothing. It styles element-level bases (body, headings, `a`, `kbd`, `::selection`, scrollbars, form elements) globally, as any base sheet does. Link it for the native look, or don't and own all your styling; there is no partial mode.
-- Theming is a single accent color — no theme classes. A mod's accent is the `accent` value in its schema or manifest. Apply it to any subtree with `osfui.theme.applyAccent(el, "#e6904a")` (from `shared/osfui.js`), which derives the kit's linked accent set (`--osf-accent`, `-hover`, `-strong`, `-quiet`). A missing or invalid value clears the whole derived set rather than leaving half of it behind.
+- Theming is a single accent color — no theme classes. A mod's accent is the `accent` value in its settings schema. Apply it to any subtree with `osfui.theme.applyAccent(el, "#e6904a")` (from `shared/osfui.js`), which derives the kit's linked accent set (`--osf-accent`, `-hover`, `-strong`, `-quiet`). A missing or invalid value clears the whole derived set rather than leaving half of it behind.
 
 ### `padnav.js` is not part of the shared kit
 
@@ -100,7 +100,6 @@ Your catalog is a state key (`osfui/i18n`, §3) the shared bridge helper consume
 {
   "title": "My HUD",        // optional, defaults to the qualified id
   "description": "",        // optional; one-line blurb shown in catalogs (the osfui/views state key, Mod Settings)
-  "accent": "#e6904a",      // optional; colors platform chrome such as the first-load handoff
   "kind": "menu",           // optional, default "menu"; "menu" = modal overlay, "hud" = passive overlay over gameplay. Unknown values fall back to "menu"
   "capturesInput": true,    // optional, default true; MENU-ONLY — route input into the page while this is the active menu. Forced false for HUDs
   "pausesGame": true,       // optional, default true; MENU-ONLY — pause the simulation while this is the active menu. Forced false for HUDs
@@ -108,7 +107,6 @@ Your catalog is a state key (`osfui/i18n`, §3) the shared bridge helper consume
   "order": 0,               // optional, default 0; HUD-ONLY paint order among HUDs (clamped 0..999, higher on top). Ignored for menus
   "hub": true,              // optional, default true; catalog visibility compatibility field; false = hidden utility view, not listed or auto-start eligible
   "debugOnly": false,       // optional, default false; keep out of the catalog unless developer mode is enabled. Still discovered and openable by id; intended for built-in developer tools
-  "readySignal": true,      // optional, default false; wait for osfui.markReady() before first reveal (requires nativeBridge)
   "targetVersion": "2.0.0", // optional; newer targets are advisory; pre-2.0 temporarily selects the 1.x façade through 2.0.x
   "entry": "index.html",    // optional, default "index.html"; its file must stay inside the folder; query/fragment are preserved
   "width": 1600,            // optional, default 1600; clamped to 1..16384 — logical (authoring) size
@@ -127,8 +125,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the shared bridge helper consume
 - **`width`/`height`** set the page's logical size; author against it. Under the D3D12 compositor the OSF UI runtime resizes the view to the screen aspect (height capped at 1440) with a matching device scale (`outputHeight / height`), so the page always lays out at its logical height and CSS pixels scale up. At 1440p a 720-tall manifest gets a 2.0 device scale and a 720 px CSS viewport — type sized for 720p stays that size instead of shrinking. Width still varies with aspect ratio (~1720 CSS px on 21:9), so write width-responsive CSS. The versioned guarantee is that your logical height is fixed; width is not.
 - **`kind`** picks the view kind: a `"menu"` may capture input and become the active menu; a `"hud"` is passive (see *Multiple views & layering*). `capturesInput` and `pausesGame` refine a menu only — set `pausesGame:false` for a menu that wants the world running — and are forced `false` for HUDs whatever the manifest says.
 - **`permissions.nativeBridge`** must be `true` if your page talks to the OSF UI runtime. When false, `window.osfui` is never injected and the page runs purely client-side.
-- On a menu's first open, OSF UI keeps the WebView hidden until its main frame loads. Loads over 150 ms show a small in-world local-link panel carrying the menu's title, accent, input-capture policy and pause policy; reopening an already instantiated document stays immediate. A failed load stays on that panel with retry/cancel controls rather than revealing a blank view.
-- Set **`readySignal:true`** when main-frame load completion is too early — e.g. the page needs its first state replay before it has anything meaningful to paint. After rendering that state, call `osfui.markReady()` once to declare **content readiness**. Requires `permissions.nativeBridge:true`; without it the OSF UI runtime warns and falls back to load completion. If a load-complete page never signals, the handoff offers retry after 15 seconds so it can't strand the player.
+- On a menu's first open, OSF UI keeps the view closed until its main-frame load succeeds. The view owns no input or pause state while loading. A failed load remains closed while automatic recovery runs; load failures and exhausted recovery are reported through System Health and `OSF UI.log`.
 - A manifest failing validation (an `entry` escaping the folder, a folder name violating the id grammar) is skipped with an error in `OSF UI.log`. The owning mod id comes from the `views/<modId>/` folder, so a view always groups onto its own mod's page.
 
 ### Multiple views & layering
@@ -137,8 +134,8 @@ Several views can be hosted and composited at once, with no central list to main
 
 Whether a HUD starts with the game is player policy: each eligible HUD row in Mod Settings has a "Start automatically" switch, persisted outside shipped mod files and applied at the next launch. A HUD manifest's `openOnStart: true` only sets the auto-start default for players who haven't chosen. Hidden utility views (`hub: false`, the compatibility spelling for catalog visibility) aren't eligible — a view the player can't see in the catalog may not silently run in the background — and `debugOnly` views qualify only while developer mode is on. Discovered menus never auto-start; a plugin's explicit `RegisterView` is a different entry path and honors `openOnStart` as open-on-registration opt-in ([native-plugin-api.md](native-plugin-api.md) §8c).
 
-The OSF UI runtime pins its own core views (the first-load handoff and Mod Settings)
-resident and prewarms their first paint. **Pinned** means never reclaimed;
+The OSF UI runtime keeps Mod Settings pinned and prewarms its first paint.
+**Pinned** means never reclaimed;
 **prewarmed** describes paint priming and is not itself a lifetime promise.
 
 A closed view keeps its document instance initially. After ~90 seconds of hidden game time, OSF UI asks WebView2 to suspend it, pausing JS timers and animation until activity resumes it. A non-pinned view is reclaimed and returned to the discovered state after ~25 hidden minutes — or earlier when more than four closed views sit hidden (least recently used first; open views, e.g. a HUD beneath a pausing menu, never count). Reopening a reclaimed view creates a fresh document instance, which greets the bridge and is replayed all of its state (§3), so an idle reclaim is invisible to a correctly written view. Treat `ui.visibility` as the active-menu visit boundary; don't rely on hidden timers for required work.
@@ -243,7 +240,6 @@ const offEvent = osfui.on("ui.hotkey", (p) => { … });           // → unsubsc
 const offState = osfui.state.on("osfui/settings", render);      // → unsubscribe
 const now = osfui.state.get("yourname.mymod/credits");          // latest value, or undefined
 
-osfui.markReady();                                  // manifests with readySignal:true
 osfui.papyrus.call("MyModUI", "Equip", formId, 1); // arbitrary GLOBAL function; fire-and-forget
 osfui.papyrus.send("equip", formId, 1);             // one-way, to your own mod's script
 const price = await osfui.papyrus.request("price", formId);
@@ -261,7 +257,7 @@ Two things about `request()`: it resolves the **reply payload**, not an envelope
 
 State keys are `"<modId>/<key>"` — the owning mod, then the name the mod backend published. Platform keys are `osfui/…`, yours are `yourname.mymod/…`. Keys match case-insensitively on both halves, because a Papyrus key arrives through `BSFixedString` interning, which hands back the first casing the process saw.
 
-> **Gone from the strict 2.0 surface:** `osfui.emit`, `osfui.call`, `osfui.action`, `osfui.viewReady`, `osfui.data.*`, top-level `osfui.t` / `localize` / `locale()` / `i18nReady` / `applyAccent`, and `available()` as a *call*. During 2.0.x only, a view that still declares a pre-2.0 target receives those members from the isolated compatibility façade and a persistent 2.1.0 removal warning. A migrated 2.0 view receives none of them. The subtle migration break remains `request()`: 1.x resolves the whole envelope while strict 2.0 resolves its payload, so `reply.payload.x` becomes `reply.x`.
+> **Gone from the strict 2.0 surface:** `osfui.emit`, `osfui.call`, `osfui.action`, `osfui.data.*`, top-level `osfui.t` / `localize` / `locale()` / `i18nReady` / `applyAccent`, and `available()` as a *call*. During 2.0.x only, a view that still declares a pre-2.0 target receives those members from the isolated compatibility façade and a persistent 2.1.0 removal warning. `osfui.viewReady` was part of the removed first-load handoff and is unavailable on both paths. The subtle migration break remains `request()`: 1.x resolves the whole envelope while strict 2.0 resolves its payload, so `reply.payload.x` becomes `reply.x`.
 
 Under the shared bridge helper sit two primitives (all the shared bridge helper itself uses):
 
@@ -281,12 +277,10 @@ Anything not listed is dropped and surfaced as `unknown-endpoint`.
 | `osfui.hello` | — | greet the bridge. **The shared bridge helper sends this for you** on every document |
 | `close` | — | close the calling view (closing the active menu hides the menu layer; a coexisting open HUD stays up) |
 | `setVisible` | `visible: bool` | open/close the calling view |
-| `view.ready` | — | declare this page has meaningful content ready for its first reveal; only for manifests with `readySignal:true`. Sugar: `osfui.markReady()` |
 | `osfui.gamepadRaw` | `raw: bool` | *(experimental — exempt from the stability guarantee)* take over gamepad handling: suppress the default nav mapping and consume raw `ui.gamepad` events. Cleared whenever your document greets the bridge, i.e. on every (re)load — re-assert it from ordinary boot code, not a reload handler; there is no reload handler |
 | `osfui.handleBack` | `handle: bool` | own the back action. While your menu is active, Esc / gamepad B are delivered to your page as a synthetic Escape keydown/keyup instead of closing the active menu — handle it and decide: navigate (`menu.open`), dismiss an inner panel, or `send("close")`. Same per-document lifetime as `osfui.gamepadRaw`. The overlay toggle key always closes natively, so a page that stops responding can't strand the player |
 | `papyrus.call` | `script: string`, `function: string`, scalar `args?` | queue an arbitrary GLOBAL Papyrus function. JavaScript integers become Papyrus `int`, fractional numbers become `float`, and strings/booleans retain their types; use `osfui.papyrus.float(3)` when a whole-valued number must be a `float`. Fire-and-forget: use `SetView*` or `SendViewEvent` for observable results. Sugar: `osfui.papyrus.call(script, function, ...args)` |
 | `papyrus.send` | `name: string`, `args?: (string\|number\|boolean)[]` | one-way message to the OWNING mod's Papyrus listener, delivered as `OnOSFUIViewAction(name, args)`. The target mod is derived from the calling view's id — the payload can't spoof it. Sugar: `osfui.papyrus.send(name, ...args)`. See [authoring-dynamic-data.md](authoring-dynamic-data.md) |
-| `osfui.handoffRetry` | — | *(platform-private)* retry a stalled first-load handoff |
 
 ### Requests (web → native, settles exactly once)
 
@@ -320,10 +314,9 @@ Every one of these replays to every fresh document. Nothing here is requested or
 | `osfui/settings` | `{ mods: [{ id, title, schema, values, shadowed?, targetVersion? }], keyboard?, loadErrors? }` | the registry SHAPE changes (a schema registers, hot-reloads or goes away), a whole-mod reset lands, or the OS keyboard layout switches. Individual commits arrive as the `settings.changed` event. `keyboard` is `{ layout, labels: { keyName -> keycap } }` — the player's localized keycaps (display only; fall back to the physical key name when absent). `loadErrors` names settings files that failed to load, so a view can say so instead of a mod silently vanishing |
 | `osfui/keybindings` | `{ available, revision, gameVersion, error?, actions: [{ event, label, category, context, classification, modes, sortIndex, required, bindings }] }` | the live engine ControlMap is first copied or remapped. Complete read-only game-input-action order, including unbound, main/alternate, and chorded keyboard rows. `classification` is `core` \| `special` \| `menu` \| `unknown`; `bindings[].key` is an OSF UI physical key name or `null`. `available:false` is fail-closed and carries no actions |
 | `osfui/input-context` | `{ available, revision, mode, contexts: [{ id, name }] }` | the exact active **engine input context** stack or derived semantic mode changes. This is distinct from a settings schema's authored hotkey contexts. `mode` is `onFoot` \| `ship` \| `vehicle` \| `zeroG` \| `null` |
-| `osfui/views` | `{ views: [{ id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState, autoStart, autoStartMutable, pinned }] }` | any presentation or main-frame load-state change. `loadState` is `"unloaded"` (discovered, not instantiated) \| `"loading"` \| `"loaded"` (main-frame load complete, not necessarily content ready) \| `"failed"`. `open` is presentation policy; `focused` identifies the active menu; `interactive` is a menu-kind capability summary, not current input capture; `hub` is the compatibility field for catalog visibility; `pinned` means not reclaimable. Do not list `hub:false` views |
+| `osfui/views` | `{ views: [{ id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState, autoStart, autoStartMutable, pinned }] }` | any presentation or main-frame load-state change. `loadState` is `"unloaded"` (discovered, not instantiated) \| `"loading"` \| `"loaded"` (main-frame load complete) \| `"failed"`. `open` is presentation policy; `focused` identifies the active menu; `interactive` is a menu-kind capability summary, not current input capture; `hub` is the compatibility field for catalog visibility; `pinned` means not reclaimable. Do not list `hub:false` views |
 | `osfui/diagnostics` | `{ system, issues: [{ id, code, severity, status, source, subject, context, occurrences, firstAt, lastAt, resolvedAt? }] }` | the health registry changes. Each health issue carries a stable machine `code` — map it to your own copy, the payload never contains player-facing prose. Powers the System Health destination in Mod Settings; a normal content view rarely needs it |
 | `osfui/i18n` | `{ mod, locale, strings }` | language change or a developer-mode catalog reload. **Per view**: the value is your own mod's catalog. The shared bridge helper consumes this for you — use `osfui.i18n.t()` |
-| `osfui/handoff` | `{ target, mod, title, accent, phase, retry }` | *(platform-private)* the first-load handoff view's own state |
 | `<yourModId>/<key>` | whatever your mod backend published | your Papyrus `OSFUI.SetView*` or your plugin's `SetViewState`. See [authoring-dynamic-data.md](authoring-dynamic-data.md) |
 
 ### Events (`osfui.on(name, fn)`)

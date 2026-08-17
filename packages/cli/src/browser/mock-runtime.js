@@ -54,8 +54,8 @@ function reportIoProtocolFault(io, code, message) {
  * A mock does not need to declare any of these.
  */
 export const PLATFORM_SENDS = new Set([
-  'osfui.hello', 'close', 'setVisible', 'view.ready',
-  'osfui.handleBack', 'osfui.gamepadRaw', 'osfui.handoffRetry',
+  'osfui.hello', 'close', 'setVisible',
+  'osfui.handleBack', 'osfui.gamepadRaw',
   'papyrus.call', 'papyrus.send',
 ]);
 export const PLATFORM_REQUESTS = new Set([
@@ -156,11 +156,6 @@ export function createScenarioHandler(scenario, meta) {
         String(payload.script || '').toLowerCase() === 'osfui') {
       reportIoProtocolFault(io, 'forbidden',
         "papyrus.call cannot target OSF UI's own script — use the osfui.* endpoints");
-      return true;
-    }
-    if (kind === 'send' && name === 'osfui.handoffRetry' &&
-        meta.qualifiedId !== 'osfui/handoff') {
-      reportIoProtocolFault(io, 'forbidden', 'osfui.handoffRetry is a platform action');
       return true;
     }
     const response = await respond(name, payload);

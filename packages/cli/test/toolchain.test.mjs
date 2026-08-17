@@ -141,16 +141,12 @@ test('loads configuration and creates a production manifest', async (t) => {
 
 test('manifestFor covers every manifest.schema.json property', async (t) => {
   const root = await projectFixture(t);
-  // `accent` is fully live natively and documented as authorable; it was the
-  // one schema property manifestFor dropped, so a .ts/.mjs config silently
-  // lost it and the handoff panel rendered default teal.
   await writeFile(resolve(root, 'osfui.config.ts'), `export default {
     modId: 'acme.widgets',
-    views: [{ id: 'panel', title: 'Panel', accent: '#ffb86b', targetVersion: '2.0.0' }],
+    views: [{ id: 'panel', title: 'Panel', targetVersion: '2.0.0' }],
   };`);
   const project = await loadProject(root);
   const manifest = manifestFor(project.views[0]);
-  assert.equal(manifest.accent, '#ffb86b');
 
   // The class-killing assertion: every non-$ schema property must be a key
   // manifestFor can emit, so the next added property cannot be silently

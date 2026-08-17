@@ -79,9 +79,6 @@ Data/SFSE/Plugins/
         keybinds/                    the Keybindings view
           manifest.json
           index.html  style.css  main.js
-        handoff/                     private pinned, prewarmed handoff view
-          manifest.json
-          index.html  style.css  main.js
     settings/                  <- settings schemas (one JSON per mod) + values/
     bin/
       osfui_webview2_host.exe   <- out-of-process browser host

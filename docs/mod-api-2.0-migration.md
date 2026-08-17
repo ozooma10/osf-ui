@@ -33,7 +33,7 @@ The whole surface is four verbs — `send`, `request`, `on`, `state` — plus th
 | `osfui.action(name, ...args)` | `osfui.papyrus.send(name, ...args)` | **LOUD** |
 | `osfui.papyrus.action(name, ...args)` | `osfui.papyrus.send(name, ...args)` | **LOUD** |
 | `osfui.papyrus.request(name, ...args)` | unchanged (still unwraps to the script's value) | none |
-| `osfui.viewReady()` | `osfui.markReady()` | **LOUD** |
+| `osfui.viewReady()` | removed with the first-load handoff; main-frame load now gates first open | **LOUD** |
 | `osfui.on(type, fn)` | `osfui.on(event, fn)` — **events only**; replies never fire handlers | name survives; see §1.3 |
 | `osfui.data.on(key, fn)` | `osfui.state.on("<mod>/<key>", fn)` | **LOUD** — `osfui.data` is `undefined` |
 | `osfui.data.get(key)` | `osfui.state.get("<mod>/<key>")` | **LOUD** |
@@ -46,7 +46,7 @@ The whole surface is four verbs — `send`, `request`, `on`, `state` — plus th
 | — | `osfui.state.on/get` (new fourth verb) | — |
 | — | `localStorage["osfui:trace"] = "1"` envelope tracing | — |
 
-The typed façade the built-in views use, `frontend/src/lib/bridge.ts`, mirrors this exactly: `available()`, `send()`, `request()`, `on()`, `onAny()`, `state(key, fn)`, `peek(key)`, `markReady()`, `ready()`, `i18nReady()`, `locale()`, `t()`, `applyAccent()`, `papyrusSend()`, `papyrusRequest()`. `emit()`, `call()` and `viewReady()` are gone from it too.
+The typed façade the built-in views use, `frontend/src/lib/bridge.ts`, mirrors this exactly: `available()`, `send()`, `request()`, `on()`, `onAny()`, `state(key, fn)`, `peek(key)`, `ready()`, `i18nReady()`, `locale()`, `t()`, `applyAccent()`, `papyrusSend()`, `papyrusRequest()`. `emit()`, `call()` and `viewReady()` are gone from it too.
 
 ### 1.2 The one silent break
 
@@ -153,7 +153,6 @@ The four-verb model dissolves 1.x's subscribe-on-read wart: `settings.get`, `vie
 | `osfui/views` | `views.get` → `views.data` | every discovered view with live open/focus/load state |
 | `osfui/diagnostics` | `diagnostics.get` → `diagnostics.data` | the System Health snapshot |
 | `osfui/i18n` | `i18n.get` → `i18n.data` | `{ mod, locale, strings }` — **computed per view**, the owning mod's catalog |
-| `osfui/handoff` | the `handoff.state` push | (platform-private) first-load handoff state |
 
 Plus every mod key a mod backend publishes: Papyrus `SetView*` and the ABI's `SetViewState` both land under `"<yourModId>/<key>"`.
 
@@ -165,7 +164,7 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 
 ### 3.3 Sends — `osfui.send(name, payload)`
 
-`osfui.hello`, `close`, `setVisible`, `view.ready`, `log`, `osfui.gamepadRaw`, `osfui.handleBack`, `osfui.handoffRetry` (platform-private), `papyrus.call`, `papyrus.send`.
+`osfui.hello`, `close`, `setVisible`, `log`, `osfui.gamepadRaw`, `osfui.handleBack`, `papyrus.call`, `papyrus.send`.
 
 ### 3.4 Requests — `osfui.request(name, payload)`
 
@@ -201,7 +200,7 @@ The first six names are unchanged from 1.x. What changed: they are now *only* ev
 
 ### 3.6 Deleted native → web message types for 2.0 views
 
-The `kind` field replaces the whole `type` taxonomy: `runtime.ready` (now `kind:"ready"`), `ui.result`, `ui.error` (now `kind:"reply"` / `kind:"error"`), `settings.ack`, `settings.data`, `views.data`, `i18n.data`, `diagnostics.data`, `data.push`, `data.state` (now `kind:"state"`), `papyrus.result`, `runtime.pong`, `game.data`, `handoff.state`. The guarded 1.x façade reconstructs these public legacy shapes only for explicitly pre-2.0 navigation during 2.0.x.
+The `kind` field replaces the whole `type` taxonomy: `runtime.ready` (now `kind:"ready"`), `ui.result`, `ui.error` (now `kind:"reply"` / `kind:"error"`), `settings.ack`, `settings.data`, `views.data`, `i18n.data`, `diagnostics.data`, `data.push`, `data.state` (now `kind:"state"`), `papyrus.result`, `runtime.pong`, and `game.data`. The guarded 1.x façade reconstructs these public legacy shapes only for explicitly pre-2.0 navigation during 2.0.x. The platform-private `handoff.state` type disappeared with the handoff itself.
 
 ---
 
@@ -292,7 +291,7 @@ The design doc left three open questions. What shipped:
 ## 7. Deviations from the design doc as written
 
 - **7.1 `osfui/debug.error` shipped as the `osfui.debug.error` EVENT.** A slash denotes a qualified view id (`<modId>/<viewName>`) and the state `<modId>/<key>` separator, so a slashed name is ambiguous exactly where it matters. It shipped as a dotted event name in the platform (`osfui.*`) namespace, delivered by `MessageBridge::ReportProtocolFault` → `Runtime::OnProtocolFault` → `Emit(view, "osfui.debug.error", …)`, printed by the shared bridge helper's `deliverEvent` special case with the usual `[osfui]` prefix. Naming it an event also settles what it is: one-shot, never replayed, never cached.
-- **7.2 The fixed-target shell verbs shipped as requests, not commands.** The doc grouped `osfui.openModPage` and `osfui.openLogFolder` with the commands; both can fail for reasons the page can't predict and the player can act on (`shell-failed`, `no-log-folder`), and the doc's own rule is that wanting a remote outcome makes it a request. The security property that motivated grouping them — the target is a compile-time constant or natively derived and the payload can't steer the shell — is unaffected by endpoint kind. `close`, `log`, `view.ready`, `osfui.gamepadRaw` and `osfui.handleBack` did ship as commands.
+- **7.2 The fixed-target shell verbs shipped as requests, not commands.** The doc grouped `osfui.openModPage` and `osfui.openLogFolder` with the commands; both can fail for reasons the page can't predict and the player can act on (`shell-failed`, `no-log-folder`), and the doc's own rule is that wanting a remote outcome makes it a request. The security property that motivated grouping them — the target is a compile-time constant or natively derived and the payload can't steer the shell — is unaffected by endpoint kind. `close`, `log`, `osfui.gamepadRaw` and `osfui.handleBack` did ship as commands.
 - **7.4 `hud.show` / `hud.hide` and `osfui.textFocus` were deleted, not migrated.** The first two were registered to the *same handler lambdas* as `menu.open`/`menu.close`; "one dialect, no aliases" is a design principle. `osfui.textFocus` was a registered no-op kept only so a view asserting text focus before session focus wouldn't trip `unknown-command`; since an unknown send is now a dev-only debug event it bought nothing. (The WebView2 focus-on-demand mechanism it fronted is native and unaffected.)
 - **7.5 Smaller drifts.** The removed `ReplayViewState` machinery moved to `src/Bridge/RetainedStateStore.{h,cpp}` rather than staying in `PapyrusApi` (§6.3). The native ABI now matches the OSF UI runtime registry spelling: `RegisterSend` / `RegisterRequest`.
 
@@ -322,7 +321,7 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run ve
 
 | Guarantee | Suite |
 |---|---|
-| Page-initiated handshake is the only boot path; hello precedes everything | `frontend/test/protocol.envelope.test.ts`, `frontend/test/handoff.test.tsx`, `tests/native/bridge_api_tests.cpp` |
+| Page-initiated handshake is the only boot path; hello precedes everything | `frontend/test/protocol.envelope.test.ts`, `tests/native/bridge_api_tests.cpp` |
 | Envelope grammar: routing beside the payload, id required on request / forbidden on send, 64-char id cap, strict `invalid-request` | `frontend/test/protocol.envelope.test.ts` |
 | **`request()` resolves the payload, not the envelope** | `frontend/test/protocol.errors.test.ts` |
 | Typed error contract: `code` is `""` never `undefined`, message fallback chain, payload absent on local failures | `frontend/test/protocol.errors.test.ts` |

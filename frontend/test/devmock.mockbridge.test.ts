@@ -452,14 +452,10 @@ describe('platform requests', () => {
   });
 
   it('answers the one-way sends without settling anything', async () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    send('log', { text: 'hello' });
     send('close');
-    send('view.ready');
     send('osfui.gamepadRaw', { raw: true });
     send('osfui.handleBack', { handle: true });
     await settle();
-    expect(spy).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'hello');
     expect(frames.some((f) => f.kind === 'reply' || f.kind === 'error')).toBe(false);
     expect(eventsOf('osfui.debug.error')).toHaveLength(0);
   });

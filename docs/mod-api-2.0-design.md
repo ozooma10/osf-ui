@@ -92,8 +92,6 @@ interface OSFUI {
     on<T>(key: string, fn: (value: T) => void): () => void;  // replays current value immediately
   };
 
-  markReady(): boolean;                        // sugar: send('view.ready')
-
   papyrus: {                                   // direct GLOBAL call + listener endpoints
     float(value: number): PapyrusFloatArgument;
     call(script: string, fn: string, ...args: PapyrusCallArgument[]): boolean;
@@ -182,10 +180,7 @@ Ordering guarantees, in both directions:
 
 1. `ready` precedes all state for that document.
 2. All replayed state precedes the first event.
-3. `markReady()` (manifest `readySignal:true`) gates reveal exactly as
-   `view.ready` does today; the reveal watchdog and error-handoff behavior are
-   unchanged.
-4. `ready` rejects with `no-bridge` in a plain browser instead of hanging.
+3. `ready` rejects with `no-bridge` in a plain browser instead of hanging.
 
 ## Endpoint-owner symmetry
 
@@ -257,9 +252,9 @@ time ("capture armed", or `capture-busy`), and the outcome arrives as the
 `settings.captured` event. Requests settle in machine time; human-time
 outcomes are events.
 
-Pure-notification `send` endpoints remain: `close`, `log`, `view.ready`,
-input-mode declarations (`osfui.gamepadRaw`, `osfui.handleBack`), and the
-fixed-target shell endpoints.
+Pure-notification `send` endpoints remain: `close`, `log`, input-mode
+declarations (`osfui.gamepadRaw`, `osfui.handleBack`), and Papyrus delivery
+(`papyrus.call`, `papyrus.send`).
 
 ## Failure semantics
 

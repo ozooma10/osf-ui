@@ -52,7 +52,6 @@ frontend/
     views/osfui/
       settings/     the Mod Settings view
       keybinds/     the Keybindings view
-      handoff/      the pinned, prewarmed first-load handoff view (platform-private)
   devmock/          DEV ONLY — the mock bridge + fixtures (installed by osfui.mock.ts)
   osfui.config.ts   the built-ins as an @osfui/cli project (what `osfui dev` serves)
   osfui.mock.ts     mock module: installs devmock/ + registers the toolbar tools

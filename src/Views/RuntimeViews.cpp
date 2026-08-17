@@ -7,7 +7,6 @@
 #include "Core/Ids.h"
 #include "Core/Log.h"
 #include "Core/Version.h"
-#include "Views/BuiltinViewIds.h"
 
 namespace OSFUI
 {
@@ -141,10 +140,11 @@ namespace OSFUI
 		}
 		const auto actions = _viewLifecycle.CollectDueActions(_uptime);
 		const auto unavailable = [this](const std::string& a_id) {
-			return !_presentation.IsInstantiated(a_id) || m_viewLoads.GetState(a_id) == ViewLoadState::Loading || m_viewRecovery.Contains(a_id) || m_viewOpen.Targets(a_id);
+			return !_presentation.IsInstantiated(a_id) || m_viewLoads.GetState(a_id) == ViewLoadState::Loading ||
+				m_viewRecovery.Contains(a_id) || (_pendingViewOpen && *_pendingViewOpen == a_id);
 		};
 		for (const auto& id : actions.suspend) {
-			if (unavailable(id) || (id == kHandoffViewId && m_viewOpen.Active())) {
+			if (unavailable(id)) {
 				continue;
 			}
 			_renderer->SuspendView(id);
@@ -163,8 +163,6 @@ namespace OSFUI
 		m_viewRecovery.Clear(a_id);
 		if (a_reason == ViewTeardownReason::IdleReclaim) {
 			m_viewLoads.Forget(a_id);  // idle-reclaim is a normal lifecycle event, not a load failure
-		} else {
-			m_viewLoads.ClearContentReady(a_id);  // a failed load is a content problem, not a lifecycle event
 		}
 		if (_renderer) {
 			_renderer->DestroyView(a_id);

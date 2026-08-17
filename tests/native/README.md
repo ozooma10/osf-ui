@@ -63,7 +63,7 @@ Windows pipe suite is built separately through xmake. Currently:
 | `scan_code_tests.cpp` | The physical key identity core: `ComposeScanCode`'s message-quirk normalization (Pause/NumLock/PrintScreen), the `kNamedScans` full-table name round-trip and ≤16-char constraint, W3C `KeyboardEvent.code` aliases, and the frozen legacy VK resolver the values migration reads |
 | `key_label_tests.cpp` | The localized keycap-label pipeline (`Input/KeyLabels`): fixed short forms for non-printing keys (localizable via `chrome.keys.*`), layout glyphs for printable keys, the fallback chain, and US/German-QWERTZ layout fixtures (Z/Y swap, umlauts, dead keys, the ISO `<>` key) |
 | `localization_service_tests.cpp` | `LocalizationService`: the English-source catalog and the locale fallback rules (exact locale → base language → authored English) |
-| `view_manifest_tests.cpp` | `ViewManifest`: canonical manifest accents and the `readySignal` native-bridge requirement/fallback |
+| `view_manifest_tests.cpp` | `ViewManifest`: folder-derived identity, permissions, entry routing, and legacy-id handling |
 | `json_tests.cpp` | The `Core/Json` lenient accessor contract: `Get<T>` wrong-type/missing-key defaults, the int-vs-float target asymmetry, negative-into-unsigned refusal, comment-tolerant `Parse`, and UTF-8-replacing `Dump` |
 | `wv2_messages_tests.cpp` | Typed wire-message round-trips for the game ↔ browser-host pipe (`Wv2Messages.h`): type stamping, declared defaults, wrong-typed-field tolerance, opaque envelope byte fidelity, and the hello identity gate |
 | `health_registry_tests.cpp` | `HealthRegistry` + `MessageBridge` through real 2.0 envelopes: dedupe/occurrence counting, resolve/reactivate history, wire ordering, the payload sanitizer, and delivery |

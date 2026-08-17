@@ -106,9 +106,6 @@ namespace OSFUI
 		for (const auto* key : { "settings", "views", "diagnostics", "keybindings", "input-context", "i18n" }) {
 			PublishPlatformState(key, a_viewId);
 		}
-		if (a_viewId == kHandoffViewId && !_handoffState.is_null()) {
-			_bridge->PublishState(a_viewId, "osfui", "handoff", _handoffState);
-		}
 		const std::string mod{ Ids::ModOf(a_viewId) };
 		if (const auto* entries = _retainedState.Find(mod)) {
 			for (const auto& entry : *entries) {
@@ -151,17 +148,22 @@ namespace OSFUI
     void Runtime::RegisterPlatformEndpoints(MessageBridge& a_bridge)
 	{
 		a_bridge.RegisterSend("close", [this](const nlohmann::json&, MessageBridge& a_b) {
-			if (a_b.CurrentSource() == kHandoffViewId && CancelPendingOpen()) {
-				ApplyViewPresentationPolicy();
+			const std::string source(a_b.CurrentSource());
+			if (_pendingViewOpen && *_pendingViewOpen == source) {
+				CancelPendingOpen();
 				return;
 			}
-			if (_presentation.Close(a_b.CurrentSource())) {
+			if (_presentation.Close(source)) {
 				ApplyViewPresentationPolicy();
 			}
 		});
 		a_bridge.RegisterSend("setVisible", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string src(a_b.CurrentSource());
-			const bool changed = Json::Get(a_p, "visible", false) ? _presentation.Open(src) : _presentation.Close(src);
+			const bool visible = Json::Get(a_p, "visible", false);
+			if (!visible && _pendingViewOpen && *_pendingViewOpen == src) {
+				CancelPendingOpen();
+			}
+			const bool changed = visible ? BeginViewOpen(src) : _presentation.Close(src);
 			if (changed) {
 				ApplyViewPresentationPolicy();
 			}
@@ -191,35 +193,16 @@ namespace OSFUI
 				id = std::string(a_b.CurrentSource());
 			}
 			bool cancelled = false;
-			if (m_viewOpen.Active() && (m_viewOpen.Targets(id) || id == kHandoffViewId)) {
+			if (_pendingViewOpen && *_pendingViewOpen == id) {
 				cancelled = CancelPendingOpen();
 			}
 			if (_presentation.Close(id)) {
 				ApplyViewPresentationPolicy();
-			} else if (cancelled) {
-				ApplyViewPresentationPolicy();
-			} else if (!_presentation.IsInstantiated(id)) {
+			} else if (!cancelled && !_presentation.IsInstantiated(id)) {
 				a_b.Reject("unknown-view", "view is not instantiated");
 				return;
 			}
 			a_b.Respond(nlohmann::json::object());
-		});
-		a_bridge.RegisterSend("view.ready", [this](const nlohmann::json&, MessageBridge& a_b) {
-			const std::string source(a_b.CurrentSource());
-			const auto* manifest = _views.Find(source);
-			if (!manifest || !manifest->permissions.nativeBridge) {
-				a_b.ReportProtocolFault(source, "forbidden", "view.ready requires nativeBridge");
-				return;
-			}
-			m_viewLoads.MarkContentReady(source);
-			REX::DEBUG("Runtime: view '{}' declared meaningful readiness", source);
-		});
-		a_bridge.RegisterSend("osfui.handoffRetry", [this](const nlohmann::json&, MessageBridge& a_b) {
-			if (a_b.CurrentSource() != kHandoffViewId) {
-				a_b.ReportProtocolFault(a_b.CurrentSource(), "forbidden", "osfui.handoffRetry is a platform action");
-				return;
-			}
-			RetryPendingOpen();
 		});
 		a_bridge.RegisterRequest("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			// Show/hide one instantiated view by id, independent of the overlay toggle. Omitting "view" targets the calling view (self-hide).

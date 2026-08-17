@@ -28,7 +28,6 @@ type LegacyHelper = {
   send(name: string, payload?: Record<string, unknown>): boolean;
   emit(name: string, payload?: Record<string, unknown>): boolean;
   action(name: string, ...args: unknown[]): boolean;
-  viewReady(): boolean;
   request(name: string, payload?: Record<string, unknown>, opts?: { timeoutMs?: number }): Promise<any>;
   call(name: string, payload?: Record<string, unknown>, opts?: { timeoutMs?: number }): Promise<any>;
   on(type: string, fn: (payload: any, message: any) => void): () => void;
@@ -100,9 +99,6 @@ describe('temporary 1.x helper facade', () => {
     expect(last(sent)).toEqual({
       kind: 'send', name: 'papyrus.send', payload: { name: 'equip', args: [42] },
     });
-    expect(helper.viewReady()).toBe(true);
-    expect(last(sent)).toMatchObject({ kind: 'send', name: 'view.ready' });
-
     const pong = vi.fn();
     helper.on('runtime.pong', pong);
     expect(helper.send('ping')).toBe(true);

@@ -32,9 +32,6 @@
 //                                            code. Key is "<mod>/<key>".
 //   osfui.state.get(key)                  -> latest value, or undefined.
 //
-//   osfui.markReady()                     -> sugar for send("view.ready"); used
-//                                            only when your manifest sets
-//                                            readySignal:true.
 //   osfui.papyrus.call / .send / .request -> GLOBAL call or listener messages
 //   osfui.i18n.ready / .locale / .t / .localize
 //   osfui.theme.applyAccent(el, hex)
@@ -186,10 +183,8 @@
   };
 
   // ---------------------------------------------------------------------
-  // sugar: markReady / papyrus
+  // sugar: papyrus
   // ---------------------------------------------------------------------
-
-  g.markReady = function () { return g.send("view.ready"); };
 
   g.papyrus = {
     float: function (value) {
@@ -262,7 +257,7 @@
   // sugar: theme — never touches the wire
   // ---------------------------------------------------------------------
 
-  // A schema/manifest `accent` is one hex, but the kit reads a linked set of
+  // A settings-schema `accent` is one hex, but the kit reads a linked set of
   // four tokens, so derive and set them together — or clear the whole set on a
   // missing/invalid hex, so nothing leaks from a previously themed subtree.
   const ACCENT_TOKENS = ["--osf-accent", "--osf-accent-hover", "--osf-accent-quiet", "--osf-accent-strong"];

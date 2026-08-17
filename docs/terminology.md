@@ -84,8 +84,7 @@ These states describe different axes and must not be used interchangeably:
 |---|---|
 | **discovered** | A valid manifest and qualified view id are known. No browser object is implied. |
 | **instantiated** | The web renderer/browser host has created the live browser object for the view. |
-| **load complete** | The document's main-frame navigation completed. This is the public `loadState: "loaded"`; it does not imply content readiness. |
-| **content ready** | A `readySignal:true` document called `osfui.markReady()` and may be revealed. Without `readySignal`, load completion is the reveal gate. |
+| **load complete** | The document's main-frame navigation completed. This is the public `loadState: "loaded"` and the gate for completing a pending first open. |
 | **open** | Presentation policy says the menu or HUD should be present. This is independent of main-frame load progress. |
 | **active menu** | The one open menu selected for menu presentation and focus policy. There is no menu stack. |
 | **input-target view** | The instantiated browser view selected by the renderer/browser host for mouse, real focus, cursor, and synthetic-key delivery. It follows the active menu during an input session, but names a transport target rather than presentation state. |
@@ -102,7 +101,7 @@ browser lifetime of the containing view.
 The public `osfui/views` payload retains compatibility field names:
 
 - `loadState` reports browser main-frame progress (`unloaded`, `loading`,
-  `loaded`, or `failed`), not `readySignal` completion;
+  `loaded`, or `failed`);
 - `open` reports presentation policy;
 - `focused` identifies the active menu;
 - `interactive` is a menu-kind capability summary, not current input capture;
@@ -137,11 +136,10 @@ when discussing `RegisterView`, call it **open on registration**.
   the web protocol's `kind:"ready"` envelope;
 - **preview initialized** — the CLI development preview settled its mock and
   page setup and can accept shell controls; it does not imply a bridge handshake;
-- **content ready** — a `readySignal:true` document sent the `view.ready` send
-  endpoint through `osfui.markReady()`; and
 - **frame ready** — a texture/fence is ready for the compositor.
 
-Wire values such as `kind:"ready"` and `view.ready` remain unchanged.
+The wire value `kind:"ready"` remains the bridge-handshake response and is not
+the browser's main-frame load milestone.
 
 ## Bridge and retained state
 

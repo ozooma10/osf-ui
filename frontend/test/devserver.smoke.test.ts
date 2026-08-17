@@ -77,11 +77,10 @@ describe('osfui dev serves the built-in views', () => {
     expect(source).toMatch(/from\s+"[^"]*mockbridge/);
   });
 
-  it('lists all three built-in views for the shell switcher', async () => {
+  it('lists both built-in views for the shell switcher', async () => {
     const listing = await fetch(`${origin}/__osfui/meta.json`).then((r) => r.json());
     expect(listing.initial).toBe('osfui/settings');
     expect(listing.views.map((view: { qualifiedId: string }) => view.qualifiedId).sort()).toEqual([
-      'osfui/handoff',
       'osfui/keybinds',
       'osfui/settings',
     ]);
@@ -92,7 +91,7 @@ describe('osfui dev serves the built-in views', () => {
   });
 
   it('transforms each view entry module without errors', async () => {
-    for (const view of ['settings', 'keybinds', 'handoff']) {
+    for (const view of ['settings', 'keybinds']) {
       const response = await fetch(`${origin}/osfui/${view}/main.tsx`);
       expect(response.status, view).toBe(200);
       expect(await response.text(), view).toContain('render');

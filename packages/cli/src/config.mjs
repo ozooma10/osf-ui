@@ -262,10 +262,7 @@ export function manifestFor(view) {
     order: Number.isInteger(view.order) ? view.order : 0,
     hub: view.hub !== false,
     debugOnly: view.debugOnly === true,
-    readySignal: view.readySignal === true,
     ...(view.targetVersion ? { targetVersion: view.targetVersion } : {}),
-    // Optional per-mod theming; the handoff view and Mod Settings chrome read it.
-    ...(typeof view.accent === 'string' && view.accent ? { accent: view.accent } : {}),
     permissions: view.permissions,
   };
 }

@@ -41,7 +41,6 @@ describe('nullBridge — one-way members', () => {
     // locally", so false here is the honest answer, not an error swallowed.
     expect(nullBridge.send('close')).toBe(false);
     expect(nullBridge.send('setVisible', { visible: false })).toBe(false);
-    expect(nullBridge.markReady()).toBe(false);
     expect(nullBridge.papyrusCall('AcmeWidgets', 'Refresh')).toBe(false);
     expect(nullBridge.papyrusSend('doorOpened', 'airlock', 3)).toBe(false);
   });

@@ -18,11 +18,6 @@
       "type": "string",
       "description": "One-line blurb shown in catalogs. Defaults to empty."
     },
-    "accent": {
-      "type": "string",
-      "pattern": "^#[0-9a-fA-F]{6}$",
-      "description": "Optional accent used by platform chrome such as the first-load handoff."
-    },
     "entry": {
       "type": "string",
       "default": "index.html",
@@ -82,11 +77,6 @@
       "type": "boolean",
       "default": false,
       "description": "When true, this view is kept out of the catalog unless developer mode is enabled by devMode or the temporary author-mode marker. It is still discovered and can be opened by qualified view id. Intended for built-in developer tools."
-    },
-    "readySignal": {
-      "type": "boolean",
-      "default": false,
-      "description": "When true, first reveal waits for the page to declare content readiness by calling osfui.markReady() (which sends the `view.ready` send endpoint), rather than using main-frame load completion as the reveal gate. Requires permissions.nativeBridge. A 15-second post-load timeout offers retry instead of trapping the player. (2.0 views use markReady; the temporary 1.x facade retains viewReady through 2.0.x.)"
     },
     "targetVersion": {
       "type": "string",

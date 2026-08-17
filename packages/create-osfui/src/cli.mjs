@@ -427,8 +427,6 @@ window.addEventListener('keydown', (event) => {
 });
 close.addEventListener('click', () => osfui.send('close'));
 
-// The manifest opts into readySignal, so first reveal waits for meaningful DOM.
-osfui.markReady();
 `;
 }
 
@@ -936,7 +934,6 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') osfui.send('close');
 });
 close.addEventListener('click', () => osfui.send('close'));
-osfui.markReady();
 `;
 }
 
@@ -1144,11 +1141,9 @@ ${modBackendConfig(options)}  views: [{
     kind: '${options.surface}',
     width: ${options.surface === 'hud' ? 1920 : 1200},
     height: ${options.surface === 'hud' ? 1080 : 720},
-    accent: '#7bdcff',
     targetVersion: '${OSFUI_RELEASE_VERSION}',
 ${options.surface === 'hud' ? `    openOnStart: true,
 ` : `    pausesGame: false,
-    readySignal: true,
 `}  }],
 });
 `);

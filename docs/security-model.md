@@ -58,10 +58,10 @@ Each rule notes where it is enforced and any known gaps.
 
    The platform endpoint set is small enough to list. Sends (one-way): the handshake
    `osfui.hello` (answered by the bridge itself, not by a registered handler),
-   view control `close` / `setVisible`, content-ready signal `view.ready`, `log`, the per-view
+   view control `close` / `setVisible`, `log`, the per-view
    input-routing declarations `osfui.gamepadRaw` / `osfui.handleBack`, the
-   platform-private `osfui.handoffRetry`, direct GLOBAL Papyrus dispatch
-   `papyrus.call`, and owning-mod Papyrus delivery `papyrus.send`. Requests (settle payload-or-error): view control
+   direct GLOBAL Papyrus dispatch `papyrus.call`, and owning-mod Papyrus delivery
+   `papyrus.send`. Requests (settle payload-or-error): view control
    `menu.open` / `menu.close` / `setViewHidden`, diagnostics `ping`, the settings writes `settings.set` / `settings.reset` /
    `settings.captureKey`, the fixed-target shell openers `osfui.openModPage` /
    `osfui.openLogFolder`, correlated Papyrus delivery `papyrus.request`, the
