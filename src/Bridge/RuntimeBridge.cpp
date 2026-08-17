@@ -1,6 +1,5 @@
 #include "Runtime/Runtime.h"
 
-#include <format>
 #include <utility>
 #include <vector>
 
@@ -8,9 +7,6 @@
 #include "API/PapyrusCall.h"
 #include "Core/Ids.h"
 #include "Core/Json.h"
-#include "Core/Paths.h"
-#include "Core/Version.h"
-#include "Platform/WindowsPlatform.h"
 #include "Views/BuiltinViewIds.h"
 
 namespace OSFUI
@@ -70,10 +66,6 @@ namespace OSFUI
 				if (_settings) {
 					_bridge->PublishState(a_view, "osfui", "settings", _settings->Store().DataView());
 				}
-			} else if (a_key == "diagnostics") {
-				if (_healthRegistry) {
-					_bridge->PublishState(a_view, "osfui", "diagnostics", _healthRegistry->Snapshot());
-				}
 			} else if (a_key == "keybindings") {
 				_bridge->PublishState(a_view, "osfui", "keybindings", _controlMap.KeybindingsState());
 			} else if (a_key == "input-context") {
@@ -103,7 +95,7 @@ namespace OSFUI
 		if (!_bridge) {
 			return;
 		}
-		for (const auto* key : { "settings", "views", "diagnostics", "keybindings", "input-context", "i18n" }) {
+		for (const auto* key : { "settings", "views", "keybindings", "input-context", "i18n" }) {
 			PublishPlatformState(key, a_viewId);
 		}
 		const std::string mod{ Ids::ModOf(a_viewId) };
@@ -126,23 +118,7 @@ namespace OSFUI
 			});
 		}
 		
-		constexpr std::uint32_t kProtocolFaultThreshold = 10;
-		if (!a_viewFault || a_viewId.empty() || !_healthRegistry) {
-			return;
-		}
-		const auto count = ++_viewProtocolFaultCounts[std::string(a_viewId)];
-		if (count != kProtocolFaultThreshold) {
-			return;
-		}
-		_healthRegistry->Upsert({
-			.id = std::format("view.protocol-misuse:{}", a_viewId),
-			.code = "view.protocol-misuse",
-			.severity = HealthRegistry::Severity::Warning,
-			.source = "views",
-			.subject = std::string(a_viewId),
-			.context = nlohmann::json{ { "code", std::string(a_code) }, { "count", count } },
-		}, _uptime);
-		_healthRegistry->Broadcast();
+		(void)a_viewFault;
 	}
 
     void Runtime::RegisterPlatformEndpoints(MessageBridge& a_bridge)
@@ -315,30 +291,6 @@ namespace OSFUI
 				return;
 			}
 			m_viewInputGrants.SetGamepadRaw(src, Json::Get(a_p, "raw", false));
-		});
-		a_bridge.RegisterRequest("osfui.openModPage", [](const nlohmann::json&, MessageBridge& a_b) {
-			if (Platform::OpenSystemBrowser(kNexusPageURLW)) {
-				REX::INFO("Runtime: osfui.openModPage -> {}", kNexusPageURL);
-				a_b.Respond(nlohmann::json::object());
-			} else {
-				REX::WARN("Runtime: osfui.openModPage — the shell refused to open {}", kNexusPageURL);
-				a_b.Reject("shell-failed", "could not open the system browser");
-			}
-		});
-		a_bridge.RegisterRequest("osfui.openLogFolder", [](const nlohmann::json&, MessageBridge& a_b) {
-			const auto folder = Paths::LogDir();
-			if (folder.empty()) {
-				REX::WARN("Runtime: osfui.openLogFolder — could not resolve the Documents folder");
-				a_b.Reject("no-log-folder", "could not resolve the log folder");
-				return;
-			}
-			if (Platform::OpenFolder(folder)) {
-				REX::INFO("Runtime: osfui.openLogFolder -> {}", folder.string());
-				a_b.Respond(nlohmann::json::object());
-			} else {
-				REX::WARN("Runtime: osfui.openLogFolder — the shell refused to open {}", folder.string());
-				a_b.Reject("shell-failed", "could not open the log folder");
-			}
 		});
 		a_bridge.RegisterSend("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string src(a_b.CurrentSource());

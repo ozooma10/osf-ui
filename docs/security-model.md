@@ -1,6 +1,6 @@
 # Security Model
 
-Component, view, endpoint, and health names follow the
+Component, view, and endpoint names follow the
 [terminology glossary](terminology.md).
 
 ## Threat model
@@ -62,9 +62,8 @@ Each rule notes where it is enforced and any known gaps.
    input-routing declarations `osfui.gamepadRaw` / `osfui.handleBack`, the
    direct GLOBAL Papyrus dispatch `papyrus.call`, and owning-mod Papyrus delivery
    `papyrus.send`. Requests (settle payload-or-error): view control
-   `menu.open` / `menu.close` / `setViewHidden`, diagnostics `ping`, the settings writes `settings.set` / `settings.reset` /
-   `settings.captureKey`, the fixed-target shell openers `osfui.openModPage` /
-   `osfui.openLogFolder`, correlated Papyrus delivery `papyrus.request`, the
+   `menu.open` / `menu.close` / `setViewHidden`, liveness `ping`, the settings writes `settings.set` / `settings.reset` /
+   `settings.captureKey`, correlated Papyrus delivery `papyrus.request`, the
    platform-private startup-policy write `osfui.setViewAutoStart`.
 
    Everything not in that list, and every endpoint a plugin has not registered,
@@ -72,11 +71,11 @@ Each rule notes where it is enforced and any known gaps.
    land in the log as `[content]` warnings — one per occurrence naming the view
    and the code, plus one explanatory line per endpoint name (warn-once, capped
    at 512 distinct names). The read side of the 1.x surface — `settings.get`,
-   `views.get`, `i18n.get`, `diagnostics.get` — no longer exists as endpoints at
+   `views.get`, and `i18n.get` — no longer exists as endpoints at
    all; those registries are pushed as state keys instead (rule 8), so there is
    nothing to call and nothing to guess.
 
-   Nine qualifications:
+   Seven qualifications:
 
    - A separate trusted native SFSE plugin can register additional endpoints via the exported `OSFUI_RequestBridge` API (`docs/native-plugin-api.md`): `RegisterSend` claims a strict one-way endpoint, while `RegisterRequest` claims an explicitly settled request endpoint. Both names must be shaped `<author>.<modname>.<name>` — two dots minimum, with the leading mod id matching the public id grammar. Every platform endpoint is dotless or single-dot, so platform names are structurally unregisterable. Duplicate registrations are refused first-wins **across both registries**, so an already-claimed name cannot be hijacked or shadowed by re-registering it as the other kind. Enforced in `BridgeApi::RegisterSend` / `RegisterRequest` (`IsValidPluginCommand`). This widens the surface only by what a mod author's own DLL deliberately exposes; untrusted JS still cannot register anything, and validating each added endpoint is that plugin's responsibility. During 2.0.x, ABI 1.x callers enter a separate frozen adapter that preserves the same endpoint grammar and native authority checks and raises a warning naming the outdated DLL; strict ABI 2.0 dispatch is unchanged, and unrelated majors are refused.
 
@@ -99,11 +98,7 @@ Each rule notes where it is enforced and any known gaps.
 
    - Two sends let a view take input the framework would otherwise handle: `osfui.gamepadRaw` suppresses the default gamepad nav mapping, and `osfui.handleBack` redirects Esc / gamepad B into the page as a synthetic Escape instead of closing the active menu. Both are sticky per view and neither can be asserted on another view's behalf. They clear on view destroy **and on every greeting**, so a fresh document starts with no grants even when the OSF UI runtime was never told the page reloaded (a raw F5). The bound on abuse is deliberate and native: the overlay toggle key always closes the overlay in the input layer, so a view that grabs back and then stops responding cannot strand the player.
 
-   - Two requests open something in the OS shell, and both are **fixed-target**: `osfui.openModPage` opens OSF UI's own Nexus page and `osfui.openLogFolder` opens the SFSE log directory. No endpoint accepts a URL or path from page content; `Platform::OpenFolder` additionally refuses anything that is not an existing directory. This is the same posture as rule "no URL-steering from page content".
-
-   - The **diagnostics** payload (the compatibility-named `osfui/diagnostics` state key) is native-authored and sanitized outbound: `HealthRegistry::Sanitize` drops structured values, bounds key count and string length, and — via `RedactPath` — replaces anything path-, URL-, or command-shaped with its trailing component. Absolute paths identify the player's machine and account, and a shell-shaped string in a payload the frontend renders would invite an "open this" affordance around it; neither reaches the wire. Player-facing copy and the offered actions are keyed off stable machine `code`s in the built-in frontend, so a mod cannot inject UI text or actions through a health issue. Enforced in `HealthRegistry::Sanitize` (native-tested in `tests/native/health_registry_tests.cpp`). Copying a diagnostic report or issue details is a local clipboard action; OSF UI has no native HTTP client or automatic diagnostic-upload path.
-
-   - OSF UI runtime-detected protocol misuse is reported **back to the offending view** as an `osfui.debug.error` event, and only in developer mode (`Runtime::OnProtocolFault`). This is a debugging affordance, not a capability: the payload is bounded native text about the caller's own mistake, it is delivered to no one else, and a release build emits nothing — repetition raises a `view.protocol-misuse` health issue instead. It does tell a developer-mode page whether a name it guessed exists; so does the `unknown-endpoint` rejection a request already gets in every build (see *Future hardening*).
+   - OSF UI runtime-detected protocol misuse is reported **back to the offending view** as an `osfui.debug.error` event, and only in developer mode (`Runtime::OnProtocolFault`). This is a debugging affordance, not a capability: the payload is bounded native text about the caller's own mistake and is delivered to no one else; release builds keep the failure in the native log. It does tell a developer-mode page whether a name it guessed exists; so does the `unknown-endpoint` rejection a request already gets in every build (see *Future hardening*).
 
 6. **Per-view permissions** (`nativeBridge`, `filesystem`, `network`) default to deny in the manifest parser. Today `nativeBridge=false` prevents bridge creation, blocks the `window.osfui` injection for that view, and drops any outbound send targeting it; finer-grained, per-endpoint grants come later. Partially enforced.
 
@@ -113,7 +108,7 @@ Each rule notes where it is enforced and any known gaps.
 
    - **Retained mod state** from Papyrus `SetView*` or native `SetViewState` is scoped by the publishing mod id: it reaches that mod's instantiated documents and is replayed to its future documents. A Papyrus `SendViewEvent` reaches only that mod's currently instantiated views and is dropped when there are none. Native `SendToWeb` instead addresses one explicit qualified view id and has a bounded pre-instantiation holdback. No message from a page subscribes it to another address or widens any of these delivery sets.
    - **`osfui/i18n`** is computed per view and carries only the catalog of that document's owning mod.
-   - **`osfui/settings`, `osfui/views`, `osfui/diagnostics`, `osfui/keybindings`, and `osfui/input-context`** go to every instantiated bridge-enabled view. The input documents expose only Starfield's read-only action catalog and active context names; they grant no remap or input authority. `osfui/settings` is the whole registry — every installed mod's schema and values — so any bridged third-party view can read every mod's settings. This is an information-disclosure gap, not a write path, and 2.0 made it *broader* than 1.x's `settings.get`, because the document now arrives unasked at every greeting. It is listed under future hardening below and is the main reason to keep sensitive values out of settings.
+   - **`osfui/settings`, `osfui/views`, `osfui/keybindings`, and `osfui/input-context`** go to every instantiated bridge-enabled view. The input documents expose only Starfield's read-only action catalog and active context names; they grant no remap or input authority. `osfui/settings` is the whole registry — every installed mod's schema and values — so any bridged third-party view can read every mod's settings. This is an information-disclosure gap, not a write path, and 2.0 made it *broader* than 1.x's `settings.get`, because the document now arrives unasked at every greeting. It is listed under future hardening below and is the main reason to keep sensitive values out of settings.
    - A document that has not greeted the bridge receives nothing: events queue behind its gate (bounded 64, oldest dropped), state is dropped outright because the greeting replay carries every current value anyway. Destroying a view drops the gate and reaps its in-flight requests, so nothing is retained for a page that is gone.
 
 ## Future hardening

@@ -54,7 +54,7 @@ The typed reference is [`sdk/osfui.d.ts`](sdk/osfui.d.ts).
 - [Dynamic data](docs/authoring-dynamic-data.md) and [native plugin API](docs/native-plugin-api.md) — state, events, requests, and the SFSE C ABI.
 - [Architecture](docs/architecture.md), [security model](docs/security-model.md), [logging](docs/logging.md), and [seam rendering design](docs/seam-draw-design.md) — OSF UI runtime implementation and invariants.
 - [Terminology](docs/terminology.md) — canonical component, version, identity,
-  lifecycle, bridge, input, and health vocabulary.
+  lifecycle, bridge, and input vocabulary.
 - [Mod API 2.0 design](docs/mod-api-2.0-design.md) and [migration record](docs/mod-api-2.0-migration.md) — rationale and compatibility history.
 - [Packaging](docs/PACKAGING.md), [troubleshooting](docs/troubleshooting.md), [design-history index](docs/design-history.md), and [simplification notes](docs/simplification.md) — maintainer and support references.
 - JSON Schemas: [view manifests](docs/schema/manifest.schema.json) and [settings schemas](docs/schema/settings-schema.schema.json).

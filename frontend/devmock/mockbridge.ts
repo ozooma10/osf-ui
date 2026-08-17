@@ -57,8 +57,6 @@ import { pseudoize } from '@osfui/cli/pseudo';
 import {
   FALLBACK_SCHEMAS,
   HARNESS_PAGES,
-  HEALTH_SCENARIOS,
-  MOCK_HEALTH,
   MOCK_VIEWS,
   MOD_ASSET_ROOTS,
   GAME_BINDINGS,
@@ -127,10 +125,6 @@ export interface MockApi {
   cancelCapture(): boolean;
   /** Point the omitted-`view` requests (and the i18n domain) at the currently mounted view. */
   setSelfView(id: string): void;
-  /** Switch the System Health scenario (no arg = advance the cycle). Returns the new name. */
-  health(name?: string): string;
-  /** The active System Health scenario name. */
-  healthScenario(): string;
   /** True once the document has greeted: state is published and events flow. */
   greeted(): boolean;
   /** Resolves when the initial source load (and the version read) has settled. */
@@ -217,8 +211,6 @@ const REQUEST_ENDPOINTS = new Set([
   'settings.set',
   'settings.reset',
   'settings.captureKey',
-  'osfui.openModPage',
-  'osfui.openLogFolder',
   'osfui.setViewAutoStart',
   'papyrus.request',
 ]);
@@ -284,22 +276,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
   let mods: MockMod[] = [];
 
   const log = (dir: string, msg: string) => console.log(`%c[mock ${dir}]`, 'color:#5aa9b8', msg);
-
-  /**
-   * Transient on-screen note for a request whose real effect is outside the
-   * browser. The console line alone is not enough: a button like "Open log
-   * folder" is a no-op here by nature, so without visible feedback there is no
-   * way to tell a wired button from a dead one. Harness chrome, never a view.
-   */
-  function notify(msg: string): void {
-    const doc = (browserWindow as unknown as { document?: Document }).document;
-    if (!doc || !doc.body) return;
-    const el = doc.createElement('div');
-    el.className = 'harness-toast';
-    el.textContent = msg;
-    doc.body.appendChild(el);
-    setTimeout(() => el.remove(), 2600);
-  }
 
   // Asset roots for the settings view's icon/image resolution. Global because
   // @lib/settings/assets reads it off the window.
@@ -901,29 +877,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
     publish('osfui', 'views', { views: out });
   }
 
-  // System Health. The `osfui/diagnostics` state key: replayed on greeting and
-  // re-published on every scenario switch.
-  let healthScenario = (() => {
-    const wanted = params.get('health') || '';
-    return Object.prototype.hasOwnProperty.call(MOCK_HEALTH, wanted) ? wanted : 'clean';
-  })();
-
-  function publishHealth(): void {
-    publish('osfui', 'diagnostics', MOCK_HEALTH[healthScenario] ?? MOCK_HEALTH['clean']);
-  }
-
-  /** Switch scenario (no arg = advance the cycle). Returns the new name. */
-  function setHealth(name?: string): string {
-    if (name && Object.prototype.hasOwnProperty.call(MOCK_HEALTH, name)) {
-      healthScenario = name;
-    } else if (name === undefined) {
-      const at = HEALTH_SCENARIOS.indexOf(healthScenario);
-      healthScenario = HEALTH_SCENARIOS[(at + 1) % HEALTH_SCENARIOS.length] as string;
-    }
-    publishHealth();
-    return healthScenario;
-  }
-
   /**
    * The i18n catalog is computed PER DOCUMENT: a view's catalog is its owning
    * mod's, which is why this one key carries a different value to each view.
@@ -1102,7 +1055,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
         publishSettings();
         publishInputMap();
         publishViews();
-        publishHealth();
         publishI18n();
         eventsOpen = true;
         for (const env of queuedEvents.splice(0)) deliver(env);
@@ -1350,7 +1302,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         const id = targetView();
         const v = views.find((x) => x.id === id);
         if (!v) {
-		  fail('unknown-view', 'not a discovered view');
+          fail('unknown-view', 'not a discovered view');
           break;
         }
         v.open = false;
@@ -1396,18 +1348,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
       }
 
       case 'ping':
-        ok({});
-        break;
-
-      case 'osfui.openLogFolder':
-        // Payload-free and fixed-target in game; there is nothing to open from a
-        // browser, so the harness just proves the request was fired.
-        notify('osfui.openLogFolder — fired (opens the SFSE log folder in game)');
-        ok({});
-        break;
-
-      case 'osfui.openModPage':
-        notify('osfui.openModPage — fired (opens the mod page in game)');
         ok({});
         break;
 
@@ -1720,8 +1660,6 @@ export function installMock(opts: MockOptions = {}): MockApi {
       // it rather than keeping the old view's catalog.
       publishI18n();
     },
-    health: setHealth,
-    healthScenario: () => healthScenario,
     greeted: () => greeted,
     loaded: () => initial,
   };

@@ -38,5 +38,4 @@ namespace OSFUI::Compat::V1::Papyrus
 		std::vector<std::uint32_t> a_formIds);
 	void DrainPushes(const std::function<void(const Push&)>& a_deliver);
 	void ClearPendingPushes();
-	std::vector<std::string> TakeCallers();
 }

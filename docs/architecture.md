@@ -26,14 +26,14 @@ implementations.
                             Core/Plugin.cpp        entry glue, SFSE messages
                                    │
                          Runtime/Runtime          coordinates everything below
-       ┌──────────────┬──────────────┬──────────────┬──────────────┐
-       │              │              │              │              │
-     Core/          Views/         Bridge/       Settings/    Diagnostics/
- Config, Paths   manifests,      MessageBridge   schemas and      health
+       ┌──────────────┬──────────────┬──────────────┐
+       │              │              │              │
+     Core/          Views/         Bridge/       Settings/
+ Config, Paths   manifests,      MessageBridge   schemas and
                 presentation,    retained state  persistence
                 reveal policy
-       │              │              │              │              │
-       └──────────────┴──────────────┼──────────────┴──────────────┘
+       │              │              │              │
+       └──────────────┴──────────────┼──────────────┘
                                     │
                 ┌───────────────────┼────────────────────┐
                 │                   │                    │
@@ -207,8 +207,8 @@ Each publish sends mod state immediately to the publishing mod's instantiated
 views, resolved fresh on that publish, while the retained value remains ready
 for the mod's future documents. There is no subscriber set to prune or to go
 stale. The platform's own registries are state keys on the
-`osfui` mod: `osfui/settings`, `osfui/views`, `osfui/diagnostics`,
-`osfui/keybindings`, `osfui/input-context`, `osfui/i18n` (computed per view —
+`osfui` mod: `osfui/settings`, `osfui/views`, `osfui/keybindings`,
+`osfui/input-context`, `osfui/i18n` (computed per view —
 a document's catalog is its owning mod's). The original registries replaced the 1.x
 `*.get` requests, each of which was a read with the invisible side effect of
 subscribing the caller — which is the definition of state, not of a read.
@@ -220,10 +220,10 @@ dropped send, an unknown endpoint, or a malformed envelope) go through the
 bridge's protocol-fault callback, which `Runtime` wires to `OnProtocolFault`.
 In developer mode the offending view is handed an `osfui.debug.error` event,
 so the failure lands in that page's own console and therefore in F12 DevTools.
-The tenth view-caused fault raises a `view.protocol-misuse` health issue. A mod backend
-or OSF UI runtime handler missing its deadline is also reported to the
-waiting page as `no-response`, but is explicitly not charged to the view's
-fault budget. Details are in [troubleshooting.md](troubleshooting.md) and
+In developer mode those faults are returned only to their originating page;
+release builds keep the rejection in the native log. A mod backend or OSF UI
+runtime handler missing its deadline is also reported to the waiting page as
+`no-response`. Details are in [troubleshooting.md](troubleshooting.md) and
 [logging.md](logging.md).
 
 ### Feature modules ("apps" on the platform)

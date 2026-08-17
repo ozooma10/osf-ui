@@ -9,8 +9,6 @@
 #include <Windows.h>
 
 #include <ShlObj.h>
-#include <shellapi.h>  // ShellExecuteW (lean-and-mean excludes it)
-
 #include "Win32Util.h"
 
 namespace OSFUI::Platform
@@ -19,42 +17,6 @@ namespace OSFUI::Platform
 	{
 		using osfui::win32::ToUtf8;
 
-		// Windows only lets the process that currently owns the foreground raise a
-		// window; anyone else is denied and their window merely flashes in the
-		// taskbar. That is precisely our situation: the game owns the foreground,
-		// so the browser/Explorer window the shell opens lands BEHIND a fullscreen
-		// game and reads as "the button did nothing" — the bug this exists to fix.
-		// Handing the right over first (ASFW_ANY, since the shell may satisfy the
-		// request from an already-running explorer.exe whose pid we never learn)
-		// lets the new window come to the front. Best-effort: if it fails the
-		// window still opens, just behind, which is the old behaviour.
-		void YieldForegroundToShell()
-		{
-			::AllowSetForegroundWindow(ASFW_ANY);
-		}
-	}
-
-	bool OpenSystemBrowser(const wchar_t* a_url)
-	{
-		YieldForegroundToShell();
-		// ShellExecute contract: values > 32 are success; <= 32 are error codes.
-		const auto rc = reinterpret_cast<std::intptr_t>(
-			::ShellExecuteW(nullptr, L"open", a_url, nullptr, nullptr, SW_SHOWNORMAL));
-		return rc > 32;
-	}
-
-	bool OpenFolder(const std::filesystem::path& a_folder)
-	{
-		std::error_code ec;
-		if (a_folder.empty() || !std::filesystem::is_directory(a_folder, ec)) {
-			// Explorer would happily "open" a nonexistent path as a search; a
-			// refusal the caller can report is more useful than a stray window.
-			return false;
-		}
-		YieldForegroundToShell();
-		const auto rc = reinterpret_cast<std::intptr_t>(
-			::ShellExecuteW(nullptr, L"open", a_folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
-		return rc > 32;
 	}
 
 	std::filesystem::path GetDocumentsPath()

@@ -32,7 +32,6 @@ import { ToastStack, useToasts } from '@ui/Toast';
 import { ACTION_TIMEOUT_MS } from '@ui/ActionButton';
 import type { AssetRoots } from '@lib/settings/assets';
 import {
-  HEALTH_ID,
   HOME_ID,
   railNodes,
   titleOf,
@@ -60,7 +59,7 @@ import {
 import type { SettingValue } from '@sdk';
 import { pageIdForGroup } from '@lib/settings/pages';
 import { Detail, groupKey } from './Detail';
-import { HealthItem, Rail } from './Rail';
+import { Rail } from './Rail';
 import { UndoPanel } from './UndoPanel';
 import { homeModCaption } from './Home';
 import { useCapture } from './useCapture';
@@ -135,14 +134,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     views,
     viewsRef,
     discoveredViews,
-    health,
     osfuiReleaseVersion,
     baseline,
     applyLocal,
   } = registry;
-
-  /** Issue System Health should expand and scroll to, from a deep link. */
-  const [focusIssueId, setFocusIssueId] = useState<string | null>(null);
 
   const [selectedId, setSelectedId, selectedIdRef] = useStateRef<string | null>(null);
 
@@ -221,10 +216,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   };
 
   /**
-   * A request endpoint whose failure the player should see. The shell verbs and
-   * the view operations all report real failures ("shell-failed",
-   * "unknown-view", "forbidden"), and sending them one-way would silently
-   * swallow exactly the case worth reporting.
+   * A request endpoint whose failure the player should see. View operations
+   * report real failures ("unknown-view", "forbidden"), and sending them
+   * one-way would silently swallow exactly the case worth showing.
    */
   const requestOp = (endpoint: string, payload?: Record<string, unknown>) => {
     if (!bridge.available()) return;
@@ -307,30 +301,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     pushValues(modId, [[key, value]]);
   };
 
-  /**
-   * Rail selection. Choosing System Health CLEARS an active search: the pane is
-   * dispatched on the selection, but a non-empty filter otherwise wins and would
-   * show search results under a selected Health entry. Clearing here rather than
-   * refusing the selection keeps the fixed entry reachable from a filtered
-   * rail, which is the whole reason it is never filtered out.
-   */
   const selectMod = (id: string) => {
-    if (id === HEALTH_ID) {
-      setFilter('');
-      setQuery('');
-    } else {
-      // Any other destination drops a deep link's expanded-issue intent.
-      setFocusIssueId(null);
-    }
     setSelectedId(id);
-  };
-
-  /** Jump to System Health with one failed-view issue expanded. */
-  const openIssue = (issueId: string) => {
-    setFilter('');
-    setQuery('');
-    setFocusIssueId(issueId);
-    setSelectedId(HEALTH_ID);
   };
 
   /**
@@ -344,16 +316,13 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     if (!ids.length) return; // no mod entries
 
     const pending = pendingHashSelect.current;
-    if (pending && (pending === HOME_ID || pending === HEALTH_ID || ids.includes(pending))) {
+    if (pending && (pending === HOME_ID || ids.includes(pending))) {
       pendingHashSelect.current = null; // honoured once; later pushes must not override clicks
       setSelectedId(pending);
       return;
     }
     const current = selectedIdRef.current;
-    // Home stays the landing page. Health is fixed above it but is a place you
-    // go, not a place you are put — landing there would make every launch read
-    // as a problem report.
-    if (current !== HOME_ID && current !== HEALTH_ID && (current === null || !ids.includes(current))) {
+    if (current !== HOME_ID && (current === null || !ids.includes(current))) {
       setSelectedId(HOME_ID);
     }
   }, [mods, views]);
@@ -376,7 +345,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   });
 
   // Bridge subscriptions for what the user is DOING. The registry hook owns the
-  // state updates (`osfui/settings` / `osfui/views` / `osfui/diagnostics` / `osfui/i18n` /
+  // state updates (`osfui/settings` / `osfui/views` / `osfui/i18n` /
   // settings.changed) and the catalog reads; both blocks register once per
   // bridge and read everything else through refs.
 
@@ -408,9 +377,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         setQuery('');
         setSelectedId(intent.state.selectedId);
       }
-      // Outside the guard, like the padnav reset below: a visit that happens to
-      // land back on Health must not re-expand the issue a past visit opened.
-      setFocusIssueId(null);
       // Closing with the undo panel open would otherwise latch modalOpen and
       // kill LB/RB rail cycling for the rest of the session.
       setUndoOpen(false);
@@ -429,15 +395,13 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         { mods: modsRef.current, views: viewsRef.current },
         queryRef.current,
       );
-      // LB/RB walk every focusable rail row, fixed destinations included.
+      // LB/RB walk every focusable rail row.
       const railIds = nodes
-        .filter((n) => n.kind === 'health' || n.kind === 'home' || n.kind === 'entry')
+        .filter((n) => n.kind === 'home' || n.kind === 'entry')
         .map((n) =>
-          n.kind === 'health'
-            ? HEALTH_ID
-            : n.kind === 'home'
-              ? HOME_ID
-              : (n as { entry: { id: string } }).entry.id,
+          n.kind === 'home'
+            ? HOME_ID
+            : (n as { entry: { id: string } }).entry.id,
         );
       const intent = reduceGamepad(padRef.current, p, {
         railIds,
@@ -661,20 +625,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
                 >
                   {tr('needsUpdate', 'Needs update')}
                 </a>
-                {/* The effective developer-mode capability may come from config.json
-                    or the toolchain's temporary author-mode marker. A standing tag,
-                    not a toast, keeps that distinction visible while reading logs. */}
-                <span
-                  id="devmode-tag"
-                  class="devmode-tag"
-                  hidden={health.system?.devMode !== true}
-                  title={tr(
-                    'devModeHint',
-                    'Developer mode is active: verbose logging, hot reload, F12 DevTools, and developer views are available. It may come from config.json or a temporary toolchain author-mode marker.',
-                  )}
-                >
-                  {tr('devMode', 'DEVELOPER MODE')}
-                </span>
               </div>
             </div>
 
@@ -690,16 +640,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
               inputRef={filterInput}
             />
 
-            {/* Above the "Installed mods" label on purpose: System Health is
-                a fixed destination, not an installed mod. Living in the head
-                also means it never scrolls away with the list. */}
-            <HealthItem
-              health={health}
-              selected={selectedId === HEALTH_ID}
-              tr={tr}
-              onSelect={selectMod}
-            />
-
             <div class="rail-meta">
               {/* Compatibility catalog address; fallback copy uses the canonical mod noun. */}
               <span>{tr('installedSystems', 'Installed mods')}</span>
@@ -710,7 +650,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           <Rail
             mods={mods}
             views={views}
-            health={health}
             query={query}
             selectedId={selectedId}
             tr={tr}
@@ -758,15 +697,11 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           labeler={labeler}
           views={views}
           discoveredViews={discoveredViews}
-          health={health}
           query={query}
           selectedId={selectedId}
           osfuiReleaseVersion={osfuiReleaseVersion}
           tr={tr}
           assetRoots={assetRoots}
-          focusIssueId={focusIssueId}
-          onOpenIssue={openIssue}
-          onShellRequest={(requestEndpoint) => requestOp(requestEndpoint)}
           collapsed={collapsed}
           onToggleGroup={(key, next) => setCollapsed((c) => ({ ...c, [key]: next }))}
           activePages={activePages}

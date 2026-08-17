@@ -163,9 +163,6 @@ namespace
 		std::uint32_t SubscribeHotkey(const char*, const char*, OSFUI::API::HotkeyFn, void*) override { return 0; }
 		void UnsubscribeHotkey(std::uint32_t) override {}
 		bool RegisterView(const char*) override { return false; }
-		bool ReportIssue(const char*, const char*, const char*, std::uint32_t, const char*, const char*) override { return false; }
-		bool ClearIssue(const char*, const char*) override { return false; }
-		bool ClearIssuesExcept(const char*, const char*) override { return false; }
 		void RegisterRequest(const char*, OSFUI::API::RequestFn, void*) override { ++requestCalls; }
 		void UnregisterRequest(const char*) override { ++requestCalls; }
 	};
@@ -681,29 +678,6 @@ int main()
 		CHECK(LoggedContaining("WARN", "pending SetViewState queue full"));
 	}
 
-	// --- ABI compatibility callers, made visible -------------------------------
-	// ABI 1.x is adapted while unrelated majors are refused. Both are recorded
-	// so Runtime can raise one concrete issue naming the DLL to update.
-	{
-		api.TakeLegacyApiCallers();  // start from an empty ledger
-		api.NoteLegacyApiCaller("OldMod.dll", 1, 7, true);
-		api.NoteLegacyApiCaller("OldMod.dll", 1, 8, true);  // same concrete DLL, different retry minor
-		api.NoteLegacyApiCaller("", 3, 5, false);           // unresolvable module: still one issue
-		{
-			const auto callers = api.TakeLegacyApiCallers();
-			CHECK(callers.size() == 2);  // deduped by module
-			CHECK(callers.size() == 2 && callers[0].module == "OldMod.dll");
-			CHECK(callers.size() == 2 && callers[0].major == 1 && callers[0].minor == 7 && callers[0].supported);
-			CHECK(callers.size() == 2 && callers[1].module.empty() && callers[1].major == 3);
-		}
-		CHECK(api.TakeLegacyApiCallers().empty());  // drained
-		// Bounded: a load order full of stale plugins cannot grow this.
-		for (int i = 0; i < 40; ++i) {
-			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 1, 8, true);
-		}
-		CHECK(api.TakeLegacyApiCallers().size() == 32);
-	}
-
 	// --- RegisterView takes qualified ids only (item 1) -----------------------
 	CHECK(!api.RegisterView("osf"));              // unqualified: refused synchronously
 	CHECK(!api.RegisterView("osfui.settings"));   // dotted join, not slash
@@ -847,7 +821,6 @@ int main()
 		Client c;
 		TestRuntimeBridge runtimeBridge;
 		CHECK(c.Attach(&runtimeBridge));
-		CHECK(c.Has(Feature::kDiagnostics));
 		CHECK(c.Has(Feature::kRequests));
 		CHECK(c.Has(Feature::kViewState));
 		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));  // test double returns false
@@ -889,78 +862,6 @@ int main()
 		}
 		c.Attach(nullptr);
 		CHECK(!c.IsConnected());
-	}
-
-	// --- health reporting (System Health) -------------------------------------
-	// Validation is synchronous; the ops queue for the main tick, where Runtime
-	// namespaces them into the registry.
-	{
-		using Op = OSFUI::API::BridgeApi::HealthIssueOp;
-		using Sev = OSFUI::API::IssueSeverity;
-		const auto kWarn = static_cast<std::uint32_t>(Sev::kWarning);
-		const auto kErr = static_cast<std::uint32_t>(Sev::kError);
-
-		api.TakeHealthIssueOps();  // start from an empty queue
-
-		// The caller's mod id is the source, so it must be a real mod id.
-		CHECK(!api.ReportIssue(nullptr, "x", "y", kWarn, "", nullptr));
-		CHECK(!api.ReportIssue("", "x", "y", kWarn, "", nullptr));
-		CHECK(!api.ReportIssue("Acme.Mod", "x", "y", kWarn, "", nullptr));
-		CHECK(!api.ReportIssue("settings", "x", "y", kWarn, "", nullptr));  // a platform source
-		CHECK(LoggedContaining("WARN", "refused ReportIssue('Acme.Mod')"));
-		// Identity and kind are both required.
-		CHECK(!api.ReportIssue("acme.mymod", "", "y", kWarn, "", nullptr));
-		CHECK(!api.ReportIssue("acme.mymod", "x", "", kWarn, "", nullptr));
-		// Context must be an object when present — an array or a scalar is a
-		// producer bug, reported at the call rather than silently dropped.
-		CHECK(!api.ReportIssue("acme.mymod", "x", "y", kWarn, "", "[1,2]"));
-		CHECK(!api.ReportIssue("acme.mymod", "x", "y", kWarn, "", "\"nope\""));
-		CHECK(!api.ReportIssue("acme.mymod", "x", "y", kWarn, "", "{not json"));
-		CHECK(api.TakeHealthIssueOps().empty());  // nothing invalid was queued
-
-		// Accepted: null/empty context means "none"; an unknown severity is
-		// treated as the worst tier known rather than silently softened.
-		CHECK(api.ReportIssue("acme.mymod", "pack-parse", "catalog.parse-failed", kErr,
-			"highlights", "{\"file\":\"C:\\\\Mods\\\\packs\\\\bad.json\",\"line\":12}"));
-		CHECK(api.ReportIssue("acme.mymod", "quiet", "audio.missing", kWarn, "", nullptr));
-		CHECK(api.ReportIssue("acme.mymod", "future", "odd.tier", 9u, "", ""));
-		CHECK(LoggedContaining("WARN", "unknown severity 9"));
-		CHECK(api.ClearIssue("acme.mymod", "quiet"));
-		CHECK(!api.ClearIssue("acme.mymod", ""));
-		CHECK(!api.ClearIssue("bogus id", "quiet"));
-		CHECK(api.ClearIssuesExcept("acme.mymod", "[\"pack-parse\"]"));
-		CHECK(api.ClearIssuesExcept("acme.mymod", "[]"));   // sweep all of mine
-		CHECK(api.ClearIssuesExcept("acme.mymod", nullptr));  // same, absent payload
-		CHECK(!api.ClearIssuesExcept("acme.mymod", "{\"a\":1}"));
-		CHECK(!api.ClearIssuesExcept("acme.mymod", "[\"ok\", 7]"));
-
-		const auto ops = api.TakeHealthIssueOps();
-		// FIFO across kinds: a report-then-sweep pair must land in call order.
-		CHECK(ops.size() == 7);
-		CHECK(ops[0].kind == Op::Kind::kReport && ops[0].modId == "acme.mymod");
-		CHECK(ops[0].id == "pack-parse" && ops[0].code == "catalog.parse-failed");
-		CHECK(ops[0].error && ops[0].subject == "highlights");
-		// The context rides through verbatim — redaction is the registry's job,
-		// so the path here is still whole at this layer.
-		CHECK(ops[0].context.value("line", 0) == 12);
-		CHECK(!ops[1].error);
-		CHECK(ops[2].error);  // severity 9 -> error
-		CHECK(ops[3].kind == Op::Kind::kClear && ops[3].id == "quiet");
-		CHECK(ops[4].kind == Op::Kind::kClearExcept && ops[4].keep.size() == 1 &&
-		      ops[4].keep[0] == "pack-parse");
-		CHECK(ops[5].kind == Op::Kind::kClearExcept && ops[5].keep.empty());
-		CHECK(ops[6].kind == Op::Kind::kClearExcept && ops[6].keep.empty());
-		CHECK(api.TakeHealthIssueOps().empty());  // drained
-
-		// A producer looping off-thread hits the queue cap instead of growing
-		// memory; the refusal is the incoming op, so earlier state is kept.
-		for (int i = 0; i < 300; ++i) {
-			api.ReportIssue("acme.mymod", ("id" + std::to_string(i)).c_str(), "spam", kWarn, "", nullptr);
-		}
-		const auto capped = api.TakeHealthIssueOps();
-		CHECK(capped.size() == 256);
-		CHECK(capped.front().id == "id0");  // oldest kept
-		CHECK(LoggedContaining("WARN", "health reports already queued"));
 	}
 
 	// --- optional JSON authoring facade ---------------------------------------

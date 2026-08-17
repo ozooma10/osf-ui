@@ -259,9 +259,9 @@ EndFunction
 
 The number is the record's plugin-local FormID, not its load-order-dependent Starfield runtime FormID; OSF UI never resolves or stores the quest identity itself. `onPress` is read-only schema metadata — never copied into the user's values file, and no settings write can change it.
 
-The gameplay/menu/rebind suppression rules still apply, and the key is still delivered to ordinary subscribers, so a script that also registers the same callback gets a second delivery. Malformed or unavailable targets leave the ordinary hotkey working and appear in System Health with author details. Older OSF UI builds ignore `onPress`, so declare the `targetVersion` of the release where it ships.
+The gameplay/menu/rebind suppression rules still apply, and the key is still delivered to ordinary subscribers, so a script that also registers the same callback gets a second delivery. Malformed or unavailable targets leave the ordinary hotkey working and write the failure to `OSF UI.log`. Older OSF UI builds ignore `onPress`, so declare the `targetVersion` of the release where it ships.
 
-`npm create osfui@latest -- --surface settings` scaffolds exactly this: a schema with an `onPress` hotkey, the matching GLOBAL script, and a `build-deploy.ps1` that compiles and installs it — no `.esp`, no npm toolchain. Its README walks through first press, rebinding, save-load persistence, menu suppression and the resulting System Health issue when a target is unavailable.
+`npm create osfui@latest -- --surface settings` scaffolds exactly this: a schema with an `onPress` hotkey, the matching GLOBAL script, and a `build-deploy.ps1` that compiles and installs it — no `.esp`, no npm toolchain. Its README walks through first press, rebinding, save-load persistence, menu suppression and the log entry written when a target is unavailable.
 
 ---
 

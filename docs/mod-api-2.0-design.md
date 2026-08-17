@@ -16,7 +16,7 @@ migration plan and `compat-v1-removal.md`; the strict design below remains the
 
 Strip away the shared bridge helper and its aliases and OSF UI is one thing: a
 **reload-prone web document** talking through the **OSF UI runtime** to
-platform endpoints (settings, views, i18n, health) and, optionally, to either
+platform endpoints (settings, views, i18n) and, optionally, to either
 kind of **mod backend**: a native SFSE plugin or Papyrus scripts. Every API wart
 in 1.x traces back to not answering two questions consistently:
 
@@ -221,7 +221,7 @@ two legacy `RegisterForViewActions*` registrations are removed.
 ## Platform services, reclassified
 
 The four-verb model dissolves 1.x's subscribe-on-read wart. Today
-`settings.get`, `views.get`, `i18n.get`, and `diagnostics.get` are requests
+`settings.get`, `views.get`, and `i18n.get` are requests
 with an invisible side effect: they subscribe the caller to future pushes.
 In 2.0 these registries are **platform state keys** — reads-with-replay *are*
 state:
@@ -229,7 +229,6 @@ state:
 ```js
 osfui.state.on('osfui/views', render);        // replay now + every change; no read roundtrip
 osfui.state.on('osfui/settings', render);
-osfui.state.on('osfui/diagnostics', render);
 osfui.state.on('osfui/i18n', applyCatalog);   // consumed by the i18n namespace internally
 ```
 
@@ -307,19 +306,15 @@ Two sources, one sink (the page console):
   the bridge already bounds echoed names.
 - **Endpoint-handler failures** — a mod backend or OSF UI runtime handler that
   misses the 30 s deadline is reported to the waiting page as `no-response`.
-  It is not a view-caused fault and never counts against that view's fault
-  budget.
+  It is not a view-caused fault.
 
 Because developer mode already forwards console output and uncaught exceptions over
 the pipe into the SFSE log (`tools/webview2_host/HostApp.cpp`,
 `Runtime.cpp`), this one mechanism makes every failure visible in DevTools
 *and* the log with no second channel to maintain.
 
-In release builds the dev-only events are not emitted; the curated health
-registry remains visible in the player-facing System Health destination, and
-recurring view-caused protocol misuse (e.g. a view repeatedly sending to a
-request endpoint) raises a `view.*`-family health issue so it is visible in Mod
-Settings even outside developer mode.
+In release builds the dev-only events are not emitted; the same protocol
+failures remain in the native log.
 
 ### Opt-in traffic tracing
 

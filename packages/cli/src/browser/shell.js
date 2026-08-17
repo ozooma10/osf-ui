@@ -270,7 +270,7 @@ let views = [];
 
 /**
  * The iframe URL: the view entry plus every shell query param that is not
- * shell-owned, and the hash. That is how ?locale=, ?scenario=, ?health= and
+ * shell-owned, and the hash. That is how ?locale=, ?scenario= and
  * #mod= deep links documented for a mock reach it.
  */
 function viewSrc(target) {

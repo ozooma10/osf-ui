@@ -69,7 +69,7 @@ This is `osfui dev` on this directory's `osfui.config.ts` — the same authoring
 harness third-party mods get, serving the built-ins through their real
 `index.html` → shared-kit → padnav boot contract in an iframe. The rich mock
 (`devmock/`, installed by `osfui.mock.ts`) registers the extra toolbar tools:
-Reset values, Sample views, Health cycle, and Hotkey/LB/RB.
+Reset values, Sample views, and Hotkey/LB/RB.
 
 Pick a view from the toolbar's view select, or deep-link:
 
@@ -90,28 +90,6 @@ links keep working):
 | `?fixtures=1` | load the richer demo dataset (also the "Sample views" tool) |
 | `?locale=<code>` | switch locale; `pseudo` expands strings to catch tight layouts and hardcoded text |
 | `?schema=<url>` | load a settings schema from a URL instead of the fixtures |
-| `?health=<name>` | select the System Health scenario pushed as `osfui/diagnostics` state (also the "Health" cycle tool) |
-
-### System Health scenarios
-
-The System Health destination renders from an `osfui/diagnostics` state snapshot, so it needs no
-broken game to exercise — the harness pushes a canned one. Scenarios live in
-`devmock/fixtures/health.ts`:
-
-| `?health=` | What it shows |
-|---|---|
-| `clean` | nominal summary, no cards (the default) |
-| `warnings` | warnings only |
-| `errors` | an active error alongside a warning, with a degraded `system` block |
-| `mixed` | both severities plus one resolved card |
-| `resolved` | nominal summary but a non-empty history |
-| `catalog` | **one card per known code, plus an unrecognised one** — the whole copy table on one page |
-
-Use `catalog` to proof-read the health-issue copy: every title, impact/next line and
-action row the shell can emit, side by side. Add `&locale=pseudo` to check none of
-it is hardcoded or overflowing. Adding a code to `COPY` in
-`src/lib/settings/health.ts` without adding it to `catalog` means that issue
-has never been looked at.
 
 You can also drag-and-drop a settings schema JSON or a `<modId>_<locale>.json`
 catalog onto the page.

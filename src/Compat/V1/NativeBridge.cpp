@@ -86,20 +86,6 @@ namespace OSFUI::Compat::V1
 	{
 		return API::BridgeApi::Get().RegisterView(a_view);
 	}
-	bool NativeBridge::ReportIssue(const char* a_mod, const char* a_id, const char* a_code,
-		std::uint32_t a_severity, const char* a_subject, const char* a_context)
-	{
-		return API::BridgeApi::Get().ReportIssue(a_mod, a_id, a_code, a_severity, a_subject, a_context);
-	}
-	bool NativeBridge::ClearIssue(const char* a_mod, const char* a_id)
-	{
-		return API::BridgeApi::Get().ClearIssue(a_mod, a_id);
-	}
-	bool NativeBridge::ClearIssuesExcept(const char* a_mod, const char* a_keep)
-	{
-		return API::BridgeApi::Get().ClearIssuesExcept(a_mod, a_keep);
-	}
-
 	void NativeBridge::RequestThunk(const API::Request& a_request, void* a_user) noexcept
 	{
 		const auto* reg = static_cast<const RequestRegistration*>(a_user);

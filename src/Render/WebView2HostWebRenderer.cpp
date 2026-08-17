@@ -208,7 +208,6 @@ namespace OSFUI
 		CursorChangeHandler     onCursorChange;
 		NativeAcceleratorHandler onAccelerator;
 		SharedRingHandler       onSharedRing;
-		HealthHandler           onHealth;
 		// Game-thread only (Drain/setters).
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
@@ -279,21 +278,6 @@ namespace OSFUI
 		std::atomic_bool focusRequested{ false };  // last SetNativeFocus argument
 		double focusCheckAccum{ 0.0 };
 		bool   focusFixWarned{ false };  // one WARN per strand episode
-
-		// System Health reporting, introduced in web bridge protocol 1.4. The ring announcement is
-		// parsed on the reader thread, but onHealth is a game-thread contract —
-		// so the announced slot count is stashed here and Update() reports the
-		// edge. Zero means "no announcement seen since the last report".
-		std::atomic<std::uint32_t> ringSlotsAnnounced{ 0 };
-		std::uint32_t              ringSlotsReported{ 0 };  // game thread only
-
-		// Fire one health edge at the runtime. Game thread only.
-		void ReportHealth(std::string_view a_code, bool a_active, std::string_view a_detail = {})
-		{
-			if (onHealth) {
-				onHealth(HealthEvent{ a_code, a_active, a_detail });
-			}
-		}
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;
@@ -1056,10 +1040,6 @@ namespace OSFUI
 						  "capacity is {} — excess slots ignored",
 					slots.size(), SharedRingDesc::kMaxSlots);
 			}
-			// Health edge for the System Health destination. Reported from Update() on
-			// the game thread, not from here (this runs on the reader thread).
-			ringSlotsAnnounced.store(static_cast<std::uint32_t>(slots.size()),
-				std::memory_order_relaxed);
 			desc.produceFence = reinterpret_cast<void*>(
 				static_cast<std::uintptr_t>(a_msg.produceFence));
 			desc.consumeFence = reinterpret_cast<void*>(
@@ -1350,10 +1330,6 @@ namespace OSFUI
 			// Starfield's main thread waiting for a graceful process exit.
 			Stop(true);
 
-			if (ringSlotsReported > SharedRingDesc::kMaxSlots) {
-				ReportHealth("host.ring-truncated", false);
-			}
-
 			const auto discardedOut = outbound.Size();
 			outbound.Reset();
 			{
@@ -1409,8 +1385,6 @@ namespace OSFUI
 			focusRequested.store(false);
 			focusCheckAccum = 0.0;
 			focusFixWarned = false;
-			ringSlotsAnnounced.store(0);
-			ringSlotsReported = 0;
 			stopRequested.store(false);
 
 			if (discardedOut) {
@@ -1585,27 +1559,9 @@ namespace OSFUI
 				if (healthy) {
 					_impl->focusFixWarned = false;
 				}
-				// Deliberately NOT reported to System Health. This condition is
-				// self-correcting within a tick or two — the watchdog above is the
-				// fix, not a mitigation someone has to act on — so a card told the
-				// player about an internal mechanism they cannot influence and
-				// which had already resolved by the time they read it. The WARN
-				// above remains for log-based diagnosis.
+				// Self-correcting within a tick or two; the WARN above remains for
+				// log-based diagnosis.
 			}
-		}
-
-		// Ring-depth edge, moved off the reader thread (see ringSlotsAnnounced).
-		// A truncated ring still renders — frames landing in the slots past our
-		// capacity are skipped — so this is a degradation, not a failure.
-		if (const auto announced = _impl->ringSlotsAnnounced.exchange(0, std::memory_order_relaxed);
-			announced != 0 && announced != _impl->ringSlotsReported) {
-			_impl->ringSlotsReported = announced;
-			const bool truncated = announced > SharedRingDesc::kMaxSlots;
-			const auto detail = truncated ?
-				std::format("browser host announced {} slots, capacity {}",
-					announced, SharedRingDesc::kMaxSlots) :
-				std::string{};
-			_impl->ReportHealth("host.ring-truncated", truncated, detail);
 		}
 	}
 
@@ -1664,11 +1620,6 @@ namespace OSFUI
 	{
 		_impl->onSharedRing = std::move(a_handler);
 	}
-	void WebView2HostWebRenderer::SetHealthHandler(HealthHandler a_handler)
-	{
-		_impl->onHealth = std::move(a_handler);
-	}
-
 	void WebView2HostWebRenderer::SetNativeFocus(bool a_focused)
 	{
 		if (a_focused) {

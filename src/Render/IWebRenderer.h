@@ -188,26 +188,6 @@ namespace OSFUI
 		using FailureHandler = std::function<void(const FailureEvent& a_event)>;
 		virtual void SetFailureHandler(FailureHandler) {}
 
-		// Browser-host health worth reporting in Mod Settings' System Health
-		// destination. Only DEGRADED-BUT-ALIVE conditions belong here — a reduced
-		// shared-texture ring or focus stranded in the browser host's child window.
-		// A web renderer that cannot render at all reports through the log and the
-		// launch dialog instead, because there is no view left to draw System Health.
-		// `code` is a stable machine string the built-in
-		// frontend maps to player-facing copy; `detail` is short technical text
-		// shown only under the issue's disclosure and must carry no absolute
-		// paths. Fired on the game thread, drained from Update(), and both edges
-		// are reported: `active` false means the condition cleared. Set once
-		// before CreateOrNavigateView.
-		struct HealthEvent
-		{
-			std::string_view code;
-			bool             active{ true };
-			std::string_view detail;
-		};
-		using HealthHandler = std::function<void(const HealthEvent& a_event)>;
-		virtual void SetHealthHandler(HealthHandler) {}
-
 		// Fires when the input-target view's requested cursor changes, so the
 		// OSF UI runtime can switch the real OS pointer (hover feedback, text I-beam).
 		// WARNING: unlike the other handlers, this may be invoked from a

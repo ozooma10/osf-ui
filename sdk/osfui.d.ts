@@ -149,10 +149,6 @@ export type PlatformRequest =
    */
   | { name: "settings.captureKey"; payload: { mod: string; key: string };
       reply: { armed: true; mod: string; key: string } }
-  /** Open OSF UI's own Nexus page in the SYSTEM browser. Fixed target: the payload carries nothing, so page content cannot steer the shell. */
-  | { name: "osfui.openModPage"; payload?: Record<string, never>; reply: Record<string, never> }
-  /** Open the SFSE log folder. Fixed target, derived natively. Rejects "no-log-folder" | "shell-failed". */
-  | { name: "osfui.openLogFolder"; payload?: Record<string, never>; reply: Record<string, never> }
   /** (platform-private) Set a HUD's auto-start for the NEXT launch. */
   | { name: "osfui.setViewAutoStart"; payload: { view: string; enabled: boolean }; reply: Record<string, never> }
   /** Correlated request to the owning mod's Papyrus listener. Sugar: osfui.papyrus.request(). */
@@ -170,8 +166,6 @@ export interface PlatformState {
   "osfui/settings": SettingsData;
   /** One entry per discovered view, with current open/active-menu/main-frame-load state. */
   "osfui/views": ViewsData;
-  /** The session health snapshot behind Mod Settings. */
-  "osfui/diagnostics": DiagnosticsData;
   /** Starfield's complete read-only keyboard map, copied from the live engine ControlMap. */
   "osfui/keybindings": KeybindingsData;
   /** The exact active engine input-context stack and OSF UI's derived semantic gameplay mode. */
@@ -242,8 +236,7 @@ export interface PlatformEvents {
    * — a send that named a request endpoint, an unknown endpoint, an endpoint handler that
    * missed its deadline. The helper prints these to the console for you, so
    * they show up in F12 DevTools with full object inspection. Not emitted in
-   * release builds; repeated misuse raises a `view.protocol-misuse` health issue
-   * there instead.
+   * release builds.
    */
   "osfui.debug.error": { code: string; message: string; detail?: unknown };
 }
@@ -354,12 +347,6 @@ export interface SettingsData {
     layout: string;
     labels: Record<string, string>;
   };
-  /**
-   * Settings artifacts that FAILED to load, so Mod Settings can say so instead of
-   * a mod silently vanishing. `kind`: "schema-name" | "schema-parse" |
-   * "values-parse". `file` is a bare filename.
-   */
-  loadErrors?: Array<{ kind: string; file: string; mod?: string; message: string }>;
 }
 
 /** Value of the `osfui/views` state key. */
@@ -397,59 +384,6 @@ export interface SerializedForm {
   formType: string;  // record signature ("KYWD" | "WEAP" | "FLST" | ...); numeric string for unknown types
   name?: string;     // TESFullName when the form has one
   editorId?: string; // best-effort: usually UNAVAILABLE at runtime in Starfield
-}
-
-/**
- * One durable condition in the session health registry. This is a CURATED
- * registry, not a log view: an entry appears only because a subsystem
- * explicitly raised it, and leaves `status:"active"` only because that
- * subsystem explicitly withdrew it.
- *
- * Player-facing copy is derived from `code` by built-in Mod Settings, so it
- * stays localizable and cannot be authored by a mod. `context` is bounded
- * technical detail — never absolute paths, URLs, or shell targets.
- */
-export interface DiagnosticIssue {
-  /** Stable identity, the dedupe key. Recurrence reuses it and bumps `occurrences`. */
-  id: string;
-  /**
-   * Stable machine code. v2 families:
-   * `input.control-map-unavailable`
-   * | `settings.schema-name` | `settings.schema-parse` | `settings.values-parse`
-   * | `settings.hotkey-target`
-   * | `view.load-retrying` | `view.load-failed` | `view.protocol-misuse`
-   * | `host.ring-truncated`
-   * | `compat.needs-newer-osfui` | `compat.pre-2-view`
-   * | `compat.legacy-api` | `compat.legacy-papyrus` | `compat.unsupported-api`
-   * A report from another mod carries ITS code, prefixed with its mod id:
-   * `<author>.<modname>:<code>`. Treat an unknown code as generic.
-   */
-  code: string;
-  severity: "warning" | "error";
-  /** "resolved" = the condition cleared; the record stays for this session only. */
-  status: "active" | "resolved";
-  /**
-   * Producing subsystem: "input" | "settings" | "views" | "host" | "render" | "compat".
-   * The compatibility value "host" identifies browser-host/web-renderer health —
-   * or, for a report another mod raised through the native ABI, that mod's
-   * "<author>.<modname>" id. The OSF UI runtime assigns this, never the payload, so the
-   * dot is a reliable tell for "came from a mod".
-   */
-  source: string;
-  subject: string;
-  context: Record<string, string | number | boolean>;
-  occurrences: number;
-  /** Session-relative seconds since the OSF UI runtime started. */
-  firstAt: number;
-  lastAt: number;
-  resolvedAt?: number;
-}
-
-/** Value of the `osfui/diagnostics` state key. */
-export interface DiagnosticsData {
-  /** Informational key/value block (versions, renderer path, browser-host state) — facts live here rather than as noisy "info" issues. */
-  system: Record<string, string | number | boolean>;
-  issues: DiagnosticIssue[];
 }
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@
 // catalogs are STATE keys replayed to every fresh document, and subscribing IS
 // the read. So this file now pins the opposite of what it used to — that no
 // read is issued on any path, and that the view paints from the replay
-// alone. `settings.get` / `views.get` / `diagnostics.get` / `i18n.get` are not
+// alone. `settings.get` / `views.get` / `i18n.get` are not
 // endpoints any more; a view that still called one would be answered
 // "unknown-endpoint".
 
@@ -29,7 +29,7 @@ afterEach(unmount);
 const REPLAY = { 'osfui/settings': WIDGETS, 'osfui/views': VIEWS };
 
 /** The reads 2.0 deleted. None of these may ever leave the view again. */
-const DELETED_READS = ['settings.get', 'views.get', 'diagnostics.get', 'i18n.get'];
+const DELETED_READS = ['settings.get', 'views.get', 'i18n.get'];
 
 describe('a handshake that never completes', () => {
   it('issues no read at all — subscribing is the read', async () => {

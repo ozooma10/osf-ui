@@ -50,7 +50,6 @@
     "osfui/settings": "settings.data",
     "osfui/views": "views.data",
     "osfui/i18n": "i18n.data",
-    "osfui/diagnostics": "diagnostics.data",
   };
 
   function translateInbound(message) {
@@ -135,7 +134,6 @@
     if (command === "settings.reset") return "settings.data";
     if (command === "views.get") return "views.data";
     if (command === "i18n.get") return "i18n.data";
-    if (command === "diagnostics.get") return "diagnostics.data";
     if (command === "ui.papyrusRequest") return "papyrus.result";
     if (command === "ping") return "runtime.pong";
     return "ui.result";
@@ -145,7 +143,6 @@
     "settings.get": "osfui/settings",
     "views.get": "osfui/views",
     "i18n.get": "osfui/i18n",
-    "diagnostics.get": "osfui/diagnostics",
   };
 
   function readState(scoped) {
@@ -282,9 +279,9 @@
 
   const requestOnly = new Set([
     "menu.open", "menu.close", "hud.show", "hud.hide", "setViewHidden",
-    "ping", "settings.get", "views.get", "i18n.get", "diagnostics.get",
+    "ping", "settings.get", "views.get", "i18n.get",
     "settings.set", "settings.reset", "settings.captureKey",
-    "osfui.openModPage", "osfui.openLogFolder", "osfui.setViewAutoStart",
+    "osfui.setViewAutoStart",
     "ui.papyrusRequest",
   ]);
 

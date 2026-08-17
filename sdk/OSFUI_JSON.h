@@ -265,27 +265,6 @@ namespace OSFUI::API
 			}
 		}
 
-		[[nodiscard]] bool ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
-			IssueSeverity a_severity, const char* a_subject = "", const Json& a_context = Json::object()) const noexcept
-		{
-			try {
-				const auto text = a_context.dump(-1, ' ', false, Json::error_handler_t::replace);
-				return _client.ReportIssue(a_modId, a_id, a_code, a_severity, a_subject, text.c_str());
-			} catch (...) {
-				return false;
-			}
-		}
-
-		[[nodiscard]] bool ClearIssuesExcept(const char* a_modId, const std::vector<std::string>& a_keepIds) const noexcept
-		{
-			try {
-				const auto text = Json(a_keepIds).dump(-1, ' ', false, Json::error_handler_t::replace);
-				return _client.ClearIssuesExcept(a_modId, text.c_str());
-			} catch (...) {
-				return false;
-			}
-		}
-
 	private:
 		const Client& _client;
 	};

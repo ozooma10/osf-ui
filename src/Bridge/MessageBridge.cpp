@@ -61,7 +61,7 @@ namespace OSFUI
 		// often to log.
 		bool IsTracedState(std::string_view a_key)
 		{
-			return a_key == "settings" || a_key == "views" || a_key == "diagnostics" || a_key == "i18n" ||
+			return a_key == "settings" || a_key == "views" || a_key == "i18n" ||
 			       a_key == "keybindings" || a_key == "input-context";
 		}
 	}

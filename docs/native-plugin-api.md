@@ -1,10 +1,10 @@
 # Native plugin API
 
-Lets your DLL talk to OSF UI: handle messages a view sends, publish state and events back, read settings and hotkeys, open views, report health.
+Lets your DLL talk to OSF UI: handle messages a view sends, publish state and events back, read settings and hotkeys, and open views.
 
 The stable, dependency-free ABI is [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) (C ABI **2.0**). If your plugin already uses `nlohmann::json`, include the optional [`sdk/OSFUI_JSON.h`](../sdk/OSFUI_JSON.h) authoring facade too — it stays on your side of the DLL boundary and never changes the ABI.
 
-Component, version, endpoint, lifecycle, and health names follow the
+Component, version, endpoint, and lifecycle names follow the
 [terminology glossary](terminology.md).
 
 Writing a view (HTML/JS) instead? [authoring-views.md](authoring-views.md) is the `window.osfui` side. Your `SetViewState` arrives at the view's `osfui.state.on`, your `SendToWeb` at its `osfui.on`, and its `osfui.send` / `osfui.request` arrive at your handlers.
@@ -19,7 +19,7 @@ Writing a view (HTML/JS) instead? [authoring-views.md](authoring-views.md) is th
 - [5. Requests — web → native, settled once](#5-requests--web--native-settled-once)
 - [6. Native → web — state and events](#6-native--web--state-and-events)
 - [7. Status & readiness](#7-status--readiness)
-- [8. Settings, hotkeys, views, and health](#8-settings-hotkeys-views-and-health)
+- [8. Settings, hotkeys, and views](#8-settings-hotkeys-and-views)
 - [9. Threading & lifetime](#9-threading--lifetime)
 - [10. Method reference](#10-method-reference)
 - [11. Example plugin](#11-example-plugin)
@@ -36,7 +36,7 @@ Most mods need no native code:
 - A view reads/writes its own settings and reacts to hotkeys from JS.
 - Papyrus can publish view state, send view events and answer view requests with no DLL ([authoring-dynamic-data.md](authoring-dynamic-data.md)).
 
-Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder dynamically, open or close a view, or report a durable failure into System Health.
+Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder dynamically, or open or close a view.
 
 If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Plugins should be rebuilt against ABI 2.0 before the temporary 1.x adapter is removed in OSF UI 2.1.0.
 
@@ -46,7 +46,7 @@ If OSF UI is missing, every call is a safe no-op — you never special-case "not
 
 `kBridgeAPIVersion` is `(2 << 16) | 0`. ABI 2.0 replaces the ambiguous command callback with strict `RegisterSend` / `SendFn`, retains `RegisterRequest`, and includes retained state in the baseline. A send receives exactly the caller's payload and never produces an acknowledgement; a request naming it is rejected `wrong-endpoint-kind`.
 
-During OSF UI 2.0.x, ABI 1.x callers receive an isolated adapter exposing the frozen final 1.8 vtable. Older 1.x binaries use the prefix they were compiled against; feature-minor gates, settings, hotkeys, view registration, health reporting, retained state, registered requests, and `RegisterCommand` request-ID/auto-ack behavior remain available. System Health names the DLL and warns that the adapter is removed in 2.1.0. ABI 2.x callers still receive the strict bridge below, and unrelated majors receive `nullptr` plus a distinct unsupported-ABI error. Rebuild against the 2.0 header now.
+During OSF UI 2.0.x, ABI 1.x callers receive an isolated adapter exposing the frozen final 1.8 vtable. Older 1.x binaries use the prefix they were compiled against; feature-minor gates, settings, hotkeys, view registration, retained state, registered requests, and `RegisterCommand` request-ID/auto-ack behavior remain available. The historical issue-reporting slots remain in the frozen vtable only for binary safety and return `false`. OSF UI warns in the log that the adapter is removed in 2.1.0. ABI 2.x callers still receive the strict bridge below, and unrelated majors receive `nullptr` plus a distinct unsupported-ABI error. Rebuild against the 2.0 header now.
 
 Future ABI 2.x additions append methods at the vtable tail and bump the minor. The `Client` wrapper feature-gates those additions.
 
@@ -222,7 +222,7 @@ if (!jsonUi.SetViewState("acme.mymod", "ship", { { "hull", 88 }, { "grav", 3 } }
 }
 ```
 
-`JsonClient` accepts JSON (or any `nlohmann`-convertible struct) for `SetViewState`, `SendToWeb`, `RegisterSettingsSchema`, `ReportIssue` and `ClearIssuesExcept` — every JSON-bearing call. The dependency-free `const char*` forms stay available.
+`JsonClient` accepts JSON (or any `nlohmann`-convertible struct) for `SetViewState`, `SendToWeb`, and `RegisterSettingsSchema`. The dependency-free `const char*` forms stay available.
 
 ### 6b. SendToWeb — something happened
 
@@ -290,7 +290,7 @@ You rarely need this. `SetViewState` before the bridge is available is retained,
 
 ---
 
-## 8. Settings, hotkeys, views, and health
+## 8. Settings, hotkeys, and views
 
 Callable from any thread; callbacks fire on the game main thread. The JS side lives in [authoring-settings.md](authoring-settings.md).
 
@@ -376,51 +376,12 @@ Doesn't fire while the overlay captures text or during a rebind, and key repeats
 
 It's an optional declaration for a **plugin-shipped** folder. A plain drop-in view is found at boot and loads on first open with no plugin at all.
 
-### 8d. Reporting health issues
-
-Report a durable, actionable **health issue** into OSF UI's health registry.
-The built-in **System Health** destination is the one place a player looks when
-something is wrong, whichever mod noticed it. Don't build a second health
-destination in your own view.
-
-```cpp
-constexpr const char* kMod = "acme.mymod";
-
-// Something is wrong, and stays wrong until it isn't.
-g_ui.ReportIssue(kMod, "pack-parse:highlights", "catalog.parse-failed",
-                 OSFUI::API::IssueSeverity::kError, "highlights",
-                 R"({"file":"highlights.json","line":12})");
-
-// It cleared.
-g_ui.ClearIssue(kMod, "pack-parse:highlights");
-```
-
-**This is not a log channel and not a toast.** Report only what is *durable* (still true when the player reads it), *actionable*, and *worth interrupting them for*. Routine progress, one-frame hiccups and anything already self-corrected belong in your log.
-
-Identity, not events:
-
-- `id` is **your** dedupe key. Re-reporting a current issue id bumps its occurrence count in place — that's what distinguishes "once at startup" from "every few seconds" — instead of creating duplicate issues.
-- `code` is **your** stable machine code for the *kind* of condition. Never prose: OSF UI owns the wording so it stays localizable and no mod writes its own player-facing issue copy. An unknown code renders as a health issue naming your mod with your context as technical detail — degraded, never broken.
-- `ClearIssue` moves it to **Resolved this session**, which is what a player wants after a retry. Cheap to call unconditionally.
-- Recomputing a whole set? Report what's wrong now, then sweep: `ClearIssuesExcept(kMod, R"(["still-bad-1","still-bad-2"])")`. FIFO with `ReportIssue`, so the pair lands correctly in one tick. **The sweep is scoped to your mod, not to one producer inside it** — if your plugin reports from several places, the keep list must name every id you want to remain current, or the rest are withdrawn as collateral.
-
-Everything is namespaced to the calling mod: the issue's `source` is **your mod
-id, assigned by the OSF UI runtime** — never a parameter — and your ids and
-codes are prefixed with it. Two mods can use the same local id without
-colliding, and no mod can resolve or overwrite a platform issue. Platform
-health issues instead use the producing platform subsystem as their source;
-the public field is producer identity, not a type discriminator.
-
-`context` is optional bounded detail: a **flat JSON object** of string/number/bool values, capped at 8 entries and 240 chars per value. It's sanitized on the way in — anything path-, URL- or command-shaped is cut to its trailing component, because an absolute path identifies the player's machine and account. Pass bare filenames and ids; don't rely on nested values surviving.
-
----
-
 ## 9. Threading & lifetime
 
 **Threading**
 
 - Any thread, synchronous: all status reads, the typed setting getters, and the validation half of every mutating call.
-- Any thread, applied next tick: the *effect* of every mutating call (register, send, publish state, subscribe, request menu, report issue).
+- Any thread, applied next tick: the *effect* of every mutating call (register, send, publish state, subscribe, request menu).
 - Always the main thread: every callback (`SendFn`, `RequestFn`, `ReadyFn`, `SettingChangedFn`, `HotkeyFn`). Keep them cheap.
 - `Request::Respond` / `Reject` are the exception: safe from any thread, at any later time.
 
@@ -465,9 +426,6 @@ All on `IOSFUIBridge`, mirrored on `Client`. Every listed method is part of the 
 | `SubscribeHotkey(mod,key,fn,user)` | 2.0 | any | no replay; returns token/0 |
 | `UnsubscribeHotkey(token)` | 2.0 | any | |
 | `RegisterView(view)` | 2.0 | any | `<modId>/<viewName>`; idempotent |
-| `ReportIssue(mod,id,code,sev,subj,ctx)` | 2.0 | any | false on bad mod id / empty id or code / non-object context |
-| `ClearIssue(mod,id)` | 2.0 | any | true = queued, not "was active" |
-| `ClearIssuesExcept(mod,keepJson)` | 2.0 | any | keep list is a JSON array of ids |
 
 ---
 

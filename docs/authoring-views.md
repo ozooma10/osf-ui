@@ -7,7 +7,7 @@ How to build a UI for OSF UI without touching the C++ implementation of the OSF 
 
 Both are pure content, no recompile: a `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema.
 
-The bridge protocol is at version **2.0 — stable**. Additive changes bump the minor, breaking changes the major; 2.0 was such a break with 1.x (four verbs, routing beside the payload, page-initiated handshake). During OSF UI 2.0.x, an explicitly pre-2.0 view is kept running by a guarded compatibility façade and gets a persistent System Health warning that the façade is removed in 2.1.0. A view targeting 2.0 never receives those aliases. `bridgeVersion` is informational.
+The bridge protocol is at version **2.0 — stable**. Additive changes bump the minor, breaking changes the major; 2.0 was such a break with 1.x (four verbs, routing beside the payload, page-initiated handshake). During OSF UI 2.0.x, an explicitly pre-2.0 view is kept running by a guarded compatibility façade and writes one warning that the façade is removed in 2.1.0. A view targeting 2.0 never receives those aliases. `bridgeVersion` is informational.
 
 Component, identity, lifecycle, readiness, and version names follow the
 [terminology glossary](terminology.md).
@@ -125,7 +125,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the shared bridge helper consume
 - **`width`/`height`** set the page's logical size; author against it. Under the D3D12 compositor the OSF UI runtime resizes the view to the screen aspect (height capped at 1440) with a matching device scale (`outputHeight / height`), so the page always lays out at its logical height and CSS pixels scale up. At 1440p a 720-tall manifest gets a 2.0 device scale and a 720 px CSS viewport — type sized for 720p stays that size instead of shrinking. Width still varies with aspect ratio (~1720 CSS px on 21:9), so write width-responsive CSS. The versioned guarantee is that your logical height is fixed; width is not.
 - **`kind`** picks the view kind: a `"menu"` may capture input and become the active menu; a `"hud"` is passive (see *Multiple views & layering*). `capturesInput` and `pausesGame` refine a menu only — set `pausesGame:false` for a menu that wants the world running — and are forced `false` for HUDs whatever the manifest says.
 - **`permissions.nativeBridge`** must be `true` if your page talks to the OSF UI runtime. When false, `window.osfui` is never injected and the page runs purely client-side.
-- On a menu's first open, OSF UI keeps the view closed until its main-frame load succeeds. The view owns no input or pause state while loading. A failed load remains closed while automatic recovery runs; load failures and exhausted recovery are reported through System Health and `OSF UI.log`.
+- On a menu's first open, OSF UI keeps the view closed until its main-frame load succeeds. The view owns no input or pause state while loading. A failed load remains closed while automatic recovery runs; load failures and exhausted recovery are written to `OSF UI.log`.
 - A manifest failing validation (an `entry` escaping the folder, a folder name violating the id grammar) is skipped with an error in `OSF UI.log`. The owning mod id comes from the `views/<modId>/` folder, so a view always groups onto its own mod's page.
 
 ### Multiple views & layering
@@ -295,8 +295,6 @@ Anything not listed is dropped and surfaced as `unknown-endpoint`.
 | `settings.set` | `mod`, `key`, `value` | `{ mod, key, value }` — `value` is the **post-clamp committed** value, so you can tell clamped from accepted without a re-fetch | `forbidden`, `unknown-setting`, `read-only`, `invalid-value` |
 | `settings.reset` | `mod`, `key?` | `{}` — the refreshed registry arrives to everyone as `osfui/settings` state | `forbidden`, `unknown-setting` |
 | `settings.captureKey` | `mod`, `key` | `{ armed: true, mod, key }` — settles in MACHINE time | `forbidden`, `capture-busy`, `not-rebindable` |
-| `osfui.openModPage` | — | `{}` | `shell-failed` |
-| `osfui.openLogFolder` | — | `{}` | `no-log-folder`, `shell-failed` |
 | `osfui.setViewAutoStart` | `view`, `enabled` | `{}` | *(platform-private)* `forbidden`, `invalid-payload`, `unknown-view`, `not-configurable`, `persistence-failed` |
 | `papyrus.request` | `name`, `args?` | `{ value }` — the sugar unwraps it to `value` | `invalid-request`, `papyrus-unavailable`, `papyrus-timeout`, or the script's own `RejectViewRequest` code |
 
@@ -313,11 +311,10 @@ Every one of these replays to every fresh document. Nothing here is requested or
 
 | key | value | when it changes |
 |---|---|---|
-| `osfui/settings` | `{ mods: [{ id, title, schema, values, shadowed?, targetVersion? }], keyboard?, loadErrors? }` | the registry SHAPE changes (a schema registers, hot-reloads or goes away), a whole-mod reset lands, or the OS keyboard layout switches. Individual commits arrive as the `settings.changed` event. `keyboard` is `{ layout, labels: { keyName -> keycap } }` — the player's localized keycaps (display only; fall back to the physical key name when absent). `loadErrors` names settings files that failed to load, so a view can say so instead of a mod silently vanishing |
+| `osfui/settings` | `{ mods: [{ id, title, schema, values, shadowed?, targetVersion? }], keyboard? }` | the registry SHAPE changes (a schema registers, hot-reloads or goes away), a whole-mod reset lands, or the OS keyboard layout switches. Individual commits arrive as the `settings.changed` event. `keyboard` is `{ layout, labels: { keyName -> keycap } }` — the player's localized keycaps (display only; fall back to the physical key name when absent) |
 | `osfui/keybindings` | `{ available, revision, gameVersion, error?, actions: [{ event, label, category, context, classification, modes, sortIndex, required, bindings }] }` | the live engine ControlMap is first copied or remapped. Complete read-only game-input-action order, including unbound, main/alternate, and chorded keyboard rows. `classification` is `core` \| `special` \| `menu` \| `unknown`; `bindings[].key` is an OSF UI physical key name or `null`. `available:false` is fail-closed and carries no actions |
 | `osfui/input-context` | `{ available, revision, mode, contexts: [{ id, name }] }` | the exact active **engine input context** stack or derived semantic mode changes. This is distinct from a settings schema's authored hotkey contexts. `mode` is `onFoot` \| `ship` \| `vehicle` \| `zeroG` \| `null` |
 | `osfui/views` | `{ views: [{ id, title, description, mod, kind, interactive, hub, targetVersion, open, focused, loadState, autoStart, autoStartMutable }] }` | any presentation or main-frame load-state change. `loadState` is `"unloaded"` (discovered, not instantiated) \| `"loading"` \| `"loaded"` (main-frame load complete) \| `"failed"`. `open` is presentation policy; `focused` identifies the active menu; `interactive` is a menu-kind capability summary, not current input capture; `hub` is the compatibility field for catalog visibility. Do not list `hub:false` views |
-| `osfui/diagnostics` | `{ system, issues: [{ id, code, severity, status, source, subject, context, occurrences, firstAt, lastAt, resolvedAt? }] }` | the health registry changes. Each health issue carries a stable machine `code` — map it to your own copy, the payload never contains player-facing prose. Powers the System Health destination in Mod Settings; a normal content view rarely needs it |
 | `osfui/i18n` | `{ mod, locale, strings }` | language change or a developer-mode catalog reload. **Per view**: the value is your own mod's catalog. The shared bridge helper consumes this for you — use `osfui.i18n.t()` |
 | `<yourModId>/<key>` | whatever your mod backend published | your Papyrus `OSFUI.SetView*` or your plugin's `SetViewState`. See [authoring-dynamic-data.md](authoring-dynamic-data.md) |
 
@@ -355,7 +352,7 @@ Every `request()` rejection carries a stable `code`. The layers stay distinguish
 
 - The shared bridge helper prints every request rejection, every `no-bridge` and every client timeout with an `[osfui]` prefix, so an unhandled promise rejection is preceded by a named, inspectable error.
 - View-caused faults the page would otherwise never hear about — a `send` dropped for naming a request endpoint, a send to an unknown endpoint, or a malformed envelope — come back as the developer-mode `osfui.debug.error` event, printed the same way. A mod backend or OSF UI runtime handler missing its deadline is also reported to the waiting page as `no-response`, but never counts against the view's fault budget.
-- Release builds have no debug channel, so *repetition* is the signal: a view that keeps getting the protocol wrong raises a `view.protocol-misuse` health issue in Mod Settings. A one-off stays out of the player's face; a handler-side timeout is not view misuse.
+- Release builds have no debug channel; the same faults remain in `OSF UI.log`. A handler-side timeout is returned to the waiting request as `no-response` and is not view misuse.
 - For "what is actually crossing the bridge", set `localStorage["osfui:trace"] = "1"` and reload. The shared bridge helper then logs every envelope both directions via `console.debug`, including each request's settlement latency. This also answers "why is my HUD blank": every replayed `state` envelope is visible at document boot, so either the key arrives (view bug) or it doesn't (mod-backend bug).
 
 ### Minimal example

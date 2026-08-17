@@ -68,11 +68,8 @@ namespace OSFUI
 
 		// OSF UI runtime-detected faults, routed back to the view as a developer-mode
 		// `osfui.debug.error` event. Runtime installs this; without it the
-		// bridge only logs. `a_viewFault` says whether the VIEW caused it: only
-		// those are counted for the release-mode `view.protocol-misuse`
-		// health issue. An endpoint handler that never answered is reported to
-		// the waiting page too, but it is not the page's fault and must not earn
-		// it a health issue.
+		// bridge only logs. `a_viewFault` distinguishes malformed view traffic
+		// from failures in an endpoint handler.
 		using ProtocolFaultSink = std::function<void(std::string_view a_viewId, std::string_view a_code,
 			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)>;
 

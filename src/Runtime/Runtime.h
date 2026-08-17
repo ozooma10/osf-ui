@@ -8,7 +8,6 @@
 #include "Input/GamepadSession.h"
 #include "Input/KeyLabels.h"
 #include "Render/IWebRenderer.h"
-#include "Diagnostics/HealthRegistry.h"
 #include "Runtime/DeferredMainThreadWork.h"
 #include "Views/Dev/DevViewReloadWorker.h"
 #include "Bindings/HotkeyService.h"
@@ -16,7 +15,6 @@
 #include "Bindings/LiveControlMap.h"
 #include "Views/ViewPresentationController.h"
 #include "Render/BrowserHostRecovery.h"
-#include "Runtime/RuntimeHealthCoordinator.h"
 #include "Bridge/MessageBridge.h"
 #include "Settings/SettingsModule.h"
 #include "Runtime/UiModule.h"
@@ -99,7 +97,6 @@ namespace OSFUI
 		[[nodiscard]] const Config&  GetConfig() const { return _config; }
 
 	private:
-		friend class RuntimeHealthCoordinator;
 		Runtime() = default;
 
 		bool LoadRuntimeConfig();
@@ -216,7 +213,6 @@ namespace OSFUI
 		void ProcessRendererFrame(double a_deltaSeconds);
 
 		void SyncLiveControlMapBindings();
-		void SyncLiveControlMapHealth();
 		// Invalidate and re-broadcast every projection that contains localized
 		// text after a locale/catalog change.
 		void RefreshLocalizedData();
@@ -306,7 +302,7 @@ namespace OSFUI
 		// Publish one retained value to the mod's instantiated views.
 		void PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value);
 
-		// Publish one platform state key (settings/views/diagnostics/i18n plus the
+		// Publish one platform state key (settings/views/i18n plus the
 		// current keybindings/engine-input-context state documents) to one greeted view, or to every greeted view when a_viewId is
 		// empty. The i18n value is computed per view, since a view's catalog is
 		// its owning mod's.
@@ -317,9 +313,8 @@ namespace OSFUI
 		// value it is entitled to — platform keys plus its owning mod's.
 		void OnViewGreeted(std::string_view a_viewId);
 
-		// MessageBridge protocol-fault sink: bridge/API-detected faults for a view.
-		// Routes to that view's own console in developer mode and raises the
-		// `view.protocol-misuse` health issue once it repeats.
+		// MessageBridge protocol-fault sink: in developer mode, routes
+		// bridge/API-detected faults back to the offending view's console.
 		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code,
 			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
@@ -331,8 +326,6 @@ namespace OSFUI
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
-		HealthRegistry*                      _healthRegistry{ nullptr };  // owned by _modules
-		RuntimeHealthCoordinator                      _runtimeHealth{ *this };
 		// Live key-typed bindings -> owner dispatch. Fed by OnGameWindowKey (window
 		// thread), rebuilt from the store's listeners and drained in Tick (main
 		// thread); wired in InitializeFeatureModules.
@@ -465,9 +458,6 @@ namespace OSFUI
 		// doesn't re-send an unchanged catalog). There is no subscriber set any
 		// more: platform state goes to every greeted view.
 		std::string                     _lastViewsData;
-		// Per-view count of view-caused protocol faults; crossing the threshold
-		// raises one `view.protocol-misuse` health issue.
-		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;
 		double                          _nextLocalizationScan{ 0.0 };
 		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; used
 		// only to schedule recovery backoff (stalls with the game, which is the

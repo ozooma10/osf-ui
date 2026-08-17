@@ -13,7 +13,6 @@ import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { modIconSrc, type AssetRoots } from '@lib/settings/assets';
 import { titleOf, type ModRecord, type ViewRecord } from '@lib/settings/rail';
-import { issueForSubject, type HealthModel } from '@lib/settings/health';
 import type { Translator } from '@lib/i18n';
 import { homeAccentFor, initials, Mark } from './marks';
 import { OPEN_COOLDOWN_MS } from './openCooldown';
@@ -21,27 +20,22 @@ import { OPEN_COOLDOWN_MS } from './openCooldown';
 export interface HomeProps {
   views: ViewRecord[];
   mods: ModRecord[];
-  health: HealthModel;
   tr: Translator;
   assetRoots: AssetRoots | undefined;
   /** Resolved open state for a HUD, including any optimistic override. */
   hudOn: (view: ViewRecord) => boolean;
   onOpen: (viewId: string) => void;
   onHud: (viewId: string, next: boolean) => void;
-  /** Jump to System Health with this issue expanded (failed card). */
-  onOpenIssue: (issueId: string) => void;
 }
 
 export function Home({
   views,
   mods,
-  health,
   tr,
   assetRoots,
   hudOn,
   onOpen,
   onHud,
-  onOpenIssue,
 }: HomeProps) {
   const menus = views.filter((v) => v.kind === 'menu');
   // Anything that is not a menu is treated as a HUD, so an unknown future
@@ -92,9 +86,7 @@ export function Home({
                       tr={tr}
                       iconSrc={ownerIcon(v.mod)}
                       caption={caption(v)}
-                      issueId={(issueForSubject(health.issues, v.id) || {}).id ?? null}
                       onOpen={onOpen}
-                      onOpenIssue={onOpenIssue}
                     />
                   ))}
                 </div>
@@ -204,13 +196,10 @@ interface MenuCardProps {
   tr: Translator;
   iconSrc: string | null;
   caption: string;
-  /** Health issue naming this view, when one is active. */
-  issueId: string | null;
   onOpen: (viewId: string) => void;
-  onOpenIssue: (issueId: string) => void;
 }
 
-function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue }: MenuCardProps) {
+function MenuCard({ view: v, tr, iconSrc, caption, onOpen }: MenuCardProps) {
   const failed = v.loadState === 'failed';
   const accent = homeAccentFor(v.id);
   // Single-menu policy: the opened menu replaces this view, so there is no
@@ -220,22 +209,13 @@ function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue 
   const [iconFailed, setIconFailed] = useState(false);
   const showIcon = !!iconSrc && !iconFailed;
 
-  // A failed card is a live link to its issue, not a dead tile: the issue
-  // explains the failure in words and owns the retry. Without an issue (an
-  // older OSF UI runtime, or a failure nothing reported) it stays disabled as before.
-  const reviewable = failed && !!issueId;
-
   return (
     <button
       type="button"
       class={failed ? 'home-tile failed' : 'home-tile'}
-      disabled={(failed && !reviewable) || cooling}
-      onClick={() => {
-        if (reviewable) {
-          onOpenIssue(issueId as string);
-          return;
-        }
-        onOpen(v.id);
+        disabled={failed || cooling}
+        onClick={() => {
+          onOpen(v.id);
         setCooling(true);
         setTimeout(() => setCooling(false), OPEN_COOLDOWN_MS);
       }}
@@ -259,11 +239,7 @@ function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue 
       </span>
 
       <span class="home-tile-foot">
-        {reviewable
-          ? tr('failedReviewIssue', 'FAILED — REVIEW ISSUE ▸')
-          : failed
-            ? tr('failedSeeLog', 'FAILED — SEE OSF UI.LOG')
-            : tr('openArrow', 'OPEN ▸')}
+        {failed ? tr('failedSeeLog', 'FAILED — SEE OSF UI.LOG') : tr('openArrow', 'OPEN ▸')}
       </span>
     </button>
   );

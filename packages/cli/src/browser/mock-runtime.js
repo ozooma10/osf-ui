@@ -61,7 +61,7 @@ export const PLATFORM_SENDS = new Set([
 export const PLATFORM_REQUESTS = new Set([
   'menu.open', 'menu.close', 'setViewHidden', 'ping',
   'settings.set', 'settings.reset', 'settings.captureKey',
-  'osfui.openModPage', 'osfui.openLogFolder', 'osfui.setViewAutoStart',
+  'osfui.setViewAutoStart',
   'papyrus.request',
 ]);
 

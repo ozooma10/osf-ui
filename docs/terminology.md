@@ -72,8 +72,6 @@ starter does not create a view.
   current UI the *Mods surface*, *settings hub*, or *MCM*.
 - **Keybindings** is the built-in `osfui/keybinds` view. Do not call the current
   UI the *Keybinds board* or *input map*.
-- **System Health** is a fixed destination inside Mod Settings, not a separate
-  view.
 
 ## View lifecycle and presentation
 
@@ -89,10 +87,6 @@ These states describe different axes and must not be used interchangeably:
 | **input-target view** | The instantiated browser view selected by the renderer/browser host for mouse, real focus, cursor, and synthetic-key delivery. It follows the active menu during an input session, but names a transport target rather than presentation state. |
 | **captures input** | The active menu's effective policy routes input to its document. This is not synonymous with menu kind or with `interactive`. |
 | **resident** | After first instantiation, the document stays alive across ordinary close/reopen transitions until process exit. Browser-host recovery recreates it in the replacement host. |
-
-A rail item that always stays in place, such as System Health, is a **fixed
-destination**; it says nothing about the browser lifetime of the containing
-view.
 
 The public `osfui/views` payload retains compatibility field names:
 
@@ -162,24 +156,6 @@ the browser's main-frame load milestone.
 | **keycap label** | Localized display text such as `Ö`; never persist it as the binding. |
 | **engine input context** | A live Starfield ControlMap context from `osfui/input-context`. |
 | **hotkey context** | An authored `inputContexts` entry in a settings schema, local to one mod. |
-
-## Health and diagnostics
-
-- The **health registry** contains durable, actionable **health issues**.
-- **System Health** is the built-in player-facing destination that renders the
-  registry.
-- **System information** is the factual environment summary attached to that
-  registry.
-- A **diagnostic report** is the local text export copied by the player. It is
-  not the registry itself and OSF UI does not upload it.
-- Logs remain chronological event streams. Do not use the health registry as a
-  log or toast channel.
-
-The public state key remains `osfui/diagnostics`, and public types retain names
-such as `DiagnosticIssue`. An issue's `source` means its producer identity: a
-platform subsystem for platform issues or an OSF UI runtime-assigned mod id for
-plugin issues. Qualify which one is expected rather than treating `source` as a
-type tag.
 
 ## Developer mode
 

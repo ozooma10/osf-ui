@@ -10,7 +10,7 @@ namespace OSFUI
 	// OnStart(), RegisterEndpoints(), OnBridgeDown(), OnViewDestroyed() — from a
 	// single loop instead of a per-module call at every site. It is NOT a
 	// decoupling seam and NOT a plugin ABI: the runtime still holds and reaches
-	// through the concrete module types (SettingsModule, HealthRegistry)
+	// through the concrete module types (currently SettingsModule)
 	// directly; this only keeps the lifecycle loops single and in registration
 	// order (registration order is meaningful — see BuildModules).
 	class IUiModule

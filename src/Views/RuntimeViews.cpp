@@ -81,7 +81,6 @@ namespace OSFUI
 			} else {
 				REX::INFO("Runtime: view '{}' finished loading ({})", a_viewId, a_url);
 			}
-			_runtimeHealth.ReportViewLoad(a_viewId, false, {}, 0, 0);
 			BroadcastViewsData();  // loadState loading -> loaded
 			return;
 		}
@@ -91,14 +90,11 @@ namespace OSFUI
 		const auto recovery = m_viewRecovery.ScheduleFailure(id, _uptime);
 		if(recovery.exhausted) {
 			REX::ERROR("view '{}' has exhausted its crash-recovery budget; destroying and unregistering the view (fix its files and relaunch)", a_viewId);
-			_runtimeHealth.ReportViewLoad(a_viewId, true, a_description, a_errorCode, 0);
 			TearDownFailedView(id);
 			return;
 		}
 
 		REX::WARN("view '{}' load failed; crash-recovery will attempt reload in {:.0f} seconds (attempt {} of {})", a_viewId, recovery.retryDelay, recovery.nextAttempt, ViewRecoveryTracker::kMaxAttempts);
-		_runtimeHealth.ReportViewLoad(a_viewId, true, a_description, a_errorCode, recovery.attemptsRemaining);
-
 		BroadcastViewsData();  // loadState loading -> failed
 	}
 

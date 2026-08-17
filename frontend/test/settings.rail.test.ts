@@ -85,10 +85,9 @@ describe('findEntry', () => {
 describe('railNodes — paint order', () => {
   const model: RailModel = { mods: [zeta, framework, alpha], views: [] };
 
-  it('is Health, Home, framework, "Mods" header, then sorted mods', () => {
-    expect(ids(railNodes(model, ''))).toEqual([
-      'health',
-      'home',
+  it('is Home, framework, "Mods" header, then sorted mods', () => {
+	expect(ids(railNodes(model, ''))).toEqual([
+	  'home',
       FRAMEWORK_ID,
       'section',
       // localeCompare sensitivity "base": "alpha works" sorts before "Zeta
@@ -98,31 +97,20 @@ describe('railNodes — paint order', () => {
     ]);
   });
 
-  it('emits Health unconditionally — it is a destination, not an alert', () => {
-    // Nothing wrong: the entry is still there, reading "Nominal".
-    expect(ids(railNodes({ mods: [], views: [] }, ''))[0]).toBe('health');
-  });
-
   it('sorts case- and accent-insensitively, not by ASCII', () => {
     const mixed: RailModel = {
       mods: [{ id: 'b', title: 'beta' }, { id: 'a', title: 'Alpha' }],
       views: [],
     };
-    expect(ids(railNodes(mixed, ''))).toEqual(['health', 'home', 'section', 'a', 'b']);
+	expect(ids(railNodes(mixed, ''))).toEqual(['home', 'section', 'a', 'b']);
   });
 
   it('DROPS Home while a filter is active', () => {
-    expect(ids(railNodes(model, 'zeta'))).toEqual(['health', 'section', 'acme.zeta']);
+	expect(ids(railNodes(model, 'zeta'))).toEqual(['section', 'acme.zeta']);
   });
 
-  it('keeps System Health as a fixed destination when the filter matches nothing', () => {
-    // A user filtering for the mod that failed to load must still be able to
-    // reach the reason, not be told "no mods match".
-    expect(ids(railNodes({ mods: [], views: [] }, 'zzz'))).toEqual([
-      'health',
-      'section',
-      'empty',
-    ]);
+  it('shows the filtered-empty state when the filter matches nothing', () => {
+	expect(ids(railNodes({ mods: [], views: [] }, 'zzz'))).toEqual(['section', 'empty']);
   });
 
   it('always emits the "Mods" header, even with an empty list', () => {
@@ -138,7 +126,6 @@ describe('railNodes — paint order', () => {
   });
 
   it('hides the framework entry when it does not match the filter', () => {
-    // Health stays fixed above the filtered list.
-    expect(ids(railNodes(model, 'alpha'))).toEqual(['health', 'section', 'acme.alpha']);
+	expect(ids(railNodes(model, 'alpha'))).toEqual(['section', 'acme.alpha']);
   });
 });

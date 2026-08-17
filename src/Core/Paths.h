@@ -19,9 +19,4 @@ namespace OSFUI::Paths
 	// <data>/views
 	[[nodiscard]] std::filesystem::path ViewsDir();
 
-	// <Documents>/My Games/Starfield/SFSE/Logs — where SFSE writes plugin logs,
-	// and the ONLY target the `osfui.openLogFolder` request endpoint can open. Empty
-	// when Documents cannot be resolved. Not derived from the plugin dir: SFSE
-	// logs live in the user profile, not the (MO2-mapped, read-only) Data tree.
-	[[nodiscard]] std::filesystem::path LogDir();
 }

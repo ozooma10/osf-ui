@@ -35,7 +35,7 @@ function sourceFiles(directory) {
 }
 
 const retiredBridgeNames = [
-  [/\b(?:settings|views|diagnostics|i18n)\.data\b/, 'use the qualified 2.0 state key'],
+  [/\b(?:settings|views|i18n)\.data\b/, 'use the qualified 2.0 state key'],
   [/\bruntime\.ready\b/, 'call this the bridge ready handshake'],
   [/\bhandoff\.state\b/, 'the first-load handoff protocol was removed'],
   [/\bosfui\/handoff\b/, 'the first-load handoff state was removed'],
@@ -56,9 +56,6 @@ const retiredInternalNames = [
   [/\bSetSurfaceLoaded\b/, 'use SetViewInstantiated'],
   [/\bVanillaKey\b/, 'use GameBinding'],
   [/\bResolveInputContext\b/, 'use ResolveHotkeyContext'],
-  [/\bDiagnosticsModule\b/, 'use HealthRegistry'],
-  [/\bDiagnosticsReconciler\b/, 'use HealthReconciler'],
-  [/\bRuntimeDiagnostics\b/, 'use RuntimeHealthCoordinator'],
 	[/\bRendererHostRecovery\b/, 'use BrowserHostRecovery'],
   [/\bOnHostRestart\b/, 'qualify the browser-host restart'],
 	[/\bCommandCoalesceKey\b/, 'use GameMessageCoalesceKey for private browser-host IPC'],
@@ -72,10 +69,6 @@ const retiredInternalNames = [
   [/\bIsValidPluginCommand\b/, 'use IsValidPluginEndpointName for current sends and requests'],
   [/\bruntime[- ]registered\b/i, 'use native-registered for dynamic native API registration'],
   [/\bruntime registration\b/i, 'use native registration for dynamic native API registration'],
-  [/\bDiagnosticOp\b/, 'use HealthIssueOp'],
-  [/\bValidateDiagnosticCaller\b/, 'use ValidateHealthReporter'],
-  [/\boffDiagnostics\b/, 'use offHealth for the current health subscription'],
-  [/\bDiagnostics:/, 'use HealthRegistry in current native log prefixes'],
   [/manifest id grammar/i, 'use qualified view id grammar'],
   [/\bmanifest id\b/i, 'identity comes from the qualified view path, not the manifest'],
   [/views\/<id>\//, 'use views/<modId>/<viewName>/ or the mod namespace views/<modId>/'],
@@ -84,7 +77,6 @@ const retiredInternalNames = [
   [/\bnever[- ]loaded view\b/i, 'use never-instantiated view'],
   [/\bnot-yet-loaded\b/i, 'use not-yet-instantiated for browser-object lifecycle'],
   [/\btop menu\b/i, 'use active menu; OSF UI has no menu stack'],
-  [/\bCompatibility cards\b/, 'use compatibility health issues'],
   [/LiveControlMap: ready/, 'qualify the game-binding catalog readiness milestone'],
   [/\bViewManager::LoadAll\b/, 'use ViewManager::DiscoverAll for manifest discovery'],
   [/\bLoadView\(/, 'use CreateOrNavigateView for renderer creation/navigation'],
@@ -92,7 +84,6 @@ const retiredInternalNames = [
   [/\bOnHost(?:Key|Mouse\w*)\b/, 'use game-window input naming'],
   [/\bhostVerdict\b/, 'use bridgeVerdict for MessageBridge validation'],
   [/\bvanillaWarnings\b/, 'use gameBindingWarnings'],
-  [/settings\/diagnostics/, 'use settings/health for the current frontend model'],
   [/\bmcm-design(?:\.md)?\b/i, 'reference current Mod Settings documentation'],
   [/\bMCM\b/, 'use Mod Settings in current source and tests'],
   [/\bhost-side\b/i, 'qualify browser host or say native desktop/runtime side'],
@@ -103,7 +94,6 @@ const retiredInternalNames = [
 const retiredFrontendInternalNames = [
   [/\bruntimeVersion\b/, 'qualify the OSF UI release as osfuiReleaseVersion'],
   [/\bsendCommand\b/, 'use sendEndpoint for a one-way endpoint call'],
-  [/\bonShellCommand\b/, 'use onShellRequest for shell request endpoints'],
 ];
 
 const retiredInternalPaths = [
@@ -111,17 +101,9 @@ const retiredInternalPaths = [
   'src/Views/MenuController.cpp',
   'src/Views/ViewStateStore.h',
   'src/Views/ViewStateStore.cpp',
-  'src/Diagnostics/DiagnosticsModule.h',
-  'src/Diagnostics/DiagnosticsModule.cpp',
-  'src/Diagnostics/DiagnosticsReconciler.h',
-  'src/Diagnostics/DiagnosticsReconciler.cpp',
-  'src/Runtime/RuntimeDiagnostics.h',
-  'src/Runtime/RuntimeDiagnostics.cpp',
 	'src/Render/RendererHostRecovery.h',
   'frontend/src/lib/settings/inputContext.ts',
-  'frontend/src/lib/settings/diagnostics.ts',
   'frontend/devmock/fixtures/vanillaKeys.ts',
-  'frontend/devmock/fixtures/diagnostics.ts',
   'packages/create-osfui/src/backend-templates.mjs',
 	'tests/native/renderer_host_recovery_tests.cpp',
 	'tools/webview2_host/HostCommands.inl',
@@ -308,7 +290,6 @@ checkText('docs/view-toolchain.md', [
 for (const file of [
   'frontend/src/views/osfui/settings/App.tsx',
   'frontend/src/views/osfui/settings/Detail.tsx',
-  'frontend/src/views/osfui/settings/Health.tsx',
   'frontend/src/views/osfui/keybinds/App.tsx',
   'frontend/src/ui/ActionButton.tsx',
 ]) {

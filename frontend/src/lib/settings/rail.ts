@@ -27,17 +27,6 @@ export interface ModRecord {
 /** An `osfui/views` catalog entry, every field optional but `id`. */
 export type ViewRecord = Partial<ViewsData['views'][number]> & { id: string };
 
-// NOTE: `osfui/settings` still carries `loadErrors`, and nothing in this view
-// reads it. Those same failures arrive as System Health issues, which carry
-// severity, an occurrence count and actions where a load-error record could only
-// ever state a filename; the App ignores the field deliberately rather than
-// double-reporting (see its `osfui/settings` handler). There was a `LoadError`
-// alias here for the wire shape — it had no callers once the rail stopped
-// painting the alert, so it went with them.
-
-/** Re-exported so rail consumers need only one import for fixed destination ids. */
-export { HEALTH_ID } from './health';
-
 /** The framework's own settings mod id — listed first. */
 export const FRAMEWORK_ID = 'osfui';
 /** Re-exported so rail consumers need only one import for fixed destination ids. */
@@ -106,7 +95,6 @@ export function findEntry(
  * `cycleRail` walk the same source.
  */
 export type RailNode =
-  | { kind: 'health' }
   | { kind: 'home' }
   | { kind: 'entry'; entry: RailEntry }
   | { kind: 'section' }
@@ -121,30 +109,19 @@ export interface RailModel {
 /**
  * The rail in paint order:
  *
- *  1. System Health, fixed above everything and NEVER filtered — a user
- *     filtering for the mod that failed to load must still be able to reach the
- *     reason, not be shown "no mods match". This is the same argument the old
- *     settings-load alert was fixed
- *     on; health now carries those load failures as issues instead.
- *     NOTE: this node is NOT painted by the rail list — App renders it in the
- *     rail head, above the "Installed mods" label, because it is a fixed
- *     destination rather than an installed mod. It stays first here because
- *     LB/RB cycle order is derived from this same sequence;
- *  2. Home, only when no filter is active — while filtering the rail scopes to
+ *  1. Home, only when no filter is active — while filtering the rail scopes to
  *     matching mods and the launcher steps aside, as the framework does. Home,
- *     not Health, is still the landing page: health is a place you go, not a
- *     place you are put;
- *  3. the framework entry (if it matches), with no header of its own — it
+ *     is the landing page;
+ *  2. the framework entry (if it matches), with no header of its own — it
  *     self-labels as "Framework";
- *  4. the "Mods" section header, always emitted, even when the list below it is
+ *  3. the "Mods" section header, always emitted, even when the list below it is
  *     empty;
- *  5. every other matching entry, title-sorted case-insensitively.
+ *  4. every other matching entry, title-sorted case-insensitively.
  *
  * `query` must arrive pre-trimmed and pre-lowercased.
  */
 export function railNodes(model: RailModel, query: string): RailNode[] {
   const nodes: RailNode[] = [];
-  nodes.push({ kind: 'health' });
   if (!query) nodes.push({ kind: 'home' });
 
   const entries = railEntries(model.mods, model.views);

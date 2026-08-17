@@ -30,7 +30,7 @@ persistent warning that it is removed in 2.1.0.
 
 Both the web protocol and native C++ ABI make a breaking 2.0 cut. Native
 plugins should rebuild against ABI 2.0; during 2.0.x ABI 1.x callers receive a
-frozen 1.8 adapter and a bounded System Health issue naming the outdated DLL.
+frozen 1.8 adapter and a warning naming the outdated DLL in `OSF UI.log`.
 The adapter is removed in 2.1.0. ABI 2 sends use strict
 `RegisterSend` handlers and requests use `RegisterRequest`; there is no payload
 injection or automatic acknowledgement.

@@ -123,15 +123,6 @@ namespace OSFUI::API
 	                          const char* a_key,
 	                          void*       a_user) noexcept;
 
-	// How bad a reported condition is. There is no "info" tier on
-	// purpose: System Health only shows conditions worth acting on, and an
-	// informational issue is an issue a player learns to ignore.
-	enum class IssueSeverity : std::uint32_t
-	{
-		kWarning = 0,  // degraded, still usable
-		kError = 1,    // this part does not work
-	};
-
 	struct IOSFUIBridge
 	{
 		// --- versioning / status. ANY thread, synchronous. ---
@@ -157,7 +148,7 @@ namespace OSFUI::API
 		// --- native -> web EVENTS. Thread-safe; queued to the target view. ---
 		// Delivers { kind:"event", name: a_type, payload: <a_payloadJson> } to
 		// a_viewId, where it arrives at osfui.on(a_type). a_payloadJson must be
-		// valid JSON. A known discovered-but-uninstantiated or idle-reclaimed target retains a bounded
+		// valid JSON. A known discovered-but-uninstantiated target retains a bounded
 		// FIFO until its page is created and greets the bridge.
 		//
 		// An event is a ONE-SHOT HAPPENING: delivered at most once, never
@@ -251,72 +242,6 @@ namespace OSFUI::API
 		// Returns false only on a null/empty/invalid id; true = queued.
 		virtual bool RegisterView(const char* a_viewId) = 0;
 
-		// ===== session health reporting =====
-		//
-		// Raise a condition into OSF UI's System Health destination — the one place a
-		// player looks when something is wrong, whichever mod noticed it. This is
-		// NOT a log channel and NOT a toast: report only durable conditions that
-		// are true right now, actionable, and worth a player's attention, and
-		// withdraw each one when it clears. Routine progress goes to your log.
-		//
-		//   * a_modId   : your "<author>.<modname>" id. Becomes the issue's source
-		//                 and namespaces everything below, so two mods can use the
-		//                 same local id without colliding. An invalid id is refused.
-		//   * a_id      : YOUR stable dedupe key for this condition, e.g.
-		//                 "pack-parse:highlights". Re-reporting an active issue id bumps its
-		//                 occurrence count in place instead of stacking an issue.
-		//   * a_code    : YOUR stable machine code for the KIND of condition, e.g.
-		//                 "catalog.parse-failed". Never player-facing prose: OSF UI
-		//                 owns the copy (so it stays localizable and a mod cannot
-		//                 write the UI's words). An unrecognized code renders as a
-		//                 generic issue naming your mod, with the context below shown
-		//                 as technical detail — degraded, never broken.
-		//   * a_subject : the affected thing (pack, view, file NAME, actor), or ""
-		//                 when the condition has no single subject.
-		//   * a_contextJson : optional bounded technical detail, a flat JSON OBJECT
-		//                 of string/number/bool values ("{}" or nullptr for none).
-		//                 Capped at 8 entries / 240 chars per value, and sanitized:
-		//                 anything path-, URL-, or command-shaped is reduced to its
-		//                 trailing component. Do not pass absolute paths — they
-		//                 identify the player's machine — and do not rely on nested
-		//                 values surviving.
-		//
-		// Returns false on a null/invalid mod id, an empty id/code, or a
-		// contextJson that is not a JSON object. Validation is synchronous; the
-		// registry write lands on the next main tick.
-		virtual bool ReportIssue(const char*   a_modId,
-		                         const char*   a_id,
-		                         const char*   a_code,
-		                         std::uint32_t a_severity,  // IssueSeverity
-		                         const char*   a_subject,
-		                         const char*   a_contextJson) = 0;
-
-		// Withdraw one of YOUR conditions by the id you reported it under. It moves
-		// to the pane's session history ("resolved"), which is exactly what a player
-		// needs to see after a retry. Safe and cheap to call unconditionally.
-		//
-		// Returns false only on a null/invalid mod id or empty id — true means
-		// queued, NOT that the id was active.
-		virtual bool ClearIssue(const char* a_modId, const char* a_id) = 0;
-
-		// Reconcile: withdraw every ACTIVE issue of yours whose id is not in
-		// a_keepIdsJson (a JSON ARRAY of strings; "[]" clears all of yours). The
-		// primitive for producers that recompute a whole set — report what is wrong
-		// now, then sweep away what no longer is:
-		//
-		//     for (const auto& bad : Rescan()) bridge->ReportIssue(kMod, bad.id, ...);
-		//     bridge->ClearIssuesExcept(kMod, DumpIdArray(stillBad).c_str());
-		//
-		// The sweep is scoped to your MOD, not to one producer inside it: if your
-		// plugin raises issues from several places, the keep list must name every
-		// issue id you still want active, not just the ones the current producer
-		// recomputed. Tracking what you have raised is the consumer's job.
-		//
-		// Ordering is FIFO with ReportIssue, so a report-then-sweep pair issued
-		// back-to-back lands correctly in one tick. Returns false on a null/invalid
-		// mod id or a payload that is not a JSON array of strings.
-		virtual bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) = 0;
-
 		// Same name grammar and first-wins namespace as sends.
 		virtual void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) = 0;
 		virtual void UnregisterRequest(const char* a_name) = 0;
@@ -385,7 +310,6 @@ namespace OSFUI::API
 		kHotkeys = 0,
 		kRegisterView = 0,
 		kEndpointShape = 0,
-		kDiagnostics = 0,
 		kRequests = 0,
 		kViewState = 0,
 	};
@@ -534,24 +458,6 @@ namespace OSFUI::API
 		bool RegisterView(const char* a_viewId) const noexcept
 		{
 			return Has(Feature::kRegisterView) && _bridge->RegisterView(a_viewId);
-		}
-
-		// --- session health ---
-		bool ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
-			IssueSeverity a_severity, const char* a_subject = "",
-			const char* a_contextJson = nullptr) const noexcept
-		{
-			return Has(Feature::kDiagnostics) &&
-				_bridge->ReportIssue(a_modId, a_id, a_code,
-					static_cast<std::uint32_t>(a_severity), a_subject, a_contextJson);
-		}
-		bool ClearIssue(const char* a_modId, const char* a_id) const noexcept
-		{
-			return Has(Feature::kDiagnostics) && _bridge->ClearIssue(a_modId, a_id);
-		}
-		bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) const noexcept
-		{
-			return Has(Feature::kDiagnostics) && _bridge->ClearIssuesExcept(a_modId, a_keepIdsJson);
 		}
 
 		// --- request/response ---
