@@ -212,7 +212,7 @@ namespace OSFUI
 		// Wire BEFORE LoadAll (SettingsModule's constructor does) — the
 		// migration runs while values files load. Absent migrator = deferred:
 		// v1 files load untouched and KEEP their v1 stamp, so a later session
-		// with the seam migrates them.
+		// with the migrator wired migrates them.
 		void SetLegacyKeyMigrator(LegacyKeyMigrator a_migrator)
 		{
 			_legacyKeyMigrator = std::move(a_migrator);

@@ -9,7 +9,7 @@ namespace OSFUI
 {
 	struct CompositorStatus
 	{
-		bool seamActive{ false };
+		bool uiPassDrawActive{ false };
 		bool frameGeneration{ false };
 	};
 
@@ -30,7 +30,7 @@ namespace OSFUI
 		void SetOutputResizeCallback(OutputResizeCallback a_callback);
 		bool IsOutputSizeKnown() const;
 		void SetSharedRing(const SharedRingDesc& a_desc);
-		void SetSeamDrawMode(bool a_enabled);
+		void SetUiPassDrawEnabled(bool a_enabled);
 		CompositorStatus GetStatus() const;
 
 	private:

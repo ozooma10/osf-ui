@@ -6,7 +6,7 @@
 #include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
 #include "Compat/V1/Papyrus.h"
-#include "Composite/UiPassSeam.h"
+#include "Composite/UiPass.h"
 #include "Core/Log.h"
 #include "Core/Version.h"
 #include "Input/ControlLayer.h"
@@ -47,7 +47,6 @@ namespace OSFUI
 			return false;
 		}
 
-		_config = Config::Load(Paths::ConfigFile());
 		Log::SetDevMode(_config.devMode);
 		return true;
 	}
@@ -59,12 +58,7 @@ namespace OSFUI
 
 		_localization.Load(Paths::DataDir() / "l10n", LocalizationService::DetectGameLocale(starfieldDir));
 
-		PauseMenuEntry::Configure(
-			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
-			_config.pauseMenuEntryView
-		);
-
-		PauseMenuEntry::SetEnabled(_config.pauseMenuEntry);
+		PauseMenuEntry::Configure(_localization.Resolve("osfui", "chrome.pauseMenuEntry", "MOD SETTINGS"), "osfui/settings");
 
 		_views.DiscoverAll(Paths::ViewsDir());
 		_viewPolicy.Load(Paths::DataDir() / "state" / "view-policy.json");
@@ -374,13 +368,13 @@ namespace OSFUI
 		if (!_compositor) {
 			return false;
 		}
-		const bool installed = UiPassSeam::Install();
+		const bool installed = UiPass::Install();
 		_overlayDrawAvailable.store(installed, std::memory_order_release);
-		_compositor->SetSeamDrawMode(installed);
+		_compositor->SetUiPassDrawEnabled(installed);
 		if (!installed) {
-			REX::ERROR("Runtime: the Scaleform UI seam could not be hooked — menu opens will be "
+			REX::ERROR("Runtime: the Scaleform UI pass could not be hooked — menu opens will be "
 					   "refused this session so OSF UI cannot capture input without a draw path. "
-					   "See the [UiPassSeam] lines above.");
+					   "See the [UiPass] lines above.");
 		}
 		return installed;
 	}
@@ -547,14 +541,14 @@ namespace OSFUI
 
 	bool Runtime::OverlayCanDraw() const
 	{
-		return _overlayDrawAvailable.load(std::memory_order_acquire) && UiPassSeam::DrawEnabled();
+		return _overlayDrawAvailable.load(std::memory_order_acquire) && UiPass::DrawEnabled();
 	}
 
 	bool Runtime::BeginViewOpen(std::string_view a_id)
 	{
 		// Both halves: Install() only proves the vtable hooks were taken, while
 		// the command-list hooks are self-tested lazily on a render worker and
-		// can disable the seam afterwards. Gating on the install alone admits an
+		// can disable the draw path afterwards. Gating on the install alone admits an
 		// invisible overlay that still holds focus and input.
 		if (!OverlayCanDraw()) {
 			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable",
@@ -1173,7 +1167,7 @@ namespace OSFUI
 		const auto decision = m_viewReveal.Observe(observation, _uptime);
 		if (decision.submitFrame && frame) {
 			// A fresh held frame is submitted while still hidden; this also starts
-			// the compositor's lazy seam setup so output dimensions can arrive.
+			// the compositor's lazy setup so output dimensions can arrive.
 			_compositor->Submit(*frame);
 		}
 		if (decision.reveal) {

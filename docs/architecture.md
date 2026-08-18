@@ -304,7 +304,7 @@ directly.
 
 ## How the D3D12 compositor works
 
-`D3D12Compositor` draws on the game's own D3D12 device. Frames are sampled directly from the browser host's shared texture ring with no CPU readback or upload. The overlay quad is drawn *inside the engine's Scaleform UI pass* (`Composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the seam reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
+`D3D12Compositor` draws on the game's own D3D12 device. Frames are sampled directly from the browser host's shared texture ring with no CPU readback or upload. The overlay quad is drawn *inside the engine's Scaleform UI pass* (`Composite/UiPass`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the UI-pass hook reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
 
 Remaining open areas: alternate UI-target formats and broader in-game validation across frame-generation and external-overlay combinations.
 

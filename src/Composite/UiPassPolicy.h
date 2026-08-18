@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <string_view>
 
-namespace OSFUI::UiPassSeam::detail
+namespace OSFUI::UiPass::detail
 {
 	enum class ExecuteSlotKind
 	{

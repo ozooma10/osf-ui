@@ -52,7 +52,7 @@ The typed reference is [`sdk/osfui.d.ts`](sdk/osfui.d.ts).
 - [Authoring settings](docs/authoring-settings.md) — **start here to add settings to your mod**: schemas, widgets, hotkeys, localization, and testing.
 - [View toolchain](docs/view-toolchain.md) and [view authoring reference](docs/authoring-views.md) — scaffold, develop, package, and integrate a browser view.
 - [Dynamic data](docs/authoring-dynamic-data.md) and [native plugin API](docs/native-plugin-api.md) — state, events, requests, and the SFSE C ABI.
-- [Architecture](docs/architecture.md), [security model](docs/security-model.md), [logging](docs/logging.md), and [seam rendering design](docs/seam-draw-design.md) — OSF UI runtime implementation and invariants.
+- [Architecture](docs/architecture.md), [security model](docs/security-model.md), [logging](docs/logging.md), and [UI-pass rendering design](docs/ui-pass-draw-design.md) — OSF UI runtime implementation and invariants.
 - [Terminology](docs/terminology.md) — canonical component, version, identity,
   lifecycle, bridge, input, and health vocabulary.
 - [Mod API 2.0 design](docs/mod-api-2.0-design.md) and [migration record](docs/mod-api-2.0-migration.md) — rationale and compatibility history.

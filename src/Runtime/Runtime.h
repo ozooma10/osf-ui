@@ -282,7 +282,7 @@ namespace OSFUI
 		std::atomic<ScanCode>         _captureUpScan{ kInvalidScanCode };
 
 		// Can the overlay actually reach the screen? `_overlayDrawAvailable` is
-		// only the install-time half (the Scaleform vtable hooks); the seam's
+		// only the install-time half (the Scaleform vtable hooks); the UI pass's
 		// command-list hooks are taken lazily on a render worker and their
 		// self-test can disable drawing long afterwards. Every "may this open"
 		// gate must ask both, or it admits an invisible overlay that still

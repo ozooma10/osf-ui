@@ -1,4 +1,4 @@
-#include "Composite/UiPassSeamPolicy.h"
+#include "Composite/UiPassPolicy.h"
 
 #include <iostream>
 
@@ -17,8 +17,8 @@ namespace
 
 int main()
 {
-	using OSFUI::UiPassSeam::detail::CanChainForeignExecute;
-	using OSFUI::UiPassSeam::detail::ExecuteSlotKind;
+	using OSFUI::UiPass::detail::CanChainForeignExecute;
+	using OSFUI::UiPass::detail::ExecuteSlotKind;
 
 	Check(CanChainForeignExecute(ExecuteSlotKind::Composite, "Luma.dll"),
 		"Luma may own ScaleformComposite");
@@ -36,7 +36,7 @@ int main()
 		"unattributed hooks remain fail-closed");
 
 	if (failures == 0) {
-		std::cout << "ui_pass_seam_policy_tests: ok\n";
+		std::cout << "ui_pass_policy_tests: ok\n";
 	}
 	return failures;
 }

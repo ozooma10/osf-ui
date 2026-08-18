@@ -1,7 +1,7 @@
 #include "Composite/D3D12Compositor.h"
 
 #include "Composite/EngineD3D12.h"
-#include "Composite/SeamTargetFormat.h"
+#include "Composite/UiTargetFormat.h"
 #include "Core/Log.h"
 
 #include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
@@ -50,11 +50,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		std::atomic<void*> g_overlay{ nullptr };  // D3D12Compositor::Impl*
 
-		// Bridge for the seam-draw hook: Impl is private to the class, so the
-		// free function RecordSeamOverlayDraw goes through a pointer that only
+		// Bridge for the UI-pass draw hook: Impl is private to the class, so the
+		// free function RecordOverlayIntoUIBuffer goes through a pointer that only
 		// Impl (which can name itself) installs at setup.
-		using SeamDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool);
-		std::atomic<SeamDrawFn> g_seamDrawFn{ nullptr };
+		using OverlayDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool);
+		std::atomic<OverlayDrawFn> g_overlayDrawFn{ nullptr };
 
 		using ExecuteCommandListsFn = void (STDMETHODCALLTYPE*)(
 			ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
@@ -100,7 +100,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		EngineD3D12   engine{};
 		std::atomic_bool visible{ false };
 
-		// The seam's UI target is the authoritative output size.
+		// The engine's UI target is the authoritative output size.
 		OutputResizeCallback onOutputResize;
 		std::uint32_t        notifiedOutputW{ 0 };
 		std::uint32_t        notifiedOutputH{ 0 };
@@ -115,14 +115,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// engine device has been located. The compositor owns the handles from
 		// SetSharedRing on.
 		//
-		// All GPU work happens at the engine seam. ringMutex guards the opened
-		// ring between Submit (adoption) and the seam render workers (sampling).
-		std::atomic<bool> seamActive{ false };
+		// All GPU work happens inside the engine's UI pass. ringMutex guards the
+		// opened ring between Submit (adoption) and the render workers (sampling).
+		std::atomic<bool> uiPassDrawActive{ false };
 		std::mutex        ringMutex;
 		// One descriptor is enough: the whole create-and-bind sequence runs
 		// under ringMutex, and OMSetRenderTargets snapshots the CPU descriptor
 		// at record time, so it is free for reuse the moment the call returns.
-		ID3D12DescriptorHeap* seamRtvHeap{ nullptr };  // typed RTV onto the engine's (typeless) UI buffers
+		ID3D12DescriptorHeap* rtvHeap{ nullptr };  // typed RTV onto the engine's (typeless) UI buffers
 		struct PendingConsume
 		{
 			ID3D12Fence* fence{ nullptr };
@@ -134,18 +134,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::unordered_map<ID3D12CommandList*, PendingConsume> pendingConsumes;
 		std::atomic_bool consumeSignalFailureLogged{ false };
 		bool gpuIdleFailureLogged{ false };
-		std::atomic<std::uint64_t> seamDraws{ 0 };
-		std::atomic<std::uint64_t> seamDrawsFgTarget{ 0 };  // diagnostics
+		std::atomic<std::uint64_t> overlayDraws{ 0 };
+		std::atomic<std::uint64_t> overlayDrawsFgTarget{ 0 };  // diagnostics
 		bool          noSharedFrameLogged{ false };  // ringMutex
-		// Newest slot whose produce fence is CPU-verified complete. The seam
+		// Newest slot whose produce fence is CPU-verified complete. The draw
 		// cannot queue-wait on the browser host's fence (not our queue), and skipping
 		// incomplete frames flickers under rapid production (mouse-move
 		// repaints, 2026-07-21) — so an incomplete newest frame falls back to
 		// this one instead: one frame stale, never absent.
-		std::uint32_t seamReadySlot{ 0 };    // ringMutex
-		std::uint64_t seamReadySerial{ 0 };  // ringMutex
+		std::uint32_t readySlot{ 0 };    // ringMutex
+		std::uint64_t readySerial{ 0 };  // ringMutex
 		// The previous ring generation is retired, not released, on adoption:
-		// seam draws live inside ENGINE command lists that our idle fence
+		// overlay draws live inside ENGINE command lists that our idle fence
 		// cannot cover, so the old textures must outlive one more adoption.
 		ID3D12Resource* retiredSlots[SharedRingDesc::kMaxSlots]{};
 		ID3D12Fence*    retiredProduce{ nullptr };
@@ -177,13 +177,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// Starfield uses RGBA8; Luma upgrades the same UI target to RGBA16F. PSO
 		// RTV formats are immutable, so keep one lazy pipeline for each supported
 		// target rather than attempting an invalid cross-format bind.
-		struct SeamPipeline
+		struct OverlayPipeline
 		{
 			DXGI_FORMAT format{ DXGI_FORMAT_UNKNOWN };
 			ID3D12PipelineState* state{ nullptr };
 			bool failed{ false };
 		};
-		SeamPipeline seamPipelines[2]{
+		OverlayPipeline overlayPipelines[2]{
 			{ DXGI_FORMAT_R8G8B8A8_UNORM },
 			{ DXGI_FORMAT_R16G16B16A16_FLOAT },
 		};
@@ -193,18 +193,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		ID3DBlob*             vsBlob{ nullptr };
 		ID3DBlob*             psBlob{ nullptr };
 
-		// The seam reports whether this render region contains the transparent
+		// The UI pass reports whether this render region contains the transparent
 		// RT->COPY_SOURCE hand-off used by Frame Generation. The previous region's
 		// observation selects the safe target at the start of the next region.
 		std::atomic_bool frameGenActiveSignal{ false };
-		std::atomic_bool seamRegionSawFgTarget{ false };
-		std::atomic_bool seamClassificationKnown{ false };
-		std::atomic_bool seamFgLayerOnlyLogged{ false };
+		std::atomic_bool regionSawFgTarget{ false };
+		std::atomic_bool fgClassificationKnown{ false };
+		std::atomic_bool fgLayerOnlyLogged{ false };
 
 		~Impl()
 		{
 			g_queueExecutedFn.store(nullptr, std::memory_order_release);
-			g_seamDrawFn.store(nullptr, std::memory_order_release);
+			g_overlayDrawFn.store(nullptr, std::memory_order_release);
 			g_overlay.store(nullptr, std::memory_order_release);
 			const bool gpuIdle = WaitForGpuIdle();
 			const bool hasUnsubmittedDraws = HasPendingConsumes();
@@ -223,12 +223,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				}
 			}
 			if (gpuIdle && !hasUnsubmittedDraws) {
-				for (auto& pipeline : seamPipelines) {
+				for (auto& pipeline : overlayPipelines) {
 					SafeRelease(pipeline.state);
 				}
 				SafeRelease(rootSig);
 				SafeRelease(srvHeap);
-				SafeRelease(seamRtvHeap);
+				SafeRelease(rtvHeap);
 				SafeRelease(vsBlob);
 				SafeRelease(psBlob);
 				SafeRelease(fence);
@@ -243,13 +243,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		[[nodiscard]] CompositorStatus GetStatus() const
 		{
 			return {
-				.seamActive = seamActive.load(std::memory_order_relaxed),
+				.uiPassDrawActive = uiPassDrawActive.load(std::memory_order_relaxed),
 				.frameGeneration = frameGenActiveSignal.load(std::memory_order_relaxed),
 			};
 		}
 
 		// Drain the engine's DIRECT queue up to this point. We submit no work of
-		// our own any more, but seam draws ride ENGINE command lists on this
+		// our own any more, but overlay draws ride ENGINE command lists on this
 		// queue, so this is what makes retiring a ring generation safe.
 		[[nodiscard]] bool WaitForGpuIdle()
 		{
@@ -312,8 +312,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			retiredConsume = sharedConsume;
 			sharedConsume = nullptr;
 			sharedSlotCount = 0;
-			seamReadySlot = 0;  // slots of the old generation are gone
-			seamReadySerial = 0;
+			readySlot = 0;  // slots of the old generation are gone
+			readySerial = 0;
 		}
 
 		void ReleaseSharedRing()
@@ -491,7 +491,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return deferAdoption();
 			}
 			// Old slots may still be referenced by in-flight ENGINE lists
-			// carrying seam draws. A failed drain must keep this generation
+			// carrying overlay draws. A failed drain must keep this generation
 			// alive; it is never treated as a successful timeout.
 			if (!WaitForGpuIdle()) {
 				return deferAdoption();
@@ -590,12 +590,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				REX::ERROR("D3D12Compositor: setup failed; overlay disabled this session");
 				return;
 			}
-			g_seamDrawFn.store(&Impl::SeamDrawThunk, std::memory_order_release);
+			g_overlayDrawFn.store(&Impl::OverlayDrawThunk, std::memory_order_release);
 			setupOk = true;
-			REX::INFO("D3D12Compositor: seam-only overlay armed (no IDXGISwapChain::Present hook)");
+			REX::INFO("D3D12Compositor: UI-pass overlay armed (no IDXGISwapChain::Present hook)");
 		}
 
-		void ObserveSeamOutputSize(const D3D12_RESOURCE_DESC& a_desc)
+		void ObserveOutputSize(const D3D12_RESOURCE_DESC& a_desc)
 		{
 			const auto width = static_cast<std::uint32_t>((std::min)(a_desc.Width,
 				static_cast<std::uint64_t>(UINT32_MAX)));
@@ -697,7 +697,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			srvStride = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-			// Seam-draw RTV: a typed view created per draw onto the engine's
+			// Overlay-draw RTV: a typed view created per draw onto the engine's
 			// (typeless, churning) UI buffers. One descriptor suffices — the
 			// draw path is serialized under ringMutex and OMSetRenderTargets
 			// snapshots the descriptor at record time.
@@ -706,8 +706,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 				heap.NumDescriptors = 1;
 				if (FAILED(dev->CreateDescriptorHeap(&heap,
-						__uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&seamRtvHeap)))) {
-					REX::ERROR("D3D12Compositor: seam RTV heap creation failed");
+						__uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&rtvHeap)))) {
+					REX::ERROR("D3D12Compositor: RTV heap creation failed");
 					return false;
 				}
 			}
@@ -715,39 +715,39 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		// Seam draw (UiPassSeam, render worker, inside the engine's UI-buffer
+		// Overlay draw (UiPass, render worker, inside the engine's UI-buffer
 		// hand-off): record the overlay quad onto the ENGINE's list into the
 		// engine's UI buffer — upstream of Frame Generation, so both real and
 		// generated frames carry it. v1 transport: the produce fence is checked
 		// on the CPU (we cannot wait on a queue we don't control). The command
 		// queue hook signals consumption only after the exact engine command list
 		// containing this draw has been submitted.
-		[[nodiscard]] bool RecordSeamOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+		[[nodiscard]] bool RecordOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			const bool a_fgTarget, const bool a_regionFirst)
 		{
-			if (!setupOk || !seamRtvHeap || !a_buffer) {
+			if (!setupOk || !rtvHeap || !a_buffer) {
 				return false;
 			}
 
 			const auto desc = a_buffer->GetDesc();
-			ObserveSeamOutputSize(desc);
+			ObserveOutputSize(desc);
 
-			bool classificationKnown = seamClassificationKnown.load(std::memory_order_acquire);
+			bool classificationKnown = fgClassificationKnown.load(std::memory_order_acquire);
 			if (a_regionFirst) {
 				const bool previousRegionHadFgTarget =
-					seamRegionSawFgTarget.exchange(false, std::memory_order_acq_rel);
+					regionSawFgTarget.exchange(false, std::memory_order_acq_rel);
 				frameGenActiveSignal.store(previousRegionHadFgTarget, std::memory_order_release);
-				classificationKnown = seamClassificationKnown.exchange(true, std::memory_order_acq_rel);
+				classificationKnown = fgClassificationKnown.exchange(true, std::memory_order_acq_rel);
 			}
 			if (a_fgTarget) {
-				seamRegionSawFgTarget.store(true, std::memory_order_release);
+				regionSawFgTarget.store(true, std::memory_order_release);
 				frameGenActiveSignal.store(true, std::memory_order_release);
 			}
 
 			if (!visible.load(std::memory_order_relaxed)) {
 				return false;
 			}
-			// Until the first complete seam region establishes whether COPY_SOURCE
+			// Until the first complete render region establishes whether COPY_SOURCE
 			// exists, delay the ordinary target rather than risk blending twice.
 			if (!classificationKnown && !a_fgTarget) {
 				return false;
@@ -761,8 +761,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// is the actual transparent UI layer and later feeds both paths.
 			const bool fgActive = frameGenActiveSignal.load(std::memory_order_acquire);
 			if (fgActive && !a_fgTarget) {
-				if (!seamFgLayerOnlyLogged.exchange(true, std::memory_order_relaxed)) {
-					REX::DEBUG("D3D12Compositor: FG seam uses only the transparent COPY_SOURCE UI layer");
+				if (!fgLayerOnlyLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::DEBUG("D3D12Compositor: under FG only the transparent COPY_SOURCE UI layer is drawn");
 				}
 				return false;
 			}
@@ -782,36 +782,36 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				// on the frame the browser host publishes its first shared slot.
 				if (!noSharedFrameLogged) {
 					noSharedFrameLogged = true;
-					REX::DEBUG("D3D12Compositor: seam hand-off reached before the browser host "
+					REX::DEBUG("D3D12Compositor: UI-pass hand-off reached before the browser host "
 							   "published a shared-ring frame; nothing to draw yet");
 				}
 				return false;
 			}
 			// Promote the newest frame to "ready" once its produce fence has
 			// completed; an incomplete newest frame falls back to the last
-			// ready one (see seamReadySlot) instead of skipping the draw.
+			// ready one (see readySlot) instead of skipping the draw.
 			// Under FG the preceding opaque target was deliberately skipped, so
 			// the transparent target becomes the effective first draw.
 			const bool effectiveRegionFirst = a_regionFirst || (fgActive && a_fgTarget);
 			if (effectiveRegionFirst &&
 				serial != 0 && ringSlot < sharedSlotCount && sharedSlots[ringSlot] &&
 				(!sharedProduce || sharedProduce->GetCompletedValue() >= serial)) {
-				seamReadySlot = ringSlot;
-				seamReadySerial = serial;
+				readySlot = ringSlot;
+				readySerial = serial;
 			}
-			if (seamReadySerial == 0 || seamReadySlot >= sharedSlotCount || !sharedSlots[seamReadySlot]) {
+			if (readySerial == 0 || readySlot >= sharedSlotCount || !sharedSlots[readySlot]) {
 				return false;  // no fully-produced frame yet this ring generation
 			}
-			ringSlot = seamReadySlot;
-			serial = seamReadySerial;
+			ringSlot = readySlot;
+			serial = readySerial;
 
-			const auto rtvFormat = SeamTargetFormat::ResolveRtv(desc.Format);
-			auto* pso = EnsureSeamPipeline(rtvFormat);
+			const auto rtvFormat = UiTargetFormat::ResolveRtv(desc.Format);
+			auto* pso = EnsureOverlayPipeline(rtvFormat);
 			if (!pso) {
 				return false;
 			}
 
-			const D3D12_CPU_DESCRIPTOR_HANDLE rtv = seamRtvHeap->GetCPUDescriptorHandleForHeapStart();
+			const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtvHeap->GetCPUDescriptorHandleForHeapStart();
 			D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
 			rtvDesc.Format = rtvFormat;
 			rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
@@ -836,38 +836,38 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_list->DrawInstanced(3, 1, 0, 0);
 
 			TrackConsume(a_list, sharedConsume, serial);
-			const auto drawIndex = seamDraws.fetch_add(1, std::memory_order_relaxed) + 1;
+			const auto drawIndex = overlayDraws.fetch_add(1, std::memory_order_relaxed) + 1;
 			const auto fgIndex = a_fgTarget
-				? seamDrawsFgTarget.fetch_add(1, std::memory_order_relaxed) + 1
+				? overlayDrawsFgTarget.fetch_add(1, std::memory_order_relaxed) + 1
 				: 0;
 			// One-time log per target kind: if the FG line never appears, its
 			// hand-off is not being matched.
 			if (drawIndex == 1 || fgIndex == 1) {
-				REX::INFO("D3D12Compositor: FIRST SEAM OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})",
+				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})",
 					a_fgTarget ? "premultiplied / FG UI input" : "premultiplied / composite input",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
-					SeamTargetFormat::Name(rtvFormat),
+					UiTargetFormat::Name(rtvFormat),
 					reinterpret_cast<std::uintptr_t>(a_buffer));
 			}
 			return true;
 		}
 
-		static bool SeamDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+		static bool OverlayDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			const bool a_fgTarget, const bool a_regionFirst)
 		{
 			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
-			return self && self->RecordSeamOverlay(a_list, a_buffer, a_fgTarget, a_regionFirst);
+			return self && self->RecordOverlay(a_list, a_buffer, a_fgTarget, a_regionFirst);
 		}
 
 		// Get or create the PSO for the current UI target. Called under ringMutex,
 		// so the two-entry cache needs no separate synchronization.
-		[[nodiscard]] ID3D12PipelineState* EnsureSeamPipeline(const DXGI_FORMAT a_rtvFormat)
+		[[nodiscard]] ID3D12PipelineState* EnsureOverlayPipeline(const DXGI_FORMAT a_rtvFormat)
 		{
-			auto* cached = std::ranges::find_if(seamPipelines,
-				[a_rtvFormat](const SeamPipeline& a_pipeline) {
+			auto* cached = std::ranges::find_if(overlayPipelines,
+				[a_rtvFormat](const OverlayPipeline& a_pipeline) {
 					return a_pipeline.format == a_rtvFormat;
 				});
-			if (cached == std::end(seamPipelines)) {
+			if (cached == std::end(overlayPipelines)) {
 				return nullptr;
 			}
 			if (cached->state || cached->failed) {
@@ -888,7 +888,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			desc.SampleDesc.Count = 1;
 
 			// Premultiplied-alpha "over" blend for BGRA browser frames, matching
-			// the engine's own UI composition (docs/seam-draw-design.md).
+			// the engine's own UI composition (docs/ui-pass-draw-design.md).
 			auto& rt = desc.BlendState.RenderTarget[0];
 			rt.BlendEnable = TRUE;
 			rt.SrcBlend = D3D12_BLEND_ONE;
@@ -901,19 +901,19 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			if (FAILED(engine.device->CreateGraphicsPipelineState(&desc,
 					__uuidof(ID3D12PipelineState), reinterpret_cast<void**>(&cached->state)))) {
-				REX::ERROR("D3D12Compositor: seam CreateGraphicsPipelineState failed for {}",
-					SeamTargetFormat::Name(a_rtvFormat));
+				REX::ERROR("D3D12Compositor: overlay CreateGraphicsPipelineState failed for {}",
+					UiTargetFormat::Name(a_rtvFormat));
 				cached->state = nullptr;
 				cached->failed = true;
 				return nullptr;
 			}
-			REX::INFO("D3D12Compositor: seam pipeline ready (premultiplied over, {})",
-				SeamTargetFormat::Name(a_rtvFormat));
+			REX::INFO("D3D12Compositor: overlay pipeline ready (premultiplied over, {})",
+				UiTargetFormat::Name(a_rtvFormat));
 			return cached->state;
 		}
 
-		// Submit: just remember which ring slot/serial the seam should draw.
-		// No pixel copy — the seam samples the shared texture directly.
+		// Submit: just remember which ring slot/serial the UI-pass draw should
+		// use. No pixel copy — the draw samples the shared texture directly.
 		void CacheSharedFrame(const FrameBufferView& a_frame)
 		{
 			if (a_frame.frameIndex == lastSubmittedIndex) {
@@ -934,7 +934,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	bool D3D12Compositor::Initialize()
 	{
 		_impl = std::make_unique<Impl>();
-		REX::INFO("D3D12Compositor: initialized (seam-only overlay; engine device/queue are set up "
+		REX::INFO("D3D12Compositor: initialized (UI-pass-only overlay; engine device/queue are set up "
 				  "on the first submitted frame)");
 		return true;
 	}
@@ -952,10 +952,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 	}
 
-	bool RecordSeamOverlayDraw(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
+	bool RecordOverlayIntoUIBuffer(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 		const bool a_fgTarget, const bool a_regionFirst)
 	{
-		const auto fn = g_seamDrawFn.load(std::memory_order_acquire);
+		const auto fn = g_overlayDrawFn.load(std::memory_order_acquire);
 		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_fgTarget, a_regionFirst);
 	}
 
@@ -977,10 +977,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 	}
 
-	void D3D12Compositor::SetSeamDrawMode(const bool a_enabled)
+	void D3D12Compositor::SetUiPassDrawEnabled(const bool a_enabled)
 	{
 		if (_impl) {
-			_impl->seamActive.store(a_enabled, std::memory_order_relaxed);
+			_impl->uiPassDrawActive.store(a_enabled, std::memory_order_relaxed);
 		}
 	}
 

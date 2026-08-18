@@ -2,7 +2,7 @@
 
 #include <dxgiformat.h>
 
-namespace OSFUI::SeamTargetFormat
+namespace OSFUI::UiTargetFormat
 {
 	// Starfield's stock UI layer is typeless RGBA8. Luma upgrades the same
 	// Scaleform buffers to RGBA16F; both are rendered through the matching typed

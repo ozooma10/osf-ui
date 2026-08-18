@@ -82,7 +82,7 @@ Windows pipe suite is built separately through xmake. Currently:
 | `local_view_uri_tests.cpp` | `Wv2LocalUri` — security-model rule 2's single decision point: view virtual-host matching, including the lookalike/egress cases |
 | `papyrus_call_tests.cpp` | `papyrus.call` bounds: platform-script refusal, argument cap, int range, float finiteness, and the JS → Papyrus type mapping |
 | `wndproc_chain_tests.cpp` | `Input/WndProcChain`: window-procedure chain re-entry protection against hooks that re-insert themselves above us |
-| `ui_pass_seam_policy_tests.cpp` | `Composite/UiPassSeamPolicy`: fail-closed recognition of UI-pass slot owners (vanilla plus the proven foreign hooks) gating seam installation |
+| `ui_pass_policy_tests.cpp` | `Composite/UiPassPolicy`: fail-closed recognition of UI-pass slot owners (vanilla plus the proven foreign hooks) gating hook installation |
 | `v1_navigation_tests.cpp` | Temporary native legacy selector insertion, including existing queries, fragments, and replacement of an authored selector |
 
 Every suite is assert-style and exits with its own failure count; `run.sh` sums

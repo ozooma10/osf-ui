@@ -46,7 +46,7 @@ int main()
 	}
 
 	// A fresh frame is submitted while hidden, but an unknown output size keeps
-	// the reveal held until the D3D12 seam reports its dimensions.
+	// the reveal held until the D3D12 UI-pass draw reports its dimensions.
 	{
 		const auto decision = gate.Observe(Frame(11, false), 2.1);
 		assert(decision.submitFrame);

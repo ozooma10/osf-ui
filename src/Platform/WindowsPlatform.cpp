@@ -195,7 +195,7 @@ namespace OSFUI::Platform
 		if (end < a_address) {
 			// Range wraps the top of the address space (e.g. probing a garbage
 			// value like 0xFFFF'FFFF'FFFF'FFFF): the walk below would be
-			// vacuously true. Seen in the wild via UiPassSeam scanning -1 out
+			// vacuously true. Seen in the wild via UiPass scanning -1 out
 			// of a worker-stack blob.
 			return false;
 		}

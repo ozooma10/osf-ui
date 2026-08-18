@@ -17,7 +17,7 @@ const SYSTEM: MockHealth['system'] = {
   bridgeVersion: '2.0',
   renderer: 'webview2',
   compositor: 'd3d12',
-  drawPath: 'ui-seam',
+  drawPath: 'ui-pass',
   frameGeneration: false,
   nativeFocus: true,
   locale: 'en',

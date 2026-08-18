@@ -235,7 +235,7 @@ namespace OSFUI
 			{ "bridgeVersion", kBridgeProtocolVersion },
 			{ "renderer", runtime._renderer ? "webview2" : "none" },
 			{ "compositor", runtime._compositor ? "d3d12" : "none" },
-			{ "drawPath", status.seamActive ? "ui-seam" : "unavailable" },
+			{ "drawPath", status.uiPassDrawActive ? "ui-pass" : "unavailable" },
 			{ "frameGeneration", status.frameGeneration },
 			{ "nativeFocus", runtime._renderer != nullptr },
 			{ "locale", runtime._localization.Locale() },

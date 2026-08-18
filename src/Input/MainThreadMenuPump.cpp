@@ -27,7 +27,7 @@ namespace OSFUI::MainThreadMenuPump
 
 		// Prologue of 130455 spills RDX/R8 as GP registers (no XMM), so a
 		// 4-pointer forwarding thunk is ABI-safe — same precedent as
-		// UiPassSeam::ExecuteFn.
+		// UiPass::ExecuteFn.
 		using AdvanceFn = void* (*)(void*, void*, void*, void*);
 
 		std::atomic<AdvanceFn> g_original{ nullptr };
