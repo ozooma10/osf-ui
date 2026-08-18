@@ -68,9 +68,10 @@ namespace OSFUI
 		// stem -> last seen write time, recorded per attempt whether or not it
 		// parsed: a half-written editor save fails to parse but its final write
 		// bumps the mtime again, so it retries; a broken file logs once per save
-		// instead of once per scan.
+		// instead of once per scan. nullopt means the filesystem scan was
+		// incomplete; callers must preserve the previous snapshot.
 		using SchemaMtimes = std::unordered_map<std::string, std::filesystem::file_time_type>;
-		[[nodiscard]] SchemaMtimes ScanSchemaDir() const;
+		[[nodiscard]] std::optional<SchemaMtimes> ScanSchemaDir() const;
 
 		SettingsStore                   _store;
 		std::filesystem::path           _schemaDir;

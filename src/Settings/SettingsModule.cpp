@@ -60,24 +60,48 @@ namespace OSFUI
 		});
 		_store.LoadAll(_schemaDir, _valuesDir);
 		// Seed the hot-reload snapshot from what LoadAll just consumed, so the
-		// first PumpSchemaHotReload pass reloads nothing.
-		_schemaMtimes = ScanSchemaDir();
+		// first PumpSchemaHotReload pass reloads nothing. If the directory is
+		// temporarily unavailable, leave the snapshot empty; the next complete
+		// scan will safely discover every file as new.
+		if (auto scan = ScanSchemaDir()) {
+			_schemaMtimes = std::move(*scan);
+		}
 	}
 
-	SettingsModule::SchemaMtimes SettingsModule::ScanSchemaDir() const
+	std::optional<SettingsModule::SchemaMtimes> SettingsModule::ScanSchemaDir() const
 	{
 		SchemaMtimes seen;
 		std::error_code ec;
 		std::filesystem::directory_iterator it(
-			_schemaDir, std::filesystem::directory_options::skip_permission_denied, ec);
+			_schemaDir, std::filesystem::directory_options::none, ec);
 		const std::filesystem::directory_iterator end;
-		for (; it != end; it.increment(ec)) {
+		if (ec) {
+			REX::WARN("SettingsModule: cannot scan '{}': {}", _schemaDir.string(), ec.message());
+			return std::nullopt;
+		}
+
+		while (it != end) {
 			const auto entry = *it;
+			const auto path = entry.path();
 			std::error_code entryEc;
-			if (entry.is_regular_file(entryEc) && entry.path().extension() == ".json") {
-				if (const auto t = entry.last_write_time(entryEc); !entryEc) {
-					seen.emplace(entry.path().stem().string(), t);
+			const auto regular = entry.is_regular_file(entryEc);
+			if (entryEc) {
+				REX::WARN("SettingsModule: cannot inspect '{}': {}", path.string(), entryEc.message());
+				return std::nullopt;
+			}
+			if (regular && path.extension() == ".json") {
+				const auto mtime = entry.last_write_time(entryEc);
+				if (entryEc) {
+					REX::WARN("SettingsModule: cannot read timestamp for '{}': {}", path.string(), entryEc.message());
+					return std::nullopt;
 				}
+				seen.emplace(path.stem().string(), mtime);
+			}
+
+			it.increment(ec);
+			if (ec) {
+				REX::WARN("SettingsModule: scan of '{}' failed: {}", _schemaDir.string(), ec.message());
+				return std::nullopt;
 			}
 		}
 		return seen;
@@ -90,7 +114,11 @@ namespace OSFUI
 		}
 		_nextSchemaScan = a_nowSeconds + kHotReloadScanSeconds;
 
-		auto seen = ScanSchemaDir();
+		auto scan = ScanSchemaDir();
+		if (!scan) {
+			return;  // preserve the registry and last complete snapshot
+		}
+		auto seen = std::move(*scan);
 		// Changed or new files reload through the store; every consequence
 		// (value preservation via flush-then-overlay, §11 alias adoption,
 		// `osfui/settings` state re-broadcast, HotkeyService rebuild via the registry

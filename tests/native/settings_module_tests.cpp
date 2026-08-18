@@ -210,12 +210,13 @@ int main()
 	});
 	module.RegisterEndpoints(bridge);
 
-	// The registry endpoints are exactly two REQUESTS. `settings.get` is gone
-	// as a name, not merely unused: a stale 1.x view naming it must get
-	// `unknown-endpoint`, never a half-working read.
-	CHECK(bridge.HasRequest("settings.set"));
-	CHECK(bridge.HasRequest("settings.reset"));
-	CHECK(!bridge.HasRequest("settings.get") && !bridge.HasSend("settings.get"));
+	// `settings.get` is gone as a name, not merely unused: a stale 1.x view
+	// naming it gets an observable `unknown-endpoint`, never a half-working read.
+	// The set/reset sections below exercise both live request endpoints.
+	g_sent.clear();
+	Request(bridge, "osfui/settings", "settings.get", "removed-get");
+	CHECK(KindTo("osfui/settings", "error").size() == 1);
+	CHECK(KindTo("osfui/settings", "error")[0].payload.value("code", "") == "unknown-endpoint");
 
 	// --- boot: the registry arrives as STATE, answering a greeting -----------
 	g_sent.clear();
@@ -619,6 +620,37 @@ int main()
 		const auto replayed = StateTo("t.alpha/other", "osfui", "settings");
 		CHECK(replayed.size() == 1);
 		CHECK(replayed.size() == 1 && replayed[0].payload["mods"].size() == 2);  // alpha, keys
+	}
+
+	// --- failed scan is not an authoritative empty directory -----------------
+	{
+		const auto scanRoot = root / "scan-failure";
+		const auto scanSchemas = scanRoot / "settings";
+		const auto scanValues = scanRoot / "values";
+		const auto unavailable = scanRoot / "settings-unavailable";
+		WriteFile(scanSchemas / "t.scan.json", R"json({
+			"id": "t.scan", "groups": [ { "settings": [
+				{ "key": "enabled", "type": "bool", "default": true }
+			] } ] })json");
+
+		SettingsModule guarded(scanSchemas, scanValues,
+			[](std::string_view, std::string_view, const nlohmann::json&) {});
+		CHECK(guarded.Store().GetValue("t.scan", "enabled") != nullptr);
+		const auto generation = guarded.Store().Generation();
+
+		// Missing/unreadable is a failed scan: preserve the loaded mod and the
+		// last complete mtime snapshot.
+		fs::rename(scanSchemas, unavailable);
+		guarded.PumpSchemaHotReload(1.0);
+		CHECK(guarded.Store().GetValue("t.scan", "enabled") != nullptr);
+		CHECK(guarded.Store().Generation() == generation);
+
+		// An existing directory scanned successfully with no files is genuinely
+		// empty, so deletion is now authoritative.
+		fs::create_directories(scanSchemas);
+		guarded.PumpSchemaHotReload(2.0);
+		CHECK(guarded.Store().GetValue("t.scan", "enabled") == nullptr);
+		CHECK(guarded.Store().Generation() > generation);
 	}
 
 	// Mirror the runtime's teardown order: the bridge (declared after `module`)
