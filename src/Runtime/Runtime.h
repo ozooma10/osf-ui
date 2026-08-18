@@ -78,7 +78,6 @@ namespace OSFUI
 		void InitializeStartupViews();
 		void ConfigureInputRouting();
 
-		bool SetViewHidden(std::string_view a_id, bool a_hidden);
 		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down);
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
 		void SubmitFrameIfVisible();

@@ -49,21 +49,7 @@ namespace OSFUI
 		return true;
 	}
 
-    bool Runtime::SetViewHidden(std::string_view a_id, bool a_hidden)
-	{
-		if (!_presentation.IsInstantiated(a_id)) {
-			REX::WARN("Runtime: setViewHidden ignored — '{}' is not an instantiated view", a_id);
-			return false;
-		}
-		if (_renderer) {
-			_renderer->SetViewHidden(a_id, a_hidden);
-		}
-
-		REX::DEBUG("Runtime: view '{}' hidden -> {}", a_id, a_hidden);
-		return true;
-	}
-
-    void Runtime::OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode)
+	void Runtime::OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode)
 	{
 		const std::string id(a_viewId);
 		if (_rendererFailed && _browserHostRecovery.CanAcceptResponse()) {

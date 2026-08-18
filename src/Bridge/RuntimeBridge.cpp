@@ -191,7 +191,6 @@ namespace OSFUI
 			a_b.Respond(nlohmann::json::object());
 		});
 		a_bridge.RegisterRequest("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			// Show/hide one instantiated view by id, independent of the overlay toggle. Omitting "view" targets the calling view (self-hide).
 			std::string id = Json::Get(a_p, "view", "");
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
@@ -199,9 +198,23 @@ namespace OSFUI
 			if (const auto* manifest = _views.Find(id)) {
 				id = manifest->id;
 			}
-			if (!SetViewHidden(id, Json::Get(a_p, "hidden", false))) {
+			if (!_presentation.IsInstantiated(id)) {
 				a_b.Reject("unknown-view", "not an instantiated view");
 				return;
+			}
+
+			const bool hidden = Json::Get(a_p, "hidden", false);
+			bool changed = false;
+			if (hidden) {
+				if (_pendingViewOpen && *_pendingViewOpen == id) {
+					CancelPendingOpen();
+				}
+				changed = _presentation.Close(id);
+			} else {
+				changed = BeginViewOpen(id);
+			}
+			if (changed) {
+				ApplyViewPresentationPolicy();
 			}
 			a_b.Respond(nlohmann::json::object());
 		});

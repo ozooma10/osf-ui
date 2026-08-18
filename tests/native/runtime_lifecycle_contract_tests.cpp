@@ -315,6 +315,19 @@ int main()
 		"Reject(\"input-unavailable\"",
 		"EnqueueOpenView(std::move(id))" }),
 		"browser menu.open must fail closed before an unknown or unsafe menu is queued");
+	Check(ContainsInOrder(endpoints, {
+		"RegisterRequest(\"setViewHidden\"",
+		"_presentation.IsInstantiated(id)",
+		"const bool hidden = Json::Get(a_p, \"hidden\", false)",
+		"*_pendingViewOpen == id",
+		"CancelPendingOpen()",
+		"_presentation.Close(id)",
+		"BeginViewOpen(id)",
+		"ApplyViewPresentationPolicy()" }),
+		"setViewHidden must transition the presentation model rather than bypassing it at the renderer");
+	Check(runtimeSource.find("bool Runtime::SetViewHidden") == std::string::npos &&
+		runtimeHeader.find("bool SetViewHidden") == std::string::npos,
+		"setViewHidden must not retain a second Runtime visibility authority");
 
 	const auto applyPolicy = FunctionBody(runtimeSource, "void Runtime::ApplyViewPresentationPolicy()");
 	Check(ContainsInOrder(applyPolicy, {
