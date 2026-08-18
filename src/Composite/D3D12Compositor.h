@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Render/IWebRenderer.h"
+#include "Render/SharedTextureTransport.h"
 
 struct ID3D12GraphicsCommandList;
 struct ID3D12Resource;

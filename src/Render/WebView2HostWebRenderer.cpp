@@ -191,7 +191,7 @@ namespace OSFUI
 			SharedRingDesc ring{};
 		};
 
-		RendererConfig        config;
+		WebView2HostConfig    config;
 		std::filesystem::path viewsRoot, mappedViewsRoot, userData;
         // Initial MO2 mirroring and later dev refreshes can run on different
         // threads; serialize the live real-path tree and its activation flag.
@@ -1424,7 +1424,7 @@ namespace OSFUI
 		if (_impl) _impl->Stop();
 	}
 
-	bool WebView2HostWebRenderer::Initialize(const RendererConfig& a_config)
+	bool WebView2HostWebRenderer::Initialize(const WebView2HostConfig& a_config)
 	{
 		// No Evergreen-runtime probe here: detecting it in-process would link the
 		// WebView2 SDK loader into this GPL'd plugin for one symbol. The browser-host executable

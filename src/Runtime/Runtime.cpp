@@ -92,7 +92,7 @@ namespace OSFUI
 		_cursorX = initialWidth * 0.5f;
 		_cursorY = initialHeight * 0.5f;
 
-		RendererConfig rendererConfig{
+		WebView2HostConfig rendererConfig{
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = _config.devMode,
@@ -104,21 +104,21 @@ namespace OSFUI
 			return false;
 		}
 
-		REX::INFO("Runtime: renderer = {}", _renderer->Name());
+		REX::INFO("Runtime: renderer = webview2");
 		return true;
 	}
 
 	void Runtime::WireRendererLifecycleCallbacks()
 	{
-		_renderer->SetLoadHandler([this](const IWebRenderer::LoadEvent& a_e) {
+		_renderer->SetLoadHandler([this](const WebView2HostWebRenderer::LoadEvent& a_e) {
 			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
 		});
 
-		_renderer->SetFailureHandler([this](const IWebRenderer::FailureEvent& a_e) {
+		_renderer->SetFailureHandler([this](const WebView2HostWebRenderer::FailureEvent& a_e) {
 			OnRendererFailure(a_e);
 		});
 
-		_renderer->SetHealthHandler([this](const IWebRenderer::HealthEvent& a_e) {
+		_renderer->SetHealthHandler([this](const WebView2HostWebRenderer::HealthEvent& a_e) {
 			_runtimeHealth.OnRendererHealth(a_e);
 		});
 
@@ -931,7 +931,7 @@ namespace OSFUI
 				  "overlay left closed", reloaded);
 	}
 
-	void Runtime::OnRendererFailure(const IWebRenderer::FailureEvent& a_event)
+	void Runtime::OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event)
 	{
 		if (_rendererFailureLatched) {
 			return;
@@ -939,7 +939,7 @@ namespace OSFUI
 		_rendererFailureLatched = true;
 		_rendererFailed = true;
 		const bool retryableBrowserHostLoss =
-			a_event.stage == "host-connection" && _renderer && _renderer->Name() == "webview2";
+			a_event.stage == "host-connection" && _renderer;
 		if (retryableBrowserHostLoss) {
 			_browserHostRecovery.OnRetryableFailure(_uptime);
 			REX::ERROR("Runtime: browser-host connection failed for view '{}' (0x{:08X}): {} - "

@@ -15,16 +15,15 @@ entries intentionally retain the vocabulary of the release they describe.
 | **OSF UI runtime** | `OSFUI.dll` and its in-game `Runtime` orchestration. Do not shorten this to *host* when the browser host could also be meant. |
 | **browser host** | `osfui_webview2_host.exe`, the out-of-process executable that owns WebView2 environments and composition controllers. |
 | **shared bridge helper** | `views/shared/osfui.js`, the browser-side JavaScript library that exposes `window.osfui`, manages request correlation, and consumes bridge envelopes. It is not the browser host. |
-| **web renderer** | The game-side `IWebRenderer` implementation (`WebView2HostWebRenderer`) that communicates with the browser host. |
+| **web renderer** | The game-side `WebView2HostWebRenderer` that communicates with the browser host. |
 | **compositor** | `D3D12Compositor`, which draws browser-host textures in Starfield's UI pass. |
 | **mod backend** | Papyrus or a native SFSE plugin that owns game logic and exchanges state, events, sends, and requests with its views. It is not the web renderer. |
 | **WebView2 Runtime** | Microsoft's installed Evergreen browser runtime. This is distinct from the OSF UI runtime. |
 
 The production render path is fixed: the OSF UI runtime owns one
 `WebView2HostWebRenderer` and one `D3D12Compositor`; the browser stack itself
-runs in the browser host. `IWebRenderer` is an internal abstraction seam, while
-the runtime owns `D3D12Compositor` directly. Neither is a player-selectable
-render backend.
+runs in the browser host. Both are fixed internal components rather than
+player-selectable render backends.
 
 ## Versions
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Render/IWebRenderer.h"
+#include "Input/CursorShape.h"
 
 namespace OSFUI::HardwareCursor
 {

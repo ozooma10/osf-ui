@@ -7,7 +7,7 @@
 #include "Core/Config.h"
 #include "Input/GamepadSession.h"
 #include "Input/KeyLabels.h"
-#include "Render/IWebRenderer.h"
+#include "Render/WebView2HostWebRenderer.h"
 #include "Diagnostics/HealthRegistry.h"
 #include "Runtime/DeferredMainThreadWork.h"
 #include "Views/Dev/DevViewReloadWorker.h"
@@ -162,7 +162,7 @@ namespace OSFUI
 		void PumpDevViewReload();
 		nlohmann::json BuildViewsData() const;
 
-		void OnRendererFailure(const IWebRenderer::FailureEvent& a_event);
+		void OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event);
 		// Deferred until the failure callback has returned; recreates every instantiated view.
 		void DriveBrowserHostRecovery();
 		void RehydrateRendererAfterRestart();
@@ -193,7 +193,7 @@ namespace OSFUI
 		Config                        _config;
 		LocalizationService           _localization;
 		ViewManager                   _views;
-		std::unique_ptr<IWebRenderer> _renderer;
+		std::unique_ptr<WebView2HostWebRenderer> _renderer;
 		std::unique_ptr<D3D12Compositor> _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;
@@ -219,7 +219,7 @@ namespace OSFUI
 
 		std::optional<std::string> _pendingViewOpen;
 
-		// Last value pushed to IWebRenderer::SetNativeFocus; the false
+		// Last value pushed to WebView2HostWebRenderer::SetNativeFocus; the false
 		// side posts a game-focus restore, so sends are edge-only. Main thread.
 		bool _nativeFocusGranted{ false };
 

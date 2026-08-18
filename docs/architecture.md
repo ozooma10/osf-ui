@@ -14,9 +14,9 @@ The production render path is fixed:
   pass.
 
 Initialization failure disables OSF UI runtime setup instead of leaving a loaded but
-invisible plugin. `IWebRenderer` remains an internal abstraction seam, while the
-runtime owns the fixed `D3D12Compositor` directly. Configuration does not select
-null or alternate production implementations.
+invisible plugin. The runtime owns the fixed `WebView2HostWebRenderer` and
+`D3D12Compositor` directly; configuration does not select null or alternate
+production implementations.
 
 ## Layers
 
@@ -58,8 +58,8 @@ The public extension APIs hang off the bridge rather than the render path:
 ### Data flow per frame
 
 1. An SFSE permanent task (registered in `Core/Plugin.cpp`) runs on the engine's render-graph workers and posts one coalesced `Runtime::Tick(dt)` through `RE::BSService::TaskQueue`. The queue drains Tick on the game main thread; if BSService cannot enqueue yet, the worker drops that notification and retries next frame rather than taking the queue's unsafe inline fallback. Tick self-times on the main thread and clamps `dt` to 100 ms.
-2. `IWebRenderer::Update(dt)` advances the web content.
-3. The browser host publishes frames through a shared D3D12 texture ring; `IWebRenderer::Render()` returns the frame-ready slot and fence serial.
+2. `WebView2HostWebRenderer::Update(dt)` advances the web content.
+3. The browser host publishes frames through a shared D3D12 texture ring; `WebView2HostWebRenderer::Render()` returns the frame-ready slot and fence serial.
 4. On a closed-to-open edge, `Views/ViewRevealGate` keeps the compositor hidden until it observes a fresh frame, a known output size, and a texture matching that size. `Runtime` submits gate-approved frames and performs the real compositor side effects. If the bounded wait expires, Runtime closes the presentation and immediately releases focus, input, pause, and cursor ownership.
 5. `D3D12Compositor::Submit(frame)` records the approved slot; the overlay is drawn later, inside the engine's Scaleform UI pass (see *How the D3D12 compositor works*), sampling the shared texture directly with no CPU readback or upload.
 

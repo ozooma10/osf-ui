@@ -233,17 +233,17 @@ namespace OSFUI
 		runtime._healthRegistry->SetSystemInfo(nlohmann::json{
 			{ "version", kOsfuiReleaseVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
-			{ "renderer", runtime._renderer ? std::string(runtime._renderer->Name()) : "none" },
+			{ "renderer", runtime._renderer ? "webview2" : "none" },
 			{ "compositor", runtime._compositor ? "d3d12" : "none" },
 			{ "drawPath", status.seamActive ? "ui-seam" : "unavailable" },
 			{ "frameGeneration", status.frameGeneration },
-			{ "nativeFocus", runtime._renderer && runtime._renderer->UsesNativeKeyboardFocus() },
+			{ "nativeFocus", runtime._renderer != nullptr },
 			{ "locale", runtime._localization.Locale() },
 			{ "devMode", runtime._config.devMode },
 		});
 	}
 
-	void RuntimeHealthCoordinator::OnRendererHealth(const IWebRenderer::HealthEvent& a_event)
+	void RuntimeHealthCoordinator::OnRendererHealth(const WebView2HostWebRenderer::HealthEvent& a_event)
 	{
 		auto& runtime = _runtime;
 		if (!runtime._healthRegistry || a_event.code.empty()) return;
@@ -255,13 +255,13 @@ namespace OSFUI
 		}
 		nlohmann::json context = nlohmann::json::object();
 		if (!a_event.detail.empty()) context["detail"] = std::string(a_event.detail);
-		context["renderer"] = runtime._renderer ? std::string(runtime._renderer->Name()) : "none";
+		context["renderer"] = runtime._renderer ? "webview2" : "none";
 		runtime._healthRegistry->Upsert(HealthRegistry::IssueSpec{
 			.id = code,
 			.code = code,
 			.severity = HealthRegistry::Severity::Warning,
 			.source = "host",
-			.subject = runtime._renderer ? std::string(runtime._renderer->Name()) : std::string{},
+			.subject = runtime._renderer ? "webview2" : std::string{},
 			.context = std::move(context),
 		}, runtime._uptime);
 		runtime._healthRegistry->Broadcast();

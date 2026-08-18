@@ -70,7 +70,7 @@ Windows pipe suite is built separately through xmake. Currently:
 | `health_registry_tests.cpp` | `HealthRegistry` + `MessageBridge` through real 2.0 envelopes: dedupe/occurrence counting, resolve/reactivate history, wire ordering, the payload sanitizer, and delivery |
 | `config_defaults_tests.cpp` | `Core/Config`: parsing and defaults for the developer/boot `config.json` |
 | `dev_view_files_tests.cpp` | `Views/Dev/DevViewFiles`: mod-folder view footprint resolution behind dev-mode reload |
-| `cursor_shape_tests.cpp` | `CursorShapeFromSystemCursorId` (`Render/IWebRenderer.h`): system cursor id → shape mapping |
+| `cursor_shape_tests.cpp` | `CursorShapeFromSystemCursorId` (`Input/CursorShape.h`): system cursor id → shape mapping |
 | `gamepad_navigation_tests.cpp` | `Input/GamepadNavigation`: analogue left stick → one digital navigation direction, with latch-through-jitter and deliberate-hold repeat |
 | `gamepad_session_tests.cpp` | `Input/GamepadSession`: capture-session button baselining and edge reconstruction, raw-mode suppression of default actions, stick navigation/scroll, axes dedupe, and complete close/reopen reset |
 | `browser_host_recovery_tests.cpp` | Bounded browser-host restart policy: automatic backoff, response timeout, terminal-disable behavior, and the explicit-open retry escape hatch |

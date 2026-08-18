@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Render/IWebRenderer.h"
+#include "Render/WebView2HostWebRenderer.h"
 #include "API/BridgeApi.h"
 #include "Diagnostics/HealthReconciler.h"
 
@@ -18,7 +18,7 @@ namespace OSFUI
 		explicit RuntimeHealthCoordinator(Runtime& a_runtime) : _runtime(a_runtime) {}
 
 		void Pump();
-		void OnRendererHealth(const IWebRenderer::HealthEvent& a_event);
+		void OnRendererHealth(const WebView2HostWebRenderer::HealthEvent& a_event);
 		void ReportViewLoad(std::string_view a_viewId, bool a_failed,
 			std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft);
 		void ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key,

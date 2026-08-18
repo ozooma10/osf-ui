@@ -861,8 +861,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		// Get or create the PSO for the current UI target. Called under ringMutex,
 		// so the two-entry cache needs no separate synchronization.
-		[[nodiscard]] ID3D12PipelineState* EnsureSeamPipeline(
-			const DXGI_FORMAT a_rtvFormat)
+		[[nodiscard]] ID3D12PipelineState* EnsureSeamPipeline(const DXGI_FORMAT a_rtvFormat)
 		{
 			auto* cached = std::ranges::find_if(seamPipelines,
 				[a_rtvFormat](const SeamPipeline& a_pipeline) {
