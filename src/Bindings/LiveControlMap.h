@@ -4,7 +4,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -58,7 +57,7 @@ namespace OSFUI
 		};
 		RebuildResult RebuildBindings(bool a_forceProjection);
 		bool RefreshActiveEngineInputContexts();
-		bool InstallRemapObserver();
+		void InstallRemapObserver();
 		void Fail(std::string a_reason);
 		void EncodeUnavailableStates();
 
@@ -76,10 +75,6 @@ namespace OSFUI
 		std::string _failureReason;
 		std::vector<ConflictBinding> _conflicts;
 		std::unordered_map<std::string, std::string> _translationCache;
-		std::array<std::string, 0x51> _engineInputContextNames;
-		std::uintptr_t _controlMapAddress{ 0 };
-		std::uintptr_t _validatedActiveData{ 0 };
-		std::size_t _validatedActiveBytes{ 0 };
 		std::vector<std::uint8_t> _activeEngineInputContexts;
 		std::optional<GameplayMode> _mode;
 		nlohmann::json _keybindingsState{ nlohmann::json::object() };
