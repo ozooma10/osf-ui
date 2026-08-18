@@ -1113,22 +1113,20 @@ int main()
 		// A fixed file clears its issue; repeated failures replace rather than stack.
 		WriteFile(sd / "t.broken.json", R"json({ "id": "t.broken",
 			"groups": [ { "settings": [ { "key": "x", "type": "int", "default": 1 } ] } ] })json");
-		const auto loadErrorGenerationBeforeRecovery = s.LoadErrorGeneration();
+		const auto generationBeforeRecovery = s.Generation();
 		CHECK(s.ReloadDropInFile(sd / "t.broken.json"));
-		CHECK(s.LoadErrorGeneration() > loadErrorGenerationBeforeRecovery);
+		CHECK(s.Generation() > generationBeforeRecovery);
 		CHECK(s.LoadErrors().size() == 2);
 		CHECK(s.DataView()["mods"].size() == 2);
 		int registryPings = 0;
 		s.AddRegistryListener([&] { ++registryPings; });
 		WriteFile(sd / "t.broken.json", R"json({ "id": )json");
-		const auto registryGeneration = s.Generation();
-		const auto loadErrorGeneration = s.LoadErrorGeneration();
+		const auto generationBeforeFailure = s.Generation();
 		CHECK(!s.ReloadDropInFile(sd / "t.broken.json"));
-		CHECK(s.Generation() == registryGeneration);  // the last good schema remains loaded
-		CHECK(s.LoadErrorGeneration() > loadErrorGeneration);
-		const auto recordedErrorGeneration = s.LoadErrorGeneration();
+		CHECK(s.Generation() > generationBeforeFailure);
+		const auto recordedErrorGeneration = s.Generation();
 		CHECK(!s.ReloadDropInFile(sd / "t.broken.json"));
-		CHECK(s.LoadErrorGeneration() == recordedErrorGeneration);  // identical error is not a new state
+		CHECK(s.Generation() == recordedErrorGeneration);  // identical error is not a new state
 		CHECK(s.LoadErrors().size() == 3);
 		CHECK(registryPings >= 1);
 		CHECK(s.DataView()["mods"].size() == 2);  // the last good parse stays registered

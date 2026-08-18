@@ -19,12 +19,9 @@ namespace OSFUI
 
 		DrainPluginHealthReports();
 		if (runtime._settings) {
-			const auto& store = runtime._settings->Store();
-			const auto generation = store.Generation();
-			const auto loadErrorGeneration = store.LoadErrorGeneration();
-			if (!_settingsSynced || generation != _settingsGeneration || loadErrorGeneration != _settingsLoadErrorGeneration) {
+			const auto generation = runtime._settings->Store().Generation();
+			if (!_settingsSynced || generation != _settingsGeneration) {
 				_settingsGeneration = generation;
-				_settingsLoadErrorGeneration = loadErrorGeneration;
 				_settingsSynced = true;
 				SyncSettings();
 			}

@@ -242,9 +242,9 @@ int main()
 		"System Health must publish the effective runtime latch, defaulting fail closed");
 	const auto healthPump = FunctionBody(runtimeHealthSource,
 		"void RuntimeHealthCoordinator::Pump()");
-	Check(healthPump.find("LoadErrorGeneration()") != std::string::npos &&
-		healthPump.find("loadErrorGeneration != _settingsLoadErrorGeneration") != std::string::npos,
-		"System Health must resynchronize when settings load errors change without a registry generation change");
+	Check(healthPump.find("Store().Generation()") != std::string::npos &&
+		healthPump.find("LoadErrorGeneration") == std::string::npos,
+		"System Health must use the single SettingsStore generation for registry and load-error changes");
 	Check(runtimeSource.find("Log::DevMode") == std::string::npos &&
 		runtimeSource.find("_config.devMode") == std::string::npos,
 		"runtime feature policy must not be owned by the logging namespace or a removed config object");

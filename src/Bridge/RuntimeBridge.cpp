@@ -311,12 +311,31 @@ namespace OSFUI
 		a_bridge.RegisterRequest("ping", [](const nlohmann::json&, MessageBridge& a_b) {
 			a_b.Respond(nlohmann::json::object());
 		});
+		a_bridge.RegisterSend("osfui.gamepadMode", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
+			const std::string src(a_b.CurrentSource());
+			if (src.empty()) {
+				return;
+			}
+			const auto modeName = Json::Get(a_p, "mode", std::string("default"));
+			GamepadSession::Mode mode;
+			if (modeName == "default") {
+				mode = GamepadSession::Mode::kDefault;
+			} else if (modeName == "buttons") {
+				mode = GamepadSession::Mode::kButtons;
+			} else if (modeName == "raw") {
+				mode = GamepadSession::Mode::kRaw;
+			} else {
+				REX::WARN("Runtime: [content] view '{}' requested unknown gamepad mode '{}'", src, modeName);
+				return;
+			}
+			m_viewInputGrants.SetGamepadMode(src, mode);
+		});
 		a_bridge.RegisterSend("osfui.gamepadRaw", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string src(a_b.CurrentSource());
 			if (src.empty()) {
 				return;
 			}
-			m_viewInputGrants.SetGamepadRaw(src, Json::Get(a_p, "raw", false));
+			m_viewInputGrants.SetGamepadMode(src, Json::Get(a_p, "raw", false) ? GamepadSession::Mode::kRaw : GamepadSession::Mode::kDefault);
 		});
 		a_bridge.RegisterSend("osfui.handleBack", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string src(a_b.CurrentSource());

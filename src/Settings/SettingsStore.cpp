@@ -260,9 +260,6 @@ namespace OSFUI
 	{
 		InvalidateData();
 		_mods.clear();
-		if (!_loadErrors.empty()) {
-			++_loadErrorGeneration;
-		}
 		_loadErrors.clear();
 		_valuesDir = a_valuesDir;
 		++_generation;
@@ -664,13 +661,13 @@ namespace OSFUI
 				}
 				e.message = std::move(a_message);
 				InvalidateData();
-				++_loadErrorGeneration;
+				++_generation;
 				return;
 			}
 		}
 		_loadErrors.push_back({ std::move(a_kind), std::move(a_file), std::move(a_mod), std::move(a_message) });
 		InvalidateData();
-		++_loadErrorGeneration;
+		++_generation;
 	}
 
 	bool SettingsStore::EraseLoadErrorsForFile(std::string_view a_file)
@@ -679,7 +676,7 @@ namespace OSFUI
 			[&](const LoadError& a_e) { return a_e.mod.empty() && a_e.file == a_file; });
 		if (count > 0) {
 			InvalidateData();
-			++_loadErrorGeneration;
+			++_generation;
 		}
 		return count > 0;
 	}
@@ -692,7 +689,7 @@ namespace OSFUI
 			});
 		if (count > 0) {
 			InvalidateData();
-			++_loadErrorGeneration;
+			++_generation;
 		}
 		return count > 0;
 	}

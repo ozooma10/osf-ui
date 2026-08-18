@@ -48,10 +48,9 @@ namespace OSFUI
 		// per-mod replay after a schema hot reload.
 		using ChangeListener = std::function<void(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)>;
 
-		// Fired after the registry shape changes post-load (schema hot reload or
-		// RemoveMod — whenever Generation() moves outside LoadAll). The web
-		// layer re-broadcasts `osfui/settings` state off this so open Mod Settings
-		// re-renders when a drop-in file changes.
+		// Fired after the published settings document changes post-load: schema
+		// hot reload/removal or a load-error change. The web layer re-broadcasts
+		// `osfui/settings` state off this so open Mod Settings stays current.
 		using RegistryListener = std::function<void()>;
 
 		// Resolves a key name ("F10", "Grave", ...) to a physical key id (a
@@ -259,11 +258,9 @@ namespace OSFUI
 			InvalidateData();
 		}
 
-		// Monotonic counter bumped on every registry shape change (LoadAll,
-		// schema hot reload, RemoveMod). Consumers re-broadcast `osfui/settings` state
-		// when it moves.
+		// Monotonic counter bumped whenever the externally visible registry or
+		// load-error state changes. Consumers refresh their projection when it moves.
 		[[nodiscard]] std::uint64_t Generation() const { return _generation; }
-		[[nodiscard]] std::uint64_t LoadErrorGeneration() const { return _loadErrorGeneration; }
 
 		struct LoadError
 		{
@@ -466,7 +463,6 @@ namespace OSFUI
 		std::vector<LoadError>      _loadErrors;
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
-		std::uint64_t               _loadErrorGeneration{ 0 };
 		double                      _now{ 0.0 };  // last PumpPersistence clock; MarkDirty stamps windows with it
 	};
 }

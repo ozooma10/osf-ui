@@ -69,7 +69,7 @@ SUITES=(
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/Views/Dev/DevViewFiles.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
-"gamepad_session_tests gamepad_session_tests.cpp ../../src/Input/GamepadSession.cpp"
+"gamepad_session_tests gamepad_session_tests.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp"
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"
 "deferred_main_thread_work_tests deferred_main_thread_work_tests.cpp"
 "output_size_observation_tests output_size_observation_tests.cpp"

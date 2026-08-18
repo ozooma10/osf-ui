@@ -31,6 +31,13 @@ namespace OSFUI
 	class GamepadSession
 	{
 	public:
+		enum class Mode : std::uint8_t
+		{
+			kDefault,  // D-pad/A/B plus left-stick navigation and right-stick scrolling
+			kButtons,  // D-pad/A/B only; sticks remain available to the owning native feature
+			kRaw       // publish button/axis changes without injecting default actions
+		};
+
 		enum class Action : std::uint8_t
 		{
 			kNone,
@@ -67,13 +74,14 @@ namespace OSFUI
 			int                        wheelDelta{ 0 };
 		};
 
-		[[nodiscard]] Frame Update(const XInputPoller::State& a_state, bool a_defaultMapping, double a_deltaSeconds, double a_now) noexcept;
+		[[nodiscard]] Frame Update(const XInputPoller::State& a_state, Mode a_mode, double a_deltaSeconds, double a_now) noexcept;
 
 		[[nodiscard]] bool End() noexcept;
 		[[nodiscard]] bool Active() const noexcept { return m_active; }
 
 	private:
 		bool              m_active{ false };
+		Mode              m_mode{ Mode::kDefault };
 		std::uint32_t     m_buttons{ 0 };
 		GamepadNavigation m_navigation;
 		float             m_scrollAccumulator{ 0.0f };

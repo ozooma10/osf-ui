@@ -210,7 +210,7 @@ int main()
 	// --- endpoint ownership: explicit, with no dot-count inference -------------
 	for (const auto* bad : { "close", "ping", "setVisible", "menu.open",
 	                         "settings.set", "papyrus.call", "papyrus.send", "osfui.hello",
-	                         "osfui.gamepadRaw", "OSFUI.private" }) {
+	                         "osfui.gamepadMode", "osfui.gamepadRaw", "OSFUI.private" }) {
 		api.RegisterSend(bad, &HandlerA, nullptr);
 	}
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('close')"));

@@ -63,18 +63,27 @@ namespace OSFUI
 		}
 	}
 
-	GamepadSession::Frame GamepadSession::Update(const XInputPoller::State &a_state, bool a_defaultMapping, double a_deltaSeconds, double a_now) noexcept
+	GamepadSession::Frame GamepadSession::Update(const XInputPoller::State& a_state, Mode a_mode, double a_deltaSeconds, double a_now) noexcept
 	{
 		Frame frame;
-		frame.axes = {a_state.lx, a_state.ly, a_state.rx, a_state.ry};
+		frame.axes = { a_state.lx, a_state.ly, a_state.rx, a_state.ry };
+		const bool started = !m_active;
+		bool       dpadPressed = false;
 
-		if (!m_active)
+		if (started)
 		{
 			m_active = true;
+			m_mode = a_mode;
 			m_buttons = a_state.buttons;
 		}
 		else
 		{
+			if (m_mode != a_mode)
+			{
+				m_mode = a_mode;
+				m_navigation.Reset();
+				m_scrollAccumulator = 0.0f;
+			}
 			const auto changed = m_buttons ^ a_state.buttons;
 			for (const auto mask : kButtonMasks)
 			{
@@ -83,10 +92,12 @@ namespace OSFUI
 					continue;
 				}
 				const bool down = (a_state.buttons & mask) != 0;
+				dpadPressed = dpadPressed || (down && (mask == XInputButton::kDPadUp || mask == XInputButton::kDPadDown ||
+					mask == XInputButton::kDPadLeft || mask == XInputButton::kDPadRight));
 				frame.buttonEdges[frame.buttonEdgeCount++] = {
 					mask,
 					down,
-					a_defaultMapping && down ? ButtonAction(mask) : Action::kNone};
+					a_mode != Mode::kRaw && down ? ButtonAction(mask) : Action::kNone };
 			}
 			m_buttons = a_state.buttons;
 		}
@@ -102,15 +113,36 @@ namespace OSFUI
 			m_lastPublishedAxes = frame.axes;
 		}
 
-		if (!a_defaultMapping)
+		if (a_mode == Mode::kRaw)
 		{
 			return frame;
 		}
 
-		frame.navigationAction = NavigationAction(m_navigation.Update(a_state.lx, a_state.ly, a_now));
+		float navigationX = a_mode == Mode::kDefault ? a_state.lx : 0.0f;
+		float navigationY = a_mode == Mode::kDefault ? a_state.ly : 0.0f;
+		const bool dpadLeft = (a_state.buttons & XInputButton::kDPadLeft) != 0;
+		const bool dpadRight = (a_state.buttons & XInputButton::kDPadRight) != 0;
+		const bool dpadUp = (a_state.buttons & XInputButton::kDPadUp) != 0;
+		const bool dpadDown = (a_state.buttons & XInputButton::kDPadDown) != 0;
+		if (dpadLeft != dpadRight)
+		{
+			navigationX = dpadRight ? 1.0f : -1.0f;
+		}
+		if (dpadUp != dpadDown)
+		{
+			navigationY = dpadUp ? 1.0f : -1.0f;
+		}
+		const bool dpadHeld = dpadLeft || dpadRight || dpadUp || dpadDown;
+		const auto navigation = NavigationAction(m_navigation.Update(navigationX, navigationY, a_now));
+		// The down edge above owns the first D-pad action. The navigation state is
+		// still primed here so a deliberate hold repeats without a second timer.
+		if (!dpadPressed && !(started && dpadHeld))
+		{
+			frame.navigationAction = navigation;
+		}
 
 		constexpr float kScrollDeadzone = 0.25f;
-		if (std::fabs(a_state.ry) > kScrollDeadzone)
+		if (a_mode == Mode::kDefault && std::fabs(a_state.ry) > kScrollDeadzone)
 		{
 			constexpr float kScrollNotchesPerSecond = 8.0f;
 			m_scrollAccumulator += a_state.ry * kScrollNotchesPerSecond * static_cast<float>(a_deltaSeconds);
@@ -136,6 +168,7 @@ namespace OSFUI
 			return false;
 		}
 		m_active = false;
+		m_mode = Mode::kDefault;
 		m_buttons = 0;
 		m_navigation.Reset();
 		m_scrollAccumulator = 0.0f;

@@ -189,8 +189,8 @@ namespace OSFUI
 			return;
 		}
 
-		const bool raw = m_viewInputGrants.UsesRawGamepad(*active);
-		const auto frame = m_gamepadSession.Update(m_gamepadSource.Poll(), !raw, a_deltaSeconds, _uptime);
+		const auto mode = m_viewInputGrants.GamepadModeFor(*active);
+		const auto frame = m_gamepadSession.Update(m_gamepadSource.Poll(), mode, a_deltaSeconds, _uptime);
 
 		const auto applyAction = [this](GamepadSession::Action a_action) {
 			std::uint32_t key = 0;

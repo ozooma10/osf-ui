@@ -41,7 +41,6 @@ namespace OSFUI
 
 		Runtime&         _runtime;
 		std::uint64_t    _settingsGeneration{ 0 };
-		std::uint64_t    _settingsLoadErrorGeneration{ 0 };
 		bool             _settingsSynced{ false };
 		HealthReconciler _healthReconciler;
 
