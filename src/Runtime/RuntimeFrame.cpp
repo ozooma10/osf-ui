@@ -102,18 +102,17 @@ namespace OSFUI
     {
 		if (_settings) {
 			_settings->Store().PumpPersistence(_uptime);
-			// Schema hot-reload (developer mode): edited
-			// settings/*.json files reload live, values preserved; the
-			// registry re-broadcast repaints open Mod Settings.
-			if (_config.devMode) {
-				_settings->PumpSchemaHotReload(_uptime);
-				if (_uptime >= _nextLocalizationScan) {
-					_nextLocalizationScan = _uptime + SettingsModule::kHotReloadScanSeconds;
-					if (_localization.ReloadIfChanged()) {
-						RefreshLocalizedData();
-					}
-				}
-			}
+
+			//@TODO: DEVMODE
+			// if (_config.devMode) {
+			// 	_settings->PumpSchemaHotReload(_uptime);
+			// 	if (_uptime >= _nextLocalizationScan) {
+			// 		_nextLocalizationScan = _uptime + SettingsModule::kHotReloadScanSeconds;
+			// 		if (_localization.ReloadIfChanged()) {
+			// 			RefreshLocalizedData();
+			// 		}
+			// 	}
+			// }
 		}
     }
 
@@ -141,14 +140,15 @@ namespace OSFUI
 			_renderer->InjectMouseMove(static_cast<int>(packed >> 32), static_cast<int>(packed & 0xFFFF'FFFFull));
 			++_mouseMoveSends;
 		}
-		if (_config.devMode && _uptime >= _nextMouseStatsLog) {
-			_nextMouseStatsLog = _uptime + 5.0;
-			const auto packets = _mouseMovePackets.exchange(0, std::memory_order_relaxed);
-			if (packets != 0 || _mouseMoveSends != 0) {
-				REX::DEBUG("Runtime: coalesced {} mouse-move packets into {} sends over ~5s", packets, _mouseMoveSends);
-				_mouseMoveSends = 0;
-			}
-		}
+		//@TODO: DEVMODE
+		// if (_config.devMode && _uptime >= _nextMouseStatsLog) {
+			// _nextMouseStatsLog = _uptime + 5.0;
+			// const auto packets = _mouseMovePackets.exchange(0, std::memory_order_relaxed);
+			// if (packets != 0 || _mouseMoveSends != 0) {
+			// 	REX::DEBUG("Runtime: coalesced {} mouse-move packets into {} sends over ~5s", packets, _mouseMoveSends);
+			// 	_mouseMoveSends = 0;
+			// }
+		// }
 		{
 			_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire), IsInputCaptured(), _captureArmed.load(), _captureUpScan.load());
 			_renderer->Update(a_deltaSeconds);

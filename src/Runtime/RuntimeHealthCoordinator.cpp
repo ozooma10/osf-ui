@@ -239,7 +239,7 @@ namespace OSFUI
 			{ "frameGeneration", status.frameGeneration },
 			{ "nativeFocus", runtime._renderer != nullptr },
 			{ "locale", runtime._localization.Locale() },
-			{ "devMode", runtime._config.devMode },
+			// { "devMode", runtime._config.devMode },
 		});
 	}
 

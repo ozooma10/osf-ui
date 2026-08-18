@@ -115,13 +115,14 @@ namespace OSFUI
 	void Runtime::OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)
 	{
 
-		if (_config.devMode && _bridge) {
-			_bridge->Emit(a_viewId, "osfui.debug.error", nlohmann::json{
-				{ "code", std::string(a_code) },
-				{ "message", std::string(a_message) },
-				{ "detail", a_detail },
-			});
-		}
+		//@TODO: DEVMODE
+		// if ( _config.devMode &&  _bridge) {
+		// 	_bridge->Emit(a_viewId, "osfui.debug.error", nlohmann::json{
+		// 		{ "code", std::string(a_code) },
+		// 		{ "message", std::string(a_message) },
+		// 		{ "detail", a_detail },
+		// 	});
+		// }
 		
 		constexpr std::uint32_t kProtocolFaultThreshold = 10;
 		if (!a_viewFault || a_viewId.empty() || !_healthRegistry) {

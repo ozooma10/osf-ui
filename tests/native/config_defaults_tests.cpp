@@ -1,5 +1,3 @@
-#include "Core/Config.h"
-
 #include <cassert>
 #include <filesystem>
 #include <fstream>

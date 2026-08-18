@@ -20,17 +20,18 @@ namespace OSFUI
 			return false;
 		}
 
-		if (_config.devMode) {
-			_renderer->SetConsoleHandler(id, [id](int a_level, std::string a_message) {
-				if (a_level == 2) {
-					REX::ERROR("Runtime: view '{}' console: {}", id, a_message);
-				} else if (a_level == 1) {
-					REX::WARN("Runtime: view '{}' console: {}", id, a_message);
-				} else {
-					REX::DEBUG("Runtime: view '{}' console: {}", id, a_message);
-				}
-			});
-		}
+		// @TODO: DEVMODE: if (_config.devMode) {
+		// if (_config.devMode) {
+		// 	_renderer->SetConsoleHandler(id, [id](int a_level, std::string a_message) {
+		// 		if (a_level == 2) {
+		// 			REX::ERROR("Runtime: view '{}' console: {}", id, a_message);
+		// 		} else if (a_level == 1) {
+		// 			REX::WARN("Runtime: view '{}' console: {}", id, a_message);
+		// 		} else {
+		// 			REX::DEBUG("Runtime: view '{}' console: {}", id, a_message);
+		// 		}
+		// 	});
+		// }
 
 		m_viewRecovery.Clear(id);
 		m_viewLoads.BeginLoad(id);
@@ -161,7 +162,7 @@ namespace OSFUI
 
 	void Runtime::DriveDevTools()
 	{
-		if (!_devToolsRequested.exchange(false) || !_renderer || !_config.devMode) {
+		if (!_devToolsRequested.exchange(false) || !_renderer) {
 			return;
 		}
 		const auto active = _presentation.ActiveMenu();
@@ -198,8 +199,7 @@ namespace OSFUI
 
 	bool Runtime::HudAutoStartEligible(const ViewManifest& a_manifest) const
 	{
-		return a_manifest.kind == ViewKind::Hud &&
-		       a_manifest.catalogVisible && (!a_manifest.debugOnly || _config.devMode);
+		return a_manifest.kind == ViewKind::Hud && a_manifest.catalogVisible && (!a_manifest.debugOnly /*|| _config.devMode */);
 	}
 
 	nlohmann::json Runtime::BuildViewsData() const
@@ -222,7 +222,7 @@ namespace OSFUI
 				{ "mod", m.mod },
 				{ "kind", m.kind == ViewKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.menuInputEligible },
-				{ "hub", m.catalogVisible && (!m.debugOnly || _config.devMode) },
+				{ "hub", m.catalogVisible && (!m.debugOnly /*|| _config.devMode*/) },
 				{ "targetVersion", m.targetVersion },
 				{ "open", _presentation.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },

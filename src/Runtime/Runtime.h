@@ -4,7 +4,6 @@
 
 #include "API/BridgeApi.h"
 #include "Composite/D3D12Compositor.h"
-#include "Core/Config.h"
 #include "Input/GamepadSession.h"
 #include "Input/KeyLabels.h"
 #include "Render/WebView2HostWebRenderer.h"
@@ -190,7 +189,6 @@ namespace OSFUI
 		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code,
 			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
-		Config                        _config;
 		LocalizationService           _localization;
 		ViewManager                   _views;
 		std::unique_ptr<WebView2HostWebRenderer> _renderer;
