@@ -260,6 +260,9 @@ namespace OSFUI
 	{
 		InvalidateData();
 		_mods.clear();
+		if (!_loadErrors.empty()) {
+			++_loadErrorGeneration;
+		}
 		_loadErrors.clear();
 		_valuesDir = a_valuesDir;
 		++_generation;
@@ -654,21 +657,30 @@ namespace OSFUI
 
 	void SettingsStore::RecordLoadError(std::string a_kind, std::string a_file, std::string a_mod, std::string a_message)
 	{
-		InvalidateData();
 		for (auto& e : _loadErrors) {
 			if (e.kind == a_kind && e.file == a_file && e.mod == a_mod) {
+				if (e.message == a_message) {
+					return;
+				}
 				e.message = std::move(a_message);
+				InvalidateData();
+				++_loadErrorGeneration;
 				return;
 			}
 		}
 		_loadErrors.push_back({ std::move(a_kind), std::move(a_file), std::move(a_mod), std::move(a_message) });
+		InvalidateData();
+		++_loadErrorGeneration;
 	}
 
 	bool SettingsStore::EraseLoadErrorsForFile(std::string_view a_file)
 	{
 		const auto count = std::erase_if(_loadErrors,
 			[&](const LoadError& a_e) { return a_e.mod.empty() && a_e.file == a_file; });
-		if (count > 0) InvalidateData();
+		if (count > 0) {
+			InvalidateData();
+			++_loadErrorGeneration;
+		}
 		return count > 0;
 	}
 
@@ -678,7 +690,10 @@ namespace OSFUI
 			[&](const LoadError& a_e) {
 				return !a_e.mod.empty() && Ids::EqualsCaseInsensitiveAscii(a_e.mod, a_modId);
 			});
-		if (count > 0) InvalidateData();
+		if (count > 0) {
+			InvalidateData();
+			++_loadErrorGeneration;
+		}
 		return count > 0;
 	}
 

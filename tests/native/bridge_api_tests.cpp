@@ -41,7 +41,7 @@ namespace
 	// Every inbound message in this suite goes through these two builders, so
 	// the envelope shape is asserted by construction rather than re-typed (and
 	// re-mistyped) at forty call sites.
-	constexpr const char* kHello = R"({"kind":"send","name":"osfui.hello"})";
+	constexpr const char* kHello = R"({"kind":"send","name":"osfui.hello","payload":{}})";
 
 	std::string SendMsg(std::string_view a_name, std::string_view a_payloadJson = "{}")
 	{
@@ -247,10 +247,8 @@ int main()
 	// First open, F5, dev hot reload and crash-recovery reload are all this same
 	// sequence, so nothing has to guess whether a greeting was consumed.
 	bridge.OnViewCreated("someview");
-	CHECK(!bridge.HasGreeted("someview"));
 	toWeb.clear();
 	bridge.HandleWebMessage("someview", kHello);
-	CHECK(bridge.HasGreeted("someview"));
 	CHECK(toWeb.size() == 1);
 	{
 		const auto ready = Last(toWeb);
@@ -321,11 +319,19 @@ int main()
 	}
 	CHECK(toWeb.empty());  // no auto-ack
 
-	// An absent payload is an empty object, never null.
-	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.catalog.get"));
+	// An explicitly empty payload is delivered as an object.
+	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.catalog.get", "{}"));
 	CHECK(g_firedA.size() == 2);
 	CHECK(g_firedA.back().payload == "{}");
 	CHECK(toWeb.empty());
+	// The wire contract requires the field. Missing and null payloads are
+	// malformed envelopes, not alternate spellings for an empty object.
+	g_protocolFaults.clear();
+	bridge.HandleWebMessage("someview", R"({"kind":"send","name":"acme.mymod.ping"})");
+	bridge.HandleWebMessage("someview", R"({"kind":"send","name":"acme.mymod.ping","payload":null})");
+	CHECK(g_firedA.size() == 2);
+	CHECK(g_protocolFaults.size() == 2);
+	CHECK(LastProtocolFaultCode() == "invalid-request");
 
 	// A refused (platform-shaped) registration must not exist on the bridge: the
 	// platform verb resolves to nothing here (no core handler in this harness),
@@ -364,6 +370,15 @@ int main()
 		CHECK(LastProtocolFaultCode() == "invalid-request");
 
 		bridge.HandleWebMessage("someview", R"({"kind":"send","name":""})");
+		CHECK(LastProtocolFaultCode() == "invalid-request");
+		bridge.HandleWebMessage("someview", R"({"name":"acme.mymod.ping","payload":{}})");
+		bridge.HandleWebMessage("someview", R"({"kind":"send","name":7,"payload":{}})");
+		bridge.HandleWebMessage("someview",
+			nlohmann::json{ { "kind", "send" }, { "name", std::string(129, 'x') },
+				{ "payload", nlohmann::json::object() } }.dump());
+		bridge.HandleWebMessage("someview",
+			R"({"kind":"send","name":"acme.mymod.ping","id":null,"payload":{}})");
+		CHECK(g_firedA.size() == 2);
 		CHECK(LastProtocolFaultCode() == "invalid-request");
 
 		// Malformed text has no id to correlate an error to, so the only honest
@@ -438,15 +453,12 @@ int main()
 		// at handler time; the token Defer() returns is the handler's to settle
 		// later, and the page's own id comes back on the wire.
 		std::string deferToken;
-		std::string deferredId;
 		bridge.RegisterRequest("test.defer", [&](const nlohmann::json&, MessageBridge& a_b) {
-			deferredId = std::string(a_b.CurrentRequestId());
 			deferToken = a_b.Defer();
 		});
 		toWeb.clear();
 		bridge.HandleWebMessage("someview", RequestMsg("test.defer", "r4"));
 		CHECK(toWeb.empty());
-		CHECK(deferredId == "r4");
 		// The token is the OSF UI runtime's, never the page's id — that keeps two
 		// documents' "q1" apart.
 		CHECK(!deferToken.empty() && deferToken != "r4");
@@ -499,6 +511,26 @@ int main()
 		CHECK(PayloadOf(Last(toWeb)).value("code", "") == "internal");
 		CHECK(LoggedContaining("ERROR", "returned without settling"));
 
+		// A throwing handler still unwinds through context cleanup. Responding
+		// outside that call must not settle the abandoned request id, and the next
+		// request must correlate normally.
+		bridge.RegisterRequest("test.throw", [](const nlohmann::json&, MessageBridge&) {
+			throw std::runtime_error("handler failed");
+		});
+		toWeb.clear();
+		bool threw = false;
+		try {
+			bridge.HandleWebMessage("throwing-view", RequestMsg("test.throw", "r-throw"));
+		} catch (const std::runtime_error&) {
+			threw = true;
+		}
+		CHECK(threw);
+		bridge.Respond(nlohmann::json{ { "stale", true } });
+		CHECK(toWeb.empty());
+		bridge.HandleWebMessage("someview", RequestMsg("test.reply", "r-after-throw"));
+		CHECK(toWeb.size() == 1);
+		CHECK(Last(toWeb).value("id", "") == "r-after-throw");
+
 		// An unknown endpoint is a correlated error, and warned once per name
 		// (pages poll, and a flooded log hides the first occurrence).
 		toWeb.clear();
@@ -520,10 +552,22 @@ int main()
 		// strict, disjoint routing kinds.
 		CHECK(!bridge.RegisterRequest("acme.mymod.ping", [](const nlohmann::json&, MessageBridge&) {}));
 		bridge.RegisterSend("test.reply", [](const nlohmann::json&, MessageBridge&) {});
-		CHECK(bridge.HasSend("acme.mymod.ping"));
-		CHECK(!bridge.HasRequest("acme.mymod.ping"));
-		CHECK(bridge.HasRequest("test.reply") && !bridge.HasSend("test.reply"));
 		CHECK(LoggedContaining("WARN", "name already registered"));
+		const auto firedBefore = g_firedB.size();
+		toWeb.clear();
+		bridge.HandleWebMessage("someview", SendMsg("acme.mymod.ping"));
+		CHECK(g_firedB.size() == firedBefore + 1);
+		bridge.HandleWebMessage("someview", RequestMsg("acme.mymod.ping", "kind-send"));
+		CHECK(g_firedB.size() == firedBefore + 1);
+		CHECK(PayloadOf(Last(toWeb)).value("code", "") == "wrong-endpoint-kind");
+		toWeb.clear();
+		bridge.HandleWebMessage("someview", RequestMsg("test.reply", "kind-request"));
+		CHECK(toWeb.size() == 1 && Last(toWeb).value("kind", "") == "reply");
+		g_protocolFaults.clear();
+		toWeb.clear();
+		bridge.HandleWebMessage("someview", SendMsg("test.reply"));
+		CHECK(toWeb.empty());
+		CHECK(LastProtocolFaultCode() == "wrong-endpoint-kind");
 
 		// Correlation ids are bounded because the inbound payload is untrusted.
 		// An over-long one is a HARD invalid-request: 1.x demoted it to
@@ -553,8 +597,11 @@ int main()
 	CHECK(LoggedContaining("WARN", "refused RegisterRequest('acme.mymod.getWeight')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterRequest('acme.mymod.ping')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('acme.mymod.getWeight')"));
-	CHECK(bridge.HasRequest("acme.mymod.getWeight"));
-	CHECK(!bridge.HasSend("acme.mymod.getWeight"));  // one name, one kind
+	g_protocolFaults.clear();
+	toWeb.clear();
+	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.getWeight"));
+	CHECK(toWeb.empty());
+	CHECK(LastProtocolFaultCode() == "wrong-endpoint-kind");  // one name, one kind
 
 	// A plugin request is always deferred: the answer arrives whenever the
 	// plugin gets there, and PumpMainThread settles it by id.
@@ -587,11 +634,18 @@ int main()
 	// helper's client-side `timeout` (the page gave up).
 	toWeb.clear(); g_request.reset();
 	bridge.HandleWebMessage("request-view", RequestMsg("acme.mymod.getWeight", "rq2"));
-	api.PumpMainThread(std::chrono::steady_clock::now() + std::chrono::seconds(31));
+	bridge.Tick(std::chrono::steady_clock::now() + std::chrono::seconds(31));
 	CHECK(toWeb.size() == 1);
 	CHECK(Last(toWeb).value("kind", "") == "error");
 	CHECK(Last(toWeb).value("id", "") == "rq2");
 	CHECK(PayloadOf(Last(toWeb)).value("code", "") == "no-response");
+	// The bridge's deadline also drops BridgeApi's adapter record. A plugin
+	// answering afterward is stale, and PumpMainThread produces no second
+	// timeout or reply.
+	if (g_request) g_request->Respond(R"({"weight":99})");
+	api.PumpMainThread();
+	CHECK(toWeb.size() == 1);
+	CHECK(LoggedContaining("WARN", "ignored late response for stale token"));
 
 	// Closing the source view reaps its tokens on BOTH sides; a late plugin
 	// response is then a safe no-op rather than a write into a dead page.
@@ -766,7 +820,6 @@ int main()
 	CHECK(Envelope(toWeb, 0).value("kind", "") == "ready");
 	CHECK(Envelope(toWeb, 1).value("kind", "") == "event");
 	CHECK(Envelope(toWeb, 1).value("name", "") == "acme.mymod.data");
-	CHECK(lazyBridge.HasGreeted("acme.mymod/dash"));
 
 	// Once greeted, a send flushes to the wire on the next pump.
 	toWeb.clear();

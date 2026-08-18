@@ -240,6 +240,11 @@ int main()
 	Check(runtimeHeader.find("_developerMode{ false }") != std::string::npos &&
 		runtimeHealthSource.find("{ \"devMode\", runtime._developerMode }") != std::string::npos,
 		"System Health must publish the effective runtime latch, defaulting fail closed");
+	const auto healthPump = FunctionBody(runtimeHealthSource,
+		"void RuntimeHealthCoordinator::Pump()");
+	Check(healthPump.find("LoadErrorGeneration()") != std::string::npos &&
+		healthPump.find("loadErrorGeneration != _settingsLoadErrorGeneration") != std::string::npos,
+		"System Health must resynchronize when settings load errors change without a registry generation change");
 	Check(runtimeSource.find("Log::DevMode") == std::string::npos &&
 		runtimeSource.find("_config.devMode") == std::string::npos,
 		"runtime feature policy must not be owned by the logging namespace or a removed config object");

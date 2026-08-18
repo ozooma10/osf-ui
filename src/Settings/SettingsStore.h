@@ -263,6 +263,7 @@ namespace OSFUI
 		// schema hot reload, RemoveMod). Consumers re-broadcast `osfui/settings` state
 		// when it moves.
 		[[nodiscard]] std::uint64_t Generation() const { return _generation; }
+		[[nodiscard]] std::uint64_t LoadErrorGeneration() const { return _loadErrorGeneration; }
 
 		struct LoadError
 		{
@@ -465,6 +466,7 @@ namespace OSFUI
 		std::vector<LoadError>      _loadErrors;
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
+		std::uint64_t               _loadErrorGeneration{ 0 };
 		double                      _now{ 0.0 };  // last PumpPersistence clock; MarkDirty stamps windows with it
 	};
 }

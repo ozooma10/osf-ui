@@ -351,8 +351,12 @@ int main()
 		healthRegistry.AttachBridge(bridge);
 
 		// `diagnostics.get` is gone as a NAME, not merely unused: a stale 1.x
-		// view naming it must get `unknown-endpoint`, never a half-working read.
-		CHECK(!bridge.HasRequest("diagnostics.get") && !bridge.HasSend("diagnostics.get"));
+		// view naming it gets `unknown-endpoint`, never a half-working read.
+		bridge.HandleWebMessage("osfui/settings",
+			R"({"kind":"request","name":"diagnostics.get","id":"removed-get","payload":{}})");
+		CHECK(KindTo("osfui/settings", "error").size() == 1);
+		CHECK(KindTo("osfui/settings", "error")[0].payload.value("code", "") == "unknown-endpoint");
+		g_sent.clear();
 
 		// The OSF UI runtime's whole hello obligation for this key
 		// (Runtime::OnViewGreeted): publish the CURRENT snapshot straight to the
