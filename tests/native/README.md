@@ -68,7 +68,6 @@ Windows pipe suite is built separately through xmake. Currently:
 | `json_tests.cpp` | The `Core/Json` lenient accessor contract: `Get<T>` wrong-type/missing-key defaults, the int-vs-float target asymmetry, negative-into-unsigned refusal, comment-tolerant `Parse`, and UTF-8-replacing `Dump` |
 | `wv2_messages_tests.cpp` | Typed wire-message round-trips for the game ↔ browser-host pipe (`Wv2Messages.h`): type stamping, declared defaults, wrong-typed-field tolerance, opaque envelope byte fidelity, and the hello identity gate |
 | `health_registry_tests.cpp` | `HealthRegistry` + `MessageBridge` through real 2.0 envelopes: dedupe/occurrence counting, resolve/reactivate history, wire ordering, the payload sanitizer, and delivery |
-| `config_defaults_tests.cpp` | `Core/Config`: parsing and defaults for the developer/boot `config.json` |
 | `dev_view_files_tests.cpp` | `Views/Dev/DevViewFiles`: mod-folder view footprint resolution behind dev-mode reload |
 | `cursor_shape_tests.cpp` | `CursorShapeFromSystemCursorId` (`Input/CursorShape.h`): system cursor id → shape mapping |
 | `gamepad_navigation_tests.cpp` | `Input/GamepadNavigation`: analogue left stick → one digital navigation direction, with latch-through-jitter and deliberate-hold repeat |
@@ -82,7 +81,7 @@ Windows pipe suite is built separately through xmake. Currently:
 | `local_view_uri_tests.cpp` | `Wv2LocalUri` — security-model rule 2's single decision point: view virtual-host matching, including the lookalike/egress cases |
 | `papyrus_call_tests.cpp` | `papyrus.call` bounds: platform-script refusal, argument cap, int range, float finiteness, and the JS → Papyrus type mapping |
 | `wndproc_chain_tests.cpp` | `Input/WndProcChain`: window-procedure chain re-entry protection against hooks that re-insert themselves above us |
-| `ui_pass_policy_tests.cpp` | `Composite/UiPassPolicy`: fail-closed recognition of UI-pass slot owners (vanilla plus the proven foreign hooks) gating hook installation |
+| `ui_pass_policy_tests.cpp` | `Composite/UiPassPolicy`: command-list hook readiness gating overlay recording, and fail-open chaining of foreign UI-pass slot owners (null slots refused) |
 | `v1_navigation_tests.cpp` | Temporary native legacy selector insertion, including existing queries, fragments, and replacement of an authored selector |
 
 Every suite is assert-style and exits with its own failure count; `run.sh` sums

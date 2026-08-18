@@ -30,7 +30,6 @@ namespace OSFUI
 		void SetOutputResizeCallback(OutputResizeCallback a_callback);
 		bool IsOutputSizeKnown() const;
 		void SetSharedRing(const SharedRingDesc& a_desc);
-		void SetUiPassDrawEnabled(bool a_enabled);
 		CompositorStatus GetStatus() const;
 
 	private:

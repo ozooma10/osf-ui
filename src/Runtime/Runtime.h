@@ -230,7 +230,6 @@ namespace OSFUI
 		bool OverlayCanDraw() const;
 
 		std::atomic_bool              m_visible{ false };
-		std::atomic_bool              _overlayDrawAvailable{ false };
 		bool                          _rendererFailed{ false };  // opens fail closed while recovery is incomplete
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins
 		BrowserHostRecovery           _browserHostRecovery;

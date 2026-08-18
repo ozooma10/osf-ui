@@ -977,13 +977,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 	}
 
-	void D3D12Compositor::SetUiPassDrawEnabled(const bool a_enabled)
-	{
-		if (_impl) {
-			_impl->uiPassDrawActive.store(a_enabled, std::memory_order_relaxed);
-		}
-	}
-
 	CompositorStatus D3D12Compositor::GetStatus() const
 	{
 		if (_impl) {

@@ -63,13 +63,15 @@ because the normal candidate precedes the evidence that distinguishes the graph.
 ## Runtime contract
 
 `UiPass` hooks slot 7 on `ScaleformBegin`, `ScaleformEnd`, and
-`ScaleformComposite` after SFSE has loaded every plugin. Installation is
-fail-closed except for Luma's proven `ScaleformComposite` call-through hook:
-OSF UI chains that owner after Luma has patched the vanilla implementation.
-Any other partial or foreign hook disables UI-pass drawing. Since the present-time
-renderer has been retired, menu opens are then refused so an invisible overlay
-cannot capture input; the failure is logged at error level by both `UiPass`
-and `Runtime`.
+`ScaleformComposite` after SFSE has loaded every plugin. When another mod has
+already patched a slot, OSF UI chains the foreign pointer as its original —
+fail-open, on the assumption that render-mod hooks call through (Luma's
+`ScaleformComposite` hook is the proven case). The chained owner is logged at
+info level. The only refused slot state is a null pointer, which has no engine
+pass behind it. Since the present-time renderer has been retired, an
+uninstallable slot means menu opens are refused so an invisible overlay cannot
+capture input; the failure is logged at error level by both `UiPass` and
+`Runtime`.
 
 Pass execution moves among render workers, so the implementation retains no
 engine resource or command list across calls. The transient target is validated
@@ -96,8 +98,9 @@ between existing safe paths:
 
 The UI-pass draw is unconditional; there is no `uiPassDraw` switch and no present-time
 fallback to select. A knob whose off position renders no UI is not a useful
-compatibility control, and the fail-closed slot check declines every
-foreign owner except the explicitly supported Luma composite hook.
+compatibility control, and foreign slot owners are chained rather than declined —
+a crash with OSF UI in the log names the conflict, while a silently absent
+overlay reads as OSF UI being broken.
 
 Two consequences of dropping the backbuffer draw are worth noting:
 

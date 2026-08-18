@@ -37,7 +37,7 @@
 - Retained mod state is capped by mod as well as by key, so the per-key cap actually bounds the store.
 - A plugin refused for an ABI-major mismatch now writes a warning naming the plugin that must be updated.
 - `create-osfui` menu and HUD projects are runnable starters rather than bridge skeletons: retained state, one-shot events, sends, typed requests and errors, live settings, hotkeys, localization, theming and lifecycle all work in the browser harness and in game, with view-kind-appropriate manifests, schemas, mod-backend callbacks, translation catalogs and mocks. They target the 2.0 authoring API throughout, pass `npm run check`, retain HUD data across document recreation, and no longer wait on dead subscriptions or mock requests that never settle.
-- OSF UI can now run alongside Luma: it waits for peer SFSE render hooks before installing its own, safely chains Luma's Scaleform composite hook, and renders into Luma's upgraded HDR UI buffer. If the UI draw path is still unavailable, menu opens are refused immediately instead of briefly capturing input for an overlay that cannot appear.
+- OSF UI can now run alongside other render mods that hook Starfield's Scaleform render passes: any foreign hook found in an execute slot is chained instead of aborting installation, so the overlay keeps a draw path rather than silently disappearing (Luma is the verified case — OSF UI waits for peer SFSE render hooks before installing its own and renders into Luma's upgraded HDR UI buffer). If the UI draw path is still unavailable, menu opens are refused immediately instead of briefly capturing input for an overlay that cannot appear.
 
 ### Other changes
 

@@ -330,13 +330,11 @@ namespace OSFUI
 		if (!_compositor) {
 			return false;
 		}
-		const bool installed = UiPass::Install();
-		_overlayDrawAvailable.store(installed, std::memory_order_release);
-		_compositor->SetUiPassDrawEnabled(installed);
-		if (!installed) {
+		if (!UiPass::Install()) {
 			REX::ERROR("Runtime: Scaleform UI pass hook failed");
+			return false;
 		}
-		return installed;
+		return true;
 	}
 
 	void Runtime::OnDataLoaded()
@@ -492,7 +490,7 @@ namespace OSFUI
 
 	bool Runtime::OverlayCanDraw() const
 	{
-		return _overlayDrawAvailable.load(std::memory_order_acquire) && UiPass::DrawEnabled();
+		return UiPass::DrawEnabled();
 	}
 
 	bool Runtime::BeginViewOpen(std::string_view a_id)
