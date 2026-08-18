@@ -5,6 +5,19 @@
 
 namespace OSFUI::UiPass::detail
 {
+	enum class CommandListHookState
+	{
+		Uninitialized,
+		Installing,
+		Ready,
+		Failed,
+	};
+
+	[[nodiscard]] constexpr bool CanRecordOverlay(const CommandListHookState a_state)
+	{
+		return a_state == CommandListHookState::Ready;
+	}
+
 	enum class ExecuteSlotKind
 	{
 		Begin,

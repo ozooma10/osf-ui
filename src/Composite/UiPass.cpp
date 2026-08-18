@@ -63,7 +63,9 @@ namespace OSFUI::UiPass
 		// sampler heap, so the engine's next root-descriptor-table resolve reads
 		// our heap and any sampler table hits an unbound one.
 		thread_local bool tl_inOverlayDraw = false;
-		std::atomic<int> g_hookInstallState{ 0 };
+		std::atomic<detail::CommandListHookState> g_hookInstallState{
+			detail::CommandListHookState::Uninitialized
+		};
 		// Gates RecordOverlayAtHandoff. Set from Install() and cleared by
 		// EnsureDrawHooksInstalled on any failure path — declared up here (rather
 		// than beside its first reader) precisely so that lazy installer, which
@@ -74,7 +76,7 @@ namespace OSFUI::UiPass
 		thread_local int tl_callsAfterFirstDraw = -1;
 		void RecordOverlayAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
 			bool a_fgTarget, bool a_regionFirst);
-		ID3D12GraphicsCommandList* g_selfTestList = nullptr;
+		std::atomic<ID3D12GraphicsCommandList*> g_selfTestList{ nullptr };
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
 		std::atomic<bool> g_selfTestHeapsSeen{ false };
 
@@ -83,7 +85,7 @@ namespace OSFUI::UiPass
 			const UINT a_num,
 			ID3D12DescriptorHeap* const* a_heaps)
 		{
-			if (a_self == g_selfTestList) {
+			if (a_self == g_selfTestList.load(std::memory_order_acquire)) {
 				g_selfTestHeapsSeen.store(true, std::memory_order_relaxed);
 			} else if (!tl_inOverlayDraw) {
 				tl_heapList = a_self;
@@ -141,7 +143,7 @@ namespace OSFUI::UiPass
 				}
 			}
 
-			if (a_self == g_selfTestList) {
+			if (a_self == g_selfTestList.load(std::memory_order_acquire)) {
 				g_selfTestBarrierSeen.store(true, std::memory_order_relaxed);
 			}
 			if (const auto original = g_origResourceBarrier.load(std::memory_order_relaxed)) {
@@ -161,17 +163,25 @@ namespace OSFUI::UiPass
 			return original;
 		}
 
+		void MarkDrawHooksFailed()
+		{
+			g_drawEnabled.store(false, std::memory_order_release);
+			g_hookInstallState.store(
+				detail::CommandListHookState::Failed, std::memory_order_release);
+		}
+
 		void EnsureDrawHooksInstalled()
 		{
-			int expected = 0;
+			auto expected = detail::CommandListHookState::Uninitialized;
 			if (!g_hookInstallState.compare_exchange_strong(
-					expected, -1, std::memory_order_acq_rel)) {
+					expected, detail::CommandListHookState::Installing,
+					std::memory_order_acq_rel)) {
 				return;
 			}
 
 			const auto engine = LocateEngineD3D12();
 			if (!engine) {
-				g_drawEnabled.store(false, std::memory_order_release);
+				MarkDrawHooksFailed();
 				REX::ERROR("[UiPass] draw hooks: engine D3D12 device not reachable; UI-pass draw disabled");
 				return;
 			}
@@ -189,7 +199,7 @@ namespace OSFUI::UiPass
 
 			if (created) {
 				auto** vtbl = *reinterpret_cast<void***>(list);
-				g_selfTestList = list;
+				g_selfTestList.store(list, std::memory_order_release);
 				const auto origBarrier =
 					reinterpret_cast<ResourceBarrierFn>(vtbl[kSlotResourceBarrier]);
 				const auto origHeaps =
@@ -217,8 +227,9 @@ namespace OSFUI::UiPass
 				const bool heapsOk =
 					g_selfTestHeapsSeen.load(std::memory_order_relaxed);
 				if (patched && barrierOk && heapsOk) {
-					g_selfTestList = nullptr;
-					g_hookInstallState.store(1, std::memory_order_release);
+					g_selfTestList.store(nullptr, std::memory_order_release);
+					g_hookInstallState.store(
+						detail::CommandListHookState::Ready, std::memory_order_release);
 					REX::INFO("[UiPass] draw hooks armed: "
 							   "ID3D12GraphicsCommandList vtable slots {} (barrier) / {} "
 							   "(SetDescriptorHeaps) hooked and self-tested",
@@ -242,11 +253,11 @@ namespace OSFUI::UiPass
 					// resource in the wrong state. Nothing treats these pointers
 					// as an "installed" flag — g_hookInstallState and
 					// g_drawEnabled do that.
-					g_selfTestList = nullptr;
+					g_selfTestList.store(nullptr, std::memory_order_release);
 					// The log said "draw disabled" while leaving it enabled, so
 					// the compositor kept the UI-pass draw on with nothing able
 					// to draw: an invisible overlay reported as healthy.
-					g_drawEnabled.store(false, std::memory_order_release);
+					MarkDrawHooksFailed();
 					REX::ERROR("[UiPass] draw hook self-test FAILED "
 							   "(patch b/h={}/{} seen b/h={}/{}); "
 							   "vtable restored, UI-pass draw disabled",
@@ -254,7 +265,7 @@ namespace OSFUI::UiPass
 				}
 				list->Close();
 			} else {
-				g_drawEnabled.store(false, std::memory_order_release);
+				MarkDrawHooksFailed();
 				REX::ERROR("[UiPass] draw hooks: throwaway command list creation failed; UI-pass draw disabled");
 			}
 
@@ -275,7 +286,9 @@ namespace OSFUI::UiPass
 			const bool a_fgTarget,
 			const bool a_regionFirst)
 		{
-			if (!g_drawEnabled.load(std::memory_order_relaxed) ||
+			if (!detail::CanRecordOverlay(
+					g_hookInstallState.load(std::memory_order_acquire)) ||
+				!g_drawEnabled.load(std::memory_order_acquire) ||
 				!a_list || !a_buffer) {
 				return;
 			}

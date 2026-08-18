@@ -18,7 +18,18 @@ namespace
 int main()
 {
 	using OSFUI::UiPass::detail::CanChainForeignExecute;
+	using OSFUI::UiPass::detail::CanRecordOverlay;
+	using OSFUI::UiPass::detail::CommandListHookState;
 	using OSFUI::UiPass::detail::ExecuteSlotKind;
+
+	Check(!CanRecordOverlay(CommandListHookState::Uninitialized),
+		"overlay recording waits for command-list hook installation");
+	Check(!CanRecordOverlay(CommandListHookState::Installing),
+		"overlay recording is blocked while command-list hooks are partially installed");
+	Check(CanRecordOverlay(CommandListHookState::Ready),
+		"overlay recording starts only after command-list hooks pass self-test");
+	Check(!CanRecordOverlay(CommandListHookState::Failed),
+		"overlay recording remains disabled after command-list hook failure");
 
 	Check(CanChainForeignExecute(ExecuteSlotKind::Composite, "Luma.dll"),
 		"Luma may own ScaleformComposite");
