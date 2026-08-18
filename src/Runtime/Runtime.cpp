@@ -467,12 +467,6 @@ namespace OSFUI
 				}
 				break;
 			case ViewPresentationRequest::Back: {
-				// Esc / pad-B. A back-owning active menu (osfui.handleBack) gets
-				// the action delegated as a synthetic Escape tap and decides for
-				// itself — navigate elsewhere, peel an inner panel, or send
-				// `close`. Everyone else closes the active menu (single-menu policy:
-				// that hides the overlay). The toggle key never delegates, so a
-				// broken page cannot strand the user.
 				const auto active = _presentation.ActiveMenu();
 				if (_pendingViewOpen) {
 					CancelPendingOpen();

@@ -49,8 +49,7 @@ namespace OSFUI
 				runtime._healthRegistry->Upsert(HealthRegistry::IssueSpec{
 					.id = qualify(op.modId, op.id),
 					.code = qualify(op.modId, op.code),
-					.severity = op.error ? HealthRegistry::Severity::Error :
-						HealthRegistry::Severity::Warning,
+					.severity = op.error ? HealthRegistry::Severity::Error : HealthRegistry::Severity::Warning,
 					.source = op.modId,
 					.sourceKind = HealthRegistry::SourceKind::Mod,
 					.subject = op.subject,
@@ -110,22 +109,18 @@ namespace OSFUI
 		return "settings.hotkey-target:" + std::string(a_mod) + "." + std::string(a_key);
 	}
 
-	void RuntimeHealthCoordinator::ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key,
-		std::string_view a_script, std::string_view a_function, std::string_view a_message)
+	void RuntimeHealthCoordinator::ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key, std::string_view a_script, std::string_view a_function, std::string_view a_message)
 	{
 		const auto id = HotkeyTargetId(a_mod, a_key);
 		HotkeyTargetFailure failure{
 			std::string(a_mod), std::string(a_key), std::string(a_script),
 			std::string(a_function), std::string(a_message)
 		};
-		if (const auto it = _hotkeyTargetFailures.find(id); it != _hotkeyTargetFailures.end() &&
-			it->second.script == failure.script && it->second.function == failure.function &&
-			it->second.message == failure.message) {
+		if (const auto it = _hotkeyTargetFailures.find(id); it != _hotkeyTargetFailures.end() && it->second.script == failure.script && it->second.function == failure.function && it->second.message == failure.message) {
 			return;
 		}
 		_hotkeyTargetFailures.insert_or_assign(id, failure);
-		REX::ERROR("Runtime: [content] declarative hotkey {}.{} could not queue {}.{} — {}",
-			a_mod, a_key, a_script, a_function, a_message);
+		REX::ERROR("Runtime: [content] declarative hotkey {}.{} could not queue {}.{} — {}", a_mod, a_key, a_script, a_function, a_message);
 		SyncSettings();
 		if (_runtime._healthRegistry) {
 			_runtime._healthRegistry->Broadcast();
@@ -151,19 +146,12 @@ namespace OSFUI
 		std::vector<CompatibilityTarget> targets;
 		for (const auto& manifest : runtime._views.All()) {
 			if (IsPre2Target(manifest.targetVersion)) {
-				targets.push_back({ manifest.id, "view", manifest.targetVersion,
-					"compat.pre-2-view", HealthRegistry::Severity::Warning,
-					std::string(Compat::V1::kRemovalVersion) });
+				targets.push_back({ manifest.id, "view", manifest.targetVersion, "compat.pre-2-view", HealthRegistry::Severity::Warning, std::string(Compat::V1::kRemovalVersion) });
 			} else if (IsTargetNewerThanInstalledRelease(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion });
 			}
 		}
-		// Plugins seen by OSFUI_RequestBridge during SFSE load. ABI 1.x is adapted;
-		// unrelated majors are refused. Either way, the record is drained here so
-		// System Health can name the concrete caller.
-		// Deduped and capped HERE, not just at the producer: the drain empties
-		// BridgeApi's dedupe set, so a plugin that retries on every load screen
-		// would otherwise add itself again on every poll for the whole session.
+
 		for (const auto& caller : API::BridgeApi::Get().TakeLegacyApiCallers()) {
 			if (_legacyApiCallers.size() >= API::BridgeApi::kMaxLegacyCallers) {
 				break;
@@ -176,14 +164,14 @@ namespace OSFUI
 				_legacyApiCallers.push_back(caller);
 			}
 		}
+
 		for (const auto& caller : _legacyApiCallers) {
 			targets.push_back({
 				caller.module.empty() ? std::string("(unidentified plugin)") : caller.module,
 				"plugin",
 				std::format("{}.{}", caller.major, caller.minor),
 				caller.supported ? "compat.legacy-api" : "compat.unsupported-api",
-				caller.supported ? HealthRegistry::Severity::Warning :
-					HealthRegistry::Severity::Error,
+				caller.supported ? HealthRegistry::Severity::Warning : HealthRegistry::Severity::Error,
 				caller.supported ? std::string(Compat::V1::kRemovalVersion) : std::string{},
 				"abi",
 			});
@@ -192,9 +180,7 @@ namespace OSFUI
 			_legacyPapyrusCallers.insert(std::move(caller));
 		}
 		for (const auto& mod : _legacyPapyrusCallers) {
-			targets.push_back({ mod, "Papyrus mod", "1.x natives",
-				"compat.legacy-papyrus", HealthRegistry::Severity::Warning,
-				std::string(Compat::V1::kRemovalVersion), "api" });
+			targets.push_back({ mod, "Papyrus mod", "1.x natives", "compat.legacy-papyrus", HealthRegistry::Severity::Warning, std::string(Compat::V1::kRemovalVersion), "api" });
 		}
 		if (runtime._settings) {
 			const auto data = runtime._settings->Store().DataView();
@@ -212,17 +198,13 @@ namespace OSFUI
 			const auto identity = target.code + ':' + target.kind + ':' + target.id;
 			if (_loggedCompatibility.insert(identity).second) {
 				if (target.code == "compat.unsupported-api") {
-					REX::WARN("Compatibility: {} '{}' requested unsupported ABI {}; OSF UI {} refused it",
-						target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion);
+					REX::WARN("Compatibility: {} '{}' requested unsupported ABI {}; OSF UI {} refused it", target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion);
 				} else {
-					REX::WARN("Compatibility: {} '{}' targets {}; OSF UI {} kept it running via the temporary 1.x bridge, which will be removed in {}",
-						target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion,
-						target.removalVersion);
+					REX::WARN("Compatibility: {} '{}' targets {}; OSF UI {} kept it running via the temporary 1.x bridge, which will be removed in {}", target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion, target.removalVersion);
 				}
 			}
 		}
-		_healthReconciler.SyncCompatibility(
-			*runtime._healthRegistry, targets, kOsfuiReleaseVersion, runtime._uptime);
+		_healthReconciler.SyncCompatibility(*runtime._healthRegistry, targets, kOsfuiReleaseVersion, runtime._uptime);
 	}
 
 	void RuntimeHealthCoordinator::UpdateSystemInfo()

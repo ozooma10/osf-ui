@@ -10,8 +10,6 @@ namespace OSFUI
 {
 	class Runtime;
 
-	// Owns System Health reconciliation and its slow-changing signatures. Runtime
-	// forwards only the tick, renderer-health, and view-load edges.
 	class RuntimeHealthCoordinator final
 	{
 	public:
@@ -19,10 +17,8 @@ namespace OSFUI
 
 		void Pump();
 		void OnRendererHealth(const WebView2HostWebRenderer::HealthEvent& a_event);
-		void ReportViewLoad(std::string_view a_viewId, bool a_failed,
-			std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft);
-		void ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key,
-			std::string_view a_script, std::string_view a_function, std::string_view a_message);
+		void ReportViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft);
+		void ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key, std::string_view a_script, std::string_view a_function, std::string_view a_message);
 		void ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key);
 
 	private:
@@ -45,8 +41,7 @@ namespace OSFUI
 		std::uint64_t    _settingsGeneration{ 0 };
 		bool             _settingsSynced{ false };
 		HealthReconciler _healthReconciler;
-		// ABI compatibility callers, accumulated once at load and kept for the
-		// session: supported 1.x and refused unrelated majors are distinct issues.
+
 		std::vector<API::BridgeApi::LegacyCaller> _legacyApiCallers;
 		std::unordered_set<std::string> _loggedCompatibility;
 		std::unordered_set<std::string> _legacyPapyrusCallers;
