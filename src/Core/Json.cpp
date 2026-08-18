@@ -19,13 +19,9 @@ namespace OSFUI::Json
 			}
 			return std::nullopt;
 		}
-		// Parsed WITH exceptions so the failure carries line/column: it is the
-		// whole value of the reason string, both in the banner and in the log.
 		try {
 			return Value::parse(stream, /*cb=*/nullptr, /*allow_exceptions=*/true, /*ignore_comments=*/true);
 		} catch (const std::exception& e) {
-			// "[json.exception.parse_error.101] parse error at line 2, ..." —
-			// strip the bracketed library id; the position info is the value.
 			std::string_view what = e.what();
 			if (!what.empty() && what.front() == '[') {
 				if (const auto end = what.find("] "); end != std::string_view::npos) {
@@ -47,8 +43,7 @@ namespace OSFUI::Json
 	void CheckFormatVersion(const Value& a_obj, std::string_view a_key, std::int64_t a_known, std::string_view a_sourceName)
 	{
 		if (const auto v = Get(a_obj, a_key, a_known); v > a_known) {
-			REX::INFO("{} declares {} {} (this build knows {}) — written for a newer OSF UI; unknown fields are ignored",
-				a_sourceName, a_key, v, a_known);
+			REX::INFO("{} declares {} {} (this build knows {}) - written for a newer OSF UI; unknown fields are ignored", a_sourceName, a_key, v, a_known);
 		}
 	}
 
