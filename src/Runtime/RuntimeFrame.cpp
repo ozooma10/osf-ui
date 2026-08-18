@@ -102,17 +102,6 @@ namespace OSFUI
     {
 		if (_settings) {
 			_settings->Store().PumpPersistence(_uptime);
-
-			//@TODO: DEVMODE
-			// if (_config.devMode) {
-			// 	_settings->PumpSchemaHotReload(_uptime);
-			// 	if (_uptime >= _nextLocalizationScan) {
-			// 		_nextLocalizationScan = _uptime + SettingsModule::kHotReloadScanSeconds;
-			// 		if (_localization.ReloadIfChanged()) {
-			// 			RefreshLocalizedData();
-			// 		}
-			// 	}
-			// }
 		}
     }
 

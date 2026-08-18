@@ -214,24 +214,9 @@ namespace OSFUI
 		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
 		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove };
 
-		// Derived from the active menu's manifest. A HUD or display-only menu
-		// draws while leaving game input alone.
 		std::atomic_bool              _captureInput{ false };
-		// Set only after the game-layout guard, menu-event sink, FocusMenu
-		// registration and game-window WndProc hook all succeed. Capturing menus
-		// fail closed until the complete production input path is available; HUDs
-		// remain usable.
 		bool                          _captureIntegrationAvailable{ false };
 
-		// _captureArmed is set on the main thread (the settings.captureKey send
-		// endpoint) and read on the window thread (OnGameWindowKey); _capturedScan is
-		// written on the window thread and drained on the main thread
-		// (DrainKeyCapture) — both atomic. _captureView/_captureMod/_captureKey
-		// (which view + setting to answer) and _captureUpScan (swallow the
-		// captured key's release) are touched on a single thread each, so plain.
-		// Localized keycap labels (RefreshKeyboardLabels): cache for the
-		// changed-compare and for KeyLabelFor; the flag is set on the
-		// window-message thread (WM_INPUTLANGCHANGE) and drained in Tick.
 		KeyLabels                     _keyLabels;
 		std::atomic_bool              _keyboardLayoutChanged{ false };
 
@@ -251,27 +236,11 @@ namespace OSFUI
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
 
-		// Policy for revealing rendered view frames (main thread only)
 		ViewRevealGate                 m_viewReveal;
 
-		// The view shown as the overlay's active menu — the last one sent
-		// ui.visibility{visible:true}. Any change (overlay close, menu.open view
-		// switch) signals {visible:false} to this view first; by overlay close
-		// ActiveMenu() is already empty, so the name must be tracked. Main-thread
-		// only (ApplyViewPresentationPolicy).
 		std::string                   _lastShownView;
 
-		// Last focus-menu open state driven (main-thread only, reconciled in Tick
-		// against the menu policy).
 		bool                          _focusMenuOpen{ false };
-
-		// Watchdog for the above (main-thread only): _uptime when the engine's
-		// admitted state was first observed to disagree with _focusMenuOpen, or
-		// <0 while they agree / a request is freshly in flight. kShow/kHide are
-		// fire-and-forget UI-queue messages; if one is dropped the engine would
-		// otherwise stay in menu mode forever with every control dead (bug report
-		// 2026-07-20). ReconcileFocusMenu re-sends once the mismatch persists
-		// past its grace window.
 		double                        _focusMenuMismatchSince{ -1.0 };
 
 		XInputPoller                  m_gamepadSource;
@@ -279,19 +248,12 @@ namespace OSFUI
 
 		ViewRecoveryTracker				m_viewRecovery;  // main-thread only; schedules and drives view reloads after load failures
 
-		// Retained mod state, shared by Papyrus SetView* and the native ABI's
-		// SetViewState. Replayed to every document that greets the bridge, which
-		// is what makes a mod-backend-fed view survive F5 with no lifecycle code.
 		RetainedStateStore              _retainedState;
-		// The last osfui/views value published (dedupe, so every ApplyViewPresentationPolicy
-		// doesn't re-send an unchanged catalog). There is no subscriber set any
-		// more: platform state goes to every greeted view.
+
+		
 		std::string                     _lastViewsData;
 		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;
-		double                          _nextLocalizationScan{ 0.0 };
-		// Monotonic-ish plugin uptime accumulated from Tick's clamped dt; used
-		// only to schedule recovery backoff (stalls with the game, which is the
-		// cadence reloads should follow).
+
 		double _uptime{ 0.0 };
 	};
 }
