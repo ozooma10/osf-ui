@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Composite/OutputSizeObservation.h"
 #include "Render/SharedTextureTransport.h"
 
 struct ID3D12GraphicsCommandList;
@@ -11,8 +12,6 @@ namespace OSFUI
 	{
 		bool frameGeneration{ false };
 	};
-
-	using OutputResizeCallback = std::function<void(std::uint32_t a_width, std::uint32_t a_height)>;
 
 	// Records the webview2 overlay quad into the engine's UI buffer. Returns true if a quad was recorded.
 	bool RecordOverlayIntoUIBuffer(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, bool a_fgTarget, bool a_regionFirst);
@@ -26,8 +25,7 @@ namespace OSFUI
 		bool Initialize();
 		void Submit(const FrameBufferView& a_frame);
 		void SetVisible(bool a_visible);
-		void SetOutputResizeCallback(OutputResizeCallback a_callback);
-		bool IsOutputSizeKnown() const;
+		std::optional<OutputSize> GetObservedOutputSize() const;
 		void SetSharedRing(const SharedRingDesc& a_desc);
 		CompositorStatus GetStatus() const;
 

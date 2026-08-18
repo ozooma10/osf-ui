@@ -30,6 +30,25 @@
 
 namespace OSFUI
 {
+	namespace
+	{
+		struct ViewSize
+		{
+			std::uint32_t width{ 0 };
+			std::uint32_t height{ 0 };
+		};
+
+		ViewSize ViewSizeForOutput(const OutputSize& a_output)
+		{
+			constexpr std::uint32_t kMaxViewHeight = 1440;
+			const auto height = (std::min)(a_output.height, kMaxViewHeight);
+			return {
+				.width = static_cast<std::uint32_t>(std::lround(static_cast<double>(a_output.width) * height / a_output.height)),
+				.height = height,
+			};
+		}
+	}
+
 	Runtime& Runtime::Get()
 	{
 		static Runtime* const instance = new Runtime;
@@ -132,10 +151,6 @@ namespace OSFUI
 			if (_compositor) {
 				_compositor->SetSharedRing(a_desc);
 			}
-		});
-
-		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) {
-			OnOutputResized(a_w, a_h);
 		});
 	}
 
@@ -988,19 +1003,16 @@ namespace OSFUI
 		if (a_width == 0 || a_height == 0 || !_renderer) {
 			return;
 		}
-		constexpr std::uint32_t kMaxViewHeight = 1440;
-		const auto viewHeight = (std::min)(a_height, kMaxViewHeight);
-		const auto viewWidth = static_cast<std::uint32_t>(
-			std::lround(static_cast<double>(a_width) * viewHeight / a_height));
+		const auto view = ViewSizeForOutput({ .width = a_width, .height = a_height });
 
-		if (viewWidth == _viewWidth.load() && viewHeight == _viewHeight.load()) {
+		if (view.width == _viewWidth.load() && view.height == _viewHeight.load()) {
 			return;
 		}
 
-		_viewWidth.store(viewWidth);
-		_viewHeight.store(viewHeight);
-		_renderer->Resize(viewWidth, viewHeight);
-		REX::DEBUG("Runtime: output {}x{} -> view resized to {}x{} (aspect-correct)", a_width, a_height, viewWidth, viewHeight);
+		_viewWidth.store(view.width);
+		_viewHeight.store(view.height);
+		_renderer->Resize(view.width, view.height);
+		REX::DEBUG("Runtime: output {}x{} -> view resized to {}x{} (aspect-correct)", a_width, a_height, view.width, view.height);
 	}
 
 	void Runtime::SubmitFrameIfVisible()
@@ -1010,12 +1022,14 @@ namespace OSFUI
 		}
 
 		const auto frame = _renderer->Render();
+		const auto outputSize = _compositor->GetObservedOutputSize();
 		std::optional<ViewRevealGate::FrameObservation> observation;
 		if (frame) {
+			const auto expected = outputSize ? ViewSizeForOutput(*outputSize) : ViewSize{};
 			observation = ViewRevealGate::FrameObservation{
 				.index = frame->frameIndex,
-				.outputSizeKnown = _compositor->IsOutputSizeKnown(),
-				.matchesExpectedSize = frame->width == _viewWidth.load() && frame->height == _viewHeight.load(),
+				.outputSizeKnown = outputSize.has_value(),
+				.matchesExpectedSize = frame->width == expected.width && frame->height == expected.height,
 			};
 		}
 

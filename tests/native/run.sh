@@ -72,6 +72,7 @@ SUITES=(
 "gamepad_session_tests gamepad_session_tests.cpp ../../src/Input/GamepadSession.cpp"
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"
 "deferred_main_thread_work_tests deferred_main_thread_work_tests.cpp"
+"output_size_observation_tests output_size_observation_tests.cpp"
 "runtime_lifecycle_contract_tests runtime_lifecycle_contract_tests.cpp"
 "view_policy_store_tests view_policy_store_tests.cpp ../../src/Views/ViewPolicyStore.cpp ../../src/Core/Json.cpp"
 "view_reveal_gate_tests view_reveal_gate_tests.cpp ../../src/Views/ViewRevealGate.cpp"

@@ -77,6 +77,7 @@
 
 ### Fixed
 
+- Output-size changes observed inside Starfield's UI render pass are now handed to the main-thread runtime before resizing the browser host, so render workers no longer invoke renderer callbacks directly.
 - The first UI render can no longer record an overlay draw through a partially installed D3D12 command-list hook set when render workers overlap startup; drawing now waits until both required hooks pass their self-test.
 - Repeatedly closing and reopening a menu can no longer let a transparent frame from the previous closed state satisfy the next reveal. OSF UI waits for a frame from that exact opening and closes the menu after three seconds of live game time if one never arrives, preventing an invisible overlay from trapping input and pause state. Time spent alt-tabbed or in a load hitch does not count against that deadline, and a reopen that changes nothing on screen re-sends the current pixels so a static page still reveals instantly.
 - Losing or stranding the browser host now closes the overlay and releases input and pause, then starts a fresh browser host with bounded retries and recreates every previously instantiated view without restarting Starfield. Recovery leaves the overlay closed for the player to reopen; after the automatic budget is spent, the next menu-open request starts a fresh retry cycle. The browser host also exits when the game window has disappeared even if its process or pipe watcher misses the exit — re-attaching first if the game merely recreated its window.

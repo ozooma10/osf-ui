@@ -142,6 +142,11 @@ namespace OSFUI
 		DriveRecovery();
 		DriveDevTools();
 		PumpDevViewReload();
+		if (_compositor) {
+			if (const auto outputSize = _compositor->GetObservedOutputSize()) {
+				OnOutputResized(outputSize->width, outputSize->height);
+			}
+		}
 
 		if (const auto packed = _pendingMouseMove.exchange(kNoPendingMouseMove);
 			packed != kNoPendingMouseMove) {

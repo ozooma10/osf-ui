@@ -84,11 +84,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		EngineD3D12   engine{};
 		std::atomic_bool visible{ false };
 
-		OutputResizeCallback onOutputResize;
-		std::uint32_t        notifiedOutputW{ 0 };
-		std::uint32_t        notifiedOutputH{ 0 };
-		std::mutex           outputMutex;
-		std::atomic_bool     outputSizeKnown{ false };
+		OutputSizeObservation outputSize;
 
 		bool setupAttempted{ false };
 		bool setupOk{ false };
@@ -544,22 +540,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		{
 			const auto width = static_cast<std::uint32_t>((std::min)(a_desc.Width,
 				static_cast<std::uint64_t>(UINT32_MAX)));
-			const auto height = a_desc.Height;
-			OutputResizeCallback callback;
-			{
-				std::scoped_lock lk(outputMutex);
-				const bool changed = width != 0 && height != 0 &&
-					(width != notifiedOutputW || height != notifiedOutputH);
-				if (changed) {
-					notifiedOutputW = width;
-					notifiedOutputH = height;
-					callback = onOutputResize;
-				}
-			}
-			if (callback) {
-				callback(width, height);
-				outputSizeKnown.store(true, std::memory_order_release);
-			}
+			outputSize.Publish(width, a_desc.Height);
 		}
 
 		[[nodiscard]] bool CreateSharedObjects()
@@ -927,32 +908,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		return {};
 	}
 
-	void D3D12Compositor::SetOutputResizeCallback(OutputResizeCallback a_callback)
+	std::optional<OutputSize> D3D12Compositor::GetObservedOutputSize() const
 	{
-		if (!_impl) {
-			return;
-		}
-		OutputResizeCallback callback;
-		std::uint32_t width = 0;
-		std::uint32_t height = 0;
-		{
-			std::scoped_lock lk(_impl->outputMutex);
-			_impl->onOutputResize = std::move(a_callback);
-			if (_impl->onOutputResize && _impl->notifiedOutputW != 0 && _impl->notifiedOutputH != 0 &&
-				!_impl->outputSizeKnown.load(std::memory_order_relaxed)) {
-				callback = _impl->onOutputResize;
-				width = _impl->notifiedOutputW;
-				height = _impl->notifiedOutputH;
-			}
-		}
-		if (callback) {
-			callback(width, height);
-			_impl->outputSizeKnown.store(true, std::memory_order_release);
-		}
-	}
-
-	bool D3D12Compositor::IsOutputSizeKnown() const
-	{
-		return _impl && _impl->outputSizeKnown.load(std::memory_order_acquire);
+		return _impl ? _impl->outputSize.Snapshot() : std::nullopt;
 	}
 }
