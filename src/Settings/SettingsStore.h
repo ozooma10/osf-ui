@@ -38,28 +38,20 @@ namespace OSFUI
 	// Threading: main thread only. Any-thread consumers (C ABI getters,
 	// Papyrus) read a mirror maintained by a change listener, never the store.
 
-	// Schema-driven settings registry. Mods ship read-only json schema (`settings/<id>.json` drop-in or runtime registration)
+	// Schema-driven settings registry. Mods ship read-only JSON schemas as
+	// `settings/<id>.json` drop-in files.
 	class SettingsStore
 	{
 	public:
-		// Where a schema came from — decides collision precedence: a runtime
-		// (DLL) registration replaces a drop-in file for the same id, never the
-		// other way around.
-		enum class Source
-		{
-			kDropIn,  // settings/<id>.json scanned by LoadAll
-			kNative,  // RegisterSettingsSchema over the C ABI
-		};
-
 		// Fired (on the calling thread) for every committed value — on Set,
 		// Reset, once per current value via NotifyAll/NotifyMod, and on the
-		// per-mod replay after an incremental RegisterSchema.
+		// per-mod replay after a schema hot reload.
 		using ChangeListener = std::function<void(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)>;
 
-		// Fired after the registry shape changes post-load (RegisterSchema commit
-		// or RemoveMod — whenever Generation() moves outside LoadAll). The web
+		// Fired after the registry shape changes post-load (schema hot reload or
+		// RemoveMod — whenever Generation() moves outside LoadAll). The web
 		// layer re-broadcasts `osfui/settings` state off this so open Mod Settings
-		// re-renders on late registration.
+		// re-renders when a drop-in file changes.
 		using RegistryListener = std::function<void()>;
 
 		// Resolves a key name ("F10", "Grave", ...) to a physical key id (a
@@ -125,8 +117,7 @@ namespace OSFUI
 
 		// Loads every `<schemaDir>/*.json` as a mod schema (sorted by filename
 		// so duplicate-id resolution is deterministic); each mod's values
-		// persist to `<valuesDir>/<id>.json`. Safe to call once, before any
-		// RegisterSchema.
+		// persist to `<valuesDir>/<id>.json`. Safe to call once.
 		void LoadAll(const std::filesystem::path& a_schemaDir, const std::filesystem::path& a_valuesDir);
 
 		// Listeners cannot be removed: subscribers are process-lifetime
@@ -136,31 +127,10 @@ namespace OSFUI
 		void AddRegistryListener(RegistryListener a_listener) { _registryListeners.push_back(std::move(a_listener)); }
 		void AddPersistListener(PersistListener a_listener) { _persistListeners.push_back(std::move(a_listener)); }
 
-		// Incrementally registers (or, per Source precedence, replaces) one mod
-		// schema after LoadAll. Same document shape as a drop-in file; must
-		// carry a non-empty "id". Persisted values overlay from the same per-mod
-		// values file as the drop-in tier, so a mod can migrate tiers without
-		// losing user settings. Bumps the registry generation and replays the
-		// mod's current values through the listeners, so late subscribers sync
-		// without a read step. Returns false on a shape error or when an
-		// existing registration takes precedence.
-		bool RegisterSchema(nlohmann::json a_schema, Source a_source);
-
 		// Drops a mod from the registry; the values file on disk is kept, since
 		// uninstalled is indistinguishable from temporarily-disabled under MO2.
 		// Bumps the generation. False if unknown.
 		bool RemoveMod(std::string_view a_modId);
-
-		// Pure, callable from any thread: the shape/id gate AddSchema applies —
-		// rejects (with a warning) a non-object document and a
-		// missing/invalid/reserved "id". Deeper field problems are not errors;
-		// they fall back at registration. BridgeApi::RegisterSettingsSchema uses
-		// this to report synchronously before queueing the main-thread merge.
-		[[nodiscard]] static bool ValidateSchemaShape(const nlohmann::json& a_schema, bool a_allowBuiltIn = false);
-
-		// The Source a mod registered from, or nullopt on unknown id. Lets the
-		// ABI unregister path refuse to drop schemas it does not own.
-		[[nodiscard]] std::optional<Source> GetSource(std::string_view a_modId) const;
 
 		// Pushes every current value (all mods / one mod) through the listeners,
 		// e.g. to apply persisted settings at startup.
@@ -196,13 +166,12 @@ namespace OSFUI
 		[[nodiscard]] std::vector<HotkeyTargetIssue> HotkeyTargetIssues() const;
 
 		// Dev-mode schema hot-reload: re-parse one drop-in settings/<id>.json and
-		// replace the same-id registered schema in place. Values survive — a
+		// replace the same-id loaded schema in place. Values survive — a
 		// dirty write-behind window flushes first, then the overlay re-reads the
 		// values file exactly like startup, so key aliases apply to a live
-		// rename too. A runtime (native) registration still outranks the file
-		// (refused, same precedence as startup); an unseen id registers as a
-		// fresh drop-in. Notifies like RegisterSchema (value replay + registry
-		// re-broadcast). Returns false on unparseable/invalid schema or refusal.
+		// rename too. An unseen id is added to the registry. Replays the mod's
+		// current values and re-broadcasts the registry. Returns false on an
+		// unparseable/invalid schema or a failed dirty-value flush.
 		bool ReloadDropInFile(const std::filesystem::path& a_path);
 
 		void SetKeyNameResolver(KeyNameResolver a_resolver)
@@ -291,7 +260,7 @@ namespace OSFUI
 		}
 
 		// Monotonic counter bumped on every registry shape change (LoadAll,
-		// RegisterSchema, RemoveMod). Consumers re-broadcast `osfui/settings` state
+		// schema hot reload, RemoveMod). Consumers re-broadcast `osfui/settings` state
 		// when it moves.
 		[[nodiscard]] std::uint64_t Generation() const { return _generation; }
 
@@ -406,25 +375,22 @@ namespace OSFUI
 			// build's version (fresh mods have nothing to migrate).
 			std::int64_t             formatVersion{ 2 };
 			std::filesystem::path valuesPath;
-			std::filesystem::path schemaPath;  // drop-in source file; empty for native registrations
+			std::filesystem::path schemaPath;  // drop-in source file
 			// Drop-in files that also claimed this id and were skipped
 			// (first wins). Reported additively in Data() so Mod Settings
 			// can badge the conflict.
 			std::vector<std::string> shadowed;
 			std::vector<HotkeyTargetIssue> hotkeyTargetIssues;
-			Source                source{ Source::kDropIn };
 			bool                  dirty{ false };  // has unflushed write-behind changes
 			double                dueAt{ 0.0 };    // when the open window flushes (store clock)
 		};
 
-		// Shared add/replace path for LoadAll, RegisterSchema, and
-		// ReloadDropInFile: id resolution (a_idHint = filename stem for
-		// drop-ins), Source precedence, persisted-value overlay, generation
-		// bump. Notifies the mod's values when a_notify (startup load defers to
-		// NotifyAll). a_dropInReplace relaxes one precedence rule for the dev
-		// hot-reload: a drop-in may replace a same-source registration (its own
-		// earlier file), never a runtime one.
-		bool AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace = false, std::filesystem::path a_sourcePath = {});
+		// Shared add/replace path for startup discovery and dev hot reload. The
+		// filename stem is authoritative, persisted values overlay from the
+		// per-mod values file, and startup duplicate ids are deterministic
+		// first-wins. Hot reload replaces that file's existing registry entry.
+		bool AddDropInSchema(nlohmann::json a_schema, std::string a_idHint,
+			bool a_notify, bool a_replaceExisting, std::filesystem::path a_sourcePath);
 
 		[[nodiscard]] Mod*       FindMod(std::string_view a_modId);
 		[[nodiscard]] const Mod* FindMod(std::string_view a_modId) const;
@@ -499,7 +465,6 @@ namespace OSFUI
 		std::vector<LoadError>      _loadErrors;
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
-		bool                        _loaded{ false };
 		double                      _now{ 0.0 };  // last PumpPersistence clock; MarkDirty stamps windows with it
 	};
 }

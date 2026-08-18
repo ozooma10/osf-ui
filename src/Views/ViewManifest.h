@@ -34,7 +34,7 @@ namespace OSFUI
 		std::string           title;
 		std::string           description;  // one-line blurb for catalogs (`osfui/views` state / Mod Settings)
 		// Owning mod id = the mod folder name under views/. Matches the settings
-		// mod id (settings/<modId>.json / RegisterSettingsSchema) so Mod Settings
+		// mod id (settings/<modId>.json) so Mod Settings
 		// groups a mod's menu/HUD views onto its settings page.
 		std::string           mod;
 		std::string           entry{ "index.html" };

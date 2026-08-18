@@ -614,29 +614,6 @@ namespace OSFUI
 		ApplyViewPresentationPolicy();
 	}
 
-	void Runtime::DrainSchemaOps()
-	{
-		if (!_settings) {
-			return;  // no store yet — ops keep waiting in BridgeApi's queue
-		}
-		auto ops = API::BridgeApi::Get().TakeSchemaOps();
-		if (ops.empty()) {
-			return;
-		}
-		auto& store = _settings->Store();
-		for (auto& op : ops) {
-			if (!op.schema.is_null()) {
-				// Shape was validated synchronously at the ABI boundary; what's
-				// left here is precedence (native wins, logged inside).
-				store.RegisterSchema(std::move(op.schema), SettingsStore::Source::kNative);
-			} else if (store.GetSource(op.modId) == SettingsStore::Source::kNative) {
-				store.RemoveMod(op.modId);
-			} else {
-				REX::WARN("Runtime: UnregisterSettingsSchema('{}') ignored — not a native-registered schema", op.modId);
-			}
-		}
-	}
-
 	void Runtime::DrainViewRegistrations()
 	{
 		auto ids = API::BridgeApi::Get().TakeViewRegistrations();

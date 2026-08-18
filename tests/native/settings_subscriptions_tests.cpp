@@ -22,6 +22,13 @@ namespace
 	};
 	using Trace = std::vector<Record>;
 
+	void WriteFile(const std::filesystem::path& a_path, std::string_view a_text)
+	{
+		std::filesystem::create_directories(a_path.parent_path());
+		std::ofstream out(a_path, std::ios::binary | std::ios::trunc);
+		out << a_text;
+	}
+
 	void Recorder(const char* a_mod, const char* a_key, const char* a_valueJson, void* a_user) noexcept
 	{
 		static_cast<Trace*>(a_user)->push_back({ a_mod, a_key, a_valueJson });
@@ -315,24 +322,24 @@ int main()
 		});
 		store.AddRegistryListener([&] { mirror.Rebuild(store.Data()); });
 
-		store.LoadAll(schemaDir, valuesDir);  // empty dir — native registration follows
+		store.LoadAll(schemaDir, valuesDir);
 
-		// Subscribe BEFORE the mod exists: legal, silent until it registers.
+		// Subscribe BEFORE the mod exists: legal, silent until its file appears.
 		Trace early;
 		CHECK(subs.Subscribe("t.beta", Recorder, &early) != 0);
 		subs.Pump(mirror);
 		CHECK(early.empty());
 
-		CHECK(store.RegisterSchema(nlohmann::json::parse(R"json({
+		WriteFile(schemaDir / "t.beta.json", R"json({
 			"id": "t.beta", "title": "Beta",
 			"groups": [ { "label": "G", "settings": [
 				{ "key": "enabled", "type": "bool",  "default": true },
 				{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 },
 				{ "key": "mode",    "type": "enum",  "default": "compact", "options": ["compact", "full"] }
-			] } ] })json"),
-			SettingsStore::Source::kNative));
+			] } ] })json");
+		CHECK(store.ReloadDropInFile(schemaDir / "t.beta.json"));
 
-		// The store's per-mod registration replay flowed through OnChanged —
+		// The store's per-mod file-discovery replay flowed through OnChanged —
 		// the load-order-insurance replay, no snapshot involved.
 		subs.Pump(mirror);
 		CHECK(early.size() == 3);
@@ -341,7 +348,7 @@ int main()
 		CHECK(initial.at("scale") == "1.0");
 		CHECK(initial.at("mode") == "\"compact\"");
 
-		// Subscribe AFTER registration: the mirror snapshot replay.
+		// Subscribe AFTER discovery: the mirror snapshot replay.
 		Trace late;
 		CHECK(subs.Subscribe("t.beta", Recorder, &late) != 0);
 		subs.Pump(mirror);

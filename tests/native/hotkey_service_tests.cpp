@@ -210,14 +210,14 @@ int main()
 		CHECK(DrainAll(svc).size() == 1);
 	}
 
-	// --- registry shape changes: late registration binds, removal unbinds --------
+	// --- registry shape changes: a new drop-in binds, removal unbinds -------------
 	{
-		CHECK(store.RegisterSchema(nlohmann::json::parse(R"json({
+		WriteFile(schemaDir / "t.gamma.json", R"json({
 			"id": "t.gamma", "title": "Gamma",
 			"groups": [ { "settings": [
 				{ "key": "quickSlot", "type": "key", "default": "F6" }
-			] } ] })json"),
-			SettingsStore::Source::kNative));
+			] } ] })json");
+		CHECK(store.ReloadDropInFile(schemaDir / "t.gamma.json"));
 
 		svc.OnKeyDown(vkF6);
 		auto fired = DrainAll(svc);

@@ -115,14 +115,8 @@ int main()
 	WriteFile(schemaDir / "OSFUI.json", R"json({ "id": "OSFUI", "title": "Impostor" })json");
 	// Persisted values: clamped on load, unknown keys ignored.
 	WriteFile(valuesDir / "t.alpha.json", R"json({ "scale": 9.0, "mode": "full", "junk": 5 })json");
-	// Persisted values for a mod that registers at runtime only.
+	// Persisted values for a mod whose drop-in appears after startup.
 	WriteFile(valuesDir / "t.gamma.json", R"json({ "level": 7 })json");
-
-	// --- RegisterSchema before LoadAll is rejected ---------------------------
-	{
-		SettingsStore fresh;
-		CHECK(!fresh.RegisterSchema(nlohmann::json{ { "id", "t.early" } }, SettingsStore::Source::kNative));
-	}
 
 	// --- LoadAll: overlay, clamp, duplicate handling -------------------------
 	SettingsStore store;
@@ -215,12 +209,12 @@ int main()
 	CHECK(store.Set("t.alpha", "bind", "\"F9\""));
 	CHECK(*store.GetValue("t.alpha", "bind") == "F9");
 	{
-		auto unboundSchema = nlohmann::json::parse(R"json({
+		WriteFile(schemaDir / "t.unbindy.json", R"json({
 			"id": "t.unbindy", "title": "Unbindy",
 			"groups": [ { "label": "G", "settings": [
 				{ "key": "hot", "type": "key", "default": "", "allowUnbound": true }
 			] } ] })json");
-		CHECK(store.RegisterSchema(unboundSchema, SettingsStore::Source::kNative));
+		CHECK(store.ReloadDropInFile(schemaDir / "t.unbindy.json"));
 		CHECK(*store.GetValue("t.unbindy", "hot") == "");     // empty default is legal
 		CHECK(store.Set("t.unbindy", "hot", "\"F7\""));       // bind
 		CHECK(store.Set("t.unbindy", "hot", "\"\""));         // deliberate unbind
@@ -254,7 +248,8 @@ int main()
 			{ "key", "tooLong" }, { "type", "key" }, { "default", "F9" },
 			{ "onPress", { { "script", std::string(129, 'A') }, { "function", "Fire" } } }
 		});
-		CHECK(store.RegisterSchema(targetSchema, SettingsStore::Source::kNative));
+		WriteFile(schemaDir / "t.targets.json", targetSchema.dump());
+		CHECK(store.ReloadDropInFile(schemaDir / "t.targets.json"));
 		const auto target = store.GetHotkeyTarget("t.targets", "good");
 		CHECK(target && target->script == "Target_Lib" && target->function == "Fire");
 		CHECK(!store.GetHotkeyTarget("t.targets", "shape"));
@@ -273,7 +268,8 @@ int main()
 				{ "onPress", { { "script", "Target_Lib2" }, { "function", "Fire2" } } }
 			}
 		});
-		CHECK(store.RegisterSchema(targetSchema, SettingsStore::Source::kNative));
+		WriteFile(schemaDir / "t.targets.json", targetSchema.dump());
+		CHECK(store.ReloadDropInFile(schemaDir / "t.targets.json"));
 		CHECK(store.HotkeyTargetIssues().empty());
 		const auto replacement = store.GetHotkeyTarget("t.targets", "good");
 		CHECK(replacement && replacement->script == "Target_Lib2" && replacement->function == "Fire2");
@@ -294,15 +290,15 @@ int main()
 	store.NotifyMod("ghost");   // unknown: no fire, no crash
 	CHECK(heard1.size() == 6);
 
-	// --- incremental RegisterSchema: new mod, persisted overlay, replay -------
+	// --- new drop-in after startup: persisted overlay and value replay --------
 	heard1.clear();
-	auto gammaSchema = nlohmann::json::parse(R"json({
-		"id": "t.gamma", "title": "Gamma (runtime)",
+	WriteFile(schemaDir / "t.gamma.json", R"json({
+		"id": "t.gamma", "title": "Gamma",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "level", "type": "int", "default": 1, "min": 0, "max": 10 },
 			{ "key": "fancy", "type": "bool", "default": false }
 		] } ] })json");
-	CHECK(store.RegisterSchema(gammaSchema, SettingsStore::Source::kNative));
+	CHECK(store.ReloadDropInFile(schemaDir / "t.gamma.json"));
 	CHECK(store.Generation() > genAfterLoad);
 	CHECK(store.GetValue("t.gamma", "level")->get<std::int64_t>() == 7);  // pre-existing values file adopted
 	CHECK(*store.GetValue("t.gamma", "fancy") == false);
@@ -310,27 +306,7 @@ int main()
 	data = nlohmann::json::parse(store.DataJson());
 	CHECK(data["mods"].size() == 6);
 
-	// Rejected shapes.
-	CHECK(!store.RegisterSchema(nlohmann::json::array(), SettingsStore::Source::kNative));
-	CHECK(!store.RegisterSchema(nlohmann::json{ { "title", "No Id" } }, SettingsStore::Source::kNative));
-
-	// Only the filesystem / URL boundary and the platform id are refused. Dots,
-	// spaces, case, and punctuation otherwise remain opaque.
-	for (const auto* good : { "plainmod", "Upper.Case", "two.dots.here", "under_score.mod",
-	                          "has space", ".hidden", "menu", "a..b", "name!+@" }) {
-		CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", good } }));
-	}
-	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "a\\b", "..", "osfui", "OSFUI",
-	                         "trailing.", "trailing ", "bad:name", "bad#name", "bad%name", "NUL", "COM1.txt" }) {
-		CHECK(!store.RegisterSchema(nlohmann::json{ { "id", bad }, { "title", "Evil" } }, SettingsStore::Source::kNative));
-	}
-
-	// Duplicate drop-in ids resolve first-wins (MO2's VFS is the arbiter of the
-	// FILE; a second registration for the same id never displaces the first).
-	CHECK(!store.RegisterSchema(nlohmann::json{ { "id", "t.zeta" }, { "title", "Zeta Again" } }, SettingsStore::Source::kDropIn));
-	CHECK(LoggedContaining("ERROR", "duplicate schema id 't.zeta'"));
-
-	// Native-registered mods persist through the same per-mod file.
+	// Newly discovered drop-ins persist through the same per-mod file.
 	CHECK(store.Set("t.gamma", "level", "9"));
 	store.FlushPersistence();
 	{
@@ -338,8 +314,8 @@ int main()
 		CHECK(saved.is_object() && saved["level"] == 9);
 	}
 
-	// --- precedence: native replaces drop-in; drop-in never replaces ----------
-	CHECK(store.Set("t.alpha", "scale", "0.75"));  // user value that must survive the tier upgrade
+	// --- file hot reload replaces schema while preserving user values ---------
+	CHECK(store.Set("t.alpha", "scale", "0.75"));
 	auto alphaV2 = nlohmann::json::parse(R"json({
 		"id": "t.alpha", "title": "Alpha Mod v2",
 		"groups": [ { "label": "General", "settings": [
@@ -347,8 +323,8 @@ int main()
 			{ "key": "shiny",  "type": "bool",  "default": true }
 		] } ] })json");
 	const auto genBeforeReplace = store.Generation();
-	CHECK(store.RegisterSchema(alphaV2, SettingsStore::Source::kNative));
-	CHECK(LoggedContaining("WARN", "native registration replaces drop-in"));
+	WriteFile(schemaDir / "t.alpha.json", alphaV2.dump());
+	CHECK(store.ReloadDropInFile(schemaDir / "t.alpha.json"));
 	CHECK(store.Generation() > genBeforeReplace);
 	data = nlohmann::json::parse(store.DataJson());
 	CHECK(data["mods"].size() == 6);  // replaced, not duplicated
@@ -357,19 +333,11 @@ int main()
 	CHECK(store.GetValue("t.alpha", "enabled") == nullptr);            // removed key gone
 	CHECK(store.GetSettingType("t.alpha", "bind").empty());
 
-	// A drop-in may not displace the native registration.
-	CHECK(!store.RegisterSchema(nlohmann::json{ { "id", "t.alpha" }, { "title", "Stale File" } }, SettingsStore::Source::kDropIn));
-	data = nlohmann::json::parse(store.DataJson());
-	for (const auto& mod : data["mods"]) {
-		if (mod["id"] == "t.alpha") {
-			CHECK(mod["title"] == "Alpha Mod v2");
-		}
-	}
-
-	// Native re-registration (dev iteration) replaces its own earlier one.
+	// A later edit replaces the same file-backed schema again.
 	auto alphaV3 = alphaV2;
 	alphaV3["title"] = "Alpha Mod v3";
-	CHECK(store.RegisterSchema(alphaV3, SettingsStore::Source::kNative));
+	WriteFile(schemaDir / "t.alpha.json", alphaV3.dump());
+	CHECK(store.ReloadDropInFile(schemaDir / "t.alpha.json"));
 	data = nlohmann::json::parse(store.DataJson());
 	CHECK(data["mods"].size() == 6);
 
@@ -383,27 +351,6 @@ int main()
 	CHECK(fs::exists(valuesDir / "t.beta.json"));  // uninstalled does not mean deleted
 	data = nlohmann::json::parse(store.DataJson());
 	CHECK(data["mods"].size() == 5);
-
-	// --- ValidateSchemaShape: the ABI's synchronous any-thread shape gate --------
-	// Must reject exactly what registration would reject on shape/id grounds
-	// (BridgeApi::RegisterSettingsSchema reports these synchronously, then
-	// queues the main-thread merge).
-	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "ok-mod-1.x" } }));
-	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "Mixed Mod_name!" } }));
-	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "osfui" } }));  // platform-reserved
-	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json::array()));               // not an object
-	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "title", "No Id" } }));
-	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "a\\b", "..", "osfui",
-	                         "bad:name", "trailing.", "NUL" }) {
-		CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", bad } }));
-	}
-
-	// --- GetSource: who owns an id (the ABI unregister gate) ---------------------
-	CHECK(store.GetSource("t.alpha") == SettingsStore::Source::kNative);  // tier-upgraded above
-	CHECK(store.GetSource("t.gamma") == SettingsStore::Source::kNative);
-	CHECK(store.GetSource("t.zeta") == SettingsStore::Source::kDropIn);
-	CHECK(!store.GetSource("t.beta").has_value());  // removed above
-	CHECK(!store.GetSource("ghost").has_value());
 
 	// --- write-behind debounce: coalesced, due after window -----------------
 	store.PumpPersistence(100.0);  // settle pending windows; store clock -> 100
@@ -770,16 +717,6 @@ int main()
 		CHECK(s.ReloadDropInFile(sd / "t.newcomer.json"));
 		CHECK(s.GetValue("t.newcomer", "x") != nullptr);
 
-		// A runtime (native) registration outranks the file: refused.
-		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({
-			"id": "t.owned", "title": "Native",
-			"groups": [ { "settings": [ { "key": "k", "type": "int", "default": 1 } ] } ] })json"),
-			SettingsStore::Source::kNative));
-		WriteFile(sd / "t.owned.json", R"json({
-			"id": "t.owned", "title": "File",
-			"groups": [ { "settings": [ { "key": "k", "type": "int", "default": 2 } ] } ] })json");
-		CHECK(!s.ReloadDropInFile(sd / "t.owned.json"));
-		CHECK(s.GetValue("t.owned", "k") && *s.GetValue("t.owned", "k") == 1);
 	}
 
 	// --- item 2: flags type ---------------------------------------------------------
@@ -1197,12 +1134,12 @@ int main()
 	// canonicalizes enum values to the authored option spelling before Set.)
 	{
 		OSFUI::SettingsStore s;
-		s.LoadAll(root / "ce-schemas", root / "ce-values");  // empty: just arms RegisterSchema
-		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({ "id": "t.enum",
+		const auto sd = root / "ce-schemas";
+		WriteFile(sd / "t.enum.json", R"json({ "id": "t.enum",
 			"groups": [ { "settings": [
 				{ "key": "mode", "type": "enum", "options": ["fast", "balanced"], "default": "balanced" },
-				{ "key": "flag", "type": "bool", "default": true } ] } ] })json"),
-			OSFUI::SettingsStore::Source::kNative));
+				{ "key": "flag", "type": "bool", "default": true } ] } ] })json");
+		s.LoadAll(sd, root / "ce-values");
 		CHECK(s.CanonicalEnumValue("t.enum", "mode", "FAST") == "fast");
 		CHECK(s.CanonicalEnumValue("t.enum", "mode", "Fast") == "fast");
 		CHECK(s.CanonicalEnumValue("t.enum", "mode", "fast") == "fast");
@@ -1218,14 +1155,14 @@ int main()
 	// handler — a std::terminate from typing CJK into any mod's text setting.
 	{
 		OSFUI::SettingsStore s;
-		s.LoadAll(root / "u8-schemas", root / "u8-values");
-		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({ "id": "t.utf8",
+		const auto sd = root / "u8-schemas";
+		WriteFile(sd / "t.utf8.json", R"json({ "id": "t.utf8",
 			"groups": [ { "settings": [
 				{ "key": "name", "type": "string", "maxLength": 8, "default": "" },
 				{ "key": "long", "type": "string", "default": "" },
 				{ "key": "emoji", "type": "string", "maxLength": 6, "default": "" },
-				{ "key": "bind", "type": "key", "default": "F10" } ] } ] })json"),
-			OSFUI::SettingsStore::Source::kNative));
+				{ "key": "bind", "type": "key", "default": "F10" } ] } ] })json");
+		s.LoadAll(sd, root / "u8-values");
 
 		// Per-setting maxLength: 3 CJK chars = 9 bytes, cap 8 cuts inside the 3rd.
 		const std::string cjk = "\xE4\xB8\xAD\xE6\x96\x87\xE5\xAD\x97";

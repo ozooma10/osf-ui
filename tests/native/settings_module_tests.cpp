@@ -388,14 +388,14 @@ int main()
 	CHECK(StateTo("t.alpha/other", "osfui", "settings").empty());
 	CHECK(StateTo("t.alpha/hud", "osfui", "settings").size() == 1);
 
-	// --- native registration: value replay + registry republish --------------
+	// --- new drop-in: value replay + registry republish -----------------------
 	g_sent.clear();
-	auto gamma = nlohmann::json::parse(R"json({
-		"id": "t.gamma", "title": "Gamma (runtime)",
+	WriteFile(schemaDir / "t.gamma.json", R"json({
+		"id": "t.gamma", "title": "Gamma",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "level", "type": "int", "default": 1, "min": 0, "max": 10 }
 		] } ] })json");
-	CHECK(module.Store().RegisterSchema(gamma, SettingsStore::Source::kNative));
+	CHECK(module.Store().ReloadDropInFile(schemaDir / "t.gamma.json"));
 	{
 		// Value replay reaches greeted views as settings.changed events...
 		const auto changed = EventsTo("t.alpha/hud", "settings.changed");
@@ -411,6 +411,7 @@ int main()
 	// --- removal republishes too ---------------------------------------------
 	g_sent.clear();
 	CHECK(module.Store().RemoveMod("t.gamma"));
+	fs::remove(schemaDir / "t.gamma.json");
 	{
 		const auto data = StateTo("t.alpha/hud", "osfui", "settings");
 		CHECK(data.size() == 1 && data[0].payload["mods"].size() == 1);
@@ -508,7 +509,7 @@ int main()
 			CHECK(!data.empty() && data.back().payload["mods"].size() == 2);
 		}
 
-		// Deleting the file drops the mod (drop-ins only) and republishes.
+		// Deleting the file drops the mod and republishes.
 		fs::remove(schemaDir / "t.delta.json");
 		g_sent.clear();
 		module.PumpSchemaHotReload(13.0);
@@ -516,25 +517,6 @@ int main()
 			const auto data = StateTo("osfui/settings", "osfui", "settings");
 			CHECK(data.size() == 1 && data[0].payload["mods"].size() == 1);
 		}
-
-		// A runtime (native) registration outranks the file both ways: a
-		// same-id file appearing neither replaces it nor, when deleted again,
-		// removes it.
-		CHECK(module.Store().RegisterSchema(nlohmann::json::parse(R"json({
-			"id": "t.epsilon", "title": "Native Epsilon",
-			"groups": [ { "settings": [ { "key": "n", "type": "int", "default": 1 } ] } ] })json"),
-			SettingsStore::Source::kNative));
-		WriteFile(schemaDir / "t.epsilon.json", R"json({
-			"id": "t.epsilon", "title": "File Impostor",
-			"groups": [ { "settings": [ { "key": "n", "type": "int", "default": 99 } ] } ] })json");
-		module.PumpSchemaHotReload(14.0);
-		{
-			const auto* n = module.Store().GetValue("t.epsilon", "n");
-			CHECK(n && *n == 1);  // native schema untouched by the file (default stays 1, not 99)
-		}
-		fs::remove(schemaDir / "t.epsilon.json");
-		module.PumpSchemaHotReload(15.0);
-		CHECK(module.Store().GetValue("t.epsilon", "n") != nullptr);  // file deletion can't remove a native mod
 	}
 
 	// --- settlement shape: post-clamp value, id echo, machine failure codes ---
@@ -590,13 +572,13 @@ int main()
 			if (a_name == "F7") return 0x76;
 			return 0;
 		});
-		CHECK(module.Store().RegisterSchema(nlohmann::json::parse(R"json({
+		WriteFile(schemaDir / "t.keys.json", R"json({
 			"id": "t.keys", "title": "Keys",
 			"groups": [ { "settings": [
 				{ "key": "one", "type": "key", "default": "F6" },
 				{ "key": "two", "type": "key", "default": "F7" }
-			] } ] })json"),
-			SettingsStore::Source::kNative));
+			] } ] })json");
+		CHECK(module.Store().ReloadDropInFile(schemaDir / "t.keys.json"));
 
 		// Rebind INTO a collision: the event names the partner.
 		g_sent.clear();
@@ -639,7 +621,7 @@ int main()
 		CHECK(KindTo("t.alpha/other", "ready").size() == 1);
 		const auto replayed = StateTo("t.alpha/other", "osfui", "settings");
 		CHECK(replayed.size() == 1);
-		CHECK(replayed.size() == 1 && replayed[0].payload["mods"].size() == 3);  // alpha, epsilon, keys
+		CHECK(replayed.size() == 1 && replayed[0].payload["mods"].size() == 2);  // alpha, keys
 	}
 
 	// Mirror the runtime's teardown order: the bridge (declared after `module`)

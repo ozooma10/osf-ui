@@ -47,8 +47,9 @@ namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR.
 	//
-	// ABI 1.x is append-only. Existing virtual methods never move or change
-	// behavior; new capabilities append at the vtable tail and bump MINOR. ABI
+	// ABI 1.x is append-only. Existing virtual slots never move; retired slots
+	// remain inert tombstones. New capabilities append at the vtable tail and
+	// bump MINOR. ABI
 	// 1.8 added retained view state, and 1.9 adds strict one-way send endpoints.
 	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 9u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
@@ -206,15 +207,11 @@ namespace OSFUI::API
 		// Null/empty buffer = "how big?" probe. (type:"flags" values are arrays - no typed getter; read them from SettingChangedFn's JSON.)
 		virtual std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) = 0;
 
-		// --- settings registration. Thread-safe; merge lands next main tick. ---
-		// a_schemaJson is the same document a settings/<modId>.json drop-in would hold (id = opaque mod id).
-		//
-		//   * Returns false on a parse/shape error (malformed JSON, non-object, missing/invalid "id"); true = queued.
-		//   * User values overlay from the same per-mod file as the drop-in tier, so a mod can migrate tiers without losing settings.
-		//   * Conflicts: this wins over a drop-in of the same id (warned); it replaces an earlier native registration of the same id.
-		virtual bool RegisterSettingsSchema(const char* a_schemaJson) = 0;
-		// Drops a native-registered schema (user's values file kept). Ignored (warned) for ids owned by drop-in files.
-		virtual void UnregisterSettingsSchema(const char* a_modId) = 0;
+		// Retired settings-registration slots. Kept in place so later 1.x vtable
+		// entries retain their binary positions. Slot 1 returns false; slot 2 is
+		// a no-op. Settings schemas are discovered only from settings/<modId>.json.
+		virtual bool ReservedSettingsSlot1(const char*) = 0;
+		virtual void ReservedSettingsSlot2(const char*) = 0;
 
 		// ===== hotkey dispatch =====
 
@@ -470,17 +467,6 @@ namespace OSFUI::API
 		{
 			return Has(Feature::kSettings) ? _bridge->GetSettingString(a_modId, a_key, a_buf, a_bufLen) : 0u;
 		}
-		bool RegisterSettingsSchema(const char* a_schemaJson) const noexcept
-		{
-			return Has(Feature::kSettings) && _bridge->RegisterSettingsSchema(a_schemaJson);
-		}
-		void UnregisterSettingsSchema(const char* a_modId) const noexcept
-		{
-			if (Has(Feature::kSettings)) {
-				_bridge->UnregisterSettingsSchema(a_modId);
-			}
-		}
-
 		// --- hotkeys ---
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) const noexcept
 		{

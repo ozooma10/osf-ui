@@ -174,11 +174,11 @@ int main()
 	CHECK(outbox.back()["payload"]["__osfuiV1Reply"]["type"] == "legacy.result");
 	CHECK(outbox.back()["payload"]["__osfuiV1Reply"]["payload"]["accepted"] == true);
 
-	// Suit Protocol's 1.7 path: runtime schema registration, mirrored typed
-	// setting reads, and two hotkey subscriptions through the frozen slots.
-	CHECK(bridgeVtable->RegisterSettingsSchema(
+	// The retired 1.7 registration slots remain in place for binary safety.
+	// Legacy callers now receive false/no-op; every later frozen slot must still
+	// dispatch correctly.
+	CHECK(!bridgeVtable->RegisterSettingsSchema(
 		R"({"id":"acme.widgets","groups":[{"settings":[{"key":"enabled","type":"bool","default":true}]}]})"));
-	CHECK(api.TakeSchemaOps().size() == 1);
 	api.Mirror().Update("acme.widgets", "enabled", true);
 	api.Mirror().Update("acme.widgets", "count", std::int64_t{ 7 });
 	api.Mirror().Update("acme.widgets", "scale", 1.5);
@@ -216,9 +216,6 @@ int main()
 	CHECK(bridgeVtable->SetViewState("acme.widgets", "status", R"({"ready":true})"));
 	CHECK(api.TakeViewStateOps().size() == 1);
 	bridgeVtable->UnregisterSettingsSchema("acme.widgets");
-	const auto schemaRemovals = api.TakeSchemaOps();
-	CHECK(schemaRemovals.size() == 1 && schemaRemovals[0].modId == "acme.widgets" &&
-		schemaRemovals[0].schema.is_null());
 	bridgeVtable->UnregisterCommand("acme.widgets.legacy");
 	bridgeVtable->UnregisterRequest("acme.widgets.request");
 	api.PumpMainThread();

@@ -109,8 +109,6 @@ namespace OSFUI
 		bool CancelPendingOpen();
 		void DrivePendingOpen();
 
-		void DrainSchemaOps();
-
 		void DrainViewRegistrations();
 
 		// open/close engine focus menu to match active menu capture policy.

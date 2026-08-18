@@ -41,9 +41,9 @@ namespace OSFUI
 			}
 			_bridge->EmitAll("settings.changed", payload);
 		});
-		// Registry SHAPE changed (native registration/removal while views are
-		// live): republish the whole document. Individual value commits stay
-		// `settings.changed` events, so this large payload only moves when the
+		// Registry SHAPE changed (a drop-in was added, changed, or removed while
+		// views are live): republish the whole document. Individual value commits
+		// stay `settings.changed` events, so this large payload only moves when the
 		// set of mods or settings actually changes — which is rare.
 		_store.AddRegistryListener([this] {
 			if (_bridge) {
@@ -94,7 +94,7 @@ namespace OSFUI
 		// Changed or new files reload through the store; every consequence
 		// (value preservation via flush-then-overlay, §11 alias adoption,
 		// `osfui/settings` state re-broadcast, HotkeyService rebuild via the registry
-		// listener) rides the same wiring as a native registration. The mtime
+		// listener) rides the store's normal registry-change wiring. The mtime
 		// is recorded even when the reload fails (mid-save torn file, invalid
 		// schema): the editor's final write bumps it again, and a broken file
 		// logs once per save instead of once per scan.
@@ -104,11 +104,9 @@ namespace OSFUI
 				_store.ReloadDropInFile(_schemaDir / (stem + ".json"));
 			}
 		}
-		// A deleted file removes its mod, but only a drop-in one: a runtime
-		// registration owns its schema regardless of any same-id file coming or
-		// going (same precedence as load). Values files are kept (§10).
+		// A deleted file removes its mod. Values files are kept (§10).
 		for (const auto& [stem, mtime] : _schemaMtimes) {
-			if (!seen.contains(stem) && _store.GetSource(stem) == SettingsStore::Source::kDropIn) {
+			if (!seen.contains(stem)) {
 				REX::INFO("SettingsModule: settings file '{}' removed — dropping its mod", stem);
 				_store.RemoveMod(stem);
 			}

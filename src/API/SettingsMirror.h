@@ -10,8 +10,8 @@ namespace OSFUI::API
 	// getters and the Papyrus natives read here, never the main-thread-only
 	// SettingsStore. Fed on the main thread by a store change listener — every
 	// committed value, including the startup NotifyAll replay and the per-mod
-	// replay after an incremental RegisterSchema. Registry shape changes
-	// (RegisterSchema / RemoveMod) rebuild the whole mirror from the store
+	// replay after a schema hot reload. Registry shape changes (hot reload /
+	// RemoveMod) rebuild the whole mirror from the store
 	// document so dropped mods stop resolving. Wired in Runtime::BuildModules;
 	// owned by BridgeApi.
 	//

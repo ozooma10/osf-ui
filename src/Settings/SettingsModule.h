@@ -41,8 +41,7 @@ namespace OSFUI
 		[[nodiscard]] std::string_view Name() const override { return "settings"; }
 
 		// The store is the single source of truth every settings consumer projects
-		// over — the native plugin API (runtime schema registration, typed
-		// getters) reaches it through here.
+		// over; native typed getters reach it through here.
 		[[nodiscard]] SettingsStore& Store() { return _store; }
 
 		// Web hotkey delivery: emits `ui.hotkey {mod, key}` to every greeted view;
@@ -54,8 +53,7 @@ namespace OSFUI
 		// settings/*.json on a ~1 s cadence — a changed or new file reloads/
 		// registers through the store (values preserved, §11 aliases honored,
 		// registry re-broadcast pushes fresh `osfui/settings` state to greeted views); a
-		// deleted file removes its mod, but only a drop-in one (a runtime
-		// registration tracks no files). The caller gates on effective developer mode and passes
+		// deleted file removes its mod. The caller gates on effective developer mode and passes
 		// its monotonic clock (Runtime::Tick uptime, like PumpPersistence). The
 		// mtime snapshot is seeded at construction, so the first pump reloads
 		// nothing.

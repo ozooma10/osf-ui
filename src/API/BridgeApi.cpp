@@ -4,7 +4,6 @@
 #include "Core/Ids.h"            // qualified view id shape — the synchronous RegisterView gate
 #include "Bridge/MessageBridge.h"  // also pulls nlohmann/json
 #include "Core/Json.h"           // Dump — never a bare dump() on a tick path
-#include "Settings/SettingsStore.h"  // ValidateSchemaShape — the synchronous shape gate
 
 namespace OSFUI::API
 {
@@ -384,43 +383,13 @@ namespace OSFUI::API
 		_hotkeys.Unsubscribe(a_token);
 	}
 
-	bool BridgeApi::RegisterSettingsSchema(const char* a_schemaJson)
+	bool BridgeApi::ReservedSettingsSlot1(const char*)
 	{
-		if (!a_schemaJson) {
-			return false;
-		}
-		// Parse and shape errors report synchronously (ABI contract); the store
-		// merge is marshaled to the main tick (Runtime::DrainSchemaOps), where
-		// precedence resolves with a log warning.
-		auto parsedSchema = Json::Parse(a_schemaJson);
-		if (!parsedSchema) {
-			REX::WARN("BridgeApi: [content] RegisterSettingsSchema rejected — malformed JSON");
-			return false;
-		}
-		auto& schema = *parsedSchema;
-		if (!SettingsStore::ValidateSchemaShape(schema)) {
-			return false;  // warned inside
-		}
-		std::lock_guard lock(_mutex);
-		_pendingSchemaOps.push_back({ std::move(schema), {} });
-		return true;
+		return false;
 	}
 
-	void BridgeApi::UnregisterSettingsSchema(const char* a_modId)
+	void BridgeApi::ReservedSettingsSlot2(const char*)
 	{
-		if (!a_modId || !a_modId[0]) {
-			return;
-		}
-		std::lock_guard lock(_mutex);
-		_pendingSchemaOps.push_back({ nlohmann::json{}, std::string(a_modId) });
-	}
-
-	std::vector<BridgeApi::SchemaOp> BridgeApi::TakeSchemaOps()
-	{
-		std::lock_guard lock(_mutex);
-		std::vector<SchemaOp> out;
-		out.swap(_pendingSchemaOps);
-		return out;
 	}
 
 	std::vector<BridgeApi::ViewPresentationRequest> BridgeApi::TakeViewPresentationRequests()

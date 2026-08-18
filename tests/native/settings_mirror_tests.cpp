@@ -12,7 +12,12 @@
 
 namespace
 {
-
+	void WriteFile(const std::filesystem::path& a_path, std::string_view a_text)
+	{
+		std::filesystem::create_directories(a_path.parent_path());
+		std::ofstream out(a_path, std::ios::binary | std::ios::trunc);
+		out << a_text;
+	}
 }
 
 // Core/Log.h declarations (real impl pulls game deps — stub, as in the other
@@ -156,7 +161,13 @@ int main()
 		fs::remove_all(root);
 		const auto schemaDir = root / "settings";
 		const auto valuesDir = root / "values";
-		fs::create_directories(schemaDir);
+		WriteFile(schemaDir / "t.beta.json", R"json({
+			"id": "t.beta", "title": "Beta",
+			"groups": [ { "label": "G", "settings": [
+				{ "key": "enabled", "type": "bool",  "default": true },
+				{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 },
+				{ "key": "mode",    "type": "enum",  "default": "compact", "options": ["compact", "full"] }
+			] } ] })json");
 
 		SettingsStore store;
 		SettingsMirror mirror;
@@ -166,17 +177,10 @@ int main()
 		});
 		store.AddRegistryListener([&] { mirror.Rebuild(store.Data()); });
 
-		store.LoadAll(schemaDir, valuesDir);  // empty dir — native registration follows
-		CHECK(store.RegisterSchema(nlohmann::json::parse(R"json({
-			"id": "t.beta", "title": "Beta",
-			"groups": [ { "label": "G", "settings": [
-				{ "key": "enabled", "type": "bool",  "default": true },
-				{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 },
-				{ "key": "mode",    "type": "enum",  "default": "compact", "options": ["compact", "full"] }
-			] } ] })json"),
-			SettingsStore::Source::kNative));
+		store.LoadAll(schemaDir, valuesDir);
+		store.NotifyAll();
 
-		// RegisterSchema's per-mod replay populated the mirror without any read step.
+		// The startup replay populated the mirror without any direct store reads.
 		bool b{};
 		double f{};
 		char buf[16] = {};

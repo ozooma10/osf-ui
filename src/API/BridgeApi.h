@@ -49,8 +49,8 @@ namespace OSFUI::API
 		bool          GetSettingInt(const char* a_modId, const char* a_key, std::int64_t* a_out) override;
 		bool          GetSettingFloat(const char* a_modId, const char* a_key, double* a_out) override;
 		std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) override;
-		bool          RegisterSettingsSchema(const char* a_schemaJson) override;
-		void          UnregisterSettingsSchema(const char* a_modId) override;
+		bool          ReservedSettingsSlot1(const char*) override;
+		void          ReservedSettingsSlot2(const char*) override;
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
 		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 		bool          RegisterView(const char* a_viewId) override;
@@ -77,19 +77,6 @@ namespace OSFUI::API
 		// API mutex because RequestMenu is callable from any thread.
 		void SetViewCatalog(const std::vector<std::string>& a_viewIds);
 		void SetViewInstantiated(std::string_view a_viewId, bool a_instantiated);
-
-		// A queued RegisterSettingsSchema (schema is an object) or
-		// UnregisterSettingsSchema (schema is null, modId set) — already
-		// shape-validated synchronously; FIFO so register-then-unregister of
-		// the same id lands in call order.
-		struct SchemaOp
-		{
-			nlohmann::json schema;
-			std::string    modId;
-		};
-		// Drain the queued schema ops. Runtime applies each to the SettingsStore
-		// (Source::kNative) in DrainSchemaOps.
-		std::vector<SchemaOp> TakeSchemaOps();
 
 		struct HealthIssueOp
 		{
@@ -231,7 +218,6 @@ namespace OSFUI::API
 		std::unordered_set<std::string>               _knownViews;         // boot-discovered qualified view ids
 		std::unordered_set<std::string>               _instantiatedViews;  // views with an instantiated document
 		bool                                          _viewCatalogReady{ false };
-		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
 		std::vector<UnsupportedCaller>                _unsupportedCallers;
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime

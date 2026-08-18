@@ -58,7 +58,6 @@ namespace OSFUI
     {
 		DrainKeyCapture();
 		DrainHotkeys();
-		DrainSchemaOps();
 
 		if(_settings) {
 			API::Papyrus::DrainSettingsOps(_settings->Store());

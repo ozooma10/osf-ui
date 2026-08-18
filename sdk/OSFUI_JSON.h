@@ -276,16 +276,6 @@ namespace OSFUI::API
 			}
 		}
 
-		[[nodiscard]] bool RegisterSettingsSchema(const Json& a_schema) const noexcept
-		{
-			try {
-				const auto text = a_schema.dump(-1, ' ', false, Json::error_handler_t::replace);
-				return _client.RegisterSettingsSchema(text.c_str());
-			} catch (...) {
-				return false;
-			}
-		}
-
 	private:
 		const Client& _client;
 	};

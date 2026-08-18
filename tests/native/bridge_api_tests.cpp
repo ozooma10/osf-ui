@@ -163,8 +163,8 @@ namespace
 		bool GetSettingInt(const char*, const char*, std::int64_t*) override { return false; }
 		bool GetSettingFloat(const char*, const char*, double*) override { return false; }
 		std::uint32_t GetSettingString(const char*, const char*, char*, std::uint32_t) override { return 0; }
-		bool RegisterSettingsSchema(const char*) override { return false; }
-		void UnregisterSettingsSchema(const char*) override {}
+		bool ReservedSettingsSlot1(const char*) override { return false; }
+		void ReservedSettingsSlot2(const char*) override {}
 		std::uint32_t SubscribeHotkey(const char*, const char*, OSFUI::API::HotkeyFn, void*) override { return 0; }
 		void UnsubscribeHotkey(std::uint32_t) override {}
 		bool RegisterView(const char*) override { return false; }
