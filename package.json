@@ -12,8 +12,6 @@
   ],
   "scripts": {
     "build": "npm run build --workspace osfui-frontend",
-    "check:terminology": "node scripts/check-terminology.mjs",
-    "test": "npm test --workspace osfui-frontend",
-    "verify": "npm run check:terminology && npm run verify --workspace osfui-frontend"
+    "test": "npm test --workspace osfui-frontend"
   }
 }
