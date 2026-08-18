@@ -170,24 +170,11 @@ namespace OSFUI
 
 		std::unordered_set<std::string> InstantiatedViewsOfMod(std::string_view a_mod) const;
 
-		// Publish one retained value to the mod's instantiated views.
 		void PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value);
-
-		// Publish one platform state key (settings/views/diagnostics/i18n plus the
-		// current keybindings/engine-input-context state documents) to one greeted view, or to every greeted view when a_viewId is
-		// empty. The i18n value is computed per view, since a view's catalog is
-		// its owning mod's.
 		void PublishPlatformState(std::string_view a_key, std::string_view a_viewId = {});
 
-		// MessageBridge hello hook: a document greeted the bridge, `ready` is
-		// already out, and its event gate is open. Replays every current state
-		// value it is entitled to — platform keys plus its owning mod's.
 		void OnViewGreeted(std::string_view a_viewId);
-
-		// MessageBridge protocol-fault sink: routes faults to the view's console
-		// in developer mode and raises health after repeated view misuse.
-		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code,
-			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
+		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
 		LocalizationService           _localization;
 		ViewManager                   _views;
@@ -279,15 +266,9 @@ namespace OSFUI
 		std::string                   _captureKey;    // main-thread: which setting (e.g. "toggleKey")
 		std::atomic<ScanCode>         _captureUpScan{ kInvalidScanCode };
 
-		// Can the overlay actually reach the screen? `_overlayDrawAvailable` is
-		// only the install-time half (the Scaleform vtable hooks); the UI pass's
-		// command-list hooks are taken lazily on a render worker and their
-		// self-test can disable drawing long afterwards. Every "may this open"
-		// gate must ask both, or it admits an invisible overlay that still
-		// captures focus and input.
-		[[nodiscard]] bool OverlayCanDraw() const;
+		bool OverlayCanDraw() const;
 
-		std::atomic_bool              _visible{ false };
+		std::atomic_bool              m_visible{ false };
 		std::atomic_bool              _overlayDrawAvailable{ false };
 		bool                          _rendererFailed{ false };  // opens fail closed while recovery is incomplete
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins

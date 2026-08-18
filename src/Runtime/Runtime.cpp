@@ -320,7 +320,7 @@ namespace OSFUI
 		_initialized = true;
 		// Push the initial policy derived from whatever is open (incl. nothing).
 		ApplyViewPresentationPolicy();
-		REX::INFO("Runtime: initialized (visible={})", _visible.load());
+		REX::INFO("Runtime: initialized (visible={})", m_visible.load());
 
 		return true;
 	}
@@ -688,7 +688,7 @@ namespace OSFUI
 		}
 
 		const bool visible = _presentation.DesiredVisible();
-		const bool wasVisible = _visible.exchange(visible);
+		const bool wasVisible = m_visible.exchange(visible);
 		ReconcileNativeFocus();
 		if (_compositor) {
 			if (visible && !wasVisible) {
@@ -743,7 +743,7 @@ namespace OSFUI
 			return;
 		}
 		const auto active = _presentation.ActiveMenu();
-		const bool want = _visible.load() && _captureInput.load() && active.has_value();
+		const bool want = m_visible.load() && _captureInput.load() && active.has_value();
 		if (want == _nativeFocusGranted) {
 			return;
 		}
@@ -753,7 +753,7 @@ namespace OSFUI
 
 	bool Runtime::IsVisible() const
 	{
-		return _visible.load();
+		return m_visible.load();
 	}
 
 	void Runtime::DriveBrowserHostRecovery()

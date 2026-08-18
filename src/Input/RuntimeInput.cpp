@@ -27,7 +27,7 @@ namespace OSFUI
     
 	bool Runtime::IsInputCaptured() const
 	{
-		return _initialized && _captureInput.load() && _visible.load();
+		return _initialized && _captureInput.load() && m_visible.load();
 	}
 
 	bool Runtime::OnGameWindowKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down)
