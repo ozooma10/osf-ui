@@ -47,7 +47,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		std::atomic<void*> g_overlay{ nullptr };  // D3D12Compositor::Impl*
 
-		using OverlayDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool);
+		using OverlayDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool);
 		std::atomic<OverlayDrawFn> g_overlayDrawFn{ nullptr };
 
 		using ExecuteCommandListsFn = void (STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
@@ -518,13 +518,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		ConsumeTracker consumes;
 
 		std::atomic_bool overlayDrawLogged{ false };
-		std::atomic_bool overlayDrawFgTargetLogged{ false };
 		bool noSharedFrameLogged{ false };  // SharedRingState::drawMutex
-
-		std::atomic_bool frameGenActiveSignal{ false };
-		std::atomic_bool regionSawFgTarget{ false };
-		std::atomic_bool fgClassificationKnown{ false };
-		std::atomic_bool fgLayerOnlyLogged{ false };
 
 		~Impl()
 		{
@@ -545,13 +539,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				SafeRelease(engine.directQueue);
 				SafeRelease(engine.device);
 			}
-		}
-
-		[[nodiscard]] CompositorStatus GetStatus() const
-		{
-			return {
-				.frameGeneration = frameGenActiveSignal.load(std::memory_order_relaxed),
-			};
 		}
 
 		static void QueueExecutedThunk(
@@ -727,7 +714,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// queue hook signals consumption only after the exact engine command list
 		// containing this draw has been submitted.
 		[[nodiscard]] bool RecordOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_fgTarget, const bool a_regionFirst)
+			const bool a_firstDrawInRegion)
 		{
 			if (!setupOk || !draw.rtvHeap || !a_buffer) {
 				return false;
@@ -736,38 +723,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const auto desc = a_buffer->GetDesc();
 			ObserveOutputSize(desc);
 
-			bool classificationKnown = fgClassificationKnown.load(std::memory_order_acquire);
-			if (a_regionFirst) {
-				const bool previousRegionHadFgTarget =
-					regionSawFgTarget.exchange(false, std::memory_order_acq_rel);
-				frameGenActiveSignal.store(previousRegionHadFgTarget, std::memory_order_release);
-				classificationKnown = fgClassificationKnown.exchange(true, std::memory_order_acq_rel);
-			}
-			if (a_fgTarget) {
-				regionSawFgTarget.store(true, std::memory_order_release);
-				frameGenActiveSignal.store(true, std::memory_order_release);
-			}
-
 			if (!visible.load(std::memory_order_relaxed)) {
-				return false;
-			}
-			// Until the first complete render region establishes whether COPY_SOURCE
-			// exists, delay the ordinary target rather than risk blending twice.
-			if (!classificationKnown && !a_fgTarget) {
-				return false;
-			}
-
-			// In the FG graph the RT->pixel-SRV candidate is the already-opaque
-			// scene/composite image. Drawing there puts the overlay into the frame
-			// interpolation input, then FFX composites the transparent UI layer on
-			// top a second time. Opaque pixels hide that duplication; translucent
-			// pixels alternate between one and two blends. The COPY_SOURCE target
-			// is the actual transparent UI layer and later feeds both paths.
-			const bool fgActive = frameGenActiveSignal.load(std::memory_order_acquire);
-			if (fgActive && !a_fgTarget) {
-				if (!fgLayerOnlyLogged.exchange(true, std::memory_order_relaxed)) {
-					REX::DEBUG("D3D12Compositor: under FG only the transparent COPY_SOURCE UI layer is drawn");
-				}
 				return false;
 			}
 			const auto frame = sharedRing.SnapshotFrame();
@@ -788,10 +744,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			// Promote the newest frame to "ready" once its produce fence has
 			// completed; an incomplete newest frame falls back to the last
 			// ready one (see readySlot) instead of skipping the draw.
-			// Under FG the preceding opaque target was deliberately skipped, so
-			// the transparent target becomes the effective first draw.
-			const bool effectiveRegionFirst = a_regionFirst || (fgActive && a_fgTarget);
-			if (effectiveRegionFirst &&
+			if (a_firstDrawInRegion &&
 				serial != 0 && ringSlot < sharedRing.slotCount && sharedRing.slots[ringSlot] &&
 				(!sharedRing.produceFence || sharedRing.produceFence->GetCompletedValue() >= serial)) {
 				sharedRing.readySlot = ringSlot;
@@ -836,13 +789,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			consumes.Track(a_list, sharedRing.consumeFence, serial);
 			const bool firstDraw = !overlayDrawLogged.exchange(true, std::memory_order_relaxed);
-			const bool firstFgDraw = a_fgTarget &&
-				!overlayDrawFgTargetLogged.exchange(true, std::memory_order_relaxed);
-			// One-time log per target kind: if the FG line never appears, its
-			// hand-off is not being matched.
-			if (firstDraw || firstFgDraw) {
-				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})",
-					a_fgTarget ? "premultiplied / FG UI input" : "premultiplied / composite input",
+			if (firstDraw) {
+				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
 					UiTargetFormat::Name(rtvFormat),
 					reinterpret_cast<std::uintptr_t>(a_buffer));
@@ -851,10 +799,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 
 		static bool OverlayDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_fgTarget, const bool a_regionFirst)
+			const bool a_firstDrawInRegion)
 		{
 			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
-			return self && self->RecordOverlay(a_list, a_buffer, a_fgTarget, a_regionFirst);
+			return self && self->RecordOverlay(a_list, a_buffer, a_firstDrawInRegion);
 		}
 
 	};
@@ -884,10 +832,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	}
 
 	bool RecordOverlayIntoUIBuffer(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-		const bool a_fgTarget, const bool a_regionFirst)
+		const bool a_firstDrawInRegion)
 	{
 		const auto fn = g_overlayDrawFn.load(std::memory_order_acquire);
-		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_fgTarget, a_regionFirst);
+		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_firstDrawInRegion);
 	}
 
 	void D3D12Compositor::SetSharedRing(const SharedRingDesc& a_desc)
@@ -906,14 +854,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		if (_impl) {
 			_impl->visible.store(a_visible, std::memory_order_relaxed);
 		}
-	}
-
-	CompositorStatus D3D12Compositor::GetStatus() const
-	{
-		if (_impl) {
-			return _impl->GetStatus();
-		}
-		return {};
 	}
 
 	std::optional<OutputSize> D3D12Compositor::GetObservedOutputSize() const

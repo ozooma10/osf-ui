@@ -72,6 +72,8 @@ namespace OSFUI::UiPass
 		// than beside its first reader) precisely so that lazy installer, which
 		// runs long after Install() returned true, can turn it back off.
 		std::atomic<bool> g_drawEnabled{ false };
+		detail::FrameGenerationTargetPolicy g_fgTargetPolicy;
+		std::atomic_bool g_fgLayerOnlyLogged{ false };
 
 		thread_local int tl_handoffDrawsLeft = 0;
 		thread_local int tl_callsAfterFirstDraw = -1;
@@ -290,6 +292,14 @@ namespace OSFUI::UiPass
 				!a_list || !a_buffer) {
 				return;
 			}
+			const auto target = g_fgTargetPolicy.Observe(a_fgTarget, a_regionFirst);
+			if (!target.draw) {
+				if (target.frameGeneration && !a_fgTarget &&
+					!g_fgLayerOnlyLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::DEBUG("[UiPass] under FG only the transparent COPY_SOURCE UI layer is drawn");
+				}
+				return;
+			}
 
 			ID3D12DescriptorHeap* engineHeaps[2]{ tl_heaps[0], tl_heaps[1] };
 			const UINT engineHeapCount = tl_heapCount;
@@ -309,7 +319,7 @@ namespace OSFUI::UiPass
 			};
 			const bool drew = [&] {
 				const OverlayDrawScope scope;
-				return RecordOverlayIntoUIBuffer(a_list, a_buffer, a_fgTarget, a_regionFirst);
+				return RecordOverlayIntoUIBuffer(a_list, a_buffer, target.firstDrawInRegion);
 			}();
 			if (!drew) {
 				// Every early-out in RecordOverlayIntoUIBuffer precedes its
@@ -469,5 +479,10 @@ namespace OSFUI::UiPass
 	bool DrawEnabled()
 	{
 		return g_drawEnabled.load(std::memory_order_acquire);
+	}
+
+	bool FrameGenerationActive()
+	{
+		return g_fgTargetPolicy.FrameGenerationActive();
 	}
 }

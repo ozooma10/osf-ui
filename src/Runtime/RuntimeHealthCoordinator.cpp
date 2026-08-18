@@ -3,6 +3,7 @@
 #include "API/BridgeApi.h"
 #include "Compat/V1/Navigation.h"
 #include "Compat/V1/Papyrus.h"
+#include "Composite/UiPass.h"
 #include "Core/Version.h"
 #include "Core/Json.h"
 #include "Runtime/Runtime.h"
@@ -211,15 +212,13 @@ namespace OSFUI
 	{
 		auto& runtime = _runtime;
 		if (!runtime._healthRegistry) return;
-		const auto status = runtime._compositor ?
-			runtime._compositor->GetStatus() : CompositorStatus{};
 		runtime._healthRegistry->SetSystemInfo(nlohmann::json{
 			{ "version", kOsfuiReleaseVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
 			{ "renderer", runtime._renderer ? "webview2" : "none" },
 			{ "compositor", runtime._compositor ? "d3d12" : "none" },
 			{ "drawPath", runtime.OverlayCanDraw() ? "ui-pass" : "unavailable" },
-			{ "frameGeneration", status.frameGeneration },
+			{ "frameGeneration", UiPass::FrameGenerationActive() },
 			{ "nativeFocus", runtime._renderer != nullptr },
 			{ "locale", runtime._localization.Locale() },
 			// { "devMode", runtime._config.devMode },

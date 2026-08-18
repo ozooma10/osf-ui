@@ -7,4 +7,5 @@ namespace OSFUI::UiPass
 	bool Install();
 
 	bool DrawEnabled();
+	bool FrameGenerationActive();
 }

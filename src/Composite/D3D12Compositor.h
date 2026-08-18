@@ -8,13 +8,8 @@ struct ID3D12Resource;
 
 namespace OSFUI
 {
-	struct CompositorStatus
-	{
-		bool frameGeneration{ false };
-	};
-
 	// Records the webview2 overlay quad into the engine's UI buffer. Returns true if a quad was recorded.
-	bool RecordOverlayIntoUIBuffer(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, bool a_fgTarget, bool a_regionFirst);
+	bool RecordOverlayIntoUIBuffer(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, bool a_firstDrawInRegion);
 
 	class D3D12Compositor final
 	{
@@ -27,7 +22,6 @@ namespace OSFUI
 		void SetVisible(bool a_visible);
 		std::optional<OutputSize> GetObservedOutputSize() const;
 		void SetSharedRing(const SharedRingDesc& a_desc);
-		CompositorStatus GetStatus() const;
 
 	private:
 		struct Impl;
