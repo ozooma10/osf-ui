@@ -14,9 +14,9 @@ The production render path is fixed:
   pass.
 
 Initialization failure disables OSF UI runtime setup instead of leaving a loaded but
-invisible plugin. `IWebRenderer` and `ICompositor` remain internal abstraction
-seams, but configuration does not select null or alternate production
-implementations.
+invisible plugin. `IWebRenderer` remains an internal abstraction seam, while the
+runtime owns the fixed `D3D12Compositor` directly. Configuration does not select
+null or alternate production implementations.
 
 ## Layers
 
@@ -61,7 +61,7 @@ The public extension APIs hang off the bridge rather than the render path:
 2. `IWebRenderer::Update(dt)` advances the web content.
 3. The browser host publishes frames through a shared D3D12 texture ring; `IWebRenderer::Render()` returns the frame-ready slot and fence serial.
 4. On a closed-to-open edge, `Views/ViewRevealGate` keeps the compositor hidden until it observes a fresh frame, a known output size, and a texture matching that size. `Runtime` submits gate-approved frames and performs the real compositor side effects. If the bounded wait expires, Runtime closes the presentation and immediately releases focus, input, pause, and cursor ownership.
-5. `ICompositor::Submit(frame)` records the approved slot; the overlay is drawn later, inside the engine's Scaleform UI pass (see *How the D3D12 compositor works*), sampling the shared texture directly with no CPU readback or upload.
+5. `D3D12Compositor::Submit(frame)` records the approved slot; the overlay is drawn later, inside the engine's Scaleform UI pass (see *How the D3D12 compositor works*), sampling the shared texture directly with no CPU readback or upload.
 
 The same Tick is where the bridge does its main-thread work: it drains the
 Papyrus and native-plugin queues (retained state, events, replies), expires
@@ -304,7 +304,7 @@ directly.
 
 ## How the D3D12 compositor works
 
-`D3D12Compositor` implements `ICompositor` on the game's own D3D12 device. Frames are sampled directly from the browser host's shared texture ring with no CPU readback or upload. The overlay quad is drawn *inside the engine's Scaleform UI pass* (`Composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the seam reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
+`D3D12Compositor` draws on the game's own D3D12 device. Frames are sampled directly from the browser host's shared texture ring with no CPU readback or upload. The overlay quad is drawn *inside the engine's Scaleform UI pass* (`Composite/UiPassSeam`, hooked at ScaleformEnd) so frame generation (FSR3 / DLSS-G) paces the overlay like native UI. The compositor does not hook `IDXGISwapChain::Present`: Submit adopts shared rings on the tick thread, while the seam reports output dimensions and identifies the transparent `COPY_SOURCE` UI hand-off used when frame generation is active. This keeps OSF UI outside Present chains owned by OptiScaler, Streamline, Steam, RTSS, ReShade, and similar tools.
 
 Remaining open areas: alternate UI-target formats and broader in-game validation across frame-generation and external-overlay combinations.
 

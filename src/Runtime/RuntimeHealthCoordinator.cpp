@@ -234,7 +234,7 @@ namespace OSFUI
 			{ "version", kOsfuiReleaseVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
 			{ "renderer", runtime._renderer ? std::string(runtime._renderer->Name()) : "none" },
-			{ "compositor", runtime._compositor ? std::string(runtime._compositor->Name()) : "none" },
+			{ "compositor", runtime._compositor ? "d3d12" : "none" },
 			{ "drawPath", status.seamActive ? "ui-seam" : "unavailable" },
 			{ "frameGeneration", status.frameGeneration },
 			{ "nativeFocus", runtime._renderer && runtime._renderer->UsesNativeKeyboardFocus() },

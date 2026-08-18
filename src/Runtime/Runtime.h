@@ -3,7 +3,7 @@
 #include <unordered_set>  // not in pch.h
 
 #include "API/BridgeApi.h"
-#include "Composite/ICompositor.h"
+#include "Composite/D3D12Compositor.h"
 #include "Core/Config.h"
 #include "Input/GamepadSession.h"
 #include "Input/KeyLabels.h"
@@ -194,7 +194,7 @@ namespace OSFUI
 		LocalizationService           _localization;
 		ViewManager                   _views;
 		std::unique_ptr<IWebRenderer> _renderer;
-		std::unique_ptr<ICompositor>  _compositor;
+		std::unique_ptr<D3D12Compositor> _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
 		std::vector<std::unique_ptr<IUiModule>> _modules;
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it

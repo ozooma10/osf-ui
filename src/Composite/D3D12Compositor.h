@@ -1,12 +1,20 @@
 #pragma once
 
-#include "Composite/ICompositor.h"
+#include "Render/IWebRenderer.h"
 
 struct ID3D12GraphicsCommandList;
 struct ID3D12Resource;
 
 namespace OSFUI
 {
+	struct CompositorStatus
+	{
+		bool seamActive{ false };
+		bool frameGeneration{ false };
+	};
+
+	using OutputResizeCallback = std::function<void(std::uint32_t a_width, std::uint32_t a_height)>;
+
 	// Seam-draw hook, defined in D3D12Compositor.cpp and called by UiPassSeam
 	// from a render worker inside the engine's UI-buffer hand-off: records the
 	// overlay quad onto the ENGINE's own command list, into the engine's UI
@@ -35,24 +43,23 @@ namespace OSFUI
 	// Owns nothing of the game's: own root signature, PSO, descriptor heaps and
 	// fence. Setup is lazy on the first Submit — the
 	// renderer root global is empty during SFSE plugin load.
-	class D3D12Compositor final : public ICompositor
+	class D3D12Compositor final
 	{
 	public:
 		D3D12Compositor();
-		~D3D12Compositor() override;
+		~D3D12Compositor();
 
-		bool Initialize() override;
-		void Submit(const FrameBufferView& a_frame) override;
-		void SetVisible(bool a_visible) override;
-		void SetOutputResizeCallback(OutputResizeCallback a_callback) override;
-		[[nodiscard]] bool IsOutputSizeKnown() const override;
+		bool Initialize();
+		void Submit(const FrameBufferView& a_frame);
+		void SetVisible(bool a_visible);
+		void SetOutputResizeCallback(OutputResizeCallback a_callback);
+		[[nodiscard]] bool IsOutputSizeKnown() const;
 		// GPU transport (out-of-process browser host): adopt the shared ring;
 		// sharedSlot frames submitted afterwards are sampled directly at the
 		// engine seam (produce/consume fence synchronized, no CPU upload).
-		void SetSharedRing(const SharedRingDesc& a_desc) override;
-		void SetSeamDrawMode(bool a_enabled) override;
-		[[nodiscard]] CompositorStatus GetStatus() const override;
-		[[nodiscard]] std::string_view Name() const override { return "d3d12"; }
+		void SetSharedRing(const SharedRingDesc& a_desc);
+		void SetSeamDrawMode(bool a_enabled);
+		[[nodiscard]] CompositorStatus GetStatus() const;
 
 	private:
 		struct Impl;

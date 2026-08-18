@@ -6,7 +6,6 @@
 #include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
 #include "Compat/V1/Papyrus.h"
-#include "Composite/D3D12Compositor.h"
 #include "Composite/UiPassSeam.h"
 #include "Core/Log.h"
 #include "Core/Version.h"
@@ -135,7 +134,7 @@ namespace OSFUI
 			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
 			return false;
 		}
-		REX::INFO("Runtime: compositor = {}", _compositor->Name());
+		REX::INFO("Runtime: compositor = d3d12");
 		return true;
 	}
 

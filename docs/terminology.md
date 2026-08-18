@@ -22,8 +22,9 @@ entries intentionally retain the vocabulary of the release they describe.
 
 The production render path is fixed: the OSF UI runtime owns one
 `WebView2HostWebRenderer` and one `D3D12Compositor`; the browser stack itself
-runs in the browser host. `IWebRenderer` and `ICompositor` are internal
-abstraction seams, not player-selectable render backends.
+runs in the browser host. `IWebRenderer` is an internal abstraction seam, while
+the runtime owns `D3D12Compositor` directly. Neither is a player-selectable
+render backend.
 
 ## Versions
 
