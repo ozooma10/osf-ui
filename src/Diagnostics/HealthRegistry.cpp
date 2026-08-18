@@ -11,9 +11,6 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Session-relative seconds, rounded to a tenth. The frontend renders
-		// these as "3s ago" style relative times; more precision would only make
-		// the dedupe dump churn.
 		[[nodiscard]] double RoundSeconds(double a_seconds)
 		{
 			const double clamped = a_seconds > 0.0 ? a_seconds : 0.0;
@@ -25,8 +22,6 @@ namespace OSFUI
 			return a_severity == HealthRegistry::Severity::Error ? "error" : "warning";
 		}
 
-		// Rank for the wire ordering: errors before warnings, active before
-		// resolved. Lower sorts first.
 		[[nodiscard]] int OrderRank(bool a_resolved, HealthRegistry::Severity a_severity)
 		{
 			const int severityRank = a_severity == HealthRegistry::Severity::Error ? 0 : 1;
@@ -36,11 +31,7 @@ namespace OSFUI
 
 	std::string HealthRegistry::RedactPath(std::string_view a_text)
 	{
-		// Path-shaped: a drive letter ("C:\"), a UNC/POSIX root, a URL scheme, or
-		// simply any embedded separator. Producers are supposed to pass bare
-		// filenames and ids, so this is a backstop against a message that
-		// interpolated a full path — the file's own name is the part a player
-		// can act on, and the directory chain is private to their machine.
+		
 		const bool hasSeparator = a_text.find('\\') != std::string_view::npos ||
 			a_text.find('/') != std::string_view::npos;
 		if (!hasSeparator) {
@@ -48,9 +39,7 @@ namespace OSFUI
 		}
 		const auto last = a_text.find_last_of("\\/");
 		auto       tail = a_text.substr(last + 1);
-		// A trailing separator (a directory) leaves nothing behind; so does a
-		// bare root. Say so rather than emitting an empty string that reads as a
-		// missing field.
+
 		if (tail.empty()) {
 			return "<path>";
 		}
@@ -70,19 +59,11 @@ namespace OSFUI
 			}
 			if (value.is_string()) {
 				auto text = value.get<std::string>();
-				// Compatibility health issues must carry the concrete consumer identity in
-				// context. A qualified view id contains '/', which the general path
-				// redactor would otherwise reduce to only its final segment. Preserve
-				// it only after the public view-id grammar proves it is an id rather
-				// than an arbitrary filesystem path supplied by a producer.
+
 				if (key != "consumer" || !Ids::IsValidQualifiedViewId(text)) {
 					text = RedactPath(text);
 				}
 				if (text.size() > kMaxContextValueChars) {
-					// Codepoint-boundary cut: context values carry author- and
-					// player-supplied text (view load errors, native ReportIssue),
-					// and Broadcast() dumps this on the game thread with nothing
-					// catching above it, so a split sequence terminates the process.
 					StringUtil::TruncateUtf8(text, kMaxContextValueChars);
 					text += "…";
 				}
@@ -90,8 +71,6 @@ namespace OSFUI
 			} else if (value.is_number() || value.is_boolean()) {
 				out[key] = value;
 			} else {
-				// Arrays/objects/null: no v1 producer needs them, and allowing
-				// them would reopen the size question one nesting level down.
 				continue;
 			}
 			++kept;
@@ -127,9 +106,6 @@ namespace OSFUI
 		auto         context = Sanitize(a_spec.context);
 
 		if (auto* existing = Find(a_spec.id)) {
-			// Same identity: this is a recurrence, not a new condition. The
-			// occurrence count is what tells "it happened once at startup" apart
-			// from "it is happening every few seconds".
 			existing->code = a_spec.code;
 			existing->severity = a_spec.severity;
 			existing->source = a_spec.source;
@@ -201,17 +177,13 @@ namespace OSFUI
 			return static_cast<std::size_t>(
 				std::ranges::count(_issues, a_resolved, &Issue::resolved));
 		};
-		// Oldest-first eviction within each bucket: _issues is in insertion
-		// order, so the first match is the oldest record of that kind.
 		const auto evictOldest = [this](bool a_resolved) {
 			const auto it = std::ranges::find(_issues, a_resolved, &Issue::resolved);
 			if (it != _issues.end()) {
 				REX::WARN("HealthRegistry: evicting {} issue '{}' — history cap reached",
 					a_resolved ? "resolved" : "active", it->id);
 				_issues.erase(it);
-				// Every caller today also bumps, so this is redundant — kept so
-				// eviction stays self-contained and a future caller cannot
-				// silently drop an issue without moving the send generation.
+
 				++_generation;
 			}
 		};
@@ -252,8 +224,6 @@ namespace OSFUI
 
 	nlohmann::json HealthRegistry::Snapshot() const
 	{
-		// Index vector rather than copying records: ordering only needs the rank
-		// and the insertion position.
 		std::vector<std::size_t> order(_issues.size());
 		for (std::size_t i = 0; i < order.size(); ++i) {
 			order[i] = i;
@@ -266,8 +236,6 @@ namespace OSFUI
 			if (lhsRank != rhsRank) {
 				return lhsRank < rhsRank;
 			}
-			// Newest first: the moment it last happened, then insertion order as
-			// the stable tiebreaker for issues raised in the same tick.
 			const double lhsAt = lhs.resolved ? lhs.resolvedAt : lhs.lastAt;
 			const double rhsAt = rhs.resolved ? rhs.resolvedAt : rhs.lastAt;
 			if (lhsAt != rhsAt) {
@@ -288,11 +256,7 @@ namespace OSFUI
 		if (!_bridge) {
 			return;
 		}
-		// Change dedupe: callers Broadcast() unconditionally after any potential
-		// change, every tick included. The hello REPLAY deliberately does not
-		// come through here (it publishes Snapshot() straight to the greeting
-		// view) — deduping against the last change would send the second view to
-		// connect nothing at all.
+
 		if (_generation == _sentGeneration) {
 			return;
 		}
@@ -303,17 +267,11 @@ namespace OSFUI
 	void HealthRegistry::RegisterEndpoints(MessageBridge& a_bridge)
 	{
 		_bridge = &a_bridge;
-		// `diagnostics.get` is gone: it was a read whose real job was to
-		// subscribe. The registry is the `osfui/diagnostics` state key, replayed
-		// to every document that greets the bridge.
 	}
 
 	void HealthRegistry::OnBridgeDown()
 	{
 		_bridge = nullptr;
-		// Force a resend to whoever reconnects: the next Broadcast() must not
-		// dedupe against what the previous bridge was sent. _generation only
-		// ever increments from 1, so 0 can never match it.
 		_sentGeneration = 0;
 	}
 
