@@ -1,7 +1,7 @@
 // Native desktop unit tests for BridgeApi ABI 2.0 + MessageBridge protocol 2.0
 // (docs/mod-api-2.0-design.md): the REAL src/API/BridgeApi.cpp and
 // src/Bridge/MessageBridge.cpp compiled against stubs/pch.h. Pins the endpoint
-// grammar ("<author>.<modname>.<name>", api-freeze item 3), first-wins duplicate
+// explicit platform endpoint reservation, first-wins duplicate
 // refusal, unregister-then-reregister replacement, qualified RegisterView ids
 // (item 1), and — end to end through a live bridge — the four-verb envelope, the
 // page-initiated handshake, strict kind enforcement, request settlement,
@@ -201,26 +201,23 @@ int main()
 	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "2.0");
 	CHECK(std::string_view(api.GetBridgeProtocolVersion()) == "2.0");
 
-	// --- endpoint shape (item 3): two dots minimum, item-1 mod-id grammar -----
-	// Every platform endpoint is structurally unregisterable — dotless verbs,
-	// single-dot names (including the osfui.* built-ins), bad mod ids. The 2.0
-	// rename changed which names the platform owns, not the rule that owns them.
+	// --- endpoint ownership: explicit, with no dot-count inference -------------
 	for (const auto* bad : { "close", "ping", "setVisible", "menu.open",
 	                         "settings.set", "papyrus.call", "papyrus.send", "osfui.hello",
-	                         "osfui.gamepadRaw",
-	                         "Acme.Mod.x", "under_score.mod.x", "acme.mymod.",
-	                         ".leading.x", "a..b.x" }) {
+	                         "osfui.gamepadRaw", "OSFUI.private" }) {
 		api.RegisterSend(bad, &HandlerA, nullptr);
 	}
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('close')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('menu.open')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('osfui.hello')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('papyrus.send')"));
-	CHECK(LoggedContaining("WARN", "refused RegisterSend('Acme.Mod.x')"));
+	CHECK(LoggedContaining("WARN", "refused RegisterSend('OSFUI.private')"));
 
-	// Accepted: "<author>.<modname>.<name>", name may itself contain dots.
+	// Opaque plugin endpoint names need no particular dot count.
 	api.RegisterSend("acme.mymod.ping", &HandlerA, nullptr);
 	api.RegisterSend("acme.mymod.catalog.get", &HandlerA, nullptr);
+	api.RegisterSend("plainmod.ping", &HandlerA, nullptr);
+	api.RegisterSend("Ship Status!", &HandlerA, nullptr);
 
 	// --- duplicates: first-wins, refused (item 3) -----------------------------
 	api.RegisterSend("acme.mymod.ping", &HandlerB, nullptr);  // hijack attempt
@@ -637,8 +634,9 @@ int main()
 		CHECK(!api.SetViewState("acme.mymod", nullptr, "{}"));
 		CHECK(!api.SetViewState("acme.mymod", "roster", nullptr));
 		CHECK(!api.SetViewState("acme.mymod", "", "{}"));
-		CHECK(!api.SetViewState("Acme.Mod", "roster", "{}"));
-		CHECK(LoggedContaining("WARN", "refused SetViewState('Acme.Mod')"));
+		CHECK(!api.SetViewState("../evil", "roster", "{}"));
+		CHECK(!api.SetViewState("osfui", "roster", "{}"));
+		CHECK(LoggedContaining("WARN", "refused SetViewState('osfui')"));
 		// The key is echoed on the wire and used as a cache key, so it is
 		// bounded like every other content-supplied name.
 		CHECK(!api.SetViewState("acme.mymod", std::string(129, 'k').c_str(), "{}"));
@@ -650,7 +648,7 @@ int main()
 		// Accepted. Unlike a send, state needs no bridge, no instantiated view and
 		// no greeting: it is not addressed to a document at all.
 		CHECK(api.SetViewState("acme.mymod", "roster", R"({"crew":2})"));
-		CHECK(api.SetViewState("osfui", "count", "7"));       // built-in mod id; scalars are values too
+		CHECK(api.SetViewState("Mixed Mod_name!", "count", "7"));
 		CHECK(api.SetViewState("acme.mymod", "roster", "[1,2]"));
 		{
 			// FIFO, verbatim: latest-wins is the STORE's job on the main tick,
@@ -659,7 +657,7 @@ int main()
 			CHECK(ops.size() == 3);
 			CHECK(ops.size() == 3 && ops[0].mod == "acme.mymod" && ops[0].key == "roster");
 			CHECK(ops.size() == 3 && ops[0].value.value("crew", 0) == 2);
-			CHECK(ops.size() == 3 && ops[1].mod == "osfui" && ops[1].key == "count" && ops[1].value == 7);
+			CHECK(ops.size() == 3 && ops[1].mod == "Mixed Mod_name!" && ops[1].key == "count" && ops[1].value == 7);
 			CHECK(ops.size() == 3 && ops[2].key == "roster" && ops[2].value.is_array());
 			CHECK(api.TakeViewStateOps().empty());  // drained
 		}
@@ -704,13 +702,13 @@ int main()
 	// --- RegisterView takes qualified ids only (item 1) -----------------------
 	CHECK(!api.RegisterView("osf"));              // unqualified: refused synchronously
 	CHECK(!api.RegisterView("osfui.settings"));   // dotted join, not slash
-	CHECK(!api.RegisterView("Acme.Mod/dash"));    // bad mod id
+	CHECK(api.RegisterView("Acme.Mod/dash"));     // opaque mixed-case mod id
 	CHECK(api.RegisterView("acme.mymod/dash"));   // queued
-	CHECK(api.RegisterView("osfui/settings"));    // dotless built-in mod id is legal
+	CHECK(!api.RegisterView("osfui/settings"));   // platform namespace is reserved
 	{
 		const auto regs = api.TakeViewRegistrations();
 		CHECK(regs.size() == 2);
-		CHECK(regs.size() == 2 && regs[0] == "acme.mymod/dash" && regs[1] == "osfui/settings");
+		CHECK(regs.size() == 2 && regs[0] == "Acme.Mod/dash" && regs[1] == "acme.mymod/dash");
 	}
 
 	// --- RequestMenu validates against discovery at queue time ----------------
@@ -899,9 +897,9 @@ int main()
 		api.TakeHealthIssueOps();
 		CHECK(!api.ReportIssue(nullptr, "x", "y", kWarn, "", nullptr));
 		CHECK(!api.ReportIssue("", "x", "y", kWarn, "", nullptr));
-		CHECK(!api.ReportIssue("Acme.Mod", "x", "y", kWarn, "", nullptr));
-		CHECK(!api.ReportIssue("settings", "x", "y", kWarn, "", nullptr));
-		CHECK(LoggedContaining("WARN", "refused ReportIssue('Acme.Mod')"));
+		CHECK(!api.ReportIssue("osfui", "x", "y", kWarn, "", nullptr));
+		CHECK(!api.ReportIssue("bad/name", "x", "y", kWarn, "", nullptr));
+		CHECK(LoggedContaining("WARN", "refused ReportIssue('osfui')"));
 		CHECK(!api.ReportIssue("acme.mymod", "", "y", kWarn, "", nullptr));
 		CHECK(!api.ReportIssue("acme.mymod", "x", "", kWarn, "", nullptr));
 		CHECK(!api.ReportIssue("acme.mymod", "x", "y", kWarn, "", "[1,2]"));
@@ -916,7 +914,7 @@ int main()
 		CHECK(LoggedContaining("WARN", "unknown severity 9"));
 		CHECK(api.ClearIssue("acme.mymod", "quiet"));
 		CHECK(!api.ClearIssue("acme.mymod", ""));
-		CHECK(!api.ClearIssue("bogus id", "quiet"));
+		CHECK(!api.ClearIssue("bogus/id", "quiet"));
 		CHECK(api.ClearIssuesExcept("acme.mymod", "[\"pack-parse\"]"));
 		CHECK(api.ClearIssuesExcept("acme.mymod", "[]"));
 		CHECK(api.ClearIssuesExcept("acme.mymod", nullptr));

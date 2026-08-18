@@ -33,7 +33,7 @@ Writing a view (HTML/JS) instead? [authoring-views.md](authoring-views.md) is th
 Most mods need no native code:
 
 - Ship a view: drop a folder in `views/<modId>/<viewName>/` ([authoring-views.md](authoring-views.md)).
-- Ship settings: drop a schema in `settings/<author>.<modname>.json` ([authoring-settings.md](authoring-settings.md)).
+- Ship settings: drop a schema in `settings/<modId>.json` ([authoring-settings.md](authoring-settings.md)).
 - A view reads/writes its own settings and reacts to hotkeys from JS.
 - Papyrus can publish view state, send view events and answer view requests with no DLL ([authoring-dynamic-data.md](authoring-dynamic-data.md)).
 
@@ -109,7 +109,7 @@ g_ui.RegisterSend("acme.mymod.equip", &OnEquip, nullptr);
 
 A registered send is strictly one-way. A `request()` naming it is rejected `wrong-endpoint-kind`; no `requestId` or other routing field is injected into the payload and no acknowledgement is generated. Use `RegisterRequest` whenever the view needs a result or failure. A `send()` naming a request endpoint is dropped and surfaced as `wrong-endpoint-kind`.
 
-**Names:** `<author>.<modname>.<name>` — a mod id (lowercase `[a-z0-9-]` segments, exactly one dot) plus a name that may contain more dots. Two dots minimum; bad shapes are refused with a log warning. Platform endpoints are dotless or single-dot, so you can't collide with them.
+**Names:** endpoint names are opaque non-empty strings. `<modId>.<name>` remains the recommended readable convention, but dots are not parsed and there is no minimum count. OSF UI explicitly refuses every current platform endpoint plus the case-insensitive `osfui` / `osfui.*` namespace.
 
 **Duplicates are first-wins across both registries.** A name can't be both a send and a request, and registering a name someone else owns is refused. To replace your own handler, `UnregisterSend` then register again — the pair works back-to-back within one tick.
 
@@ -430,7 +430,7 @@ All on `IOSFUIBridge`, mirrored on `Client`. Every listed method is part of the 
 | `GetPluginVersion(maj,min,pat)` | 2.0 | any | OSF UI release |
 | `GetBridgeProtocolVersion()` | 2.0 | any | don't parse |
 | `IsBridgeReady()` | 2.0 | any | a bridge-enabled view is instantiated |
-| `RegisterSend(name,fn,user)` | 2.0 | any | strict one-way send; shape `<author>.<modname>.<name>` |
+| `RegisterSend(name,fn,user)` | 2.0 | any | strict one-way send; opaque name outside the reserved platform surface |
 | `UnregisterSend(name)` | 2.0 | any | |
 | `RegisterRequest(name,fn,user)` | 2.0 | any | first-wins across sends and requests; callback on main |
 | `UnregisterRequest(name)` | 2.0 | any | in-flight tokens stay valid until answer/timeout/close |

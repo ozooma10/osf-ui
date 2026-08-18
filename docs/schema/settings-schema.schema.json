@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
   "title": "OSF UI Settings Schema",
-  "description": "Schema for settings/<author>.<modname>.json files. Bridge protocol 2.0.",
+  "description": "Schema for settings/<modId>.json files. Bridge protocol 2.0.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -11,9 +11,9 @@
     },
     "id": {
       "type": "string",
-      "pattern": "^([a-z0-9-]+\\.[a-z0-9-]+|osfui)$",
+      "pattern": "^(?:osfui|(?![oO][sS][fF][uU][iI]$)(?!.*[<>:\"/\\\\|?*#%\\x00-\\x1F])(?!.*[. ]$)(?!\\.{1,2}$)(?!(?:[cC][oO][nN]|[pP][rR][nN]|[aA][uU][xX]|[nN][uU][lL]|[cC][oO][mM][1-9]|[lL][pP][tT][1-9])(?:\\.|$)).+)$",
       "maxLength": 64,
-      "description": "Mod id: \"<author>.<modname>\" - lowercase [a-z0-9-] segments, exactly one dot. Dotless ids are reserved for the platform. Must equal the filename stem, so the file is settings/<author>.<modname>.json."
+      "description": "Opaque mod id. Dots have no special meaning. Must be a non-empty Windows filename and URL-path component of at most 64 UTF-8 bytes and equal the filename stem; osfui is reserved for the platform."
     },
     "title": {
       "type": "string",

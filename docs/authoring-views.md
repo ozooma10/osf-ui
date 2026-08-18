@@ -18,17 +18,17 @@ Component, identity, lifecycle, readiness, and version names follow the
 
 Every public identifier derives from your mod id:
 
-- **Mod id** — `<author>.<modname>`, e.g. `ozooma10.almanac`. Lowercase `[a-z0-9-]` segments, exactly one dot, max 64 chars. The author segment is a handle you already own (Nexus or GitHub username), self-allocated, no registry. Dotless ids are reserved for the platform (`osfui` is the only dotless built-in), so there's no reserved-word list to collide with.
+- **Mod id** — an opaque, non-empty name of at most 64 bytes, e.g. `almanac`, `ozooma10.almanac`, or `Ozoomas Almanac`. Dots have no structural meaning. Because the same id is a Windows folder, filename, URL path component, and `/`-delimited protocol component, control characters and `<>:"/\|?*#%` are refused, as are trailing dots/spaces and Windows device names. `osfui` is reserved case-insensitively for the platform.
 - **View name** — `[a-z0-9-]+`, local to your mod (`planets`).
-- **Qualified view id** — `<modId>/<viewName>` (`ozooma10.almanac/planets`), used everywhere views are referenced: `config.json` `view`, `menu.open`, the `osfui/views` state key, and `RegisterView`. The slash mirrors the folder path; a dotted join would be ambiguous, since mod ids already contain a dot.
+- **Qualified view id** — `<modId>/<viewName>` (`almanac/planets`), used everywhere views are referenced: `config.json` `view`, `menu.open`, the `osfui/views` state key, and `RegisterView`. The slash mirrors the folder path and is why it cannot occur inside a mod id.
 
-Ids failing the grammar are rejected at load, with an ERROR in `OSF UI.log` naming the file and rule. The same mod id names your settings schema (`settings/<modId>.json`), your values file, your view namespace folder, the first half of every state key you publish (`<modId>/<key>`), and the prefix of your native plugin's endpoints (`<modId>.<name>`).
+Unsafe or reserved ids are rejected at load, with an ERROR in `OSF UI.log` naming the file. The same opaque string names your settings schema (`settings/<modId>.json`), your values file, your view namespace folder, and the first half of every state key you publish (`<modId>/<key>`). Use `<modId>.<name>` as a readable convention for native-plugin endpoints; endpoint registration does not parse dots out of that name.
 
 The two folder names are authoritative: `manifest.json` declares no `id`.
 Legacy manifest `id` fields are ignored rather than checked or used for
 routing.
 
-Two author prefixes are claimed: `osfui` (platform, reserved, dotless) and `osf` (the OSF family — `osf.animation` and future `osf.*` siblings). Don't publish under someone else's author segment; when two mods collide, whichever loads first wins.
+Choose a stable name unique to your mod. There is no author/mod decomposition and no registry; if two packages choose the same id, their folders and settings files collide before OSF UI can distinguish them.
 
 Before authoring, read [security-model.md](security-model.md): your view is untrusted code. No network access, no filesystem access beyond your own folder, no way to call arbitrary native functions.
 
@@ -39,7 +39,7 @@ Before authoring, read [security-model.md](security-model.md): your view is untr
 A view is a folder inside your mod's namespace folder under the plugin data dir:
 
 ```
-SFSE/Plugins/OSFUI/views/<author>.<modname>/<viewname>/
+SFSE/Plugins/OSFUI/views/<modId>/<viewname>/
   manifest.json     required — declares the view
   index.html        your entry page (name configurable via manifest "entry")
   style.css         (optional) your styles
@@ -126,7 +126,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the shared bridge helper consume
 - **`kind`** picks the view kind: a `"menu"` may capture input and become the active menu; a `"hud"` is passive (see *Multiple views & layering*). `capturesInput` and `pausesGame` refine a menu only — set `pausesGame:false` for a menu that wants the world running — and are forced `false` for HUDs whatever the manifest says.
 - **`permissions.nativeBridge`** must be `true` if your page talks to the OSF UI runtime. When false, `window.osfui` is never injected and the page runs purely client-side.
 - On a menu's first open, OSF UI keeps the view closed until its main-frame load succeeds. The view owns no input or pause state while loading. A failed load remains closed while automatic recovery runs; load failures and exhausted recovery are shown through System Health and written to `OSF UI.log`.
-- A manifest failing validation (an `entry` escaping the folder, a folder name violating the id grammar) is skipped with an error in `OSF UI.log`. The owning mod id comes from the `views/<modId>/` folder, so a view always groups onto its own mod's page.
+- A manifest failing validation (an `entry` escaping the folder, an unsafe/reserved mod folder, or a view name violating its narrow grammar) is skipped with an error in `OSF UI.log`. The owning mod id comes from the `views/<modId>/` folder, so a view always groups onto its own mod's page.
 
 ### Multiple views & layering
 
@@ -303,7 +303,7 @@ Two that surprise people:
 - **`menu.open` resolves "accepted and queued".** The open lands on the next tick, through the same snapshot/load/pump path as the native `RequestMenu`. That's all a caller can act on; the alternative would be a reply waiting an arbitrary number of frames on a page load.
 - **`settings.captureKey` settles immediately; the key arrives later.** It resolves the moment native capture is *armed*; the key the player presses comes back as the `settings.captured` **event**, however many seconds later. A request left pending on a human fights the client timeout and makes "waiting for you" indistinguishable from "the mod backend died". Requests settle in machine time; human-time outcomes are events. (There is consequently no `timeoutMs: 0` usage left in 2.0.)
 
-> There is intentionally no "call any native function" escape hatch. New endpoints come from native code only: a handler in the OSF UI runtime, or a separate SFSE plugin registering its own through the native bridge API ([native-plugin-api.md](native-plugin-api.md)). Plugin endpoints must be shaped `<author>.<modname>.<name>` (two dots minimum; the leading mod id follows the §0 grammar), so no mod can register a platform name and no registry is needed to keep the namespaces apart.
+> There is intentionally no "call any native function" escape hatch. New endpoints come from native code only: a handler in the OSF UI runtime, or a separate SFSE plugin registering its own through the native bridge API ([native-plugin-api.md](native-plugin-api.md)). Plugin endpoint names are opaque; OSF UI explicitly reserves its platform endpoints and the `osfui.*` namespace, then applies first-wins duplicate ownership to everything else.
 
 ### State keys (`osfui.state.on(key, fn)`)
 
@@ -404,13 +404,13 @@ osfui.ready.then((info) => {
 
 > The full author guide — quickstart, every widget, presets, hotkeys, localization, update strategy, testing — is [authoring-settings.md](authoring-settings.md). This section is the protocol-level summary.
 
-Drop a JSON schema at `SFSE/Plugins/OSFUI/settings/<author>.<modname>.json`. Every schema in that folder loads as a separate "mod" and renders as its own card in the built-in Mod Settings view, with no per-mod native or web code. Values persist per mod to `SFSE/Plugins/OSFUI/settings/values/<id>.json` (VFS-captured, so per-profile under MO2), survive relaunch, and the OSF UI runtime can react to changes natively.
+Drop a JSON schema at `SFSE/Plugins/OSFUI/settings/<modId>.json`. Every schema in that folder loads as a separate "mod" and renders as its own card in the built-in Mod Settings view, with no per-mod native or web code. Values persist per mod to `SFSE/Plugins/OSFUI/settings/values/<id>.json` (VFS-captured, so per-profile under MO2), survive relaunch, and the OSF UI runtime can react to changes natively.
 
 ### Schema format
 
 ```jsonc
 {
-  "id": "yourname.mymod",        // optional, defaults to the filename stem; "<author>.<modname>" grammar (§0)
+  "id": "My Mod",                // optional, defaults to the filename stem; opaque mod id (§0)
   "title": "My Mod",             // shown as the card header
   "groups": [
     {
@@ -598,7 +598,7 @@ With developer mode enabled, the in-game loop is fast too:
 
 ## 6. Checklist for shipping a view
 
-- [ ] `views/<modId>/<viewName>/manifest.json` — folder names pass the id grammar (§0), `permissions.nativeBridge` set as needed. The two-level path supplies the qualified view id — the manifest declares none.
+- [ ] `views/<modId>/<viewName>/manifest.json` — the mod folder is a safe opaque id (§0), the view folder uses its narrower grammar, and `permissions.nativeBridge` is set as needed. The path supplies the qualified view id — the manifest declares none.
 - [ ] Responsive CSS (no hardcoded 1280×720 assumptions; the view is resized to the screen).
 - [ ] All assets local and relative (no `..`, no absolute paths, no network) — plus the sanctioned `../../shared/osfui.css` / `osfui.js`.
 - [ ] Load `shared/osfui.js` before your script. Declare the `targetVersion` you authored against; use `"2.0.0"` or later after migrating to the strict four-verb surface.

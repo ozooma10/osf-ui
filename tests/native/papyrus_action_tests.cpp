@@ -122,8 +122,8 @@ int main()
 	// id are still script-supplied — those are what can still be wrong.
 	CHECK(listenStatic(*vm, 0, {}, "", "t.alpha") == 0);              // empty script
 	CHECK(listenStatic(*vm, 0, {}, "MyLib", "") == 0);                // empty mod id
-	CHECK(listenStatic(*vm, 0, {}, "MyLib", "notdotted") == 0);       // dotless non-built-in
-	CHECK(listenStatic(*vm, 0, {}, "MyLib", "two..dots") == 0);       // grammar violation
+	CHECK(listenStatic(*vm, 0, {}, "MyLib", "../evil") == 0);         // path separator
+	CHECK(listenStatic(*vm, 0, {}, "MyLib", "osfui") == 0);          // platform-reserved
 	CHECK(listenInstance(*vm, 0, {}, ObjPtr{}, "t.alpha") == 0);      // null receiver
 	const auto legacyScalar = registerLegacyStatic(*vm, 0, {}, "LegacyLib", "OnLegacy", "T.Legacy");
 	const auto legacyArgs = registerLegacyArgsStatic(*vm, 0, {}, "LegacyLib", "OnLegacyArgs", "T.Legacy");
@@ -155,7 +155,7 @@ int main()
 	const auto legacyCallers = Compat::V1::Papyrus::TakeCallers();
 	CHECK(legacyCallers.size() == 1);
 	if (!legacyCallers.empty()) CHECK(legacyCallers[0] == "t.legacy");
-	// Interned casing folds to the grammar's lowercase and is accepted.
+	// Interned ASCII casing folds to a stable comparison form and is accepted.
 	const auto tokenStatic = listenStatic(*vm, 0, {}, "MyLib", "T.Alpha");
 	CHECK(tokenStatic != 0);
 
@@ -427,7 +427,7 @@ int main()
 
 	// Invalid mod id / empty key are refused with a WARN naming the native the
 	// script actually called; nothing is queued.
-	setViewStrings(*vm, 0, {}, "notdotted", "slots", { Str{ "x" } });
+	setViewStrings(*vm, 0, {}, "../evil", "slots", { Str{ "x" } });
 	setViewStrings(*vm, 0, {}, "t.alpha", "", { Str{ "x" } });
 	tick();
 	CHECK(states.empty());
@@ -474,7 +474,7 @@ int main()
 	CHECK(events.size() == 1 && events[0].args.empty());
 
 	// Same target validation as state, and the refusal names SendViewEvent.
-	sendViewEvent(*vm, 0, {}, "notdotted", "x", { Str{ "1" } });
+	sendViewEvent(*vm, 0, {}, "../evil", "x", { Str{ "1" } });
 	sendViewEvent(*vm, 0, {}, "t.alpha", "", { Str{ "1" } });
 	tick();
 	CHECK(events.empty());

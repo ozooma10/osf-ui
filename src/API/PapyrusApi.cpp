@@ -3,7 +3,7 @@
 #include "API/BridgeApi.h"  // SettingsMirror access + RequestMenu
 #include "Core/StringUtil.h"  // ToLowerAscii
 #include "Core/Version.h"
-#include "Core/Ids.h"  // id grammar validation + case-insensitive matching
+#include "Core/Ids.h"  // opaque id safety validation + case-insensitive matching
 #include "Settings/SettingsStore.h"
 
 #include "RE/B/BSScriptUtil.h"       // BindNativeMethod marshaling, GameVM, VirtualMachine
@@ -127,7 +127,7 @@ namespace OSFUI::API::Papyrus
 			return *state;
 		}
 
-		// Fold to the id grammar's lowercase before validating/matching: the
+		// Fold ASCII case before validating/matching: the
 		// string arrived through BSFixedString interning, which hands back the
 		// first-seen casing process-wide, so the script's literal spelling does
 		// not survive reliably.
@@ -450,15 +450,14 @@ namespace OSFUI::API::Papyrus
 		}
 
 		// Shared SetView*/SendViewEvent target validation (VM tasklet
-		// thread). Fold to the grammar's lowercase before validating: the
-		// interned casing is arbitrary, and the folded id is what delivery
-		// prefix-matches against the (lowercase-by-grammar) view ids. Returns
+		// thread). Fold ASCII case before validating: BSFixedString's interned
+		// casing is arbitrary, and delivery compares mod ids case-insensitively. Returns
 		// the folded mod id, or nullopt after logging the refusal.
 		std::optional<std::string> FoldTarget(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key, std::string_view a_native)
 		{
 			auto        mod = ToLowerAscii(a_mod.c_str());
 			const char* key = a_key.c_str();
-			if (!Ids::IsAcceptedModId(mod) || !key || !*key) {
+			if (!Ids::IsValidModId(mod) || !key || !*key) {
 				REX::WARN("PapyrusApi: [content] {}('{}', '{}') refused (invalid mod id or empty key)",
 					a_native, mod.substr(0, 64), key ? std::string_view(key).substr(0, 64) : "");
 				return std::nullopt;
@@ -685,14 +684,14 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kHotkey, {}, a_script, a_fn.c_str(), a_modId.c_str(), a_key.c_str());
 		}
 
-		// Fold a script-supplied action mod id to the id grammar's lowercase and
-		// accept only a valid one (nullopt = reject). Action registration is the
+		// Fold a script-supplied action mod id to stable ASCII casing and accept
+		// only a safe, non-reserved one (nullopt = reject). Action registration is the
 		// only Kind that validates the id up front: kSettings takes it raw as a
 		// filter, kHotkey only requires it non-empty.
 		std::optional<std::string> ValidateActionModId(const RE::BSFixedString& a_modId)
 		{
 			auto modId = ToLowerAscii(a_modId.c_str());
-			if (!Ids::IsAcceptedModId(modId)) {
+			if (!Ids::IsValidModId(modId)) {
 				return std::nullopt;
 			}
 			return modId;

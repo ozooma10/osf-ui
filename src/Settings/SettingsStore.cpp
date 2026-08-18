@@ -287,15 +287,13 @@ namespace OSFUI
 		std::sort(files.begin(), files.end());
 
 		for (const auto& path : files) {
-			// Drop-in id == filename stem, so the stem must pass the id grammar.
+			// Drop-in id == filename stem, so the stem must be a safe opaque mod id.
 			// Rejected here, not in ValidateSchemaShape, so the log names the file.
 			if (const auto stem = path.stem().string(); !Ids::IsAcceptedModId(stem)) {
-				REX::ERROR("SettingsStore: [content] skipping {} — settings files are named '<author>.<modname>.json' "
-						   "(lowercase [a-z0-9-] segments, exactly one dot in the mod id); "
-						   "dotless ids are reserved for the platform",
+				REX::ERROR("SettingsStore: [content] skipping {} — filename stem is not a safe mod id",
 					path.string());
 				RecordLoadError("schema-name", path.filename().string(), "",
-					"file name is not a mod id — settings files are named '<author>.<modname>.json'");
+					"filename stem is not a safe mod id");
 				continue;
 			}
 			std::string parseError;
@@ -325,7 +323,7 @@ namespace OSFUI
 		return AddSchema(std::move(a_schema), a_source, /*a_idHint=*/"", /*a_notify=*/true);
 	}
 
-	bool SettingsStore::ValidateSchemaShape(const nlohmann::json& a_schema)
+	bool SettingsStore::ValidateSchemaShape(const nlohmann::json& a_schema, bool a_allowBuiltIn)
 	{
 		if (!a_schema.is_object()) {
 			REX::WARN("SettingsStore: [content] rejected schema — not a JSON object");
@@ -336,13 +334,8 @@ namespace OSFUI
 			REX::WARN("SettingsStore: [content] rejected schema with no id");
 			return false;
 		}
-		// Id grammar: <author>.<modname>, lowercase [a-z0-9-] segments, exactly
-		// one dot. Dotless ids are platform-reserved ("osfui" is the only
-		// built-in), which subsumes the old reserved-word list (ui/menu/hud/...).
-		if (!Ids::IsAcceptedModId(id)) {
-			REX::ERROR("SettingsStore: [content] rejected schema id '{}' — mod ids are '<author>.<modname>' "
-					   "(lowercase [a-z0-9-] segments, exactly one dot, max {} chars); "
-					   "dotless ids are reserved for the platform",
+		if (!(a_allowBuiltIn ? Ids::IsAcceptedModId(id) : Ids::IsValidModId(id))) {
+			REX::ERROR("SettingsStore: [content] rejected schema id '{}' — invalid or reserved mod id (max {} bytes)",
 				id.substr(0, kMaxModIdLen), kMaxModIdLen);
 			return false;
 		}
@@ -382,7 +375,7 @@ namespace OSFUI
 			id = a_idHint;
 		}
 		a_schema["id"] = id;  // the document the web layer sees carries the effective id
-		if (!ValidateSchemaShape(a_schema)) {
+		if (!ValidateSchemaShape(a_schema, a_source == Source::kDropIn)) {
 			return false;
 		}
 		// Unknown top-level keys are the normal compatible case (a newer schema on
@@ -694,7 +687,7 @@ namespace OSFUI
 	bool SettingsStore::RemoveMod(std::string_view a_modId)
 	{
 		const auto it = std::find_if(_mods.begin(), _mods.end(),
-			[&](const Mod& a_mod) { return a_mod.id == a_modId; });
+			[&](const Mod& a_mod) { return Ids::EqualsCaseInsensitiveAscii(a_mod.id, a_modId); });
 		if (it == _mods.end()) {
 			return false;
 		}
@@ -733,7 +726,9 @@ namespace OSFUI
 	bool SettingsStore::EraseLoadErrorsForMod(std::string_view a_modId)
 	{
 		const auto count = std::erase_if(_loadErrors,
-			[&](const LoadError& a_e) { return !a_e.mod.empty() && a_e.mod == a_modId; });
+			[&](const LoadError& a_e) {
+				return !a_e.mod.empty() && Ids::EqualsCaseInsensitiveAscii(a_e.mod, a_modId);
+			});
 		if (count > 0) InvalidateData();
 		return count > 0;
 	}
@@ -980,7 +975,8 @@ namespace OSFUI
 	{
 		nlohmann::json conflicts = nlohmann::json::array();
 		for (const auto& other : a_bound) {
-			if (other.code != a_code || (other.modId == a_excludeMod && other.key == a_excludeKey)) continue;
+			if (other.code != a_code ||
+				(Ids::EqualsCaseInsensitiveAscii(other.modId, a_excludeMod) && other.key == a_excludeKey)) continue;
 			if (!other.gameBinding) {
 				if (!ModesOverlap(a_selfContext.modes, other.modes)) continue;
 				conflicts.push_back({
@@ -1129,7 +1125,7 @@ namespace OSFUI
 	SettingsStore::Mod* SettingsStore::FindMod(std::string_view a_modId)
 	{
 		for (auto& mod : _mods) {
-			if (mod.id == a_modId) {
+			if (Ids::EqualsCaseInsensitiveAscii(mod.id, a_modId)) {
 				return &mod;
 			}
 		}

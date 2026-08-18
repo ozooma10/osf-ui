@@ -10,7 +10,7 @@ namespace OSFUI
 	{
 	public:
 		// Scans a_viewsDir (two-level). Missing dir or bad manifests are
-		// logged, not fatal; folders violating the id grammar are hard-rejected
+		// logged, not fatal; unsafe or reserved mod-id folders are hard-rejected
 		// with an ERROR.
 		void DiscoverAll(const std::filesystem::path& a_viewsDir);
 

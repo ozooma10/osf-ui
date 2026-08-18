@@ -815,16 +815,21 @@ describe('the shipped shared kit talks to it end to end', () => {
 });
 
 describe('validModId', () => {
-  it('accepts the reserved dotless built-in and <author>.<modname>', () => {
+  it('accepts the canonical built-in and opaque filesystem-safe names', () => {
     expect(validModId('osfui')).toBe(true);
     expect(validModId('acme.shipworks')).toBe(true);
+    expect(validModId('Plain Mod_name!')).toBe(true);
+    expect(validModId('a.b.c')).toBe(true);
   });
 
-  it('refuses other dotless ids, uppercase, and over-long ids', () => {
-    expect(validModId('osf')).toBe(false);
-    expect(validModId('Acme.Shipworks')).toBe(false);
+  it('refuses unsafe names, platform aliases, and over-long ids', () => {
+    expect(validModId('osf')).toBe(true);
+    expect(validModId('Acme.Shipworks')).toBe(true);
+    expect(validModId('OSFUI')).toBe(false);
     expect(validModId('a'.repeat(60) + '.' + 'b'.repeat(10))).toBe(false);
-    expect(validModId('a.b.c')).toBe(false);
+    expect(validModId('★'.repeat(22))).toBe(false);
+    expect(validModId('../evil')).toBe(false);
+    expect(validModId('NUL')).toBe(false);
   });
 });
 

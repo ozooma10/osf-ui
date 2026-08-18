@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// Settling rules for mod-backend requests ("<author>.<modname>.<name>", three
-// segments minimum) in the shipped helper (src/shared-kit/osfui.js).
+// Settling rules for mod-backend requests (conventionally "<modId>.<name>")
+// in the shipped helper (src/shared-kit/osfui.js).
 //
 // Kind decides strict endpoint behavior:
 //   - `send()` is never awaited and needs no ack; it returns as soon as the

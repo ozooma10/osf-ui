@@ -169,12 +169,23 @@ int main()
 		CHECK(issue.value("status", "") == "active");
 		CHECK(issue.value("severity", "") == "error");
 		CHECK(issue.value("source", "") == "views");
+		CHECK(issue.value("sourceKind", "") == "platform");
 		CHECK(issue.value("subject", "") == "acme/panel");
 		CHECK(!issue.contains("resolvedAt"));
 
 		// A different id is a different condition, even with the same code.
 		CHECK(healthRegistry.Upsert(spec("view.load-failed:acme/hud", "view.load-failed", Severity::Error, "views", "acme/hud"), 10.0));
 		CHECK(healthRegistry.Snapshot().at("issues").size() == 2);
+	}
+
+	// A mod report carries explicit ownership; opaque ids such as "host" cannot
+	// be distinguished from subsystem names by punctuation.
+	{
+		HealthRegistry healthRegistry;
+		auto reported = spec("host:broken", "host:broken", Severity::Warning, "host");
+		reported.sourceKind = HealthRegistry::SourceKind::Mod;
+		CHECK(healthRegistry.Upsert(reported, 1.0));
+		CHECK(IssueById(healthRegistry.Snapshot(), "host:broken").value("sourceKind", "") == "mod");
 	}
 
 	// --- Resolve moves to session history; recurrence reactivates ----------

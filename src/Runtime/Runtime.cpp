@@ -631,7 +631,7 @@ namespace OSFUI
 			}
 			const auto* m = _views.Find(id);
 			if (!m) {
-				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (ids are qualified '<author>.<modname>/<view>'; is the view folder installed?)", id, id);
+				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (ids are qualified '<modId>/<view>'; is the view folder installed?)", id, id);
 				continue;
 			}
 			if (m->openOnStart) {

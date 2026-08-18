@@ -150,10 +150,10 @@ native → web:   { kind: "reply" | "error",   id: string,   payload: {} | { cod
   dropped-and-surfaced for sends — see "Failure semantics"). Native ABI 2.0
   uses the same strict `RegisterSend` / `RegisterRequest` split. Routing fields
   are never injected into payloads and no acknowledgement is fabricated.
-- Name grammar keeps today's structural partition
-  (`src/API/BridgeApi.cpp` `IsValidPluginCommand`): platform endpoints are
-  undotted or `osfui.*`; mod endpoints are `<author>.<modname>.<name>`.
-  Collision-proof without a registry.
+- Endpoint ownership is explicit rather than inferred from punctuation:
+  `BridgeApi` reserves the current platform surface and `osfui.*`, while plugin
+  registrations are first-wins across send/request kinds. Mod ids and endpoint
+  names are otherwise opaque.
 
 ## Lifecycle: one boot path for every document
 

@@ -63,7 +63,7 @@ int main()
 		assert(reloaded.HudAutoStart("gone.mod/compass", false));
 	}
 
-	// Invalid keys and non-boolean values are skipped; valid entries load.
+	// Invalid keys and non-boolean values are skipped; opaque mixed-case mod ids load.
 	WriteFile(kPath, R"({
 		"formatVersion": 1,
 		"hudOverrides": {
@@ -78,7 +78,8 @@ int main()
 		store.Load(kPath);
 		assert(store.HasHudOverride("acme.mod/hud"));
 		assert(!store.HasHudOverride("../evil"));
-		assert(!store.HasHudOverride("UPPER.Case/hud"));
+		assert(store.HasHudOverride("UPPER.Case/hud"));
+		assert(!store.HudAutoStart("UPPER.Case/hud", true));
 		assert(!store.HasHudOverride("acme.mod/other"));
 	}
 

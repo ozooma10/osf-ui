@@ -2,6 +2,7 @@
 
 #include <iterator>  // make_move_iterator — not in the pch umbrella
 
+#include "Core/Ids.h"
 #include "Core/Json.h"
 
 namespace OSFUI::API
@@ -40,7 +41,7 @@ namespace OSFUI::API
 		{
 			std::lock_guard lock(_mutex);
 			const bool anySubscriber = std::any_of(_subs.begin(), _subs.end(),
-				[&](const auto& a_entry) { return a_entry.second.modId == a_modId; });
+				[&](const auto& a_entry) { return Ids::EqualsCaseInsensitiveAscii(a_entry.second.modId, a_modId); });
 			if (!anySubscriber) {
 				return;
 			}
@@ -85,7 +86,7 @@ namespace OSFUI::API
 			}
 			for (auto& ev : _events) {
 				for (const auto& [token, sub] : _subs) {
-					if (sub.modId == ev.modId) {
+					if (Ids::EqualsCaseInsensitiveAscii(sub.modId, ev.modId)) {
 						eventCalls.push_back({ token, sub.fn, sub.user, ev.modId, ev.key, ev.valueJson });
 					}
 				}

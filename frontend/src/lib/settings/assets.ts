@@ -37,6 +37,14 @@ function isBadPath(v: string): boolean {
   return v.includes('..') || SCHEME_RE.test(v) || v.startsWith('/') || v.startsWith('\\');
 }
 
+/** Mirrors the native mod-id path boundary for untrusted mock payloads. */
+function isBadModId(v: string): boolean {
+  if (!v || new TextEncoder().encode(v).byteLength > 64 || v === '.' || v === '..' || /[. ]$/.test(v) ||
+      /[\u0000-\u001f<>:"/\\|?*#%]/.test(v)) return true;
+  if (v.toLowerCase() === 'osfui') return v !== 'osfui';
+  return /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(v);
+}
+
 /**
  * Resolve a schema-declared asset path to a URL, or `null` when it is rejected.
  *
@@ -44,9 +52,9 @@ function isBadPath(v: string): boolean {
  * looked at):
  *  1. an empty/absent `src`;
  *  2. a `src` whose percent-escapes do not decode (`decodeURIComponent` throws);
- *  3. an empty mod id, a mod id containing "%", or a mod id failing `isBadPath` —
- *     the id is interpolated into the path too, and while the store sanitises
- *     real ids this renderer also runs against mock data;
+ *  3. a mod id failing the native filesystem/URL-component boundary — the id
+ *     is interpolated into the path too, and this renderer also runs against
+ *     untrusted mock data;
  *  4. a `src` containing "%" at all, or failing `isBadPath` raw or decoded.
  */
 export function safeAssetSrc(
@@ -66,7 +74,7 @@ export function safeAssetSrc(
   }
 
   const id = String(modId || '');
-  if (!id || id.includes('%') || isBadPath(id)) return null;
+  if (isBadModId(id)) return null;
 
   if (s.includes('%') || isBadPath(s) || isBadPath(decoded)) return null;
 

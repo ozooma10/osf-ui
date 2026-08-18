@@ -220,16 +220,15 @@ const REQUEST_ENDPOINTS = new Set([
   'papyrus.request',
 ]);
 
-/**
- * Mirror of SettingsStore id validation: mod ids are "<author>.<modname>" —
- * lowercase [a-z0-9-] segments, exactly one dot, max 64 chars. Dotless ids are
- * platform-reserved; "osfui" is the only dotless built-in.
- */
+/** Mirror of SettingsStore's opaque, filesystem-safe mod-id validation. */
 export function validModId(id: unknown): id is string {
-  return (
-    typeof id === 'string' &&
-    (id === 'osfui' || (id.length <= 64 && /^[a-z0-9-]+\.[a-z0-9-]+$/.test(id)))
-  );
+  if (typeof id !== 'string' || !id || new TextEncoder().encode(id).byteLength > 64) return false;
+  const lower = id.toLowerCase();
+  if (lower === 'osfui') return id === 'osfui';
+  if (id === '.' || id === '..' || /[. ]$/.test(id) || /[\u0000-\u001f<>:"/\\|?*#%]/.test(id)) {
+    return false;
+  }
+  return !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/.test(lower);
 }
 
 /** The owning mod of a qualified view id ("<modId>/<viewName>"), like Ids::ModOf. */
@@ -239,12 +238,18 @@ function modOf(viewId: string): string {
 }
 
 /**
- * A mod-registered endpoint: "<author>.<modname>.<name>", so two dots minimum.
- * One dot is a typo'd platform endpoint, not a plugin.
+ * The mock has no native registry to query, so it recognizes the documented
+ * `<own opaque mod id>.<name>` convention by comparing the already-known owner
+ * verbatim. It never tries to recover a mod id by counting dots.
  */
-function isPluginEndpoint(name: string): boolean {
-  const first = name.indexOf('.');
-  return first > 0 && name.indexOf('.', first + 1) > first + 1;
+function isPluginEndpoint(
+  name: string,
+  owners: readonly { id: string }[],
+  knownViews: readonly { mod?: string }[],
+): boolean {
+  if (/^osfui(?:\.|$)/i.test(name)) return false;
+  return owners.some((owner) => name.startsWith(owner.id + '.')) ||
+    knownViews.some((view) => !!view.mod && name.startsWith(view.mod + '.'));
 }
 
 /** `osfui/settings`-shaped conflict entry. */
@@ -1114,7 +1119,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         );
         return;
       }
-      if (isPluginEndpoint(name)) {
+      if (isPluginEndpoint(name, mods, views)) {
         // A mod's own RegisterSend endpoint. The mock plays the bridge's part:
         // delivered to the plugin's handler, and a send has nothing to answer.
         log('info', `${name} → delivered to the mod's send handler (mock)`);
@@ -1197,7 +1202,7 @@ export function installMock(opts: MockOptions = {}): MockApi {
         setTimeout(() => ok({ weight: 42.5 }), 10);
         return;
       }
-      if (isPluginEndpoint(name)) {
+      if (isPluginEndpoint(name, mods, views)) {
         // The documented minimum RegisterRequest handler behind a schema `action`
         // button: a payload with a `message` the settings view toasts.
         setTimeout(() => ok({ message: 'Done (mock)' }), 400);

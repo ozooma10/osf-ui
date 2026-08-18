@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CHOICES, promptMissing } from '../src/prompts.mjs';
+import { CHOICES, promptMissing, validModId } from '../src/prompts.mjs';
 
 test('offers only Papyrus and Native Plugin workflows', () => {
   assert.deepEqual(CHOICES.integration.map(({ value }) => value), ['papyrus', 'native']);
@@ -8,6 +8,15 @@ test('offers only Papyrus and Native Plugin workflows', () => {
 
 test('offers settings-only beside the two view starter types', () => {
   assert.deepEqual(CHOICES.surface.map(({ value }) => value), ['menu', 'hud', 'settings']);
+});
+
+test('accepts opaque mod ids while reserving osfui and unsafe path names', () => {
+  for (const id of ['widgets', 'Acme Widgets', 'acme.widgets.v2', 'under_score!', 'Pilot\'s HUD']) {
+    assert.equal(validModId(id), true, id);
+  }
+  for (const id of ['', 'osfui', 'OSFUI', '../evil', 'bad:name', 'NUL', '★'.repeat(22)]) {
+    assert.equal(validModId(id), false, id);
+  }
 });
 
 function recordingPrompt(textAnswers, selectAnswers, questions) {
@@ -75,10 +84,10 @@ test('walks through missing choices as visible select lists', async () => {
     'Use a single folder name, such as my-osfui-view.',
   );
   assert.equal(textQuestions[1].defaultValue, undefined);
-  assert.equal(textQuestions[1].placeholder, 'yourname.custom-view');
+  assert.equal(textQuestions[1].placeholder, 'custom-view');
   assert.equal(
     textQuestions[1].validate(''),
-    'Use lowercase author.mod-name format (at most 64 characters).',
+    'Use a safe mod name other than osfui (at most 64 UTF-8 bytes).',
   );
   assert.equal(textQuestions[2].defaultValue, 'main');
   assert.equal(textQuestions[2].placeholder, 'main');
@@ -140,7 +149,7 @@ test('keeps explicit flags and fills only missing values without a TTY', async (
   assert.equal(interactive, false);
   assert.deepEqual(options, {
     directory: 'widgets',
-    modId: 'yourname.widgets',
+    modId: 'widgets',
     view: 'main',
     surface: 'hud',
     integration: 'native',

@@ -11,6 +11,21 @@ export const AUTHOR_MARKER = '.author-mode.json';
 // and deploys.
 export const BUILD_MARKER = '.osfui-build.json';
 
-export const MOD_ID_PATTERN = /^(?:osfui|[a-z0-9-]+\.[a-z0-9-]+)$/;
 export const MAX_MOD_ID_LENGTH = 64;
+export const MOD_ID_PATTERN = /^(?!.*[\u0000-\u001f<>:"/\\|?*#%])(?!.*[. ]$)(?!\.{1,2}$).+$/u;
 export const VIEW_ID_PATTERN = /^[a-z0-9-]+$/;
+
+const WINDOWS_DEVICE_ID = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+
+export function isAcceptedModId(value) {
+  if (typeof value !== 'string' || new TextEncoder().encode(value).byteLength > MAX_MOD_ID_LENGTH ||
+      !MOD_ID_PATTERN.test(value)) {
+    return false;
+  }
+  const lower = value.toLowerCase();
+  return lower === 'osfui' ? value === 'osfui' : !WINDOWS_DEVICE_ID.test(value);
+}
+
+export function isThirdPartyModId(value) {
+  return isAcceptedModId(value) && value.toLowerCase() !== 'osfui';
+}

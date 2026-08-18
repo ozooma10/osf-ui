@@ -97,9 +97,9 @@ namespace OSFUI::API::Papyrus
 	void DrainViewReplies(const std::function<void(const ViewReply&)>& a_deliver,
 		std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
-	// One drained SetView* value. mod is canonical lowercase (folded from the
-	// interned Papyrus string and validated against the id grammar), so
-	// delivery can match it against lowercase-by-grammar view ids. `value` is
+	// One drained SetView* value. mod is ASCII-lowercased because BSFixedString
+	// interning does not preserve caller casing; delivery matches opaque mod ids
+	// case-insensitively. `value` is
 	// the COMPLETE current value for the key, never a delta — a forms value is
 	// serialized into it at drain time (identity objects with null slots
 	// preserved, docs/form-references-design.md), because form field reads are

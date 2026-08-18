@@ -160,7 +160,7 @@ OSFUI::API::JsonClient json{ g_ui };
                      nlohmann::json{ { "id", 7 } });
 ```
 
-The asymmetry is deliberate: `SetViewState` addresses your **mod** (everyone now and later), `SendToWeb` addresses **one view id** — an event has a specific audience and moment. Name events `<yourModId>.<name>`, matching the Papyrus channel; the platform's own names are undotted or `osfui.*`, so staying inside your mod id keeps you from shadowing one.
+The asymmetry is deliberate: `SetViewState` addresses your **mod** (everyone now and later), `SendToWeb` addresses **one view id** — an event has a specific audience and moment. Naming events `<yourModId>.<name>` remains a useful convention, but dots in either part carry no platform meaning.
 
 If the target view is known but not yet instantiated, the message is held in a bounded per-view queue. After instantiation, its event gate preserves the message until that document greets, then flushes it after `ready` and state — the ABI's message-before-first-paint guarantee. The queue drops the *oldest* on overflow. This holdback is not replay: after delivery, a later document does not receive the event again.
 

@@ -207,7 +207,7 @@ int main()
 	}
 
 	// --- shared validation and queue cap with the other SetView* natives ------------
-	setViewForms(*vm, 0, {}, "notdotted", "k", { &keyword });
+	setViewForms(*vm, 0, {}, "../evil", "k", { &keyword });
 	setViewForms(*vm, 0, {}, "t.forms", "", { &keyword });
 	drain();
 	CHECK(drained.empty());

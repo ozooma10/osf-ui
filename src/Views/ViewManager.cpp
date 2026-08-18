@@ -17,9 +17,9 @@ namespace OSFUI
 		}
 
 		// Two-level scan: views/<modId>/<viewName>/manifest.json. The mod folder
-		// is the namespace and its name must be a valid mod id
-		// ('<author>.<modname>'); dotless ids are reserved for built-ins like
-		// osfui/. Top-level dirs without view subfolders are skipped naturally.
+		// is the opaque mod namespace. Top-level dirs without view subfolders are
+		// skipped naturally; the generated shared-kit files can coexist directly
+		// under a mod id named "shared" because only child manifests are views.
 		std::filesystem::directory_iterator modIt(
 			a_viewsDir, std::filesystem::directory_options::skip_permission_denied, ec);
 		const std::filesystem::directory_iterator end;
@@ -30,19 +30,14 @@ namespace OSFUI
 				continue;
 			}
 			const auto modId = modEntry.path().filename().string();
-			if (modId == "shared") {
-				continue;  // the shared kit (views/shared/osfui.css), not a mod
-			}
 			if (std::filesystem::exists(modEntry.path() / "manifest.json", entryEc)) {
 				REX::ERROR("ViewManager: {} uses the pre-1.0 flat layout — views live in "
-						   "views/<author>.<modname>/<view>/manifest.json now; skipping",
+						   "views/<modId>/<view>/manifest.json now; skipping",
 					modEntry.path().string());
 				continue;
 			}
 			if (!Ids::IsAcceptedModId(modId)) {
-				REX::ERROR("ViewManager: skipping {} — view folders are namespaced "
-						   "views/<author>.<modname>/<view>/ (lowercase [a-z0-9-] segments, exactly one "
-						   "dot in the mod id); dotless names are reserved for the platform",
+				REX::ERROR("ViewManager: skipping {} — mod folder name is not a safe opaque mod id",
 					modEntry.path().string());
 				continue;
 			}
@@ -75,7 +70,8 @@ namespace OSFUI
 
 	const ViewManifest* ViewManager::Find(std::string_view a_id) const
 	{
-		const auto it = std::ranges::find_if(_views, [&](const auto& v) { return v.id == a_id; });
+		const auto it = std::ranges::find_if(_views,
+			[&](const auto& v) { return Ids::EqualsCaseInsensitiveAscii(v.id, a_id); });
 		return it != _views.end() ? &*it : nullptr;
 	}
 }

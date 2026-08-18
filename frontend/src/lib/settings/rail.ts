@@ -54,10 +54,11 @@ export function titleOf(mod: ModRecord): string {
 
 /** Unordered entry set: one per settings mod, plus one per orphaned view group. */
 export function railEntries(mods: ModRecord[], views: ViewRecord[]): RailEntry[] {
+  const sameMod = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
   const entries: RailEntry[] = mods.map((m) => ({
     id: m.id,
     mod: m,
-    views: views.filter((v) => v.mod === m.id),
+    views: views.filter((v) => !!v.mod && sameMod(v.mod, m.id)),
     title: titleOf(m),
   }));
 
@@ -66,7 +67,7 @@ export function railEntries(mods: ModRecord[], views: ViewRecord[]): RailEntry[]
   // id so a standalone view still gets a rail entry of its own.
   const orphans = new Map<string, ViewRecord[]>();
   for (const v of views) {
-    if (v.mod && mods.some((m) => m.id === v.mod)) continue;
+    if (v.mod && mods.some((m) => sameMod(m.id, v.mod!))) continue;
     const key = v.mod || v.id;
     const bucket = orphans.get(key);
     if (bucket) bucket.push(v);

@@ -1,11 +1,10 @@
 import * as prompts from '@clack/prompts';
 import { stdin, stdout } from 'node:process';
 import { basename, resolve } from 'node:path';
-import { MAX_MOD_ID_LENGTH, MOD_ID_PATTERN } from '@osfui/cli/constants';
+import { MAX_MOD_ID_LENGTH, isThirdPartyModId } from '@osfui/cli/constants';
 
 export const ID = /^[a-z0-9-]+$/;
-export const validModId = (value) =>
-  value !== 'osfui' && MOD_ID_PATTERN.test(value) && value.length <= MAX_MOD_ID_LENGTH;
+export const validModId = (value) => isThirdPartyModId(value);
 
 export const CHOICES = {
   surface: [
@@ -33,7 +32,7 @@ export const slug = (value) =>
 function fillDefaults(options) {
   options.directory ||= 'my-osfui-view';
   const projectName = slug(basename(resolve(options.directory)));
-  options.modId ||= `yourname.${projectName}`;
+  options.modId ||= projectName;
   options.view ||= 'main';
   options.surface ||= 'menu';
   options.integration ||= 'papyrus';
@@ -64,10 +63,10 @@ export async function promptMissing(
   const projectName = slug(basename(resolve(options.directory)));
   options.modId ||= answer(prompt, await prompt.text({
     message: 'Mod ID',
-    placeholder: `yourname.${projectName}`,
+    placeholder: projectName,
     validate: (value) => validModId(value)
       ? undefined
-      : `Use lowercase author.mod-name format (at most ${MAX_MOD_ID_LENGTH} characters).`,
+      : `Use a safe mod name other than osfui (at most ${MAX_MOD_ID_LENGTH} UTF-8 bytes).`,
   }));
 
   // Starter type comes before View name and workflow because "settings only"

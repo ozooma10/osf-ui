@@ -146,7 +146,8 @@ namespace OSFUI::API
 		// Register a handler for an EXACT send endpoint. This endpoint is strictly
 		// one-way; use RegisterRequest when the page needs an outcome.
 		//
-		//   * Id: "<author>.<modname>.<name>" - the mod id is lowercase [a-z0-9-] segments with dots
+		//   * Id: opaque non-empty string outside the reserved platform endpoints and osfui.* namespace.
+		//     "<modId>.<name>" remains a useful convention; dots carry no runtime meaning.
 		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterSend then re-register (works within one tick).
 		virtual void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) = 0;
 		virtual void UnregisterSend(const char* a_name) = 0;
@@ -203,7 +204,7 @@ namespace OSFUI::API
 		virtual std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) = 0;
 
 		// --- settings registration. Thread-safe; merge lands next main tick. ---
-		// a_schemaJson is the same document a settings/<modId>.json drop-in would hold (id = "<author>.<modname>").
+		// a_schemaJson is the same document a settings/<modId>.json drop-in would hold (id = opaque mod id).
 		//
 		//   * Returns false on a parse/shape error (malformed JSON, non-object, missing/invalid "id"); true = queued.
 		//   * User values overlay from the same per-mod file as the drop-in tier, so a mod can migrate tiers without losing settings.

@@ -15,8 +15,8 @@ Want custom UI instead? Full web views are [authoring-views.md](authoring-views.
 
 Run `npm create osfui@latest -- --surface settings` for a working mod folder — a schema, a hotkey wired to a GLOBAL Papyrus function ([§7](#7-hotkeys)), a translation catalog, and a compile-and-deploy script. Or start from the file below by hand:
 
-1. Save it into your mod as `Data\SFSE\Plugins\OSFUI\settings\<author>.<modname>.json`.
-2. The filename stem **is** your mod id and must equal the `"id"` inside: `"<author>.<modname>"` — lowercase `a-z 0-9 -` segments, exactly one dot, where `author` is your Nexus/GitHub handle (e.g. `astrogal.compass-tweaks`). Dotless ids are reserved for the platform.
+1. Save it into your mod as `Data\SFSE\Plugins\OSFUI\settings\<modId>.json`.
+2. The filename stem **is** your mod id and must equal the `"id"` inside. It is an opaque, non-empty Windows filename/URL component of at most 64 bytes: dots, spaces, case, underscores, and ordinary punctuation are allowed and have no special meaning. Path/URL delimiters, control characters, trailing dots/spaces, Windows device names, and the case-insensitive platform id `osfui` are refused.
 3. Edit `title` and `groups`.
 4. Launch, press F10 — your card is in the left rail. Values persist to `Data\SFSE\Plugins\OSFUI\settings\values\<id>.json` (VFS-captured, so per-profile under MO2) and survive relaunch.
 

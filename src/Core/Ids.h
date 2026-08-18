@@ -6,20 +6,11 @@
 
 namespace OSFUI::Ids
 {
-	// The public id grammar (docs/api-freeze-plan.md item 1, frozen pre-1.0):
-	//
-	//   mod id         = <author>.<modname>    e.g. "ozooma10.almanac"
-	//   view name      = <name>                e.g. "planets"
-	//   qualified view = <modId>/<viewName>    e.g. "ozooma10.almanac/planets"
-	//
-	// Every segment is lowercase [a-z0-9-]+. Exactly one dot per mod id reserves
-	// dotless ids for built-ins ("osfui") by construction — no reserved-word
-	// list. The join is a slash (a dotted join would be ambiguous to split) and
-	// mirrors the on-disk layout views/<modId>/<viewName>/.
-	//
-	// Ids become filenames (settings/<modId>.json) and sandbox URL segments
-	// (file:///<modId>/<viewName>/...), so the charset is also the path-safety
-	// boundary (docs/security-model.md).
+	// Mod ids are opaque names, not structured author/mod pairs. Dots have no
+	// special meaning. The only syntax retained is the boundary required by the
+	// places an id is used: a non-empty, bounded Windows filename / URL path
+	// component. Qualified view ids still join that opaque id to the deliberately
+	// narrow view-name grammar with '/'.
 
 	inline constexpr std::size_t kMaxModIdLen = 64;
 	inline constexpr std::size_t kMaxViewNameLen = 64;
@@ -51,27 +42,53 @@ namespace OSFUI::Ids
 		return true;
 	}
 
-	// Dotless ids the platform ships under. Any other dotless id is invalid by
-	// the grammar, so no further reservation logic is needed.
 	inline bool IsBuiltInModId(std::string_view a_id)
 	{
-		return a_id == "osfui";
+		return a_id == kBuiltInModId;
 	}
 
-	// <author>.<modname> — exactly one dot, both segments valid.
+	// Windows treats this namespace case-insensitively. Reject aliases such as
+	// "OSFUI" as well as the canonical spelling so a folder cannot squat the
+	// platform id through casing.
+	inline bool IsReservedModId(std::string_view a_id)
+	{
+		return EqualsCaseInsensitiveAscii(a_id, kBuiltInModId);
+	}
+
+	// Any non-empty Windows filename component, bounded because ids are echoed on
+	// the wire and used as cache keys. The explicit exclusions are not a naming
+	// grammar: they are the filesystem, qualified-id ('/'), and virtual-host URL
+	// safety boundary. Dots, spaces, casing, underscores, and punctuation outside
+	// that boundary are ordinary identity bytes.
 	inline bool IsValidModId(std::string_view a_id)
 	{
-		if (a_id.size() > kMaxModIdLen) {
+		if (a_id.empty() || a_id.size() > kMaxModIdLen || IsReservedModId(a_id) ||
+			a_id == "." || a_id == ".." || a_id.back() == '.' || a_id.back() == ' ') {
 			return false;
 		}
-		const auto dot = a_id.find('.');
-		if (dot == std::string_view::npos || a_id.find('.', dot + 1) != std::string_view::npos) {
+		for (const unsigned char c : a_id) {
+			if (c < 0x20 || c == '<' || c == '>' || c == ':' || c == '"' || c == '/' ||
+				c == '\\' || c == '|' || c == '?' || c == '*' || c == '#' || c == '%') {
+				return false;
+			}
+		}
+
+		// Win32 device names remain reserved even with an extension ("NUL.json").
+		const auto base = a_id.substr(0, a_id.find('.'));
+		if (EqualsCaseInsensitiveAscii(base, "con") || EqualsCaseInsensitiveAscii(base, "prn") ||
+			EqualsCaseInsensitiveAscii(base, "aux") || EqualsCaseInsensitiveAscii(base, "nul")) {
 			return false;
 		}
-		return IsValidSegment(a_id.substr(0, dot)) && IsValidSegment(a_id.substr(dot + 1));
+		if (base.size() == 4 && (EqualsCaseInsensitiveAscii(base.substr(0, 3), "com") ||
+			EqualsCaseInsensitiveAscii(base.substr(0, 3), "lpt")) &&
+			base[3] >= '1' && base[3] <= '9') {
+			return false;
+		}
+		return true;
 	}
 
-	// A third-party or built-in mod id (the load-time acceptance test).
+	// Load-time acceptance includes the platform's canonical built-in id. Public
+	// producer APIs use IsValidModId instead so third parties cannot claim it.
 	inline bool IsAcceptedModId(std::string_view a_id)
 	{
 		return IsValidModId(a_id) || IsBuiltInModId(a_id);
@@ -120,9 +137,9 @@ namespace OSFUI::Ids
 	// authority from the source view rather than trusting the payload.
 	//
 	// Deliberately an exact qualified-id match rather than an `osfui/` prefix
-	// test — the `osfui` namespace is not yet structurally reserved, so a prefix
-	// test would admit a squatting third-party manifest. Mod Settings-only
-	// platform requests use the same exact-id granularity.
+	// test: reserving the mod id prevents third-party ownership, but only these
+	// two built-in documents are settings editors. Mod Settings-only platform
+	// requests use the same exact-id granularity.
 	[[nodiscard]] inline bool IsSettingsEditorView(std::string_view a_viewId)
 	{
 		return a_viewId == kSettingsViewId || a_viewId == kKeybindingsViewId;
@@ -142,7 +159,7 @@ namespace OSFUI::Ids
 			return a_requestedMod;
 		}
 		const auto own = ModOf(a_sourceView);
-		if (a_requestedMod.empty() || a_requestedMod == own) {
+		if (a_requestedMod.empty() || EqualsCaseInsensitiveAscii(a_requestedMod, own)) {
 			return own;
 		}
 		return std::nullopt;

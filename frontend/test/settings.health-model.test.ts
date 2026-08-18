@@ -24,6 +24,7 @@ const issue = (o: Partial<IssueRecord> & { id: string }): IssueRecord => ({
   severity: 'warning',
   status: 'active',
   source: 'views',
+  sourceKind: 'platform',
   subject: '',
   context: {},
   occurrences: 1,
@@ -189,7 +190,7 @@ describe('copyForIssue', () => {
     // Mod source: updating OSF UI would change nothing, so the card names the
     // mod and points at its author instead.
     const mod = copyForIssue(
-      issue({ id: 'b', code: 'osf.animation:catalog.parse-failed', source: 'osf.animation' }),
+      issue({ id: 'b', code: 'osf.animation:catalog.parse-failed', source: 'osf.animation', sourceKind: 'mod' }),
     );
     expect(mod.title).toEqual(MOD_COPY.title);
     expect(mod.params).toEqual({ mod: 'osf.animation' });
@@ -200,11 +201,11 @@ describe('copyForIssue', () => {
     );
   });
 
-  it('tells a mod source from a platform one by the mod-id dot', () => {
-    expect(modIdOf(issue({ id: 'a', source: 'osf.animation' }))).toBe('osf.animation');
-    for (const platform of ['input', 'settings', 'views', 'host', 'render', 'compat', '']) {
-      expect(modIdOf(issue({ id: 'a', source: platform }))).toBeNull();
-    }
+  it('uses explicit source kind for opaque mod ids', () => {
+    expect(modIdOf(issue({ id: 'a', source: 'Plain Mod', sourceKind: 'mod' }))).toBe('Plain Mod');
+    expect(modIdOf(issue({ id: 'a', source: 'host', sourceKind: 'mod' }))).toBe('host');
+    expect(modIdOf(issue({ id: 'a', source: 'osf.animation', sourceKind: 'platform' }))).toBeNull();
+    expect(modIdOf(issue({ id: 'a', source: '', sourceKind: 'mod' }))).toBeNull();
   });
 
   it('offers Retry view only when a subject is present', () => {

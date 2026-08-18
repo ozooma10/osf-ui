@@ -133,6 +133,7 @@ namespace OSFUI
 			existing->code = a_spec.code;
 			existing->severity = a_spec.severity;
 			existing->source = a_spec.source;
+			existing->sourceKind = a_spec.sourceKind;
 			existing->subject = a_spec.subject;
 			existing->context = std::move(context);
 			existing->resolved = false;
@@ -148,6 +149,7 @@ namespace OSFUI
 			.code = a_spec.code,
 			.severity = a_spec.severity,
 			.source = a_spec.source,
+			.sourceKind = a_spec.sourceKind,
 			.subject = a_spec.subject,
 			.context = std::move(context),
 			.resolved = false,
@@ -235,6 +237,7 @@ namespace OSFUI
 			{ "severity", SeverityName(a_issue.severity) },
 			{ "status", a_issue.resolved ? "resolved" : "active" },
 			{ "source", a_issue.source },
+			{ "sourceKind", a_issue.sourceKind == SourceKind::Mod ? "mod" : "platform" },
 			{ "subject", a_issue.subject },
 			{ "context", a_issue.context },
 			{ "occurrences", a_issue.occurrences },

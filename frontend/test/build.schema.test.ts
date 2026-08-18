@@ -30,8 +30,7 @@ const validate = ajv.compile(schema);
 // hand-maintained shipped file that happens to live there; read here, never
 // written.
 const files = [
-  // The platform's own settings card. "osfui" is the one dotless id the schema
-  // permits — dotless ids are reserved for the platform.
+  // The platform's own settings card uses the one reserved mod id.
   join(REPO, 'data', 'OSFUI', 'settings', 'osfui.json'),
   // The two `examples/` starters that used to be listed here are gone —
   // `npm create osfui@latest -- --surface settings` generates them now, and
@@ -58,7 +57,7 @@ describe('shipped settings-schema JSON files', () => {
 
   it.each(files)('%s has an "id" matching its filename stem', (file) => {
     // The schema documents the rule (id must equal the filename stem, so the
-    // file is settings/<author>.<modname>.json) but JSON Schema has no view of
+    // file is settings/<modId>.json) but JSON Schema has no view of
     // the filename. The loader keys mods by the id inside the file, so a
     // mismatch lands the settings under an id that no other file, translation
     // catalog, or Papyrus call references.

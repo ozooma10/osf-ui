@@ -119,8 +119,8 @@ Endpoints come from three places:
   initialization;
 - each feature module — its own namespace, via `IUiModule::RegisterEndpoints`
   (settings registers `settings.set` / `settings.reset` / `settings.captureKey`);
-- a third-party SFSE plugin — through `BridgeApi`, restricted to
-  `<author>.<modname>.<name>` names ([security-model.md](security-model.md)
+- a third-party SFSE plugin — through `BridgeApi`, with opaque endpoint names
+  outside the explicitly reserved platform surface ([security-model.md](security-model.md)
   rule 5).
 
 There is no generic "call native" endpoint, and no name a view message can
@@ -234,7 +234,7 @@ Features are `IUiModule`s (`Runtime/UiModule.h`). `IUiModule` is a uniform lifec
 
 ### Views
 
-`ViewManager` does a **two-level** scan of `<data>/views/<modId>/<viewName>/manifest.json`. The first level is a mod namespace (its folder name must pass the mod-id grammar; `shared/` is skipped as the asset kit, and a manifest found at the first level is rejected as the pre-1.0 flat layout). The second level is the view. **The path is the identity**: the qualified view id is `<modId>/<viewName>`, derived from the folder, never from the file — a manifest declares no id at all (a legacy `id` field is ignored), so a manifest cannot claim another mod's namespace. Subfolders without a `manifest.json` are ignored, so a mod can keep shared assets beside its views.
+`ViewManager` does a **two-level** scan of `<data>/views/<modId>/<viewName>/manifest.json`. The first level is an opaque, filesystem-safe mod namespace; a manifest found there is rejected as the pre-1.0 flat layout. The second level is the narrower view name. **The path is the identity**: the qualified view id is `<modId>/<viewName>`, derived from the folder, never from the file — a manifest declares no id at all (a legacy `id` field is ignored), so a manifest cannot claim another mod's namespace. Subfolders without a `manifest.json` are ignored; generated shared-kit files live directly under `views/shared/`, so that folder can also contain an authored `shared/<view>/manifest.json` without being a second reserved mod id.
 
 A `ViewManifest` declares metadata such as the entry page, size,
 transparency, and a permission block that defaults to deny (`nativeBridge`,

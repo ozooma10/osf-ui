@@ -38,8 +38,7 @@ namespace OSFUI
 		const auto viewName = a_path.parent_path().filename().string();
 		const auto modId = a_path.parent_path().parent_path().filename().string();
 		if (!Ids::IsAcceptedModId(modId) || !Ids::IsValidViewName(viewName)) {
-			REX::ERROR("ViewManifest: [content] {} — views live at views/<author>.<modname>/<view>/manifest.json "
-					   "(lowercase [a-z0-9-] segments; dotless mod folders are reserved for the platform)",
+			REX::ERROR("ViewManifest: [content] {} — views live at views/<modId>/<view>/manifest.json with a safe mod-id folder",
 				a_path.string());
 			return std::nullopt;
 		}

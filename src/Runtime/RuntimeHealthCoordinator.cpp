@@ -52,6 +52,7 @@ namespace OSFUI
 					.severity = op.error ? HealthRegistry::Severity::Error :
 						HealthRegistry::Severity::Warning,
 					.source = op.modId,
+					.sourceKind = HealthRegistry::SourceKind::Mod,
 					.subject = op.subject,
 					.context = op.context,
 				}, runtime._uptime);

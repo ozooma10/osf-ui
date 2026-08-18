@@ -71,8 +71,9 @@ namespace OSFUI
 		std::string_view a_address,
 		std::string_view a_authoredEnglish) const
 	{
+		const auto modId = StringUtil::ToLowerAscii(a_modId);
 		for (const auto& locale : FallbackLocales()) {
-			const auto catalog = _catalogs.find({ std::string(a_modId), locale });
+			const auto catalog = _catalogs.find({ modId, locale });
 			if (catalog == _catalogs.end()) {
 				continue;
 			}
@@ -89,8 +90,9 @@ namespace OSFUI
 		auto locales = FallbackLocales();
 		std::ranges::reverse(locales);
 		nlohmann::json out = nlohmann::json::object();
+		const auto modId = StringUtil::ToLowerAscii(a_modId);
 		for (const auto& locale : locales) {
-			const auto catalog = _catalogs.find({ std::string(a_modId), locale });
+			const auto catalog = _catalogs.find({ modId, locale });
 			if (catalog == _catalogs.end()) {
 				continue;
 			}
@@ -197,7 +199,7 @@ namespace OSFUI
 				REX::WARN("Localization: skipping invalid catalog {}", path.string());
 				continue;
 			}
-			auto& catalog = _catalogs[{ mod, locale }];
+			auto& catalog = _catalogs[{ StringUtil::ToLowerAscii(mod), locale }];
 			for (const auto& [address, value] : json->items()) {
 				if (value.is_string() && !address.empty()) {
 					catalog[address] = value.get<std::string>();

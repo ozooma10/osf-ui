@@ -10,25 +10,34 @@ namespace OSFUI::API
 {
 	namespace
 	{
-		// Endpoint shape (api-freeze item 3): a plugin endpoint is
-		// "<modId>.<name>" with modId the item-1 "<author>.<modname>" grammar, so
-		// every registrable name carries two dots minimum. That makes platform
-		// endpoints structurally unregisterable (dotless verbs like "close",
-		// single-dot "menu.open"/"osfui.gamepadRaw") without a
-		// reserved-prefix list that could drift. The mod id must be pattern-valid
-		// but need not have a registered schema; the name after it is free-form
-		// and may contain dots ("acme.mymod.catalog.get").
+		// Mod ids are opaque, so endpoint ownership can no longer be inferred by
+		// counting dots. Plugin endpoint names are opaque too; reserve the exact
+		// platform surface plus the framework's osfui.* namespace explicitly.
 		bool IsValidPluginEndpointName(std::string_view a_name)
 		{
-			const auto first = a_name.find('.');
-			if (first == std::string_view::npos) {
+			if (a_name.empty()) {
 				return false;
 			}
-			const auto second = a_name.find('.', first + 1);
-			if (second == std::string_view::npos || second + 1 >= a_name.size()) {
+			if (a_name.size() >= Ids::kBuiltInModId.size() &&
+				Ids::EqualsCaseInsensitiveAscii(a_name.substr(0, Ids::kBuiltInModId.size()), Ids::kBuiltInModId) &&
+				(a_name.size() == Ids::kBuiltInModId.size() || a_name[Ids::kBuiltInModId.size()] == '.')) {
 				return false;
 			}
-			return Ids::IsValidModId(a_name.substr(0, second));
+			static constexpr std::array kPlatformEndpoints{
+				"close", "setVisible", "menu.open", "menu.close", "setViewHidden",
+				"settings.captureKey", "settings.set", "settings.reset", "papyrus.call",
+				"papyrus.send", "papyrus.request", "ping"
+			};
+			return std::ranges::find_if(kPlatformEndpoints,
+				[a_name](const char* a_endpoint) { return a_name == a_endpoint; }) == kPlatformEndpoints.end();
+		}
+
+		const std::string* FindIdCaseInsensitive(
+			const std::unordered_set<std::string>& a_ids, std::string_view a_wanted)
+		{
+			const auto found = std::ranges::find_if(a_ids,
+				[a_wanted](const auto& a_id) { return Ids::EqualsCaseInsensitiveAscii(a_id, a_wanted); });
+			return found == a_ids.end() ? nullptr : &*found;
 		}
 
 		// Cap on queued SendToWeb messages per target view while no target page is
@@ -48,8 +57,7 @@ namespace OSFUI::API
 				return false;
 			}
 			if (!Ids::IsValidModId(a_modId)) {
-				REX::WARN("BridgeApi: [content] refused {}('{}') — mod ids are '<author>.<modname>' "
-					"(lowercase [a-z0-9-] segments)",
+				REX::WARN("BridgeApi: [content] refused {}('{}') — invalid or reserved mod id",
 					a_fn, std::string_view(a_modId).substr(0, 128));
 				return false;
 			}
@@ -96,9 +104,7 @@ namespace OSFUI::API
 		}
 		const std::string name(a_name);
 		if (!IsValidPluginEndpointName(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — sends are '<author>.<modname>.<name>' "
-					  "(two dots minimum; the leading mod id follows the item-1 grammar). "
-					  "Single-dot and dotless names are the platform's",
+			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — endpoint name is empty or reserved by the platform",
 				name.substr(0, 128));
 			return;
 		}
@@ -137,7 +143,7 @@ namespace OSFUI::API
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
 		if (!IsValidPluginEndpointName(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — requests are '<author>.<modname>.<name>'", name.substr(0, 128));
+			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — endpoint name is empty or reserved by the platform", name.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);
@@ -156,7 +162,7 @@ namespace OSFUI::API
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
 		if (!IsValidPluginEndpointName(name)) {
-			REX::WARN("BridgeApi: [content] refused legacy RegisterCommand('{}') — commands are '<author>.<modname>.<name>'",
+			REX::WARN("BridgeApi: [content] refused legacy RegisterCommand('{}') — endpoint name is empty or reserved by the platform",
 				name.substr(0, 128));
 			return;
 		}
@@ -253,8 +259,8 @@ namespace OSFUI::API
 		if (!a_modId || !a_key || !a_payloadJson || !a_key[0]) {
 			return false;
 		}
-		if (!Ids::IsAcceptedModId(a_modId)) {
-			REX::WARN("BridgeApi: [content] refused SetViewState('{}') — mod ids are '<author>.<modname>'",
+		if (!Ids::IsValidModId(a_modId)) {
+			REX::WARN("BridgeApi: [content] refused SetViewState('{}') — invalid or reserved mod id",
 				std::string_view(a_modId).substr(0, 128));
 			return false;
 		}
@@ -330,15 +336,16 @@ namespace OSFUI::API
 		if (!a_viewId || !a_viewId[0]) {
 			return false;
 		}
-		const std::string id(a_viewId);
+		const std::string requested(a_viewId);
 		std::lock_guard lock(_mutex);
 		// Truthful queue-time contract: opens accept anything discovered at boot
 		// (Runtime will instantiate it on demand); closes accept only an instantiated view and
 		// never cause an uninstantiated view to be created.
-		if (a_open ? !_knownViews.contains(id) : !_instantiatedViews.contains(id)) {
+		const auto* id = FindIdCaseInsensitive(a_open ? _knownViews : _instantiatedViews, requested);
+		if (!id) {
 			return false;
 		}
-		_pendingViewPresentationRequests.push_back({ id, a_open });
+		_pendingViewPresentationRequests.push_back({ *id, a_open });
 		return true;
 	}
 
@@ -354,11 +361,16 @@ namespace OSFUI::API
 	void BridgeApi::SetViewInstantiated(std::string_view a_viewId, bool a_instantiated)
 	{
 		std::lock_guard lock(_mutex);
+		const auto* known = FindIdCaseInsensitive(_knownViews, a_viewId);
+		const std::string id = known ? *known : std::string(a_viewId);
 		if (a_instantiated) {
-			_instantiatedViews.emplace(a_viewId);
+			_instantiatedViews.emplace(id);
 		} else {
-			_instantiatedViews.erase(std::string(a_viewId));
-			std::erase_if(_inflightRequests, [&](const auto& entry) { return entry.second.view == a_viewId; });
+			if (const auto* instantiated = FindIdCaseInsensitive(_instantiatedViews, id)) {
+				_instantiatedViews.erase(*instantiated);
+			}
+			std::erase_if(_inflightRequests,
+				[&](const auto& entry) { return Ids::EqualsCaseInsensitiveAscii(entry.second.view, id); });
 		}
 	}
 
@@ -454,13 +466,11 @@ namespace OSFUI::API
 		if (!a_viewId || !a_viewId[0]) {
 			return false;
 		}
-		// Synchronous shape gate: view ids are qualified
-		// "<author>.<modname>/<view>" (api-freeze item 1). A structurally invalid
+		// Synchronous shape gate: view ids are qualified "<modId>/<view>". A structurally invalid
 		// id can never match a discovered manifest, so refuse it here where the
 		// caller sees the false.
-		if (!Ids::IsValidQualifiedViewId(a_viewId)) {
-			REX::WARN("BridgeApi: [content] refused RegisterView('{}') — view ids are qualified "
-					  "'<author>.<modname>/<view>' (lowercase [a-z0-9-] segments)",
+		if (!Ids::IsValidQualifiedViewId(a_viewId) || !Ids::IsValidModId(Ids::ModOf(a_viewId))) {
+			REX::WARN("BridgeApi: [content] refused RegisterView('{}') — view ids are qualified '<modId>/<view>'",
 				std::string_view(a_viewId).substr(0, 128));
 			return false;
 		}

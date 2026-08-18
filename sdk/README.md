@@ -60,7 +60,7 @@ JSON Schemas for the two author-facing file formats live in
 [`docs/schema/`](../docs/schema/):
 
 - `manifest.schema.json` — for `views/<modId>/<viewName>/manifest.json`
-- `settings-schema.schema.json` — for `settings/<author>.<modname>.json`
+- `settings-schema.schema.json` — for `settings/<modId>.json`
 
 Point your editor at them (e.g. VS Code `json.schemas`, or a top-level
 `"$schema"` key) for autocomplete and validation while you author.

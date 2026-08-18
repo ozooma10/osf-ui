@@ -31,10 +31,10 @@ export interface HealthModel {
 export const EMPTY_HEALTH: HealthModel = { system: {}, issues: [] };
 
 /**
- * The Health destination's rail id. Same "~" trick as HOME_ID: native mod ids
- * can never start with it, so no mod can shadow the fixed destination.
+ * The Health destination's rail id. Same ':' boundary as HOME_ID: filesystem-
+ * backed mod ids cannot contain it, so no mod can shadow the destination.
  */
-export const HEALTH_ID = '~health';
+export const HEALTH_ID = ':health';
 
 /** Normalise an untrusted `osfui/diagnostics` state payload into the model. */
 export function readHealth(payload: unknown): HealthModel {
@@ -119,7 +119,7 @@ export function resolvedIssues(model: HealthModel): IssueRecord[] {
 /**
  * The worst ACTIVE severity attributable to one mod, for the rail's severity
  * marker. An issue belongs to a mod when its `subject` is that mod id or a view
- * id owned by it ("<modId>/<viewName>", the qualified-view-id grammar).
+ * id owned by it ("<modId>/<viewName>", the qualified-view-id shape).
  */
 export function severityForMod(
   issues: readonly IssueRecord[],
@@ -397,14 +397,12 @@ export const MOD_COPY: IssueCopy = {
 
 /**
  * The mod that reported this issue, or null when it came from OSF UI itself.
- * Platform sources are bare words ("input", "settings", "views", "host",
- * "render", "compat"); a consumer's source is its "<author>.<modname>" id,
- * which the OSF UI runtime validated before accepting the report — so the dot
- * is a reliable tell.
+ * Mod ids are opaque, so attribution is explicit on the wire rather than
+ * inferred from punctuation in `source`.
  */
 export function modIdOf(issue: IssueRecord): string | null {
   const source = issue.source || '';
-  return source.indexOf('.') > 0 ? source : null;
+  return issue.sourceKind === 'mod' && source ? source : null;
 }
 
 /**

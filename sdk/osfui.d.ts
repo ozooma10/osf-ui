@@ -89,9 +89,9 @@ export interface RuntimeInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Platform endpoints. Mod endpoints are "<author>.<modname>.<name>" and are
-// yours; everything here is undotted or single-dot, which is what makes the
-// two namespaces collision-proof without a registry.
+// Platform endpoints. Mod endpoint names are opaque; "<modId>.<name>" is the
+// recommended convention. The native bridge explicitly reserves this surface
+// and the case-insensitive osfui.* namespace.
 // ---------------------------------------------------------------------------
 
 /** `osfui.send(name, payload)` targets. */
@@ -325,7 +325,7 @@ export interface I18nCatalog {
 /** Value of the `osfui/settings` state key. Re-render from it wholesale. */
 export interface SettingsData {
   mods: Array<{
-    /** Mod id: "<author>.<modname>". */
+    /** Opaque filesystem-safe mod id; dots have no special meaning. */
     id: string;
     title: string;
     schema: SettingsSchema;
@@ -396,6 +396,7 @@ export interface DiagnosticIssue {
   severity: "warning" | "error";
   status: "active" | "resolved";
   source: string;
+  sourceKind?: "platform" | "mod";
   subject: string;
   context: Record<string, string | number | boolean>;
   occurrences: number;

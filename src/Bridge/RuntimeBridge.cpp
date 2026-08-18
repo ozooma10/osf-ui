@@ -177,6 +177,7 @@ namespace OSFUI
 				a_b.Reject("unknown-view", "view was not discovered");
 				return;
 			}
+			id = manifest->id;
 			if (manifest->kind == ViewKind::Menu && manifest->capturesInput && !_captureIntegrationAvailable) {
 				REX::WARN("Runtime: menu.open refused — required input integration is unavailable");
 				a_b.Reject("input-unavailable", "required input integration is unavailable");
@@ -189,6 +190,9 @@ namespace OSFUI
 			std::string id = Json::Get(a_p, "view", "");
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
+			}
+			if (const auto* manifest = _views.Find(id)) {
+				id = manifest->id;
 			}
 			bool cancelled = false;
 			if (_pendingViewOpen && *_pendingViewOpen == id) {
@@ -207,6 +211,9 @@ namespace OSFUI
 			std::string id = Json::Get(a_p, "view", "");
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
+			}
+			if (const auto* manifest = _views.Find(id)) {
+				id = manifest->id;
 			}
 			if (!SetViewHidden(id, Json::Get(a_p, "hidden", false))) {
 				a_b.Reject("unknown-view", "not an instantiated view");

@@ -264,6 +264,34 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
   });
 }
 
+test('escapes punctuation when an opaque mod id becomes generated TypeScript', async (t) => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+  const root = resolve(parent, 'project');
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const modId = 'Pilot\'s HUD';
+  const result = spawnSync(process.execPath, [
+    CLI,
+    root,
+    '--yes',
+    '--no-install',
+    '--mod-id', modId,
+    '--view', 'panel',
+    '--surface', 'menu',
+    '--integration', 'native',
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+
+  for (const file of [
+    resolve(root, 'osfui.config.ts'),
+    resolve(root, 'osfui.mock.ts'),
+    resolve(root, `src/views/${modId}/panel/main.ts`),
+  ]) {
+    const source = await readFile(file, 'utf8');
+    assert.match(source, /Pilot\\'s HUD/);
+    assert.doesNotMatch(source, /'Pilot's HUD/);
+  }
+});
+
 test('creates the settings/papyrus preset', async (t) => {
   const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
   const root = resolve(parent, 'project');

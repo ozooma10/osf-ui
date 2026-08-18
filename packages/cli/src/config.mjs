@@ -4,7 +4,7 @@ import { loadConfigFromFile, normalizePath } from 'vite';
 import {
   CONFIG_FILES,
   MAX_MOD_ID_LENGTH,
-  MOD_ID_PATTERN,
+  isAcceptedModId,
   VIEW_ID_PATTERN,
 } from './constants.mjs';
 import { exists, within } from './fsutil.mjs';
@@ -158,8 +158,8 @@ export async function loadProject(cwd, command = 'serve') {
   );
   if (!loaded?.config) throw new Error(`Could not load ${configPath}.`);
   const raw = loaded.config;
-  if (!MOD_ID_PATTERN.test(raw.modId || '') || raw.modId.length > MAX_MOD_ID_LENGTH) {
-    throw new Error(`modId "${raw.modId || ''}" must be <author>.<modname> using lowercase letters, digits, and hyphens.`);
+  if (!isAcceptedModId(raw.modId)) {
+    throw new Error(`modId "${raw.modId || ''}" must be a safe non-empty name of at most ${MAX_MOD_ID_LENGTH} UTF-8 bytes.`);
   }
   const authored = raw.views ?? (raw.view ? [raw.view] : []);
   if (!Array.isArray(authored) || authored.length === 0) {

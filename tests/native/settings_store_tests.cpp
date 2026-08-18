@@ -99,19 +99,20 @@ int main()
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "evil", "type": "bool", "default": true }
 		] } ] })json");
-	// A drop-in whose stem is unsafe as a filename/path segment: rejected.
+	// Opaque ids may contain spaces and need no dot.
 	WriteFile(schemaDir / "bad id.json", R"json({
 		"id": "bad id", "title": "Space Id",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "x", "type": "bool", "default": true }
 		] } ] })json");
-	// A dotless third-party stem: platform-reserved by construction (item 1),
-	// hard-rejected at LoadAll before the file is even parsed.
 	WriteFile(schemaDir / "plainmod.json", R"json({
 		"id": "plainmod", "title": "Dotless",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "x", "type": "bool", "default": true }
 		] } ] })json");
+	// The platform id is reserved case-insensitively; only its canonical shipped
+	// osfui.json is accepted as a built-in drop-in.
+	WriteFile(schemaDir / "OSFUI.json", R"json({ "id": "OSFUI", "title": "Impostor" })json");
 	// Persisted values: clamped on load, unknown keys ignored.
 	WriteFile(valuesDir / "t.alpha.json", R"json({ "scale": 9.0, "mode": "full", "junk": 5 })json");
 	// Persisted values for a mod that registers at runtime only.
@@ -129,11 +130,10 @@ int main()
 	const auto genAfterLoad = store.Generation();
 
 	auto data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 3);  // alpha + beta + zeta (renamed); "bad id" + "plainmod" rejected
+	CHECK(data["mods"].size() == 5);  // alpha + beta + zeta + two opaque ids; OSFUI alias rejected
 	CHECK(LoggedContaining("WARN", "must equal the filename stem"));
-	// Grammar-violating stems are skipped with an ERROR naming the file (item 1).
-	CHECK(LoggedContaining("ERROR", "bad id.json"));
-	CHECK(LoggedContaining("ERROR", "plainmod.json"));
+	// A reserved alias is skipped with an ERROR naming the file.
+	CHECK(LoggedContaining("ERROR", "OSFUI.json"));
 
 	CHECK(store.GetValue("t.alpha", "enabled") && *store.GetValue("t.alpha", "enabled") == true);
 	CHECK(store.GetValue("t.alpha", "scale") && store.GetValue("t.alpha", "scale")->get<double>() == 2.0);  // 9.0 clamped
@@ -141,8 +141,8 @@ int main()
 	CHECK(store.GetValue("t.alpha", "junk") == nullptr);                                                  // unknown key: preserved on disk, never served
 	CHECK(store.GetValue("t.beta", "evil") == nullptr);   // the impostor could not take beta's id...
 	CHECK(store.GetValue("t.zeta", "evil") != nullptr);   // ...it registered under its own stem
-	CHECK(store.GetValue("bad id", "x") == nullptr);
-	CHECK(store.GetValue("plainmod", "x") == nullptr);
+	CHECK(store.GetValue("bad id", "x") != nullptr);
+	CHECK(store.GetValue("plainmod", "x") != nullptr);
 	CHECK(store.GetValue("nope", "x") == nullptr);
 
 	// Localization is applied only to the emitted schema copy. Authors write
@@ -308,20 +308,20 @@ int main()
 	CHECK(*store.GetValue("t.gamma", "fancy") == false);
 	CHECK(heard1.size() == 2);  // per-mod replay fired for both values
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 4);
+	CHECK(data["mods"].size() == 6);
 
 	// Rejected shapes.
 	CHECK(!store.RegisterSchema(nlohmann::json::array(), SettingsStore::Source::kNative));
 	CHECK(!store.RegisterSchema(nlohmann::json{ { "title", "No Id" } }, SettingsStore::Source::kNative));
 
-	// Rejected ids (item 1 grammar: "<author>.<modname>", lowercase [a-z0-9-]
-	// segments, exactly one dot). Traversal/unsafe charsets fail the grammar;
-	// every dotless id is platform-reserved by construction — the old reserved
-	// framework namespaces (menu/settings/...) fall out for free.
-	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "a\\b", "has space",
-	                         ".hidden", "..", "menu", "settings", "ui", "hud", "views", "game", "runtime",
-	                         "plainmod", "Upper.Case", "two.dots.here", "under_score.mod",
-	                         "trailing.", ".leading", "a..b" }) {
+	// Only the filesystem / URL boundary and the platform id are refused. Dots,
+	// spaces, case, and punctuation otherwise remain opaque.
+	for (const auto* good : { "plainmod", "Upper.Case", "two.dots.here", "under_score.mod",
+	                          "has space", ".hidden", "menu", "a..b", "name!+@" }) {
+		CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", good } }));
+	}
+	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "a\\b", "..", "osfui", "OSFUI",
+	                         "trailing.", "trailing ", "bad:name", "bad#name", "bad%name", "NUL", "COM1.txt" }) {
 		CHECK(!store.RegisterSchema(nlohmann::json{ { "id", bad }, { "title", "Evil" } }, SettingsStore::Source::kNative));
 	}
 
@@ -351,7 +351,7 @@ int main()
 	CHECK(LoggedContaining("WARN", "native registration replaces drop-in"));
 	CHECK(store.Generation() > genBeforeReplace);
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 4);  // replaced, not duplicated
+	CHECK(data["mods"].size() == 6);  // replaced, not duplicated
 	CHECK(store.GetValue("t.alpha", "scale")->get<double>() == 0.75);  // persisted user value survived
 	CHECK(*store.GetValue("t.alpha", "shiny") == true);                // new key gets default
 	CHECK(store.GetValue("t.alpha", "enabled") == nullptr);            // removed key gone
@@ -371,7 +371,7 @@ int main()
 	alphaV3["title"] = "Alpha Mod v3";
 	CHECK(store.RegisterSchema(alphaV3, SettingsStore::Source::kNative));
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 4);
+	CHECK(data["mods"].size() == 6);
 
 	// --- RemoveMod: registry drops, values file kept ----------------------------
 	CHECK(store.Set("t.beta", "count", "8"));
@@ -382,19 +382,19 @@ int main()
 	CHECK(store.GetValue("t.beta", "count") == nullptr);
 	CHECK(fs::exists(valuesDir / "t.beta.json"));  // uninstalled does not mean deleted
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 3);
+	CHECK(data["mods"].size() == 5);
 
 	// --- ValidateSchemaShape: the ABI's synchronous any-thread shape gate --------
 	// Must reject exactly what registration would reject on shape/id grounds
 	// (BridgeApi::RegisterSettingsSchema reports these synchronously, then
 	// queues the main-thread merge).
 	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "ok-mod-1.x" } }));
-	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "osfui" } }));  // the dotless built-in
+	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "Mixed Mod_name!" } }));
+	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "osfui" } }));  // platform-reserved
 	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json::array()));               // not an object
 	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "title", "No Id" } }));
-	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "has space",
-	                         ".hidden", "..", "menu", "settings", "ui",
-	                         "plainmod", "Upper.Case", "two.dots.here", "under_score.mod" }) {
+	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "a\\b", "..", "osfui",
+	                         "bad:name", "trailing.", "NUL" }) {
 		CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", bad } }));
 	}
 
@@ -1029,7 +1029,7 @@ int main()
 		WriteFile(sd / "t.good.json", R"json({ "id": "t.good",
 			"groups": [ { "settings": [ { "key": "on", "type": "bool", "default": true } ] } ] })json");
 		WriteFile(sd / "t.broken.json", R"json({ "id": "t.broken", )json");  // torn/unparseable
-		WriteFile(sd / "badname.json", "{}");                                // dotless stem
+		WriteFile(sd / "badname.json", "{}");                                // malformed document
 		WriteFile(vd / "t.good.json", R"json({ "on": fa)json");              // corrupt values
 
 		SettingsStore s;

@@ -1,5 +1,7 @@
 #include "API/HotkeySubscriptions.h"
 
+#include "Core/Ids.h"
+
 namespace OSFUI::API
 {
 	std::uint32_t HotkeySubscriptions::Subscribe(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user)
@@ -36,7 +38,9 @@ namespace OSFUI::API
 		// consumer.
 		std::lock_guard lock(_mutex);
 		const bool anySubscriber = std::any_of(_subs.begin(), _subs.end(),
-			[&](const auto& a_entry) { return a_entry.second.modId == a_modId && a_entry.second.key == a_key; });
+			[&](const auto& a_entry) {
+				return Ids::EqualsCaseInsensitiveAscii(a_entry.second.modId, a_modId) && a_entry.second.key == a_key;
+			});
 		if (!anySubscriber) {
 			return;
 		}
@@ -62,7 +66,7 @@ namespace OSFUI::API
 			std::lock_guard lock(_mutex);
 			for (auto& ev : _events) {
 				for (const auto& [token, sub] : _subs) {
-					if (sub.modId == ev.modId && sub.key == ev.key) {
+					if (Ids::EqualsCaseInsensitiveAscii(sub.modId, ev.modId) && sub.key == ev.key) {
 						calls.push_back({ token, sub.fn, sub.user, ev.modId, ev.key });
 					}
 				}

@@ -65,7 +65,7 @@ function parse(argv) {
 
 function validate(options) {
   if (!validModId(options.modId)) {
-    throw new Error(`--mod-id must be lowercase <author>.<modname> and at most ${MAX_MOD_ID_LENGTH} characters.`);
+    throw new Error(`--mod-id must be a safe name other than osfui and at most ${MAX_MOD_ID_LENGTH} UTF-8 bytes.`);
   }
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
   if (!['menu', 'hud', 'settings'].includes(options.surface)) {
@@ -99,8 +99,13 @@ async function put(root, relative, content) {
   await writeFile(path, content);
 }
 
+// Mod ids are opaque and may contain an apostrophe. Generated TypeScript uses
+// single-quoted literals, so escape the authored bytes at that code boundary.
+const singleQuoted = (value) => String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+
 function hudAppSource(options) {
   const native = options.integration === 'native';
+  const modId = singleQuoted(options.modId);
   const stateSetup = native
     ? `type HudState = {
   value: number;
@@ -119,28 +124,28 @@ function renderState(state: HudState) {
   renderMeter();
 }
 
-window.osfui?.state?.on?.<HudState>('${options.modId}/hud', renderState);`
+window.osfui?.state?.on?.<HudState>('${modId}/hud', renderState);`
     : `// Papyrus SetView* publishes STATE: the handler runs immediately with the
 // current value and again on every change and every reload — nothing to
 // request, and no ready handshake for the script to answer.
-window.osfui?.state?.on?.<string>('${options.modId}/label', (value) => setText(label, value));
-window.osfui?.state?.on?.<number>('${options.modId}/value', (value) => {
+window.osfui?.state?.on?.<string>('${modId}/label', (value) => setText(label, value));
+window.osfui?.state?.on?.<number>('${modId}/value', (value) => {
   hudState.value = value;
   renderMeter();
 });
-window.osfui?.state?.on?.<number>('${options.modId}/maximum', (value) => {
+window.osfui?.state?.on?.<number>('${modId}/maximum', (value) => {
   hudState.maximum = value;
   renderMeter();
 });
-window.osfui?.state?.on?.<string>('${options.modId}/status', (value) => setText(status, value));
-window.osfui?.state?.on?.<boolean>('${options.modId}/alert', (value) => {
+window.osfui?.state?.on?.<string>('${modId}/status', (value) => setText(status, value));
+window.osfui?.state?.on?.<boolean>('${modId}/alert', (value) => {
   panel.classList.toggle('is-alert', value);
 });`;
   const eventSetup = native
-    ? `window.osfui?.on?.<{ message: string }>('${options.modId}.notice', (payload) => {
+    ? `window.osfui?.on?.<{ message: string }>('${modId}.notice', (payload) => {
   setText(notice, payload.message);
 });`
-    : `window.osfui?.on?.<{ args: string[] }>('${options.modId}.notice', (payload) => {
+    : `window.osfui?.on?.<{ args: string[] }>('${modId}.notice', (payload) => {
   setText(notice, payload.args[0] || 'Papyrus event received');
 });`;
 
@@ -245,7 +250,7 @@ function syncVisibility() {
 // current registry and again on every registry change — including on a fresh
 // document, so there is no read to issue and no race to lose.
 window.osfui?.state?.on?.<SettingsData>('osfui/settings', (registry) => {
-  const own = registry?.mods.find((mod) => mod.id === '${options.modId}');
+  const own = registry?.mods.find((mod) => mod.id === '${modId}');
   if (!own) return;
   for (const [key, settingValue] of Object.entries(own.values)) {
     applySetting(key, settingValue);
@@ -254,10 +259,10 @@ window.osfui?.state?.on?.<SettingsData>('osfui/settings', (registry) => {
 // Individual commits are EVENTS: they say what just changed, so they are not
 // replayed (the state key above already carries the current value).
 window.osfui?.on?.<PlatformEvents['settings.changed']>('settings.changed', (payload) => {
-  if (payload.mod === '${options.modId}') applySetting(payload.key, payload.value);
+  if (payload.mod === '${modId}') applySetting(payload.key, payload.value);
 });
 window.osfui?.on?.<PlatformEvents['ui.hotkey']>('ui.hotkey', (payload) => {
-  if (payload.mod === '${options.modId}' && payload.key === 'toggleHud') {
+  if (payload.mod === '${modId}' && payload.key === 'toggleHud') {
     hotkeyVisible = !hotkeyVisible;
     syncVisibility();
   }
@@ -270,7 +275,8 @@ window.osfui?.i18n?.ready?.then(() => window.osfui?.i18n?.localize(document));
 }
 
 function nativeAppSource(options) {
-  const noticeType = `${options.modId}.notice`;
+  const modId = singleQuoted(options.modId);
+  const noticeType = `${modId}.notice`;
 
   return `import '/shared/osfui.css';
 import '/shared/osfui.js';
@@ -348,8 +354,8 @@ osfui.on<{ message: string }>('${noticeType}', (payload) => {
 // no reload handling: the handler runs with the current value now, and again on
 // every change and on every future document. This is the path you want for
 // anything the mod backend owns.
-osfui.state.on<DemoState>('${options.modId}/state', showState);
-const initialState = osfui.state.get<DemoState>('${options.modId}/state');
+osfui.state.on<DemoState>('${modId}/state', showState);
+const initialState = osfui.state.get<DemoState>('${modId}/state');
 if (initialState) showState(initialState); // get() is useful for one-off snapshots; on() is the normal render path.
 
 osfui.ready.then(async (info) => {
@@ -364,7 +370,7 @@ osfui.ready.then(async (info) => {
   // right now. Here it is redundant with the subscription above — kept as the
   // smallest working example of the verb.
   try {
-    showState(await osfui.request<DemoState>('${options.modId}.getState'));
+    showState(await osfui.request<DemoState>('${modId}.getState'));
   } catch (error) {
     status.textContent = describe(error);
   }
@@ -372,7 +378,7 @@ osfui.ready.then(async (info) => {
 
 // JS -> C++ fire-and-forget; OnIncrement answers by publishing retained state.
 increment.addEventListener('click', () => {
-  if (!osfui.send('${options.modId}.increment', { amount: 1 })) {
+  if (!osfui.send('${modId}.increment', { amount: 1 })) {
     status.textContent = 'OSF UI bridge is unavailable';
   }
 });
@@ -382,7 +388,7 @@ increment.addEventListener('click', () => {
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    const reply = await osfui.request<Greeting>('${options.modId}.greet', {
+    const reply = await osfui.request<Greeting>('${modId}.greet', {
       name: name.value,
       excited: excited.checked,
     });
@@ -406,17 +412,17 @@ osfui.state.on<SettingsData>('osfui/settings', (registry) => {
   // Key values are layout-independent physical names. Show the player's
   // current keycap when the OSF UI runtime publishes one; never store the label.
   keyboardLabels = registry.keyboard?.labels ?? {};
-  const own = registry.mods.find((mod) => mod.id === '${options.modId}');
+  const own = registry.mods.find((mod) => mod.id === '${modId}');
   if (!own) return;
   for (const [key, value] of Object.entries(own.values)) applySetting(key, value);
 });
 // An individual commit is an EVENT: it says what just changed, so it is never
 // replayed (the state key above already carries the current value).
 osfui.on<PlatformEvents['settings.changed']>('settings.changed', (payload) => {
-  if (payload.mod === '${options.modId}') applySetting(payload.key, payload.value);
+  if (payload.mod === '${modId}') applySetting(payload.key, payload.value);
 });
 osfui.on<PlatformEvents['ui.hotkey']>('ui.hotkey', (payload) => {
-  if (payload.mod === '${options.modId}') status.textContent = 'Hotkey fired: ' + payload.key;
+  if (payload.mod === '${modId}') status.textContent = 'Hotkey fired: ' + payload.key;
 });
 
 // Own Esc/gamepad-B while active, then close explicitly. Drop these two lines
@@ -432,15 +438,16 @@ close.addEventListener('click', () => osfui.send('close'));
 
 function hudMockSource(options) {
   const native = options.integration === 'native';
+  const modId = singleQuoted(options.modId);
   const publishBody = native
     ? `ctx.send({
       kind: 'state',
-      mod: '${options.modId}',
+      mod: '${modId}',
       key: 'hud',
       value: { ...state },
     });`
     : `for (const [key, value] of Object.entries(state)) {
-      ctx.send({ kind: 'state', mod: '${options.modId}', key, value });
+      ctx.send({ kind: 'state', mod: '${modId}', key, value });
     }`;
 
   return `import { defineMock, type MockContext } from '@osfui/cli';
@@ -482,14 +489,14 @@ export function install(ctx: MockContext) {
     ctx.send({
       kind: 'event',
       name: 'settings.changed',
-      payload: { mod: '${options.modId}', key, value },
+      payload: { mod: '${modId}', key, value },
     });
   };
   const publishSettings = () => ctx.send({
     kind: 'state', mod: 'osfui', key: 'settings',
     value: {
       mods: [{
-        id: '${options.modId}', title: schema.title, schema,
+        id: '${modId}', title: schema.title, schema,
         values: { ...settings }, targetVersion: schema.targetVersion,
       }],
       keyboard: { layout: 'en-US', labels: { F8: 'F8', F9: 'F9' } },
@@ -520,8 +527,8 @@ export function install(ctx: MockContext) {
       publishState();
     } else if (id === 'hud-event') {
       ctx.send(${native
-        ? `{ kind: 'event', name: '${options.modId}.notice', payload: { message: 'One-shot native HUD event' } }`
-        : `{ kind: 'event', name: '${options.modId}.notice', payload: { args: ['One-shot Papyrus HUD event'] } }`});
+        ? `{ kind: 'event', name: '${modId}.notice', payload: { message: 'One-shot native HUD event' } }`
+        : `{ kind: 'event', name: '${modId}.notice', payload: { args: ['One-shot Papyrus HUD event'] } }`});
     } else if (id === 'hud-enabled') {
       changeSetting('hudEnabled', toolValue === true);
     } else if (id === 'hud-anchor' && typeof toolValue === 'string') {
@@ -532,7 +539,7 @@ export function install(ctx: MockContext) {
       ctx.send({
         kind: 'event',
         name: 'ui.hotkey',
-        payload: { mod: '${options.modId}', key: 'toggleHud' },
+        payload: { mod: '${modId}', key: 'toggleHud' },
       });
     }
   });
@@ -549,6 +556,7 @@ export function install(ctx: MockContext) {
 }
 
 function mockSource(options) {
+  const modId = singleQuoted(options.modId);
   const mockImport = "import { defineMock, type MockContext } from '@osfui/cli';";
   if (options.surface === 'hud') return hudMockSource(options);
   if (options.integration === 'native') return `${mockImport}
@@ -580,18 +588,18 @@ export default defineMock({
 export function install(ctx: MockContext) {
   const pushState = () => ctx.send({
     kind: 'state',
-    mod: '${options.modId}',
+    mod: '${modId}',
     key: 'state',
     value: { ...state, features: [...state.features] },
   });
   const notice = (message: string) => ctx.send({
-    kind: 'event', name: '${options.modId}.notice', payload: { message },
+    kind: 'event', name: '${modId}.notice', payload: { message },
   });
   const publishSettings = () => ctx.send({
     kind: 'state', mod: 'osfui', key: 'settings',
     value: {
       mods: [{
-        id: '${options.modId}', title: schema.title, schema,
+        id: '${modId}', title: schema.title, schema,
         values: { ...settingValues }, targetVersion: schema.targetVersion,
       }],
       keyboard: { layout: 'en-US', labels: { F8: 'F8', F9: 'F9' } },
@@ -601,16 +609,16 @@ export function install(ctx: MockContext) {
     settingValues[key] = value;
     ctx.send({
       kind: 'event', name: 'settings.changed',
-      payload: { mod: '${options.modId}', key, value },
+      payload: { mod: '${modId}', key, value },
     });
   };
 
   const handleEndpoint: Parameters<NonNullable<MockContext['onEndpoint']>>[0] = (kind, name, payload, io) => {
-    if (kind === 'request' && name === '${options.modId}.getState') {
+    if (kind === 'request' && name === '${modId}.getState') {
       io.resolve({ ...state });
       return true;
     }
-    if (kind === 'send' && name === '${options.modId}.increment') {
+    if (kind === 'send' && name === '${modId}.increment') {
       const requested = Number(payload.amount);
       const amount = Number.isFinite(requested) ? Math.max(-10, Math.min(10, requested)) : 1;
       if (state.enabled) {
@@ -622,7 +630,7 @@ export function install(ctx: MockContext) {
       }
       return true;
     }
-    if (kind === 'request' && name === '${options.modId}.greet') {
+    if (kind === 'request' && name === '${modId}.greet') {
       const who = typeof payload.name === 'string' ? payload.name : '';
       if (!who) {
         io.reject('invalid-payload', 'name is required');
@@ -660,7 +668,7 @@ export function install(ctx: MockContext) {
       notice('The native open-view hotkey fired');
       ctx.send({
         kind: 'event', name: 'ui.hotkey',
-        payload: { mod: '${options.modId}', key: 'openKey' },
+        payload: { mod: '${modId}', key: 'openKey' },
       });
     }
   });
@@ -699,24 +707,24 @@ export default defineMock({
 export function install(ctx: MockContext) {
   const publish = () => ctx.send({
     kind: 'state',
-    mod: '${options.modId}',
+    mod: '${modId}',
     key: 'clicks',
     value: state.clicks,
   });
   const publishGreeting = () => ctx.send({
-    kind: 'state', mod: '${options.modId}', key: 'greeting', value: state.greeting,
+    kind: 'state', mod: '${modId}', key: 'greeting', value: state.greeting,
   });
   const notice = (text: string) => ctx.send({
-    kind: 'event', name: '${options.modId}.notice', payload: { args: [text] },
+    kind: 'event', name: '${modId}.notice', payload: { args: [text] },
   });
   const publishEnabled = () => ctx.send({
-    kind: 'state', mod: '${options.modId}', key: 'enabled', value: settingValues.enabled,
+    kind: 'state', mod: '${modId}', key: 'enabled', value: settingValues.enabled,
   });
   const publishSettings = () => ctx.send({
     kind: 'state', mod: 'osfui', key: 'settings',
     value: {
       mods: [{
-        id: '${options.modId}', title: schema.title, schema,
+        id: '${modId}', title: schema.title, schema,
         values: { ...settingValues }, targetVersion: schema.targetVersion,
       }],
       keyboard: { layout: 'en-US', labels: { F8: 'F8', F9: 'F9' } },
@@ -726,7 +734,7 @@ export function install(ctx: MockContext) {
     settingValues[key] = value;
     ctx.send({
       kind: 'event', name: 'settings.changed',
-      payload: { mod: '${options.modId}', key, value },
+      payload: { mod: '${modId}', key, value },
     });
     if (key === 'enabled') publishEnabled();
   };
@@ -776,13 +784,13 @@ export function install(ctx: MockContext) {
       changeSetting('enabled', value === true);
     } else if (id === 'papyrus-event') {
       ctx.send({
-        kind: 'event', name: '${options.modId}.notice',
+        kind: 'event', name: '${modId}.notice',
         payload: { args: ['One-shot Papyrus event from the browser mock'] },
       });
     } else if (id === 'papyrus-hotkey') {
       ctx.send({
         kind: 'event', name: 'ui.hotkey',
-        payload: { mod: '${options.modId}', key: 'openKey' },
+        payload: { mod: '${modId}', key: 'openKey' },
       });
     }
   });
@@ -799,6 +807,7 @@ export function install(ctx: MockContext) {
 function appSource(options) {
   if (options.surface === 'hud') return hudAppSource(options);
   if (options.integration === 'native') return nativeAppSource(options);
+  const modId = singleQuoted(options.modId);
 
   return `import '/shared/osfui.css';
 import '/shared/osfui.js';
@@ -852,16 +861,16 @@ const osfui: OSFUIHelper = maybeOsfui;
 
 // Papyrus SetView* -> cached state, replayed whenever this page (re)loads, so
 // subscribing at any time still yields the latest value.
-osfui.state.on<number>('${options.modId}/clicks', (value) => {
+osfui.state.on<number>('${modId}/clicks', (value) => {
   clicks.textContent = String(value);
 });
-osfui.state.on<string>('${options.modId}/greeting', (value) => {
+osfui.state.on<string>('${modId}/greeting', (value) => {
   greeting.textContent = value;
 });
-osfui.state.on<boolean>('${options.modId}/enabled', (value) => {
+osfui.state.on<boolean>('${modId}/enabled', (value) => {
   bump.disabled = !value;
 });
-osfui.on<{ args: string[] }>('${options.modId}.notice', (payload) => {
+osfui.on<{ args: string[] }>('${modId}.notice', (payload) => {
   status.textContent = payload.args[0] || 'Papyrus event received';
 });
 osfui.papyrus.call('${pascalIdentifier(options.modId)}OSFUI', 'Refresh');
@@ -879,7 +888,7 @@ osfui.ready.then(async (info) => {
 // JS -> arbitrary GLOBAL Papyrus functions. Calls are fire-and-forget; the
 // functions publish state or events when the view needs to observe an outcome.
 let clickTotal = 0;
-osfui.state.on<number>('${options.modId}/clicks', (value) => {
+osfui.state.on<number>('${modId}/clicks', (value) => {
   // Keep the local total in step with whatever the mod backend published, so a
   // reload or a Refresh does not restart the count from zero.
   clickTotal = Number(value) || 0;
@@ -914,17 +923,17 @@ osfui.state.on<SettingsData>('osfui/settings', (registry) => {
   // Key values are layout-independent physical names. Show the player's
   // current keycap when the OSF UI runtime publishes one; never store the label.
   keyboardLabels = registry.keyboard?.labels ?? {};
-  const own = registry.mods.find((mod) => mod.id === '${options.modId}');
+  const own = registry.mods.find((mod) => mod.id === '${modId}');
   if (!own) return;
   for (const [key, value] of Object.entries(own.values)) applySetting(key, value);
 });
 // An individual commit is an EVENT: it says what just changed, so it is never
 // replayed (the state key above already carries the current value).
 osfui.on<PlatformEvents['settings.changed']>('settings.changed', (payload) => {
-  if (payload.mod === '${options.modId}') applySetting(payload.key, payload.value);
+  if (payload.mod === '${modId}') applySetting(payload.key, payload.value);
 });
 osfui.on<PlatformEvents['ui.hotkey']>('ui.hotkey', (payload) => {
-  if (payload.mod === '${options.modId}') status.textContent = 'Hotkey fired: ' + payload.key;
+  if (payload.mod === '${modId}') status.textContent = 'Hotkey fired: ' + payload.key;
 });
 
 // Own Esc/gamepad-B while active, then close explicitly. Drop these two lines
@@ -1133,11 +1142,11 @@ declare module '*osfui.js';
   await put(root, `osfui.config.ts`, `import { defineConfig } from '@osfui/cli';
 
 export default defineConfig({
-  modId: '${options.modId}',
+  modId: '${singleQuoted(options.modId)}',
 ${modBackendConfig(options)}  views: [{
     id: '${options.view}',
     title: '${options.view.replaceAll('-', ' ')}',
-    description: 'Generated ${options.surface} starter for ${options.modId}',
+    description: 'Generated ${options.surface} starter for ${singleQuoted(options.modId)}',
     kind: '${options.surface}',
     width: ${options.surface === 'hud' ? 1920 : 1200},
     height: ${options.surface === 'hud' ? 1080 : 720},
@@ -1188,7 +1197,7 @@ async function main() {
   const options = parse(process.argv.slice(2));
   if (options.help) {
     console.log('npm create osfui@latest [directory] ' +
-      '[-- --mod-id author.mod --view main --surface menu|hud|settings --integration papyrus|native]');
+      '[-- --mod-id my-mod --view main --surface menu|hud|settings --integration papyrus|native]');
     return;
   }
   options.directory = options._[0];

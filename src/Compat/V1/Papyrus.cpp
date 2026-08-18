@@ -41,7 +41,7 @@ namespace OSFUI::Compat::V1::Papyrus
 			std::string a_mod, std::string a_key, std::string_view a_native)
 		{
 			a_mod = StringUtil::ToLowerAscii(a_mod);
-			if (!Ids::IsAcceptedModId(a_mod) || a_key.empty()) {
+			if (!Ids::IsValidModId(a_mod) || a_key.empty()) {
 				REX::WARN("PapyrusApi: [content] legacy {}('{}', '{}') refused (invalid mod id or empty key)",
 					a_native, a_mod.substr(0, 64), a_key.substr(0, 64));
 				return std::nullopt;
@@ -52,7 +52,7 @@ namespace OSFUI::Compat::V1::Papyrus
 		void NoteCaller(std::string_view a_mod)
 		{
 			auto mod = StringUtil::ToLowerAscii(a_mod);
-			if (!Ids::IsAcceptedModId(mod)) return;
+			if (!Ids::IsValidModId(mod)) return;
 			std::lock_guard lock(GetState().lock);
 			if (GetState().callers.size() >= kMaxCallers ||
 				std::ranges::find(GetState().callers, mod) != GetState().callers.end()) return;

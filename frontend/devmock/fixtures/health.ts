@@ -419,6 +419,7 @@ export const MOCK_HEALTH: Record<string, MockHealth> = {
         severity: 'error',
         status: 'active',
         source: 'osf.animation',
+        sourceKind: 'mod',
         subject: 'highlights',
         context: { file: 'highlights.json', line: 12, message: 'unexpected token' },
         occurrences: 2,

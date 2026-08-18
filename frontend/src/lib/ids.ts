@@ -6,7 +6,7 @@
 // definitions of the same literal are a silent-drift hazard — hence this leaf.
 
 /**
- * The Home launcher's rail id. "~" keeps it out of the mod-id namespace — native
- * mod ids can never start with it — so a real mod cannot shadow Home.
+ * The Home launcher's rail id. ':' is not legal in the filesystem-backed mod-id
+ * namespace, so a real mod cannot shadow Home.
  */
-export const HOME_ID = '~home';
+export const HOME_ID = ':home';

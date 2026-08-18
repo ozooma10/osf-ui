@@ -39,6 +39,11 @@ namespace OSFUI
 			Warning,
 			Error,
 		};
+		enum class SourceKind
+		{
+			Platform,
+			Mod,
+		};
 
 		// Bounds. A runaway producer must not be able to grow the payload
 		// without limit — every push is re-encoded and fanned out to instantiated views.
@@ -56,6 +61,7 @@ namespace OSFUI
 			std::string    code;      // stable machine code, e.g. "settings.values-parse"
 			Severity       severity{ Severity::Warning };
 			std::string    source;    // subsystem; "host" is the browser-host/web-renderer compatibility value
+			SourceKind     sourceKind{ SourceKind::Platform };
 			std::string    subject;   // affected mod / view / component id, "" when none
 			nlohmann::json context;   // bounded technical detail (object), sanitized on entry
 		};
@@ -122,6 +128,7 @@ namespace OSFUI
 			std::string    code;
 			Severity       severity{ Severity::Warning };
 			std::string    source;
+			SourceKind     sourceKind{ SourceKind::Platform };
 			std::string    subject;
 			nlohmann::json context;
 			bool           resolved{ false };

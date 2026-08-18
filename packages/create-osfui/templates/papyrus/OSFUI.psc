@@ -3,7 +3,7 @@ ScriptName OSFUI Native Hidden
 ; OSF UI - Papyrus API for the shared Mod Settings platform.
 ;
 ; Settings are declared in a drop-in schema file:
-;   Data/SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
+;   Data/SFSE/Plugins/OSFUI/settings/<modId>.json
 ; (see docs/authoring-settings.md, or scaffold one with `npm create osfui@latest -- --surface settings`).
 ; This script reads them back, writes them, and reacts to changes and hotkey presses.
 ;
@@ -11,7 +11,7 @@ ScriptName OSFUI Native Hidden
 ; (GetVersion() yields 0 - the feature-detect gate).
 ;
 ; Ids, keys, and enum option values match the schema case-insensitively;
-; write them as authored - mod ids are lowercase "<author>.<modname>" by grammar.
+; write them as authored - mod ids are opaque path-safe names, and dots have no special meaning.
 ; The same interning means strings delivered to your callbacks may arrive cased differently than authored; 
 
 ; Packed OSF UI release version: major*10000 + minor*100 + patch (1.0.0 -> 10000).

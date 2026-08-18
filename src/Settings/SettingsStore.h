@@ -155,7 +155,7 @@ namespace OSFUI
 		// missing/invalid/reserved "id". Deeper field problems are not errors;
 		// they fall back at registration. BridgeApi::RegisterSettingsSchema uses
 		// this to report synchronously before queueing the main-thread merge.
-		[[nodiscard]] static bool ValidateSchemaShape(const nlohmann::json& a_schema);
+		[[nodiscard]] static bool ValidateSchemaShape(const nlohmann::json& a_schema, bool a_allowBuiltIn = false);
 
 		// The Source a mod registered from, or nullopt on unknown id. Lets the
 		// ABI unregister path refuse to drop schemas it does not own.
