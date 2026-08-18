@@ -9,7 +9,7 @@ void OSFUI::ViewRequestQueue::Enqueue(ViewPresentationRequest a_request)
 void OSFUI::ViewRequestQueue::EnqueueOpen(std::string a_viewId)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_openViews.push_back(a_viewId);
+    m_openViews.push_back(std::move(a_viewId));
 }
 
 OSFUI::ViewRequestQueue::Batch OSFUI::ViewRequestQueue::Take()

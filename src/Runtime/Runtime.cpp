@@ -58,8 +58,6 @@ namespace OSFUI
 
 		_localization.Load(Paths::DataDir() / "l10n", LocalizationService::DetectGameLocale(starfieldDir));
 
-		PauseMenuEntry::Configure(_localization.Resolve("osfui", "chrome.pauseMenuEntry", "MOD SETTINGS"), "osfui/settings");
-
 		_views.DiscoverAll(Paths::ViewsDir());
 		_viewPolicy.Load(Paths::DataDir() / "state" / "view-policy.json");
 
@@ -987,14 +985,6 @@ namespace OSFUI
 			_toggleKey.store(scan, std::memory_order_release);
 			REX::INFO("Runtime: setting osfui.toggleKey -> {} (scan {:#x})", name, scan);
 		}
-		// Pause-menu entry (Mod Settings-owned). The Scaleform inject runs per pause-menu
-		// open (MainThreadMenuPump gates Reconcile on this flag), so the change
-		// applies the next time the menu opens.
-		else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
-			_config.pauseMenuEntry = a_value.get<bool>();
-			PauseMenuEntry::SetEnabled(_config.pauseMenuEntry);
-			REX::DEBUG("Runtime: setting osfui.pauseMenuEntry -> {} (applies the next time the pause menu opens)", _config.pauseMenuEntry);
-		}
 		// Game-binding conflict warnings (Mod Settings-owned). Lazy build / clear.
 		else if (a_key == "vanillaKeyConflicts" && a_value.is_boolean()) {
 			_config.gameBindingWarnings = a_value.get<bool>();
@@ -1052,9 +1042,6 @@ namespace OSFUI
 		// Non-printing key labels resolve through chrome.keys.* addresses, so
 		// a locale/catalog change re-derives them too.
 		RefreshKeyboardLabels("locale change");
-		PauseMenuEntry::Configure(
-			_localization.Resolve("osfui", "chrome.pauseMenuEntry", _config.pauseMenuEntryLabel),
-			_config.pauseMenuEntryView);
 		if (_settings) {
 			_settings->Store().InvalidateLocalizedData();
 			if (_controlMap.RefreshLabels(/*localizationChanged*/ true)) {

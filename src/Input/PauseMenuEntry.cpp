@@ -24,8 +24,8 @@ namespace OSFUI
 		// uActionType of injected entry. vanilla ids are 0..11 so 100 is outside range.
 		constexpr std::uint32_t kActionId = 100;
 
-		std::string g_label = "MOD SETTINGS";
-		std::string g_viewId = "osfui/settings";
+		constexpr std::string_view kLabel = "MOD SETTINGS";
+		constexpr std::string_view kViewId = "osfui/settings";
 
 		bool g_pendingClick{ false };
 
@@ -149,13 +149,13 @@ namespace OSFUI
 			}
 			g_pendingClick = false;
 
-			REX::DEBUG("PauseMenuEntry: entry pressed -> closing PauseMenu, opening view '{}'", g_viewId);
+			REX::DEBUG("PauseMenuEntry: entry pressed -> closing PauseMenu, opening view '{}'", kViewId);
 			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 				queue->AddMessage(RE::BSFixedString(kMenuName.data()), RE::UI_MESSAGE_TYPE::kHide);
 			} else {
 				REX::WARN("PauseMenuEntry: UIMessageQueue singleton null; PauseMenu left open");
 			}
-			Runtime::Get().EnqueueOpenView(g_viewId);
+			Runtime::Get().EnqueueOpenView(std::string(kViewId));
 		}
 
 		void ReconcileList()
@@ -250,7 +250,7 @@ namespace OSFUI
 			movieRoot.CreateObject(&entry);
 
 			RE::Scaleform::GFx::Value label;
-			movieRoot.CreateString(&label, g_label.c_str());
+			movieRoot.CreateString(&label, kLabel.data());
 			RE::Scaleform::GFx::Value emptyStr;
 			movieRoot.CreateString(&emptyStr, "");
 			if (!entry.SetMember("sActionText", label) || !entry.SetMember("uActionType", RE::Scaleform::GFx::Value(kActionId)) ||
@@ -268,15 +268,9 @@ namespace OSFUI
 			Session().expectedCount = count + 1;
 			if (!Session().entryLogged) {
 				Session().entryLogged = true;
-				REX::DEBUG("PauseMenuEntry: '{}' injected into PauseMenu main list ({} vanilla entries)", g_label, count);
+				REX::DEBUG("PauseMenuEntry: '{}' injected into PauseMenu main list ({} vanilla entries)", kLabel, count);
 			}
 		}
-	}
-
-	void PauseMenuEntry::Configure(std::string a_label, std::string a_viewId)
-	{
-		g_label = std::move(a_label);
-		g_viewId = std::move(a_viewId);
 	}
 
 	void PauseMenuEntry::Reconcile()
