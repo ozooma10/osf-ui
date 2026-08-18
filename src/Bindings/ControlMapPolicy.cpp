@@ -13,8 +13,7 @@ namespace OSFUI::ControlMapPolicy
 
 		bool IsMenuFamily(std::uint8_t a_id, std::string_view a_name)
 		{
-			if (a_name.starts_with("BasicMenuNav") || a_name.starts_with("DataMenu") ||
-				a_name.starts_with("StarMap") || a_name.starts_with("ShipBuilder_")) {
+			if (a_name.starts_with("BasicMenuNav") || a_name.starts_with("DataMenu") || a_name.starts_with("StarMap") || a_name.starts_with("ShipBuilder_")) {
 				return true;
 			}
 			return a_id == 0x18 ||  // Terminal

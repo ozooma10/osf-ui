@@ -19,8 +19,8 @@ namespace OSFUI
 			}
 		}
 		{
-			std::lock_guard lock(_mutex);
-			_bindings = std::move(bindings);
+			std::lock_guard lock(m_mutex);
+			m_bindings = std::move(bindings);
 		}
 		if (Log::DebugEnabled()) {
 			REX::DEBUG("HotkeyService: registry rebuilt — {} binding(s)", count);
@@ -29,19 +29,19 @@ namespace OSFUI
 
 	void HotkeyService::OnKeyDown(ScanCode a_scan)
 	{
-		if (_suppressed && _suppressed()) {
+		if (m_suppressed && m_suppressed()) {
 			return;  // typing in a view / rebinding — never a hotkey
 		}
-		std::lock_guard lock(_mutex);
-		const auto it = _bindings.find(a_scan);
-		if (it == _bindings.end()) {
+		std::lock_guard lock(m_mutex);
+		const auto it = m_bindings.find(a_scan);
+		if (it == m_bindings.end()) {
 			return;
 		}
 		for (const auto& binding : it->second) {
-			if (_pending.size() >= kMaxPendingFires) {
+			if (m_pending.size() >= kMaxPendingFires) {
 				return;  // main thread stalled; shed the newest, not the oldest
 			}
-			_pending.push_back(binding);
+			m_pending.push_back(binding);
 		}
 	}
 
@@ -49,8 +49,8 @@ namespace OSFUI
 	{
 		std::vector<Binding> fires;
 		{
-			std::lock_guard lock(_mutex);
-			fires.swap(_pending);
+			std::lock_guard lock(m_mutex);
+			fires.swap(m_pending);
 		}
 		if (!a_fire) {
 			return;

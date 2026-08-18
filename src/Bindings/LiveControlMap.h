@@ -15,9 +15,6 @@
 
 namespace OSFUI
 {
-	// Version-gated, game-thread-only view of Starfield's live ControlMap. All
-	// engine pointers and pooled strings are copied into owned values before a
-	// snapshot is published to the rest of OSF UI.
 	class LiveControlMap
 	{
 	public:
@@ -39,17 +36,8 @@ namespace OSFUI
 			bool engineInputContext{ false };
 		};
 
-		// First main-thread Tick after kPostDataLoad. A failure is durable and
-		// fail-closed: state remains available:false and no game-binding conflict claims
-		// are made. Initialized() becomes true only after the snapshot is complete.
 		void Initialize();
-		// Per main-thread tick. Coalesces repeated remap events into one rebuild and
-		// samples the small active engine-input-context stack without
-		// re-enumerating bindings.
 		[[nodiscard]] Changes Pump();
-		// Layout/locale changed on the main thread: rebuild the physical projection.
-		// Locale changes explicitly clear the persistent engine-translation cache;
-		// keyboard-layout changes retain it because only VK -> scan projection moves.
 		[[nodiscard]] bool RefreshLabels(bool a_localizationChanged = false);
 
 		[[nodiscard]] bool Available() const { return _available; }

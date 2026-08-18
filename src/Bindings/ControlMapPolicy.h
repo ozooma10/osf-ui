@@ -24,10 +24,8 @@ namespace OSFUI::ControlMapPolicy
 		GameplayModeMask possibleModes{ 0 };
 	};
 
-	[[nodiscard]] EngineInputContextPolicy Classify(std::uint8_t a_engineInputContextId,
-		std::string_view a_engineInputContextName);
+	[[nodiscard]] EngineInputContextPolicy Classify(std::uint8_t a_engineInputContextId, std::string_view a_engineInputContextName);
 	[[nodiscard]] std::string_view ClassificationName(Classification a_classification);
 	[[nodiscard]] bool IsDefiniteShipEngineInputContext(std::uint8_t a_engineInputContextId);
-	[[nodiscard]] std::optional<GameplayMode> DeriveMode(
-		std::span<const std::uint8_t> a_activeEngineInputContexts);
+	[[nodiscard]] std::optional<GameplayMode> DeriveMode(std::span<const std::uint8_t> a_activeEngineInputContexts);
 }
