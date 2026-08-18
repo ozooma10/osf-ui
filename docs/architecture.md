@@ -69,6 +69,17 @@ deferred requests past their deadline, and applies plugin registrations —
 all before `Update()` flushes the per-view outbound queues, so a value a mod backend
 published this tick reaches the page in this tick's frame.
 
+The optional **MOD SETTINGS** pause-menu row is native rather than a live
+Scaleform mutation. At process startup, `Input/PauseMenuEntry` byte-gates the
+Starfield 1.16.244 list builder, registers the first `PauseMenu_StartAction`
+sink, and appends action `100` through the engine's own row helper after QUIT.
+Its event callback only records a debounced request; the next `Runtime::Tick`
+hides `PauseMenu` and opens `osfui/settings`. A changed executable, occupied
+builder callsite, late sink order, or disabled startup setting leaves the
+integration unarmed. The hook and sink are process-lifetime, so setting changes
+take effect on the next launch. Action `100` is a private convention, not a game
+registry; another mod publishing the same action id is an unsupported collision.
+
 ### Message bridge
 
 All native↔web traffic is JSON text through `MessageBridge` (web bridge protocol

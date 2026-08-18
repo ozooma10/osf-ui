@@ -2,7 +2,12 @@
 
 #include "API/PapyrusApi.h"
 #include "Compat/V1/Papyrus.h"
+#include "Core/Ids.h"
 #include "Input/FreeCursor.h"
+#include "Input/PauseMenuEntry.h"
+
+#include "RE/B/BSFixedString.h"
+#include "RE/U/UIMessageQueue.h"
 
 namespace OSFUI
 {
@@ -105,6 +110,20 @@ namespace OSFUI
 		}
     }
 
+    void Runtime::ProcessPauseMenuEntry()
+    {
+		if (!PauseMenuEntry::TakeOpenRequest()) {
+			return;
+		}
+
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(RE::BSFixedString("PauseMenu"), RE::UI_MESSAGE_TYPE::kHide);
+		} else {
+			REX::WARN("PauseMenuEntry: UIMessageQueue singleton is unavailable; PauseMenu was not hidden");
+		}
+		EnqueueOpenView(std::string(Ids::kSettingsViewId));
+	}
+
     void Runtime::ReconcileFrameState(double a_deltaSeconds)
     {
 		ReconcileFocusMenu();
@@ -146,6 +165,7 @@ namespace OSFUI
 		_uptime += a_deltaSeconds;
 
 		ProcessLifecycleWork();
+		ProcessPauseMenuEntry();
 		DrainViewRegistrations();
 		const auto presentationWork = TakePresentationRequests();
 		PreparePresentationRequests(presentationWork);

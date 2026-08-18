@@ -34,7 +34,7 @@
           "label": "Pause-menu entry",
           "type": "bool",
           "default": true,
-          "hint": "Add a MOD SETTINGS entry to the game's pause menu."
+          "hint": "Add a MOD SETTINGS entry to the game's pause menu. Takes effect on the next launch."
         },
         {
           "key": "vanillaKeyConflicts",

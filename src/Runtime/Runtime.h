@@ -131,6 +131,7 @@ namespace OSFUI
 		void ProcessControlMapUpdates();
 		void ProcessBackendQueues();
 		void ProcessSettingsMaintenance();
+		void ProcessPauseMenuEntry();
 		void ReconcileFrameState(double a_deltaSeconds);
 		void ProcessRendererFrame(double a_deltaSeconds);
 

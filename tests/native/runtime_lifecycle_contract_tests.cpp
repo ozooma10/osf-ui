@@ -154,11 +154,18 @@ int main()
 
 	const auto tick = FunctionBody(runtimeSource, "void Runtime::Tick(double a_deltaSeconds)");
 	Check(ContainsInOrder(tick, {
+		"ProcessPauseMenuEntry()",
 		"TakePresentationRequests()",
 		"PreparePresentationRequests(presentationWork)",
 		"ProcessBackendQueues()",
 		"ApplyPresentationRequests(presentationWork)" }),
 		"Tick must instantiate requested views hidden, flush native sends, then apply visibility");
+	const auto pauseMenuEntry = FunctionBody(runtimeSource, "void Runtime::ProcessPauseMenuEntry()");
+	Check(ContainsInOrder(pauseMenuEntry, {
+		"PauseMenuEntry::TakeOpenRequest()",
+		"UI_MESSAGE_TYPE::kHide",
+		"EnqueueOpenView(std::string(Ids::kSettingsViewId))" }),
+		"PauseMenu actions must defer the engine hide and Mod Settings open to Runtime::Tick");
 	const auto backendQueues = FunctionBody(runtimeSource, "void Runtime::ProcessBackendQueues()");
 	Check(backendQueues.find("API::BridgeApi::Get().PumpMainThread()") != std::string::npos,
 		"the extracted backend phase must still flush native sends before presentation is applied");

@@ -34,6 +34,8 @@ sanctioned in-game pass, or a larger refactor window:
   `WebResourceRequested` for folder-mapped content — see
   `docs/security-model.md`. A dev-mode probe log is the gate for revisiting.
 
-The pause-menu list debounce discussed in earlier revisions of this note has
-since been removed (`src/Input/PauseMenuEntry.cpp` documents why); the adjacent
-`LivePauseMenu` liveness checks are independent and remain load-bearing.
+The pause-menu entry now uses the engine's native list builder and ordered
+action sink. It owns no movie, AS3 listener, copied list, or per-frame
+reconciliation state; the callback records one request for the established
+main-thread runtime tick. The exact 1.16.244 hook bytes and first-sink ordering
+fail closed when another version or native injector occupies the seam.

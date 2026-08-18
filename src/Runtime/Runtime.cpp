@@ -15,7 +15,6 @@
 #include "Input/FreeCursor.h"
 #include "Input/HardwareCursor.h"
 #include "Input/KeyNames.h"
-#include "Input/MainThreadMenuPump.h"
 #include "Input/MenuMode.h"
 #include "Input/MenuEventSink.h"
 #include "Input/OverlayInputHook.h"
@@ -320,6 +319,20 @@ namespace OSFUI
 		_initialized = true;
 		// Push the initial policy derived from whatever is open (incl. nothing).
 		ApplyViewPresentationPolicy();
+
+		bool pauseMenuEntryEnabled = true;
+		if (_settings) {
+			if (const auto* value = _settings->Store().GetValue("osfui", "pauseMenuEntry");
+				value && value->is_boolean()) {
+				pauseMenuEntryEnabled = value->get<bool>();
+			}
+		}
+		if (pauseMenuEntryEnabled) {
+			PauseMenuEntry::Install();
+		} else {
+			REX::INFO("PauseMenuEntry: disabled by startup setting");
+		}
+
 		REX::INFO("Runtime: initialized (visible={})", m_visible.load());
 
 		return true;
@@ -366,7 +379,6 @@ namespace OSFUI
 			return;
 		}
 		const bool menuEventsInstalled = MenuEventSink::Install();
-		MainThreadMenuPump::Install();
 		const bool focusMenuRegistered = FocusMenu::Register();
 		const bool inputInstalled = OverlayInputHook::Install();
 		_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
@@ -862,6 +874,9 @@ namespace OSFUI
 			if (_localization.SetLocale(locale)) {
 				RefreshLocalizedData();
 			}
+		} else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
+			REX::INFO("Runtime: pause-menu entry setting changed to {}; takes effect on the next launch",
+				a_value.get<bool>());
 		}
 	}
 

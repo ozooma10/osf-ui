@@ -75,9 +75,7 @@ Nothing may log unboundedly. Established tools, in preference order:
 
 1. State-change-only: log on transition, not on state (most INFO lines).
 2. One-shot flags / `Log::WarnOnce` (`std::once_flag`, once per process).
-3. Resettable once-per-episode flags where re-occurrence is meaningful
-   (`PauseMenuEntry`'s local `WarnOnce`: once per pause-menu open — deliberate,
-   not a duplicate to unify).
+3. Resettable once-per-episode flags where re-occurrence is meaningful.
 4. Dedupe-by-key with a "further rejections not logged" note
    (`MessageBridge`'s unknown-endpoint warning, keyed by endpoint name and
    capped at 512 distinct names, so a page polling a dead endpoint costs one

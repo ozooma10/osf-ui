@@ -1,281 +1,273 @@
 #include "Input/PauseMenuEntry.h"
 
-#include "RE/B/BSFixedString.h"
-#include "RE/I/IMenu.h"
-#include "RE/S/ScaleformGFxASMovieRootBase.h"
-#include "RE/S/ScaleformGFxFunctionHandler.h"
-#include "RE/S/ScaleformGFxMovie.h"
-#include "RE/S/ScaleformGFxValue.h"
-#include "RE/U/UI.h"
-#include "RE/U/UIMessageQueue.h"
-
 #include "Core/Log.h"
-#include "Runtime/Runtime.h"
 
+#include "RE/B/BSFixedString.h"
+#include "RE/E/Events.h"
+#include "REL/Relocation.h"
+#include "REL/Trampoline.h"
+
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 namespace OSFUI
 {
 	namespace
 	{
-		constexpr std::string_view kMenuName = "PauseMenu";
+		constexpr REL::Version kRuntimeVersion{ 1, 16, 244, 0 };
+		constexpr REL::ID      kBuilderID{ 93641 };
+		constexpr REL::ID      kQueueActionID{ 87656 };
+		constexpr REL::ID      kEventSourceID{ 93711 };
+		constexpr REL::ID      kExtractActionID{ 93697 };
+		constexpr REL::ID      kEventSourceVtableID{ 445619 };
 
-		// uActionType of injected entry. vanilla ids are 0..11 so 100 is outside range.
-		constexpr std::uint32_t kActionId = 100;
+		constexpr std::ptrdiff_t kQuitCallOffset = 0x48D;
+		constexpr std::uint32_t  kActionID = 100;
 
-		constexpr std::string_view kLabel = "MOD SETTINGS";
-		constexpr std::string_view kViewId = "osfui/settings";
-
-		bool g_pendingClick{ false };
-
-		struct SessionState
-		{
-			RE::Scaleform::Ptr<RE::Scaleform::GFx::Movie> movie;
-			std::int32_t                                  expectedCount{ -1 };
-			bool                                          listenerInstalled{ false };
-			bool                                          entryLogged{ false };
-			bool                                          failWarned{ false };
-
-			void Reset(RE::Scaleform::Ptr<RE::Scaleform::GFx::Movie> a_movie = nullptr)
-			{
-				movie = std::move(a_movie);
-				expectedCount = -1;
-				listenerInstalled = false;
-				entryLogged = false;
-				failWarned = false;
-			}
+		constexpr std::array<std::uint8_t, 16> kBuilderPrologue{
+			0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x56, 0x41,
+			0x57, 0x48, 0x8D, 0x6C, 0x24, 0xD1, 0x48, 0x81
+		};
+		constexpr std::array<std::uint8_t, 16> kQueueActionPrologue{
+			0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x74,
+			0x24, 0x18, 0x48, 0x89, 0x7C, 0x24, 0x20, 0x55
+		};
+		constexpr std::array<std::uint8_t, 16> kEventSourcePrologue{
+			0x48, 0x83, 0xEC, 0x28, 0x65, 0x48, 0x8B, 0x04,
+			0x25, 0x58, 0x00, 0x00, 0x00, 0xBA, 0xB8, 0x00
+		};
+		constexpr std::array<std::uint8_t, 16> kExtractActionPrologue{
+			0x48, 0x89, 0x5C, 0x24, 0x18, 0x48, 0x89, 0x74,
+			0x24, 0x20, 0x57, 0x41, 0x56, 0x41, 0x57, 0x48
+		};
+		constexpr std::array<std::uint8_t, 6> kQuitCallBytes{
+			0xE8, 0x0E, 0x79, 0xE5, 0xFF, 0x90
 		};
 
-		SessionState& Session()
+		using QueueActionFn = void (*)(
+			void*, const RE::BSFixedStringCS*, std::uint32_t,
+			const RE::BSFixedStringCS*, bool);
+		using GetEventSourceFn = RE::BSTEventSource<RE::PauseMenu_StartAction>* (*)();
+		using ExtractActionFn = std::uint32_t* (*)(
+			std::uint32_t*, const RE::PauseMenu_StartAction*);
+
+		std::atomic<QueueActionFn> g_originalQueueAction{ nullptr };
+		ExtractActionFn g_extractAction{ nullptr };
+		RE::BSTEventSource<RE::PauseMenu_StartAction>* g_eventSource{ nullptr };
+		const RE::BSFixedStringCS* g_label{ nullptr };
+		const RE::BSFixedStringCS* g_emptyConfirm{ nullptr };
+
+		std::atomic_bool g_installTried{ false };
+		std::atomic_bool g_armed{ false };
+		std::atomic_bool g_openRequested{ false };
+		std::atomic_bool g_insertionLogged{ false };
+
+		template <std::size_t N>
+		bool VerifyBytes(std::string_view a_name, std::uintptr_t a_address,
+			const std::array<std::uint8_t, N>& a_expected)
 		{
-			static SessionState* const session = new SessionState;
-			return *session;
+			std::array<std::uint8_t, N> actual{};
+			std::memcpy(actual.data(), reinterpret_cast<const void*>(a_address), N);
+			if (actual == a_expected) {
+				return true;
+			}
+			REX::ERROR("PauseMenuEntry: {} bytes changed at 0x{:X}; native integration disabled", a_name, a_address);
+			return false;
 		}
 
-		bool NumericValue(const RE::Scaleform::GFx::Value& a_val, double& a_out)
+		std::uintptr_t ReadCallTarget(std::uintptr_t a_site)
 		{
-			using Type = RE::Scaleform::GFx::Value::ValueType;
-			switch (a_val.GetType()) {
-			case Type::kInt:
-				a_out = a_val.GetInt();
-				return true;
-			case Type::kUInt:
-				a_out = a_val.GetUInt();
-				return true;
-			case Type::kNumber:
-				a_out = a_val.GetNumber();
-				return true;
-			default:
-				return false;
-			}
+			std::int32_t displacement = 0;
+			std::memcpy(&displacement, reinterpret_cast<const void*>(a_site + 1), sizeof(displacement));
+			return a_site + 5 + displacement;
 		}
 
-		RE::Scaleform::Ptr<RE::IMenu> LivePauseMenu()
+		void QueueActionThunk(
+			void* a_model,
+			const RE::BSFixedStringCS* a_label,
+			std::uint32_t a_actionType,
+			const RE::BSFixedStringCS* a_confirmText,
+			bool a_disabled)
 		{
-			auto* ui = RE::UI::GetSingleton();
-			if (!ui) {
-				return nullptr;
+			const auto original = g_originalQueueAction.load(std::memory_order_acquire);
+			if (!original) {
+				g_armed.store(false, std::memory_order_release);
+				return;
 			}
 
-			auto menu = ui->GetMenu(RE::BSFixedString(kMenuName.data()));
-			if (!menu || (menu->flags & RE::IMenu::Flag::kAdvancesMovie) == 0 || !menu->uiMovie || !menu->uiMovie->asMovieRoot) {
-				return nullptr;
+			original(a_model, a_label, a_actionType, a_confirmText, a_disabled);
+			if (!g_armed.load(std::memory_order_acquire)) {
+				return;
 			}
 
-			for (const auto& admitted : ui->menuArray) {
-				if (admitted.get() == menu.get()) {
-					return menu;
+			if ((a_actionType & 0xFF) != 9 || !a_model || !g_label || !g_emptyConfirm) {
+				if (g_armed.exchange(false, std::memory_order_acq_rel)) {
+					REX::CRITICAL("PauseMenuEntry: native builder invariant failed; integration disarmed for this session");
 				}
+				return;
 			}
-			return nullptr;
+
+			original(a_model, g_label, kActionID, g_emptyConfirm, false);
+			if (!g_insertionLogged.exchange(true, std::memory_order_relaxed)) {
+				REX::DEBUG("PauseMenuEntry: 'MOD SETTINGS' appended through the native PauseMenu list builder");
+			}
 		}
 
-		class ClickHandler final : public RE::Scaleform::GFx::FunctionHandler
+		class ActionSink final : public RE::BSTEventSink<RE::PauseMenu_StartAction>
 		{
 		public:
-			void Call(const Params& a_params) override
+			RE::BSEventNotifyControl ProcessEvent(
+				const RE::PauseMenu_StartAction& a_event,
+				RE::BSTEventSource<RE::PauseMenu_StartAction>*) override
 			{
-				if (a_params.argCount < 1 || !a_params.args) {
-					return;
+				if (!g_armed.load(std::memory_order_acquire)) {
+					return RE::BSEventNotifyControl::kContinue;
 				}
 
-				auto& event = a_params.args[0];
-				if (!event.IsObject()) {
-					return;
-				}
-				RE::Scaleform::GFx::Value eventParams;
-				if (!event.GetMember("params", &eventParams) || !eventParams.IsObject()) {
-					return;
-				}
-				RE::Scaleform::GFx::Value action;
-				double                    id = -1.0;
-				if (!eventParams.GetMember("entryAction", &action) || !NumericValue(action, id)) {
-					return;
-				}
-				if (id != static_cast<double>(kActionId)) {
-					return;  // a vanilla entry — leave the event alone
-				}
-				if (!event.Invoke("stopImmediatePropagation")) {
-					return;
+				std::uint32_t action = 0;
+				g_extractAction(&action, &a_event);
+				if (action != kActionID) {
+					return RE::BSEventNotifyControl::kContinue;
 				}
 
-				const auto menu = LivePauseMenu();
-				if (!menu || menu->uiMovie.get() != a_params.movie) {
-					return;
+				if (!g_openRequested.exchange(true, std::memory_order_acq_rel)) {
+					REX::DEBUG("PauseMenuEntry: native action received; queued Mod Settings open");
 				}
-				g_pendingClick = true;
+				return RE::BSEventNotifyControl::kStop;
 			}
 		};
 
-		ClickHandler* Handler()
+		ActionSink* Sink()
 		{
-			static auto* handler = new ClickHandler();
-			return handler;
+			static auto* sink = new ActionSink;
+			return sink;
 		}
 
-		void WarnOnce(const char* a_what)
+		struct Addresses
 		{
-			if (!Session().failWarned) {
-				Session().failWarned = true;
-				REX::WARN("PauseMenuEntry: {} - injection skipped for this pause menu (replaced/renamed pausemenu.swf?)", a_what);
-			}
-		}
+			std::uintptr_t builder{ 0 };
+			std::uintptr_t queueAction{ 0 };
+			std::uintptr_t eventSource{ 0 };
+			std::uintptr_t extractAction{ 0 };
+		};
 
-		void HandleClick()
+		bool Preflight(Addresses& a_addresses)
 		{
-			if (!g_pendingClick) {
-				return;
-			}
-			g_pendingClick = false;
-
-			REX::DEBUG("PauseMenuEntry: entry pressed -> closing PauseMenu, opening view '{}'", kViewId);
-			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
-				queue->AddMessage(RE::BSFixedString(kMenuName.data()), RE::UI_MESSAGE_TYPE::kHide);
-			} else {
-				REX::WARN("PauseMenuEntry: UIMessageQueue singleton null; PauseMenu left open");
-			}
-			Runtime::Get().EnqueueOpenView(std::string(kViewId));
-		}
-
-		void ReconcileList()
-		{
-			const auto menu = LivePauseMenu();
-			if (!menu) {
-				Session().Reset();
-				return;
-			}
-			if (Session().movie.get() != menu->uiMovie.get()) {
-				Session().Reset(menu->uiMovie);
-			}
-			auto& movieRoot = *menu->uiMovie->asMovieRoot;
-
-			RE::Scaleform::GFx::Value rootObj;
-			if (!movieRoot.GetVariable(&rootObj, menu->GetRootPath()) || !rootObj.IsObject()) {
-				return;  // root display object not ready yet; retry next tick
-			}
-			RE::Scaleform::GFx::Value mainPanel;
-			if (!rootObj.GetMember("MainPanel_mc", &mainPanel) || !mainPanel.IsObject()) {
-				WarnOnce("MainPanel_mc missing on the PauseMenu root");
-				return;
-			}
-			RE::Scaleform::GFx::Value mainList;
-			if (!mainPanel.GetMember("MainList_mc", &mainList) || !mainList.IsObject()) {
-				WarnOnce("MainList_mc missing under MainPanel_mc");
-				return;
+			const auto runtimeVersion = REX::FModule::GetExecutingModule().GetFileVersion();
+			if (runtimeVersion != kRuntimeVersion) {
+				REX::ERROR("PauseMenuEntry: runtime {} is not {}; native integration disabled",
+					runtimeVersion, kRuntimeVersion);
+				return false;
 			}
 
-			RE::Scaleform::GFx::Value countVal;
-			double                    countNum = 0.0;
-			if (!mainList.GetMember("entryCount", &countVal) || !NumericValue(countVal, countNum)) {
-				WarnOnce("MainList_mc.entryCount unreadable");
-				return;
+			a_addresses.builder = REL::Relocation<std::uintptr_t>{ kBuilderID }.address();
+			a_addresses.queueAction = REL::Relocation<std::uintptr_t>{ kQueueActionID }.address();
+			a_addresses.eventSource = REL::Relocation<std::uintptr_t>{ kEventSourceID }.address();
+			a_addresses.extractAction = REL::Relocation<std::uintptr_t>{ kExtractActionID }.address();
+			const auto callsite = a_addresses.builder + kQuitCallOffset;
+
+			if (!VerifyBytes("list builder", a_addresses.builder, kBuilderPrologue) ||
+				!VerifyBytes("row helper", a_addresses.queueAction, kQueueActionPrologue) ||
+				!VerifyBytes("action source", a_addresses.eventSource, kEventSourcePrologue) ||
+				!VerifyBytes("action extractor", a_addresses.extractAction, kExtractActionPrologue) ||
+				!VerifyBytes("final QUIT call", callsite, kQuitCallBytes)) {
+				return false;
 			}
-			const auto count = static_cast<std::int32_t>(countNum);
-
-			if (count <= 0) {
-				return;
-			}
-
-			if (count == Session().expectedCount) {
-				return;
-			}
-
-			if (!Session().listenerInstalled) {
-				RE::Scaleform::GFx::Value fn;
-				movieRoot.CreateFunction(&fn, Handler());
-
-				RE::Scaleform::GFx::Value eventType;
-				movieRoot.CreateString(&eventType, "MainPanel_EntryPress");
-				const RE::Scaleform::GFx::Value args[4] = {
-					eventType,
-					fn,
-					RE::Scaleform::GFx::Value(false),                 // useCapture
-					RE::Scaleform::GFx::Value(std::int32_t{ 1000 }),  // priority: run before the menu's own listener
-				};
-				if (!rootObj.Invoke("addEventListener", nullptr, args, 4)) {
-					WarnOnce("root.addEventListener(MainPanel_EntryPress) failed");
-					return;
-				}
-				Session().listenerInstalled = true;
+			if (ReadCallTarget(callsite) != a_addresses.queueAction) {
+				REX::ERROR("PauseMenuEntry: final QUIT call no longer targets the native row helper; integration disabled");
+				return false;
 			}
 
-			RE::Scaleform::GFx::Value newList;
-			movieRoot.CreateArray(&newList);
-			bool foundOurs = false;
-			for (std::int32_t i = 0; i < count; ++i) {
-				RE::Scaleform::GFx::Value index(i);
-				RE::Scaleform::GFx::Value entryVal;
-				if (!mainList.Invoke("GetDataForEntry", &entryVal, &index, 1) || !entryVal.IsObject()) {
-					WarnOnce("MainList_mc.GetDataForEntry failed");
-					return;
-				}
-				RE::Scaleform::GFx::Value action;
-				double                    id = -1.0;
-				if (entryVal.GetMember("uActionType", &action) && NumericValue(action, id) &&
-					id == static_cast<double>(kActionId)) {
-					foundOurs = true;
-				}
-				if (!newList.PushBack(entryVal)) {
-					WarnOnce("could not copy a PauseMenu list entry");
-					return;
-				}
+			auto& trampoline = REL::GetTrampoline();
+			if (trampoline.empty() || trampoline.free_size() < sizeof(REL::ASM::JMP14)) {
+				REX::ERROR("PauseMenuEntry: no trampoline space is available for the builder call hook; integration disabled");
+				return false;
 			}
-			if (foundOurs) {
-				Session().expectedCount = count;  // ours survived a shape change; settle on the new count
-				return;
-			}
-
-			RE::Scaleform::GFx::Value entry;
-			movieRoot.CreateObject(&entry);
-
-			RE::Scaleform::GFx::Value label;
-			movieRoot.CreateString(&label, kLabel.data());
-			RE::Scaleform::GFx::Value emptyStr;
-			movieRoot.CreateString(&emptyStr, "");
-			if (!entry.SetMember("sActionText", label) || !entry.SetMember("uActionType", RE::Scaleform::GFx::Value(kActionId)) ||
-				!entry.SetMember("bDisabled", RE::Scaleform::GFx::Value(false)) || !entry.SetMember("bShowSpinner", RE::Scaleform::GFx::Value(false)) ||
-				!entry.SetMember("bHasNotification", RE::Scaleform::GFx::Value(false)) || !entry.SetMember("sConfirmText", emptyStr) || !newList.PushBack(entry)) {
-				WarnOnce("could not build the MOD SETTINGS list entry");
-				return;
-			}
-
-			const RE::Scaleform::GFx::Value args[1] = { newList };
-			if (!mainPanel.Invoke("PopulateMainList", nullptr, args, 1)) {
-				WarnOnce("MainPanel_mc.PopulateMainList refused the augmented list");
-				return;
-			}
-			Session().expectedCount = count + 1;
-			if (!Session().entryLogged) {
-				Session().entryLogged = true;
-				REX::DEBUG("PauseMenuEntry: '{}' injected into PauseMenu main list ({} vanilla entries)", kLabel, count);
-			}
+			return true;
 		}
 	}
 
-	void PauseMenuEntry::Reconcile()
+	bool PauseMenuEntry::Install()
 	{
-		HandleClick();
-		ReconcileList();
+		if (g_installTried.exchange(true, std::memory_order_acq_rel)) {
+			return g_armed.load(std::memory_order_acquire);
+		}
+
+		Addresses addresses;
+		if (!Preflight(addresses)) {
+			return false;
+		}
+
+		try {
+			g_label = new RE::BSFixedStringCS{ "MOD SETTINGS" };
+			g_emptyConfirm = new RE::BSFixedStringCS{ "" };
+		} catch (const std::exception& e) {
+			REX::ERROR("PauseMenuEntry: could not create process-lifetime strings: {}; integration disabled", e.what());
+			return false;
+		} catch (...) {
+			REX::ERROR("PauseMenuEntry: could not create process-lifetime strings; integration disabled");
+			return false;
+		}
+
+		g_extractAction = reinterpret_cast<ExtractActionFn>(addresses.extractAction);
+		g_eventSource = reinterpret_cast<GetEventSourceFn>(addresses.eventSource)();
+		if (!g_eventSource) {
+			REX::ERROR("PauseMenuEntry: native action source is null; integration disabled");
+			return false;
+		}
+
+		const auto expectedVtable = REL::Relocation<std::uintptr_t>{ kEventSourceVtableID }.address();
+		const auto actualVtable = *reinterpret_cast<const std::uintptr_t*>(g_eventSource);
+		if (actualVtable != expectedVtable) {
+			REX::ERROR("PauseMenuEntry: native action source identity changed; integration disabled");
+			g_eventSource = nullptr;
+			return false;
+		}
+		if (!g_eventSource->sinks.empty()) {
+			REX::ERROR("PauseMenuEntry: action source already has {} sink(s); first-listener ordering is unavailable",
+				g_eventSource->sinks.size());
+			g_eventSource = nullptr;
+			return false;
+		}
+
+		g_eventSource->RegisterSink(Sink());
+		if (g_eventSource->sinks.size() != 1) {
+			REX::ERROR("PauseMenuEntry: action sink registration did not produce the required first-listener order");
+			g_eventSource->UnregisterSink(Sink());
+			g_eventSource = nullptr;
+			return false;
+		}
+
+		g_originalQueueAction.store(
+			reinterpret_cast<QueueActionFn>(addresses.queueAction), std::memory_order_release);
+		QueueActionFn captured = nullptr;
+		try {
+			REL::Relocation<std::uintptr_t> builder{ kBuilderID };
+			captured = reinterpret_cast<QueueActionFn>(
+				builder.write_call<5, kQuitCallOffset>(&QueueActionThunk));
+		} catch (const std::exception& e) {
+			REX::ERROR("PauseMenuEntry: builder hook installation failed: {}; integration disabled", e.what());
+		} catch (...) {
+			REX::ERROR("PauseMenuEntry: builder hook installation failed; integration disabled");
+		}
+		if (reinterpret_cast<std::uintptr_t>(captured) != addresses.queueAction) {
+			REX::CRITICAL("PauseMenuEntry: builder hook captured 0x{:X}, expected 0x{:X}; integration remains disarmed",
+				reinterpret_cast<std::uintptr_t>(captured), addresses.queueAction);
+			g_eventSource->UnregisterSink(Sink());
+			g_eventSource = nullptr;
+			return false;
+		}
+
+		g_armed.store(true, std::memory_order_release);
+		REX::INFO("PauseMenuEntry: native integration armed (action {}; hook and sink are process-lifetime)", kActionID);
+		return true;
+	}
+
+	bool PauseMenuEntry::TakeOpenRequest()
+	{
+		return g_openRequested.exchange(false, std::memory_order_acq_rel);
 	}
 }
