@@ -76,7 +76,7 @@ export function install(ctx: MockContext) {
 
 Debug with the browser's own DevTools — the shared kit is the production one, so the failures you see are the failures the game reports. Every rejection, timeout, missing bridge and dropped send prints with an `[osfui]` prefix; `localStorage["osfui:trace"] = "1"` plus a reload logs every envelope both directions. Details: [troubleshooting.md](troubleshooting.md#debugging-your-own-view-for-authors).
 
-`npm run check` validates the manifest the config will emit and every drop-in settings JSON file against the packaged OSF UI 2.0 schemas, then type-checks the project and flags remote URLs and browser transports the in-game browser host doesn't support. A malformed `targetVersion` fails. During 2.0.x, a pre-2.0 target previews through the temporary 1.x façade and every legacy command prints the 2.1.0 removal warning.
+`npm run check` validates the manifest the config will emit and every drop-in settings JSON file against the packaged OSF UI 2.0 schemas, then type-checks the project and flags remote URLs and browser transports the in-game browser host doesn't support. A malformed `targetVersion` fails. A pre-2.0 target previews through the same frozen 1.x façade used in game.
 
 ## Iterate in Starfield
 
@@ -120,10 +120,9 @@ For a Papyrus project, `build` compiles every `mod/Scripts/Source/**/*.psc` into
 
 Declare `targetVersion` on your view in `osfui.config.*`. It names the OSF UI
 release version. A target newer than the installed OSF UI release is advisory
-and tells Mod Settings that OSF UI needs an update. During 2.0.x, a target below
-2.0 is accepted only as a migration aid: preview/build/package use the guarded
-1.x façade and warn that it is removed in 2.1.0. New scaffolds and the published
-typings remain 2.0-only.
+and tells Mod Settings that OSF UI needs an update. A target below 2.0 selects
+the guarded, frozen 1.x façade for preview/build/package. New scaffolds and the
+published typings remain 2.0-only.
 
 Papyrus builds require:
 

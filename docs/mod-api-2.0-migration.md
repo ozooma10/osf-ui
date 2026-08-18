@@ -2,13 +2,13 @@
 
 Read this when your mod stopped working after updating OSF UI. It's the mechanics half of [mod-api-2.0-design.md](mod-api-2.0-design.md), which covers *why* the API is shaped this way.
 
-**The 2.0 web protocol and native C++ ABI are hard breaks for current consumers.** OSF UI 2.0.x temporarily adapts the final public 1.x view, native ABI 1.8, and Papyrus surfaces so existing mods keep running while their authors migrate. Every concrete legacy consumer gets a persistent warning naming **2.1.0** as the removal release. A view or DLL declaring 2.0 stays on the strict path and receives no legacy aliases.
+**The 2.0 web protocol is a hard break for current views, but compatibility remains supported.** A pre-2.0 `targetVersion` selects the frozen 1.x helper while current views receive only the strict four-verb API. Papyrus keeps its published natives. The native C++ ABI remains one append-only 1.x line rather than making a breaking 2.0 cut.
 
 | Artifact | Breaks? | How you find out |
 |---|---|---|
-| View (`views/<modId>/<viewName>/`) | **Yes** | A declared pre-2.0 target selects the guarded 1.x façade during 2.0.x and is reported as `compat.pre-2-view` warning. Migrate to the four-verb shared bridge helper and declare `targetVersion: "2.0.0"` before 2.1.0. |
-| Native SFSE plugin (`sdk/OSFUI_API.h`) | **Yes** | ABI 1.0–1.8 callers receive the frozen 1.8 adapter and a `compat.legacy-api` warning during 2.0.x. Rebuild against ABI 2.0 before 2.1.0. Unrelated majors are still refused. |
-| Papyrus script | **Partly** | Six deprecated natives (`PushToView`, `PushFormsToView`, `RegisterForViewActions{,Static,Args,ArgsStatic}`) remain bound through 2.0.x and produce `compat.legacy-papyrus`; everything else keeps its name. |
+| View (`views/<modId>/<viewName>/`) | **Yes, opt-in** | A declared pre-2.0 target selects the frozen 1.x façade. Migrate to the four-verb helper when useful; existing views keep working without a removal deadline. |
+| Native SFSE plugin (`sdk/OSFUI_API.h`) | **No** | ABI 1.0–1.8 callers use their unchanged vtable prefix. ABI 1.9 appends strict sends. Only an unrelated major is refused. |
+| Papyrus script | **No** | Six older natives (`PushToView`, `PushFormsToView`, `RegisterForViewActions{,Static,Args,ArgsStatic}`) remain bound. Prefer the newer state/event/listener methods for clearer behavior. |
 | Settings schema (`settings/<modId>.json`) | **No** | Declarative data. An `action` row uses a strict `RegisterRequest` endpoint. |
 | Player values, localization catalogs | **No** | Same files, same format. |
 
@@ -211,11 +211,11 @@ Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSF
 
 | 1.x | 2.0 | Break |
 |---|---|---|
-| `PushToView(mod, key, values)` | `SetView*` for state, `SendViewEvent` for happenings | **DEPRECATED** — remains a transient `data.push` in 2.0.x; warns and is removed in 2.1.0 |
-| `PushFormsToView(mod, key, forms)` | `SetViewForms(mod, key, forms)` | **DEPRECATED** — same temporary adapter |
-| `RegisterForViewActions(receiver, fn, mod)` | `ListenForViewActions(receiver, mod)` → `OnOSFUIViewAction(string, string[])` | **DEPRECATED** — exact scalar callback shape retained through 2.0.x |
-| `RegisterForViewActionsStatic(script, fn, mod)` | `ListenForViewActionsStatic(script, mod)` | **DEPRECATED** |
-| `RegisterForViewActionsArgs(...)` | `ListenForViewActions(...)` | **DEPRECATED** — exact args-list callback shape retained through 2.0.x |
+| `PushToView(mod, key, values)` | `SetView*` for state, `SendViewEvent` for happenings | **FROZEN** — remains a transient `data.push`; the newer methods make state/event intent explicit |
+| `PushFormsToView(mod, key, forms)` | `SetViewForms(mod, key, forms)` | **FROZEN** — same compatibility path |
+| `RegisterForViewActions(receiver, fn, mod)` | `ListenForViewActions(receiver, mod)` → `OnOSFUIViewAction(string, string[])` | **FROZEN** — exact scalar callback shape retained |
+| `RegisterForViewActionsStatic(script, fn, mod)` | `ListenForViewActionsStatic(script, mod)` | **FROZEN** |
+| `RegisterForViewActionsArgs(...)` | `ListenForViewActions(...)` | **FROZEN** — exact args-list callback shape retained |
 | `RegisterForViewActionsArgsStatic(...)` | `ListenForViewActionsStatic(...)` | **DEPRECATED** |
 | — | **`SendViewEvent(mod, name, args)`** (new) | emits `"<mod>.<name>"` with payload `{ args }`; never cached, never replayed |
 | `SetViewBool/Int/Float/String/Bools/Ints/Floats/Strings/Forms` | unchanged | none — but the wire shape is now `kind:"state"` and the view consumes it with `osfui.state.on()` |
@@ -234,29 +234,29 @@ Papyrus keeps its 1.5 names on purpose: renaming `ListenForViewActions` / `OnOSF
 
 `sdk/OSFUI_API.h` (+ the optional `sdk/OSFUI_JSON.h` facade), with the OSF UI runtime implementation in `src/API/BridgeApi.{h,cpp}` and `src/API/Exports.cpp`.
 
-### 5.1 Breaking ABI 2.0
+### 5.1 Additive ABI 1.9
 
 ```cpp
-inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
+inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 9u;
 ```
 
-`OSFUI_RequestBridge` compares the major. During 2.0.x, ABI 1.x callers receive an isolated object with the exact final 1.8 vtable; a binary built against an earlier minor uses only its known prefix, and its existing feature gates see 1.8. The OSF UI runtime records a bounded, deduplicated `compat.legacy-api` warning naming the caller DLL. ABI 2.x callers receive the strict current bridge. Any other major receives `nullptr` and a distinct `compat.unsupported-api` error. Every method in the 2.0 header is baseline, including `SetViewState`; future 2.x additions append at the vtable tail and bump the minor.
+`OSFUI_RequestBridge` accepts every ABI 1.x minor and returns the same current bridge. A binary built against an earlier minor invokes only its known prefix. The historical 25 ABI 1.7 slots remain unchanged, ABI 1.8 appends `SetViewState`, and ABI 1.9 appends `RegisterSend` / `UnregisterSend`. The `Client` wrapper gates those tail calls by the minor returned from `GetInterfaceVersion`. Any other major receives `nullptr` and a distinct `compat.unsupported-api` error.
 
 ### 5.2 Strict send/request split
 
-Replace `CommandFn` / `RegisterCommand` / `UnregisterCommand` with `SendFn` / `RegisterSend` / `UnregisterSend`. A send handler receives the caller's payload verbatim. A request naming it rejects `wrong-endpoint-kind`; the OSF UI runtime never injects `requestId` and never fabricates an acknowledgement. Result-bearing endpoints use the retained `RegisterRequest` and settle through `Request::Respond` or `Reject`.
+For new one-way endpoints, use `SendFn` / `RegisterSend` / `UnregisterSend`. A send handler receives the caller's payload verbatim. A request naming it rejects `wrong-endpoint-kind`; the OSF UI runtime never injects `requestId` and never fabricates an acknowledgement. Result-bearing endpoints use `RegisterRequest` and settle through `Request::Respond` or `Reject`.
 
-Those rules apply to ABI 2. The temporary ABI 1 adapter keeps `RegisterCommand` separate, injects the page request id into a request payload, and auto-acks after the callback exactly as 1.x documented.
+The original `RegisterCommand` / `UnregisterCommand` slots remain available with their documented behavior: a request injects the page request id into the payload and auto-acks after the callback. They are frozen rather than redefined.
 
 ### 5.3 Source changes
 
-| ABI 1.x | ABI 2.0 | Break |
+| Published API | Current option | Compatibility |
 |---|---|---|
-| `CommandFn`, `RegisterCommand`, `UnregisterCommand` | `SendFn`, `RegisterSend`, `UnregisterSend` | source + binary |
-| command requests carried injected `requestId` and auto-acked | request-to-send rejects `wrong-endpoint-kind` | behavioral |
-| result-bearing commands | `RegisterRequest` + `Request::Respond` / `Reject` | source |
-| `SetViewState` was an additive tail method | `SetViewState` is baseline | binary |
-| per-feature 1.x minor gates | all current features are ABI 2.0 baseline | binary |
+| `CommandFn`, `RegisterCommand`, `UnregisterCommand` | `SendFn`, `RegisterSend`, `UnregisterSend` for one-way work | old source and binaries remain valid |
+| command requests inject `requestId` and auto-ack | strict sends reject requests | selected by the registered endpoint method |
+| result-bearing commands | `RegisterRequest` + `Request::Respond` / `Reject` | available since ABI 1.7 |
+| no retained native state | `SetViewState` | appended in ABI 1.8 |
+| no strict send endpoint | `RegisterSend` / `UnregisterSend` | appended in ABI 1.9 |
 
 `SetViewState` is the systemic fix for the blank-after-F5 bug class on the native side. Publish once and the OSF UI runtime replays it to every document of your mod:
 
@@ -301,9 +301,9 @@ There is no partial migration. The plugin DLL, `OSFUI.pex`, the shipped `views/s
 
 For a mod spanning a view, Papyrus, and a native plugin:
 
-1. **Bump `targetVersion` to `"2.0.0"`** in every view manifest and settings schema first. Until you do, `OSF UI.log` warns that your view is legacy — useful while you work, but something to clear before you ship.
+1. **Bump `targetVersion` to `"2.0.0"`** in every view manifest and settings schema when you want the strict surface. A pre-2.0 view stays on the frozen 1.x façade without producing a compatibility warning.
 2. **Papyrus next**, because it's the slowest loop. Replace `PushToView` / `PushFormsToView` with `SetView*` (state) or `SendViewEvent` (happenings), collapse the `RegisterForViewActions*` family into `ListenForViewActions{,Static}` + `OnOSFUIViewAction(string, string[])`, and **delete** the page-`ready`-then-re-push handshake on both sides. Recompile against the shipped `data/Scripts/Source/OSFUI.psc` and redeploy the `.pex`.
-3. **Native plugin**: rebuild against `sdk/OSFUI_API.h` ABI 2.0. Rename `CommandFn` / `RegisterCommand` to `SendFn` / `RegisterSend`; use `RegisterRequest` for answer-bearing endpoints and settings-schema actions; convert re-push-on-reload code to `SetViewState`.
+3. **Native plugin**: no compatibility rebuild is required. Adopt the latest `sdk/OSFUI_API.h` when you want strict `RegisterSend`, and use `RegisterRequest` for answer-bearing endpoints and settings-schema actions. Convert re-push-on-reload code to `SetViewState` when you want retained state.
 4. **Views last**, once the data they consume already arrives correctly. Do the renames from §1.1, then the `request()` payload sweep from §1.2 — that one is manual.
 5. **Verify with `localStorage["osfui:trace"] = "1"` and a reload.** Every replayed `state` envelope is visible at document boot, so a blank panel is answered immediately: the key arrives (view bug) or it doesn't (mod-backend bug).
 
@@ -342,8 +342,8 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run ve
 | `SendViewEvent` is one-shot: never retained, never replayed | `tests/native/papyrus_action_tests.cpp` |
 | Papyrus state is session-scoped and dropped on game load; native state is not | `tests/native/papyrus_action_tests.cpp`, `tests/native/papyrus_form_tests.cpp` |
 | ABI `SetViewState` validation, queue cap, retained-not-session-scoped delivery | `tests/native/bridge_api_tests.cpp` |
-| ABI 2.0 constants, strict send/request routing, all current features baseline | `tests/native/bridge_api_tests.cpp` |
-| ABI 1.0–1.8 adapter selection, frozen vtable behavior, settings/hotkeys, command auto-ack, typed requests, local health publication, and retained state | `tests/native/v1_native_bridge_tests.cpp`, `tests/native/bridge_api_tests.cpp` |
+| ABI 1.9 constants, strict send/request routing, and additive feature gates | `tests/native/bridge_api_tests.cpp` |
+| Exact ABI 1.8 prefix layout, frozen command auto-ack, typed requests, settings/hotkeys, local health publication, and retained state | `tests/native/v1_native_bridge_tests.cpp`, `tests/native/bridge_api_tests.cpp` |
 | Compatibility-health lifecycle and the `osfui/diagnostics` greeting replay | `tests/native/runtime_health_tests.cpp`, `tests/native/health_registry_tests.cpp` |
 | Harness mock speaks the same protocol as the shipped shared bridge helper, end to end | `frontend/test/devmock.mockbridge.test.ts` |
 | Built views load the shipped shared bridge helper and pass the output gates | `frontend/test/build.output.test.ts` |

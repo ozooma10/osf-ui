@@ -47,12 +47,10 @@ namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR.
 	//
-	// ABI 2.0 is the breaking native cleanup shipped with OSF UI 2.0. Future
-	// additive methods append at the vtable tail and bump MINOR; another vtable
-	// or behavioral break bumps MAJOR. During 2.0.x only, the export vends a
-	// separate frozen 1.8 adapter to ABI 1.x callers; this 2.0 header remains
-	// strict and that adapter is removed in 2.1.0.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
+	// ABI 1.x is append-only. Existing virtual methods never move or change
+	// behavior; new capabilities append at the vtable tail and bump MINOR. ABI
+	// 1.8 added retained view state, and 1.9 adds strict one-way send endpoints.
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 9u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -70,6 +68,10 @@ namespace OSFUI::API
 	                           const char* a_payloadJson,
 	                           const char* a_sourceViewId,
 	                           void*       a_user) noexcept;
+	// Frozen ABI 1.0 callback shape. RegisterCommand accepts both send() and
+	// request(); requests receive an injected requestId and an automatic reply.
+	// New endpoints should use RegisterSend or RegisterRequest instead.
+	using CommandFn = SendFn;
 
 	// Copyable, deferred reply token for a registered request.
 	// Copies remain safe after response, timeout, or view closure: the opaque id
@@ -142,15 +144,16 @@ namespace OSFUI::API
 		virtual const char*   GetBridgeProtocolVersion() = 0;
 		virtual bool          IsBridgeReady() = 0;  // compatibility name: at least one bridge-enabled document is instantiated
 
-		// --- send registration. Thread-safe; applied next main tick. ---
-		// Register a handler for an EXACT send endpoint. This endpoint is strictly
-		// one-way; use RegisterRequest when the page needs an outcome.
+		// --- frozen command registration. Thread-safe; applied next main tick. ---
+		// send() invokes the handler one-way. request() preserves the original
+		// injected-requestId + automatic-reply contract. Prefer the strict tail
+		// methods RegisterSend or RegisterRequest for new endpoints.
 		//
 		//   * Id: opaque non-empty string outside the reserved platform endpoints and osfui.* namespace.
 		//     "<modId>.<name>" remains a useful convention; dots carry no runtime meaning.
-		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterSend then re-register (works within one tick).
-		virtual void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) = 0;
-		virtual void UnregisterSend(const char* a_name) = 0;
+		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterCommand then re-register (works within one tick).
+		virtual void RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user) = 0;
+		virtual void UnregisterCommand(const char* a_name) = 0;
 
 		// --- native -> web EVENTS. Thread-safe; queued to the target view. ---
 		// Delivers { kind:"event", name: a_type, payload: <a_payloadJson> } to
@@ -270,6 +273,12 @@ namespace OSFUI::API
 		// contain form identities. Validation is synchronous.
 		virtual bool SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) = 0;
 
+		// --- strict sends (ABI 1.9). Appended; every ABI 1.0-1.8 slot above is frozen. ---
+		// A send endpoint is one-way: its payload is verbatim, a request naming it
+		// is rejected wrong-endpoint-kind, and OSF UI never fabricates a reply.
+		virtual void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) = 0;
+		virtual void UnregisterSend(const char* a_name) = 0;
+
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; consumers never delete it.
 	};
@@ -313,20 +322,21 @@ namespace OSFUI::API
 	//
 	// ========================================================================
 
-	// Named feature gates for future additive 2.x minors. Every feature present
-	// in this header is part of the ABI 2.0 baseline.
+	// Named features, valued as the additive ABI minor that introduced them.
 	enum class Feature : std::uint32_t
 	{
-		kSends = 0,
-		kRequestMenu = 0,
-		kSettings = 0,
-		kDeliveryGuarantee = 0,
-		kHotkeys = 0,
-		kRegisterView = 0,
-		kEndpointShape = 0,
-		kDiagnostics = 0,
-		kRequests = 0,
-		kViewState = 0,
+		kCommands = 0,
+		kRequestMenu = 1,
+		kSettings = 2,
+		kDeliveryGuarantee = 3,
+		kHotkeys = 4,
+		kRegisterView = 5,
+		kCommandShape = 6,
+		kDiagnostics = 7,
+		kRequests = 7,
+		kViewState = 8,
+		kSends = 9,
+		kEndpointShape = 9,
 	};
 
 	class Client
@@ -386,16 +396,30 @@ namespace OSFUI::API
 			return _bridge && _bridge->IsBridgeReady();
 		}
 
-		// --- 2.0 baseline ---
-		void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) const noexcept
+		// --- 1.0 frozen commands ---
+		void RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user) const noexcept
 		{
 			if (_bridge) {
+				_bridge->RegisterCommand(a_name, a_handler, a_user);
+			}
+		}
+		void UnregisterCommand(const char* a_name) const noexcept
+		{
+			if (_bridge) {
+				_bridge->UnregisterCommand(a_name);
+			}
+		}
+
+		// --- 1.9 strict sends ---
+		void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) const noexcept
+		{
+			if (Has(Feature::kSends)) {
 				_bridge->RegisterSend(a_name, a_handler, a_user);
 			}
 		}
 		void UnregisterSend(const char* a_name) const noexcept
 		{
-			if (_bridge) {
+			if (Has(Feature::kSends)) {
 				_bridge->UnregisterSend(a_name);
 			}
 		}

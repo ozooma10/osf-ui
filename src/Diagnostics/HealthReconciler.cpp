@@ -58,21 +58,21 @@ namespace OSFUI
 		std::vector signatureTargets(a_targets.begin(), a_targets.end());
 		std::ranges::sort(signatureTargets, {}, [](const CompatibilityTarget& a_item) {
 			return std::tie(a_item.code, a_item.kind, a_item.id, a_item.targetVersion,
-				a_item.severity, a_item.removalVersion, a_item.declaration);
+				a_item.severity, a_item.declaration);
 		});
 		signatureTargets.erase(std::unique(signatureTargets.begin(), signatureTargets.end(),
 			[](const auto& a_lhs, const auto& a_rhs) {
 				return std::tie(a_lhs.code, a_lhs.kind, a_lhs.id, a_lhs.targetVersion,
-					a_lhs.severity, a_lhs.removalVersion, a_lhs.declaration) ==
+					a_lhs.severity, a_lhs.declaration) ==
 					std::tie(a_rhs.code, a_rhs.kind, a_rhs.id, a_rhs.targetVersion,
-						a_rhs.severity, a_rhs.removalVersion, a_rhs.declaration);
+						a_rhs.severity, a_rhs.declaration);
 			}), signatureTargets.end());
 
 		std::string signature;
 		for (const auto& item : signatureTargets) {
 			signature += item.code + '|' + item.kind + ':' + item.id + '@' + item.targetVersion +
 				'#' + (item.severity == HealthRegistry::Severity::Error ? 'e' : 'w') +
-				'>' + item.removalVersion + '%' + item.declaration + ';';
+				'%' + item.declaration + ';';
 		}
 		if (signature == _compatSignature) return;
 		_compatSignature = std::move(signature);
@@ -87,9 +87,6 @@ namespace OSFUI
 				{ "installedVersion", a_installedVersion },
 			};
 			context[item.declaration] = item.targetVersion;
-			if (!item.removalVersion.empty()) {
-				context["removalVersion"] = item.removalVersion;
-			}
 			a_healthRegistry.Upsert(HealthRegistry::IssueSpec{
 				.id = std::move(id),
 				.code = item.code,

@@ -61,47 +61,25 @@ int main()
 
 	const std::array targets{
 		CompatibilityTarget{ "beta/mod", "mod", "2.0.0", "compat.needs-newer-osfui",
-			HealthRegistry::Severity::Error, "", "targetVersion" },
+			HealthRegistry::Severity::Error, "targetVersion" },
 		CompatibilityTarget{ "acme/view", "view", "2.0.0", "compat.needs-newer-osfui",
-			HealthRegistry::Severity::Error, "", "targetVersion" },
-		CompatibilityTarget{ "legacy.mod/panel", "view", "1.9.0", "compat.pre-2-view",
-			HealthRegistry::Severity::Warning, "2.1.0" },
+			HealthRegistry::Severity::Error, "targetVersion" },
 	};
 	reconciler.SyncCompatibility(healthRegistry, targets, "1.5.0", 3.0);
 	const auto compatId = "compat.needs-newer-osfui:view:acme/view";
 	assert(healthRegistry.IsActive(compatId));
 	assert(IssueById(healthRegistry, compatId).at("context").value("installedVersion", "") == "1.5.0");
-	const auto pre2Id = "compat.pre-2-view:view:legacy.mod/panel";
-	assert(healthRegistry.IsActive(pre2Id));
-	assert(IssueById(healthRegistry, pre2Id).value("severity", "") == "warning");
-	assert(IssueById(healthRegistry, pre2Id).at("context").value("consumer", "") == "legacy.mod/panel");
-	assert(IssueById(healthRegistry, pre2Id).at("context").value("targetVersion", "") == "1.9.0");
-	assert(IssueById(healthRegistry, pre2Id).at("context").value("installedVersion", "") == "1.5.0");
-	assert(IssueById(healthRegistry, pre2Id).at("context").value("removalVersion", "") == "2.1.0");
-
-	const std::array legacyConsumers{
-		CompatibilityTarget{ "SuitProtocol.dll", "plugin", "1.7", "compat.legacy-api",
-			HealthRegistry::Severity::Warning, "2.1.0", "abi" },
-		CompatibilityTarget{ "ak.autosort", "Papyrus mod", "1.x natives",
-			"compat.legacy-papyrus", HealthRegistry::Severity::Warning, "2.1.0", "api" },
+	const std::array unsupportedConsumers{
 		CompatibilityTarget{ "FuturePlugin.dll", "plugin", "3.0", "compat.unsupported-api",
-			HealthRegistry::Severity::Error, "", "abi" },
+			HealthRegistry::Severity::Error, "abi" },
 	};
-	reconciler.SyncCompatibility(healthRegistry, legacyConsumers, "2.0.0", 3.5);
-	const auto abi = IssueById(healthRegistry, "compat.legacy-api:plugin:SuitProtocol.dll");
-	assert(abi.value("severity", "") == "warning");
-	assert(abi.at("context").value("consumer", "") == "SuitProtocol.dll");
-	assert(abi.at("context").value("abi", "") == "1.7");
-	assert(abi.at("context").value("installedVersion", "") == "2.0.0");
-	assert(abi.at("context").value("removalVersion", "") == "2.1.0");
-	const auto papyrus = IssueById(healthRegistry, "compat.legacy-papyrus:Papyrus mod:ak.autosort");
-	assert(papyrus.at("context").value("api", "") == "1.x natives");
+	reconciler.SyncCompatibility(healthRegistry, unsupportedConsumers, "2.0.0", 3.5);
 	const auto unsupported = IssueById(healthRegistry, "compat.unsupported-api:plugin:FuturePlugin.dll");
 	assert(unsupported.value("severity", "") == "error");
-	assert(!unsupported.at("context").contains("removalVersion"));
+	assert(unsupported.at("context").value("abi", "") == "3.0");
 	reconciler.SyncCompatibility(healthRegistry, targets, "1.5.0", 3.75);
 	const auto occurrences = IssueById(healthRegistry, compatId).value("occurrences", 0u);
-	const std::array reordered{ targets[2], targets[1], targets[0] };
+	const std::array reordered{ targets[1], targets[0] };
 	reconciler.SyncCompatibility(healthRegistry, reordered, "1.5.0", 4.0);
 	assert(IssueById(healthRegistry, compatId).value("occurrences", 0u) == occurrences);
 	reconciler.SyncCompatibility(healthRegistry,

@@ -4,7 +4,7 @@
 // driven through the same natives the game binds.
 //
 // 2.0 replaced the single transient `PushToView` channel with the state/event
-// pair; the temporary v1 adapter keeps that old channel through 2.0.x. SetView* is RETAINED
+// pair; the frozen v1 adapter keeps that old channel. SetView* is RETAINED
 // state: latest-wins, complete per key, held in the shared RetainedStateStore and
 // replayed to every document that greets the bridge — which is why a view
 // survives F5 with no handshake. SendViewEvent is a one-shot happening:
@@ -152,9 +152,6 @@ int main()
 	pushes.clear();
 	Compat::V1::Papyrus::DrainPushes([&](const auto& push) { pushes.push_back(push); });
 	CHECK(pushes.empty());
-	const auto legacyCallers = Compat::V1::Papyrus::TakeCallers();
-	CHECK(legacyCallers.size() == 1);
-	if (!legacyCallers.empty()) CHECK(legacyCallers[0] == "t.legacy");
 	// Interned ASCII casing folds to a stable comparison form and is accepted.
 	const auto tokenStatic = listenStatic(*vm, 0, {}, "MyLib", "T.Alpha");
 	CHECK(tokenStatic != 0);

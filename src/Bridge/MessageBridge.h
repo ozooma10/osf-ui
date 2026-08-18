@@ -80,15 +80,16 @@ namespace OSFUI
 		// request names are disjoint.
 		void RegisterSend(std::string a_name, SendHandler a_handler);
 		bool RegisterRequest(std::string a_name, RequestHandler a_handler);
-		// Temporary 1.x command kind: accepts send and request. A request gets its
-		// page id injected into payload.requestId and an automatic success reply.
-		bool RegisterLegacyCommand(std::string a_name, SendHandler a_handler);
+		// Frozen command kind: accepts send and request. A request gets its page id
+		// injected into payload.requestId and an automatic success reply. New
+		// native endpoints use the strict send/request registries above.
+		bool RegisterCommand(std::string a_name, SendHandler a_handler);
 
 		// No-ops if absent. Used by the native plugin API (src/API) for hot
 		// cleanup / re-sync.
 		void UnregisterSend(std::string_view a_name);
 		void UnregisterRequest(std::string_view a_name);
-		void UnregisterLegacyCommand(std::string_view a_name);
+		void UnregisterCommand(std::string_view a_name);
 
 		[[nodiscard]] bool HasSend(std::string_view a_name) const;
 		[[nodiscard]] bool HasRequest(std::string_view a_name) const;
@@ -208,7 +209,7 @@ namespace OSFUI
 			// backlog queued before the document greeted us.
 			bool                    greeted{ false };     // state may flow
 			bool                    eventsOpen{ false };  // events may flow
-			bool                    legacyApi{ false };   // temporary 1.x reply envelope adaptation
+			bool                    legacyApi{ false };   // frozen 1.x reply-envelope adaptation
 			std::deque<std::string> queued;               // encoded event envelopes
 		};
 
@@ -229,7 +230,7 @@ namespace OSFUI
 		SendFn                                            _send;
 		std::unordered_map<std::string, SendHandler>      _sends;
 		std::unordered_map<std::string, RequestHandler>   _requests;
-		std::unordered_map<std::string, SendHandler>      _legacyCommands;
+		std::unordered_map<std::string, SendHandler>      _commands;
 		std::unordered_map<std::string, Gate>             _gates;    // view id -> event gate
 		std::unordered_map<std::string, Pending>          _pending;  // runtime token -> deferred request
 		std::uint64_t                                     _nextDeferToken{ 1 };

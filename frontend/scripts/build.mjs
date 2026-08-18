@@ -34,8 +34,8 @@ export async function runBuild({ quiet = false } = {}) {
 
   // 2. Public/shared assets.
   //    - shared/osfui.js is the untouched authored 2.0 helper followed by the
-  //      guarded temporary v1 facade. The composition hook is removed with
-  //      frontend/src/compat/v1 in 2.1.0.
+  //      guarded frozen v1 facade. The composition hook keeps the 1.x helper
+  //      isolated in frontend/src/compat/v1.
   //    - padnav.js is private but unfrozen. It reads concrete DOM geometry and
   //      its in-game controller verification is still pending, so it ships
   //      as-is. Exit criteria in frontend/COMPATIBILITY.md.

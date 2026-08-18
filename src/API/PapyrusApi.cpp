@@ -724,7 +724,7 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), *modId, {}, a_wantsArgs);
 		}
 
-		// The strict 2.0 action registration. The temporary v1 adapter binds the
+		// The strict 2.0 action registration. The frozen v1 adapter binds the
 		// old four-shape `RegisterForViewActions*` family separately below.
 		std::int32_t ListenForViewActions(PapVM&, std::uint32_t, std::monostate,
 			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId)

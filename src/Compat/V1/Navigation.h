@@ -6,9 +6,7 @@
 
 namespace OSFUI::Compat::V1
 {
-	inline constexpr std::string_view kRemovalVersion = "2.1.0";
-
-	// URL-aware insertion for the temporary helper selector. The entry remains
+	// URL-aware insertion for the frozen helper selector. The entry remains
 	// otherwise byte-for-byte authored, including an existing query and fragment.
 	[[nodiscard]] inline std::string WithLegacyApiQuery(std::string_view a_entry)
 	{

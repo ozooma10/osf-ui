@@ -2,7 +2,7 @@
 
 The authored 2.0 helper, stylesheet, and private pad navigation are hand-written
 compatibility boundaries rather than TypeScript output. The stylesheet and pad
-navigation are copied verbatim. During 2.0.x, the shipped helper is composed
+navigation are copied verbatim. The shipped helper is composed
 deterministically from the byte-unchanged 2.0 core plus the guarded
 `src/compat/v1/osfui-v1.js` façade; `scripts/verify-output.mjs` asserts that exact
 composition on every build.
@@ -31,9 +31,9 @@ byte-level behaviour change — different `this` binding, different timer
 semantics under minification, a changed property enumeration order — against an
 unknown population of third-party consumers, for zero user-visible gain.
 
-The temporary append step is not a rewrite of this file and activates only on
-navigation carrying `osfui-api=1`. Remove that append in 2.1.0 using
-[`docs/compat-v1-removal.md`](../docs/compat-v1-removal.md).
+The frozen append step is not a rewrite of this file and activates only on
+navigation carrying `osfui-api=1`. Its supported boundary is documented in
+[`docs/v1-compatibility.md`](../docs/v1-compatibility.md).
 
 **Exit criterion:** do not transform it. If it ever must change, change `src/shared-kit/osfui.js`
 directly as hand-written JavaScript, bump the bridge protocol version in

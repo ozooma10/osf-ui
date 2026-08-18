@@ -7,10 +7,10 @@ design; the migration mechanics (renames, test matrix, sequencing) live in
 That document is written against what was actually implemented, and records
 where the shipped code deviates from this one.
 
-Temporary exception: OSF UI 2.0.x carries an isolated 1.x compatibility bridge
-so existing consumers run with persistent 2.1.0 removal warnings. See the
-migration plan and `compat-v1-removal.md`; the strict design below remains the
-2.1.0 end state.
+OSF UI carries a frozen 1.x compatibility surface for existing views and
+Papyrus scripts while new projects use the strict design below. The native ABI
+remains one append-only 1.x line. See the migration plan and
+`v1-compatibility.md`.
 
 ## What this system is
 
@@ -147,8 +147,8 @@ native → web:   { kind: "reply" | "error",   id: string,   payload: {} | { cod
 - Endpoint-kind enforcement is structural: a `send` naming a request endpoint
   and a `request` naming a send endpoint are both kind mismatches,
   rejected uniformly (`wrong-endpoint-kind` for requests;
-  dropped-and-surfaced for sends — see "Failure semantics"). Native ABI 2.0
-  uses the same strict `RegisterSend` / `RegisterRequest` split. Routing fields
+  dropped-and-surfaced for sends — see "Failure semantics"). Native ABI 1.9
+  adds the same strict `RegisterSend` / `RegisterRequest` split. Routing fields
   are never injected into payloads and no acknowledgement is fabricated.
 - Endpoint ownership is explicit rather than inferred from punctuation:
   `BridgeApi` reserves the current platform surface and `osfui.*`, while plugin
@@ -212,11 +212,12 @@ per-`mod\nkey` latest-wins cache, case-insensitive keys, bounded entry count,
 main-thread form serialization with `null` slot-keeping. The `SetViewForms`
 path means form identity payloads survive the removal of `PushFormsToView`.
 
-Papyrus keeps its 1.5 names. The modern pair
+Papyrus keeps its published names. The modern pair
 `ListenForViewActions`/`OnOSFUIViewAction` shipped recently and renaming it
 (e.g. to "ViewCommands") would churn exactly the mods that already migrated,
-in the one language where migration means recompiling `.pex` files. Only the
-two legacy `RegisterForViewActions*` registrations are removed.
+in the one language where migration means recompiling `.pex` files. The older
+`PushToView`, `PushFormsToView`, and four `RegisterForViewActions*` natives stay
+bound as a frozen compatibility surface.
 
 ## Platform services, reclassified
 
@@ -344,14 +345,12 @@ sequencing, and test matrix live in
 [the 2.0 migration plan](mod-api-2.0-migration.md). Design-level
 constraints that plan must honor:
 
-- During 2.0.x, explicitly pre-2.0 views are navigated with the isolated v1
-  façade and get a persistent `compat.pre-2-view` warning keyed off manifest
-  `targetVersion`; both are deleted in 2.1.0.
-- The native ABI makes a deliberate 2.0 break: `RegisterSend` replaces
-  `RegisterCommand`, `SetViewState` is baseline, and during 2.0.x ABI 1.x
-  callers receive the isolated frozen 1.8 adapter plus a bounded local warning
-  naming the outdated DLL (`src/API/Exports.cpp`). Future 2.x additions remain
-  append-only; unrelated ABI majors receive `nullptr`.
+- Explicitly pre-2.0 views are navigated with the frozen v1 façade selected by
+  manifest `targetVersion`; current views do not receive those aliases.
+- The native ABI remains append-only. ABI 1.8 appends `SetViewState`; ABI 1.9
+  appends strict `RegisterSend` / `UnregisterSend` while the original
+  `RegisterCommand` slots keep their published behavior. Unrelated ABI majors
+  receive `nullptr` and a local unsupported-ABI error.
 
 ## Open questions
 

@@ -20,7 +20,7 @@ Before you publish anything: **is this true right now, or did it just happen?**
 Backwards, you get one of two classic bugs:
 
 - **An event encoded as state re-fires** — replayed to every fresh document, so "you took a hit" plays its sound again on every reload.
-- **State encoded as an event leaves a blank HUD** — the push happened once, before the reload, and nothing replays it. This is the bug 1.x asked every author to work around by hand (the view fired a `ready` action, the script re-pushed). OSF UI 2.0 replaces that convention; its temporary 2.0.x adapter preserves `data.push` only for declared 1.x consumers and removes it in 2.1.0.
+- **State encoded as an event leaves a blank HUD** — the push happened once, before the reload, and nothing replays it. This is the bug 1.x asked every author to work around by hand (the view fired a `ready` action, the script re-pushed). OSF UI 2.0 replaces that convention; its frozen compatibility path preserves `data.push` for declared 1.x consumers.
 
 The test: **if reloading the document mid-session leaves it correct, you chose right.** In developer mode, press F5 in the view and look. A correctly fed view needs *zero* lifecycle code.
 
@@ -31,7 +31,7 @@ Every mod backend expresses the same four kinds. Gaps here are API bugs, which i
 | | publish **state** | announce an **event** | receive a one-way message | answer a **request** |
 |---|---|---|---|---|
 | **Papyrus** | `OSFUI.SetView*` | `OSFUI.SendViewEvent` *(new)* | `ListenForViewActions` → `OnOSFUIViewAction` | `ListenForViewRequests` → `OnOSFUIViewRequest` + `ReplyView*` |
-| **Native plugin (ABI 2.0)** | `SetViewState` | `SendToWeb` | `RegisterSend` | `RegisterRequest` |
+| **Native plugin (ABI 1.9)** | `SetViewState` | `SendToWeb` | `RegisterSend` | `RegisterRequest` |
 | **The view sees** | `osfui.state.on("<mod>/<key>", fn)` | `osfui.on("<mod>.<name>", fn)` | `osfui.papyrus.call(...)` / `send(...)` | `osfui.papyrus.request(...)` / `osfui.request(...)` |
 
 State, events, registered listeners, and native endpoints are scoped to the calling view's **owning mod**, derived from its view id. `papyrus.call` is the explicit exception: it names an arbitrary GLOBAL script/function and therefore carries the authority of installed local mod content.
@@ -269,7 +269,7 @@ Starfield runtime FormIDs are session-scoped. Never persist a `formId` in a save
 
 | 1.x | 2.0 |
 |---|---|
-| `OSFUI.PushToView` / `PushFormsToView` | **deprecated; temporary in 2.0.x, removed in 2.1.0.** `SetView*` for state, `SendViewEvent` for happenings |
+| `OSFUI.PushToView` / `PushFormsToView` | **frozen compatibility.** `SetView*` for state, `SendViewEvent` for happenings |
 | the view's `ready` action + the script's re-push | **removed.** State replays on every document; delete both halves |
 | `data.push` / `data.state` messages | one `state` envelope, consumed with `osfui.state.on()` |
 | `osfui.data.on(key, fn)` / `osfui.data.get(key)` | `osfui.state.on("<mod>/<key>", fn)` / `osfui.state.get(...)` |
@@ -277,6 +277,6 @@ Starfield runtime FormIDs are session-scoped. Never persist a `formId` in a save
 | `RegisterForViewActions{,Static,Args,ArgsStatic}` | `ListenForViewActions{,Static}` → `OnOSFUIViewAction(string, string[])` |
 | a plugin's hand-rolled "I reloaded" message | `SetViewState` — the platform owns the replay |
 
-`PushToView` is transient like an event but shaped like state, which is why every mod using it needs the `ready` handshake. The 2.0.x adapter emits the old `data.push` shape without retaining it. Splitting the concepts is what lets a migrated mod delete that convention — and the blank-after-F5 bug class — before the adapter disappears in 2.1.0.
+`PushToView` is transient like an event but shaped like state, which is why every mod using it needs the `ready` handshake. The frozen compatibility path emits the old `data.push` shape without retaining it. Splitting the concepts lets a migrated mod delete that convention and the blank-after-F5 bug class.
 
 Papyrus keeps its 1.5 names elsewhere on purpose: `ListenForViewActions`, `OnOSFUIViewAction`, `ListenForViewRequests` and the `ReplyView*` family are unchanged, because renaming them would churn exactly the mods that already migrated, in the one language where migrating means recompiling `.pex` files.

@@ -12,7 +12,7 @@ needed.
   send/request endpoint unions, the platform state keys and events, and the
   settings-schema shapes.
 - [`OSFUI_API.h`](OSFUI_API.h) — the copyable C++ header for **SFSE plugin
-  authors** (native bridge, C ABI 2.0). Consume it through the
+  authors** (native bridge, additive C ABI 1.9). Consume it through the
   `OSFUI::API::Client` wrapper — it version-gates every call so a too-old
   OSF UI runtime degrades to false/no-op instead of undefined behavior.
 - [`OSFUI_JSON.h`](OSFUI_JSON.h) — optional header-only `nlohmann::json`
@@ -25,15 +25,15 @@ needed.
 **2.0 — stable.** Additive changes bump the minor; breaking changes bump the
 major. Declare the OSF UI version you authored against as `targetVersion` in
 your manifest and settings schema. Newer targets receive a "needs update"
-badge; during 2.0.x explicitly pre-2.0 views use a guarded 1.x façade and get a
-persistent warning that it is removed in 2.1.0.
+badge; explicitly pre-2.0 views use a guarded, frozen helper matching the API
+they were authored against.
 
-Both the web protocol and native C++ ABI make a breaking 2.0 cut. Native
-plugins should rebuild against ABI 2.0; during 2.0.x ABI 1.x callers receive a
-frozen 1.8 adapter and a bounded System Health issue naming the outdated DLL.
-The adapter is removed in 2.1.0. ABI 2 sends use strict
-`RegisterSend` handlers and requests use `RegisterRequest`; there is no payload
-injection or automatic acknowledgement.
+The web protocol made a breaking 2.0 cut, but the native ABI remains append-only.
+ABI 1.8 appended retained `SetViewState`; ABI 1.9 appends strict
+`RegisterSend` / `UnregisterSend`. Existing binaries keep the vtable prefix and
+behavior they were compiled against. The frozen `RegisterCommand` still accepts
+requests with request-id injection and automatic acknowledgement; new code uses
+`RegisterSend` or `RegisterRequest` for an explicit endpoint kind.
 
 The handshake is page-initiated: the document greets the bridge with
 `osfui.hello` and the OSF UI runtime answers `ready`, then replays state. The shared helper

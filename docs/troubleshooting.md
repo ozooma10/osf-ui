@@ -78,8 +78,6 @@ Check `OSF UI.log` first.
 | "WebView2 Runtime missing" dialog at launch | Install the Evergreen runtime (https://go.microsoft.com/fwlink/p/?LinkId=2124703), restart the game. No mod reinstall needed. |
 | Overlay never appears, renderer/compositor warnings in log | The Microsoft WebView2 Runtime, browser-host executable, or the game's device wasn't available, so the overlay disabled itself. Install the WebView2 Runtime and re-install the archive intact. |
 | Overlay appears but is blank | Check the log for browser-host launch, pipe, navigation or shared-texture errors, then verify `OSFUI/bin/osfui_webview2_host.exe` exists. |
-| System Health warns that a page or HUD uses the 1.x API | OSF UI 2.0.x kept the view running through temporary compatibility. Update the named mod before OSF UI 2.1.0 removes that bridge. |
-| System Health warns that a `.dll` uses ABI 1.x | OSF UI 2.0.x kept that plugin connected through the frozen 1.8 adapter. Update the named DLL before 2.1.0. A genuinely unrelated ABI major is still refused and appears as a distinct error. |
 | Overlay lingers during a load | It should auto-hide on loading screens and the main menu. If not, hide with F10 and report the log. |
 | Overlay never appears (or vanishes) with ReShade / RTSS / Steam overlay / frame-gen tools | Current builds don't join the DXGI Present hook chain. Check the log for `UI-pass overlay armed`, `shared ring adopted`, `FIRST UI-PASS OVERLAY DRAW`; report the missing stage and your overlay stack. No injection/load-order workaround should be needed. |
 | Crash opening the overlay with BetterConsole installed | Fixed: current builds never create a probe swapchain or hook Present. Update OSF UI and confirm the log has `UI-pass overlay armed`. |
@@ -119,7 +117,7 @@ For precise component, lifecycle, bridge, and input names, see the
 - Other overlay tools (ReShade, Steam overlay, RTSS) are no longer a load-order problem: OSF UI installs no `Present` hook. Broken combinations still log the diagnostics above.
 - Tied to a game build via the Address Library; a patch can require an update.
 - Text entry follows your OS keyboard layout (dead keys and AltGr work), but IME composition (e.g. CJK) isn't supported yet. Key *bindings* are physical and layout-independent, and the binding UI shows your layout's keycaps (see "Keys and keyboard layouts" above). Gamepad navigation is basic (D-pad/sticks/A/B) and being refined.
-- For authors: the `window.osfui` protocol and native C ABI are both **2.0** breaking cuts. OSF UI 2.0.x temporarily adapts declared pre-2.0 views, ABI 1.x DLLs, and the six deprecated Papyrus natives; System Health names each consumer and warns that support ends in 2.1.0. A migrated 2.0 consumer gets no compatibility warning. From here, additive changes bump the minor and breaking changes the major — declare `targetVersion`, see [authoring-views.md](authoring-views.md).
+- For authors: the `window.osfui` protocol is **2.0**, while the native C ABI remains append-only at **1.9**. Declared pre-2.0 views and the older Papyrus natives remain supported through frozen compatibility paths. New work should use the four-verb helper and current Papyrus methods; declare `targetVersion`, see [authoring-views.md](authoring-views.md).
 
 ## Reporting issues
 

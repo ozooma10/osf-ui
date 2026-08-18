@@ -79,8 +79,8 @@ namespace OSFUI
 		manifest.debugOnly = Json::Get(*json, "debugOnly", manifest.debugOnly);
 
 		// A newer target remains advisory and badges "needs update". An explicitly
-		// pre-2.0 target is retained so the temporary v1 navigation façade and its
-		// persistent 2.1.0 removal warning can be selected deterministically.
+		// pre-2.0 target is retained so the frozen v1 navigation façade and its
+		// matching compatibility helper can be selected deterministically.
 		if (auto target = Json::Get(*json, "targetVersion", ""); !target.empty()) {
 			if (const auto targetParts = ParseDottedVersion(target)) {
 				manifest.targetVersion = std::move(target);

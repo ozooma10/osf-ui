@@ -64,7 +64,7 @@ beforeEach(() => {
   document.body.replaceChildren();
 });
 
-describe('temporary 1.x helper facade', () => {
+describe('frozen 1.x helper facade', () => {
   it('is absent from a 2.0 navigation', () => {
     const { helper } = load('?scenario=strict');
     expect(typeof (helper as any).available).toBe('boolean');

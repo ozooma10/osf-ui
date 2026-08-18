@@ -120,7 +120,7 @@ Registering one name as both strict kinds is refused and logged, because the
 kind is what callers dispatch on. Kind enforcement is structural in both
 directions: a `request` naming a strict send endpoint is rejected
 `wrong-endpoint-kind`, and a `send` naming a request endpoint is **dropped** and
-surfaced. Native ABI 2.0 follows the same strict split through `RegisterSend`
+surfaced. Native ABI 1.9 adds the same strict split through `RegisterSend`
 and `RegisterRequest`; routing metadata is never injected into payloads.
 
 Endpoints come from three places:

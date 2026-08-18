@@ -7,7 +7,7 @@ How to build a UI for OSF UI without touching the C++ implementation of the OSF 
 
 Both are pure content, no recompile: a `views/<modId>/<viewName>/` folder and a `settings/<modId>.json` schema.
 
-The bridge protocol is at version **2.0 — stable**. Additive changes bump the minor, breaking changes the major; 2.0 was such a break with 1.x (four verbs, routing beside the payload, page-initiated handshake). During OSF UI 2.0.x, an explicitly pre-2.0 view is kept running by a guarded compatibility façade and gets a persistent System Health warning that the façade is removed in 2.1.0. A view targeting 2.0 never receives those aliases. `bridgeVersion` is informational.
+The bridge protocol is at version **2.0 — stable**. Additive changes bump the minor, breaking changes the major; 2.0 was such a break with 1.x (four verbs, routing beside the payload, page-initiated handshake). An explicitly pre-2.0 view keeps receiving the frozen 1.x compatibility façade, while a view targeting 2.0 never receives those aliases. `bridgeVersion` is informational.
 
 Component, identity, lifecycle, readiness, and version names follow the
 [terminology glossary](terminology.md).
@@ -107,7 +107,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the shared bridge helper consume
   "order": 0,               // optional, default 0; HUD-ONLY paint order among HUDs (clamped 0..999, higher on top). Ignored for menus
   "hub": true,              // optional, default true; catalog visibility compatibility field; false = hidden utility view, not listed or auto-start eligible
   "debugOnly": false,       // optional, default false; keep out of the catalog unless developer mode is enabled. Still discovered and openable by id; intended for built-in developer tools
-  "targetVersion": "2.0.0", // optional; newer targets are advisory; pre-2.0 temporarily selects the 1.x façade through 2.0.x
+  "targetVersion": "2.0.0", // optional; newer targets are advisory; pre-2.0 selects the frozen 1.x façade
   "entry": "index.html",    // optional, default "index.html"; its file must stay inside the folder; query/fragment are preserved
   "width": 1600,            // optional, default 1600; clamped to 1..16384 — logical (authoring) size
   "height": 900,            // optional, default 900;  clamped to 1..16384 — logical (authoring) size
@@ -121,7 +121,7 @@ Your catalog is a state key (`osfui/i18n`, §3) the shared bridge helper consume
 ```
 
 - Unknown keys are ignored, so a manifest written for a newer OSF UI parses leniently (developer mode logs them at INFO). An optional `"manifestVersion"` integer is accepted but not required — the nested folder layout identifies the format.
-- **`targetVersion`** is `"<major>[.<minor>[.<patch>]]"` and names an OSF UI release version. When the running OSF UI release is *older* than the target, a warning goes to `OSF UI.log` and Mod Settings shows a "needs update" badge next to the OSF UI version with your mod named in the tooltip. In 2.0.x, a declared target older than 2.0 selects the temporary 1.x façade and produces one persistent warning naming its removal in 2.1.0; migrate and declare `"2.0.0"` to clear it. A malformed or undeclared value is treated as current rather than guessing.
+- **`targetVersion`** is `"<major>[.<minor>[.<patch>]]"` and names an OSF UI release version. When the running OSF UI release is *older* than the target, a warning goes to `OSF UI.log` and Mod Settings shows a "needs update" badge next to the OSF UI version with your mod named in the tooltip. A declared target older than 2.0 selects the frozen 1.x façade; migrate and declare `"2.0.0"` when you want the strict four-verb surface. A malformed or undeclared value is treated as current rather than guessing.
 - **`width`/`height`** set the page's logical size; author against it. Under the D3D12 compositor the OSF UI runtime resizes the view to the screen aspect (height capped at 1440) with a matching device scale (`outputHeight / height`), so the page always lays out at its logical height and CSS pixels scale up. At 1440p a 720-tall manifest gets a 2.0 device scale and a 720 px CSS viewport — type sized for 720p stays that size instead of shrinking. Width still varies with aspect ratio (~1720 CSS px on 21:9), so write width-responsive CSS. The versioned guarantee is that your logical height is fixed; width is not.
 - **`kind`** picks the view kind: a `"menu"` may capture input and become the active menu; a `"hud"` is passive (see *Multiple views & layering*). `capturesInput` and `pausesGame` refine a menu only — set `pausesGame:false` for a menu that wants the world running — and are forced `false` for HUDs whatever the manifest says.
 - **`permissions.nativeBridge`** must be `true` if your page talks to the OSF UI runtime. When false, `window.osfui` is never injected and the page runs purely client-side.
@@ -259,7 +259,7 @@ Two things about `request()`: it resolves the **reply payload**, not an envelope
 
 State keys are `"<modId>/<key>"` — the owning mod, then the name the mod backend published. Platform keys are `osfui/…`, yours are `yourname.mymod/…`. Keys match case-insensitively on both halves, because a Papyrus key arrives through `BSFixedString` interning, which hands back the first casing the process saw.
 
-> **Gone from the strict 2.0 surface:** `osfui.emit`, `osfui.call`, `osfui.action`, `osfui.data.*`, top-level `osfui.t` / `localize` / `locale()` / `i18nReady` / `applyAccent`, and `available()` as a *call*. During 2.0.x only, a view that still declares a pre-2.0 target receives those members from the isolated compatibility façade and a persistent 2.1.0 removal warning. `osfui.viewReady` was part of the removed first-load handoff and is unavailable on both paths. The subtle migration break remains `request()`: 1.x resolves the whole envelope while strict 2.0 resolves its payload, so `reply.payload.x` becomes `reply.x`.
+> **Gone from the strict 2.0 surface:** `osfui.emit`, `osfui.call`, `osfui.action`, `osfui.data.*`, top-level `osfui.t` / `localize` / `locale()` / `i18nReady` / `applyAccent`, and `available()` as a *call*. A view that declares a pre-2.0 target continues to receive those members from the isolated frozen compatibility façade. `osfui.viewReady` was part of the removed first-load handoff and is unavailable on both paths. The subtle migration break remains `request()`: 1.x resolves the whole envelope while strict 2.0 resolves its payload, so `reply.payload.x` becomes `reply.x`.
 
 Under the shared bridge helper sit two primitives (all the shared bridge helper itself uses):
 
@@ -621,7 +621,7 @@ With developer mode enabled, the in-game loop is fast too:
 
 ### Versioning
 
-Declare what you authored against; degrade gracefully at runtime. One advisory field, `targetVersion`, appears in both author-facing files (view manifest §2, settings schema §4). It names the OSF UI release version and never blocks loading: it tells Mod Settings when the running OSF UI is older than your target, and selects the temporary 1.x compatibility façade when a view target predates 2.0. The running OSF UI release version arrives as bridge-handshake `ready`'s `version` if your code must branch on it:
+Declare what you authored against; degrade gracefully at runtime. One advisory field, `targetVersion`, appears in both author-facing files (view manifest §2, settings schema §4). It names the OSF UI release version and never blocks loading: it tells Mod Settings when the running OSF UI is older than your target, and selects the frozen 1.x compatibility façade when a view target predates 2.0. The running OSF UI release version arrives as bridge-handshake `ready`'s `version` if your code must branch on it:
 
 ```js
 const info = await osfui.ready;

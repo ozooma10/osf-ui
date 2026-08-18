@@ -76,7 +76,7 @@ namespace OSFUI
 
 	void MessageBridge::RegisterSend(std::string a_name, SendHandler a_handler)
 	{
-		if (_requests.contains(a_name) || _legacyCommands.contains(a_name)) {
+		if (_requests.contains(a_name) || _commands.contains(a_name)) {
 			REX::WARN("MessageBridge: [content] refused send endpoint '{}' — name already registered", a_name);
 			return;
 		}
@@ -85,7 +85,7 @@ namespace OSFUI
 
 	bool MessageBridge::RegisterRequest(std::string a_name, RequestHandler a_handler)
 	{
-		if (_sends.contains(a_name) || _legacyCommands.contains(a_name)) {
+		if (_sends.contains(a_name) || _commands.contains(a_name)) {
 			REX::WARN("MessageBridge: [content] refused request endpoint '{}' — name already registered", a_name);
 			return false;
 		}
@@ -95,13 +95,13 @@ namespace OSFUI
 		return true;
 	}
 
-	bool MessageBridge::RegisterLegacyCommand(std::string a_name, SendHandler a_handler)
+	bool MessageBridge::RegisterCommand(std::string a_name, SendHandler a_handler)
 	{
 		if (_sends.contains(a_name) || _requests.contains(a_name)) {
-			REX::WARN("MessageBridge: [content] refused legacy command '{}' — name already registered", a_name);
+			REX::WARN("MessageBridge: [content] refused command '{}' — name already registered", a_name);
 			return false;
 		}
-		_legacyCommands[std::move(a_name)] = std::move(a_handler);
+		_commands[std::move(a_name)] = std::move(a_handler);
 		return true;
 	}
 
@@ -115,9 +115,9 @@ namespace OSFUI
 		_requests.erase(std::string(a_name));
 	}
 
-	void MessageBridge::UnregisterLegacyCommand(std::string_view a_name)
+	void MessageBridge::UnregisterCommand(std::string_view a_name)
 	{
-		_legacyCommands.erase(std::string(a_name));
+		_commands.erase(std::string(a_name));
 	}
 
 	bool MessageBridge::HasSend(std::string_view a_name) const
@@ -249,7 +249,7 @@ namespace OSFUI
 			it->second(a_payload, *this);
 			return;
 		}
-		if (const auto it = _legacyCommands.find(a_name); it != _legacyCommands.end()) {
+		if (const auto it = _commands.find(a_name); it != _commands.end()) {
 			it->second(a_payload, *this);
 			return;
 		}
@@ -282,11 +282,11 @@ namespace OSFUI
 
 		const auto it = _requests.find(a_name);
 		if (it == _requests.end()) {
-			if (const auto legacy = _legacyCommands.find(a_name);
-				legacy != _legacyCommands.end()) {
+			if (const auto command = _commands.find(a_name);
+				command != _commands.end()) {
 				auto payload = a_payload;
 				payload["requestId"] = a_id;
-				legacy->second(payload, *this);
+				command->second(payload, *this);
 				if (!_settled) {
 					Respond(nlohmann::json{ { "ok", true }, { "command", a_name } });
 				}

@@ -1,8 +1,6 @@
 #include "Runtime/RuntimeHealthCoordinator.h"
 
 #include "API/BridgeApi.h"
-#include "Compat/V1/Navigation.h"
-#include "Compat/V1/Papyrus.h"
 #include "Composite/UiPass.h"
 #include "Core/Version.h"
 #include "Core/Json.h"
@@ -146,42 +144,33 @@ namespace OSFUI
 
 		std::vector<CompatibilityTarget> targets;
 		for (const auto& manifest : runtime._views.All()) {
-			if (IsPre2Target(manifest.targetVersion)) {
-				targets.push_back({ manifest.id, "view", manifest.targetVersion, "compat.pre-2-view", HealthRegistry::Severity::Warning, std::string(Compat::V1::kRemovalVersion) });
-			} else if (IsTargetNewerThanInstalledRelease(manifest.targetVersion)) {
+			if (IsTargetNewerThanInstalledRelease(manifest.targetVersion)) {
 				targets.push_back({ manifest.id, "view", manifest.targetVersion });
 			}
 		}
 
-		for (const auto& caller : API::BridgeApi::Get().TakeLegacyApiCallers()) {
-			if (_legacyApiCallers.size() >= API::BridgeApi::kMaxLegacyCallers) {
+		for (const auto& caller : API::BridgeApi::Get().TakeUnsupportedApiCallers()) {
+			if (_unsupportedApiCallers.size() >= API::BridgeApi::kMaxUnsupportedCallers) {
 				break;
 			}
-			const auto known = std::ranges::any_of(_legacyApiCallers,
+			const auto known = std::ranges::any_of(_unsupportedApiCallers,
 				[&](const auto& seen) {
-					return seen.module == caller.module && seen.supported == caller.supported;
+					return seen.module == caller.module;
 				});
 			if (!known) {
-				_legacyApiCallers.push_back(caller);
+				_unsupportedApiCallers.push_back(caller);
 			}
 		}
 
-		for (const auto& caller : _legacyApiCallers) {
+		for (const auto& caller : _unsupportedApiCallers) {
 			targets.push_back({
 				caller.module.empty() ? std::string("(unidentified plugin)") : caller.module,
 				"plugin",
 				std::format("{}.{}", caller.major, caller.minor),
-				caller.supported ? "compat.legacy-api" : "compat.unsupported-api",
-				caller.supported ? HealthRegistry::Severity::Warning : HealthRegistry::Severity::Error,
-				caller.supported ? std::string(Compat::V1::kRemovalVersion) : std::string{},
+				"compat.unsupported-api",
+				HealthRegistry::Severity::Error,
 				"abi",
 			});
-		}
-		for (auto& caller : Compat::V1::Papyrus::TakeCallers()) {
-			_legacyPapyrusCallers.insert(std::move(caller));
-		}
-		for (const auto& mod : _legacyPapyrusCallers) {
-			targets.push_back({ mod, "Papyrus mod", "1.x natives", "compat.legacy-papyrus", HealthRegistry::Severity::Warning, std::string(Compat::V1::kRemovalVersion), "api" });
 		}
 		if (runtime._settings) {
 			const auto data = runtime._settings->Store().DataView();
@@ -195,14 +184,10 @@ namespace OSFUI
 			}
 		}
 		for (const auto& target : targets) {
-			if (target.removalVersion.empty() && target.code != "compat.unsupported-api") continue;
+			if (target.code != "compat.unsupported-api") continue;
 			const auto identity = target.code + ':' + target.kind + ':' + target.id;
 			if (_loggedCompatibility.insert(identity).second) {
-				if (target.code == "compat.unsupported-api") {
-					REX::WARN("Compatibility: {} '{}' requested unsupported ABI {}; OSF UI {} refused it", target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion);
-				} else {
-					REX::WARN("Compatibility: {} '{}' targets {}; OSF UI {} kept it running via the temporary 1.x bridge, which will be removed in {}", target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion, target.removalVersion);
-				}
+				REX::WARN("Compatibility: {} '{}' requested unsupported ABI {}; OSF UI {} refused it", target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion);
 			}
 		}
 		_healthReconciler.SyncCompatibility(*runtime._healthRegistry, targets, kOsfuiReleaseVersion, runtime._uptime);

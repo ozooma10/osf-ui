@@ -12,7 +12,7 @@ Writing a view (HTML/JS) instead? [authoring-views.md](authoring-views.md) is th
 **Contents**
 
 - [0. When you need this](#0-when-you-need-this)
-- [1. ABI 2.0 cutover](#1-abi-20-cutover)
+- [1. Additive ABI 1.x](#1-additive-abi-1x)
 - [2. Get the bridge](#2-get-the-bridge)
 - [3. Versioning](#3-versioning)
 - [4. Sends — web → native](#4-sends--web--native)
@@ -39,17 +39,17 @@ Most mods need no native code:
 
 Use this API when your logic is in a native DLL and needs to handle view messages (and answer the ones needing an answer), publish game state or push a one-shot happening, read settings or react to changes from C++, react to a hotkey, register a schema or view folder dynamically, open or close a view, or publish a durable local condition into System Health.
 
-If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Plugins should be rebuilt against ABI 2.0 before the temporary 1.x adapter is removed in OSF UI 2.1.0.
+If OSF UI is missing, every call is a safe no-op — you never special-case "not installed". Existing ABI 1.x binaries remain supported; rebuild when you want a newer tail feature.
 
 ---
 
-## 1. ABI 2.0 cutover
+## 1. Additive ABI 1.x
 
-`kBridgeAPIVersion` is `(2 << 16) | 0`. ABI 2.0 replaces the ambiguous command callback with strict `RegisterSend` / `SendFn`, retains `RegisterRequest`, and includes retained state in the baseline. A send receives exactly the caller's payload and never produces an acknowledgement; a request naming it is rejected `wrong-endpoint-kind`.
+`kBridgeAPIVersion` is `(1 << 16) | 9`. The ABI is append-only: all published slots retain their order and behavior, and a new capability is appended at the vtable tail with a higher minor. ABI 1.8 appended retained `SetViewState`; ABI 1.9 appends strict `RegisterSend` / `UnregisterSend`. A send receives exactly the caller's payload and never produces an acknowledgement; a request naming it is rejected `wrong-endpoint-kind`.
 
-During OSF UI 2.0.x, ABI 1.x callers receive an isolated adapter exposing the frozen final 1.8 vtable. Older 1.x binaries use the prefix they were compiled against; feature-minor gates, settings, hotkeys, view registration, local System Health publication, retained state, registered requests, and `RegisterCommand` request-ID/auto-ack behavior remain available. System Health names the DLL and warns that the adapter is removed in 2.1.0. ABI 2.x callers still receive the strict bridge below, and unrelated majors receive `nullptr` plus a distinct unsupported-ABI error. Rebuild against the 2.0 header now.
+Older 1.x binaries receive the same bridge and use only the prefix they were compiled against. The frozen `RegisterCommand` slots keep their request-ID injection and automatic-reply behavior; use `RegisterSend` for a strict one-way endpoint and `RegisterRequest` for an explicit result. A different ABI major receives `nullptr` plus an unsupported-ABI error in System Health.
 
-Future ABI 2.x additions append methods at the vtable tail and bump the minor. The `Client` wrapper feature-gates those additions.
+Future additions append methods at the vtable tail and bump the minor. The `Client` wrapper feature-gates those additions.
 
 ---
 
@@ -422,34 +422,36 @@ g_ui.ClearIssue(kMod, "pack-parse:highlights");
 
 ## 10. Method reference
 
-All on `IOSFUIBridge`, mirrored on `Client`. Every listed method is part of the ABI 2.0 baseline; future additive methods will name their 2.x minor.
+All on `IOSFUIBridge`, mirrored on `Client`. The `Since` column is the ABI 1.x minor required for that slot; the wrapper returns a safe no-op when attached to an older host.
 
 | Method | Since | Thread | Notes |
 |---|---|---|---|
-| `GetInterfaceVersion()` | 2.0 | any | packed `(major<<16)｜minor` |
-| `GetPluginVersion(maj,min,pat)` | 2.0 | any | OSF UI release |
-| `GetBridgeProtocolVersion()` | 2.0 | any | don't parse |
-| `IsBridgeReady()` | 2.0 | any | a bridge-enabled view is instantiated |
-| `RegisterSend(name,fn,user)` | 2.0 | any | strict one-way send; opaque name outside the reserved platform surface |
-| `UnregisterSend(name)` | 2.0 | any | |
-| `RegisterRequest(name,fn,user)` | 2.0 | any | first-wins across sends and requests; callback on main |
-| `UnregisterRequest(name)` | 2.0 | any | in-flight tokens stay valid until answer/timeout/close |
-| `SendToWeb(view,type,json)` | 2.0 | any | one-shot EVENT to one view; queued, never replayed |
-| `SetViewState(mod,key,json)` | 2.0 | any | retained STATE; replayed to every fresh document |
-| `SetReadyCallback(fn,user)` | 2.0 | any | fires on main thread |
-| `RequestMenu(view,open)` | 2.0 | any | open instantiates on demand; close needs an instantiated view |
-| `SubscribeSettings(mod,fn,user)` | 2.0 | any | replayed on subscribe; returns token/0 |
-| `UnsubscribeSettings(token)` | 2.0 | any | |
-| `GetSettingBool/Int/Float(mod,key,out)` | 2.0 | any | false/0 on miss |
-| `GetSettingString(mod,key,buf,len)` | 2.0 | any | returns length incl. NUL; null buf = probe |
-| `RegisterSettingsSchema(json)` | 2.0 | any | false on bad JSON/shape |
-| `UnregisterSettingsSchema(mod)` | 2.0 | any | keeps saved values |
-| `SubscribeHotkey(mod,key,fn,user)` | 2.0 | any | no replay; returns token/0 |
-| `UnsubscribeHotkey(token)` | 2.0 | any | |
-| `RegisterView(view)` | 2.0 | any | `<modId>/<viewName>`; idempotent |
-| `ReportIssue(mod,id,code,sev,subject,context)` | 2.0 | any | publishes a local System Health condition; false on invalid identity or non-object context |
-| `ClearIssue(mod,id)` | 2.0 | any | true means queued, not “was active” |
-| `ClearIssuesExcept(mod,keepJson)` | 2.0 | any | keep list is a JSON array of ids |
+| `GetInterfaceVersion()` | 1.0 | any | packed `(major<<16)｜minor` |
+| `GetPluginVersion(maj,min,pat)` | 1.0 | any | OSF UI release |
+| `GetBridgeProtocolVersion()` | 1.0 | any | don't parse |
+| `IsBridgeReady()` | 1.0 | any | a bridge-enabled view is instantiated |
+| `RegisterCommand(name,fn,user)` | 1.0 | any | frozen send-or-auto-ack request behavior; prefer a strict endpoint below |
+| `UnregisterCommand(name)` | 1.0 | any | |
+| `RegisterSend(name,fn,user)` | 1.9 | any | strict one-way send; opaque name outside the reserved platform surface |
+| `UnregisterSend(name)` | 1.9 | any | |
+| `RegisterRequest(name,fn,user)` | 1.7 | any | first-wins across endpoint kinds; callback on main |
+| `UnregisterRequest(name)` | 1.7 | any | in-flight tokens stay valid until answer/timeout/close |
+| `SendToWeb(view,type,json)` | 1.0 | any | one-shot EVENT to one view; queued, never replayed |
+| `SetViewState(mod,key,json)` | 1.8 | any | retained STATE; replayed to every fresh document |
+| `SetReadyCallback(fn,user)` | 1.0 | any | fires on main thread |
+| `RequestMenu(view,open)` | 1.1 | any | open instantiates on demand; close needs an instantiated view |
+| `SubscribeSettings(mod,fn,user)` | 1.2 | any | replayed on subscribe; returns token/0 |
+| `UnsubscribeSettings(token)` | 1.2 | any | |
+| `GetSettingBool/Int/Float(mod,key,out)` | 1.2 | any | false/0 on miss |
+| `GetSettingString(mod,key,buf,len)` | 1.2 | any | returns length incl. NUL; null buf = probe |
+| `RegisterSettingsSchema(json)` | 1.2 | any | false on bad JSON/shape |
+| `UnregisterSettingsSchema(mod)` | 1.2 | any | keeps saved values |
+| `SubscribeHotkey(mod,key,fn,user)` | 1.4 | any | no replay; returns token/0 |
+| `UnsubscribeHotkey(token)` | 1.4 | any | |
+| `RegisterView(view)` | 1.5 | any | `<modId>/<viewName>`; idempotent |
+| `ReportIssue(mod,id,code,sev,subject,context)` | 1.7 | any | publishes a local System Health condition; false on invalid identity or non-object context |
+| `ClearIssue(mod,id)` | 1.7 | any | true means queued, not “was active” |
+| `ClearIssuesExcept(mod,keepJson)` | 1.7 | any | keep list is a JSON array of ids |
 
 ---
 

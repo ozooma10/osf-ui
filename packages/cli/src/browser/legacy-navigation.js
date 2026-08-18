@@ -1,4 +1,4 @@
-// Temporary CLI preview URL handling for 1.x projects. Remove in 2.1.0.
+// Frozen CLI preview URL handling for projects authored against the 1.x helper.
 
 export function appendLegacyApi(urlLike, base = 'http://osfui.local') {
   const url = new URL(urlLike, base);

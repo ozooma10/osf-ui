@@ -1,11 +1,11 @@
-// Native desktop unit tests for BridgeApi ABI 2.0 + MessageBridge protocol 2.0
+// Native desktop unit tests for BridgeApi ABI 1.9 + MessageBridge protocol 2.0
 // (docs/mod-api-2.0-design.md): the REAL src/API/BridgeApi.cpp and
 // src/Bridge/MessageBridge.cpp compiled against stubs/pch.h. Pins the endpoint
 // explicit platform endpoint reservation, first-wins duplicate
 // refusal, unregister-then-reregister replacement, qualified RegisterView ids
 // (item 1), and — end to end through a live bridge — the four-verb envelope, the
 // page-initiated handshake, strict kind enforcement, request settlement,
-// retained state and the refused-ABI caller ledger.
+// retained state and the refused-major caller ledger.
 //
 // The 1.x wire is gone, so every inbound message here is a 2.0 envelope with the
 // routing metadata BESIDE the payload:
@@ -138,16 +138,21 @@ namespace
 		g_requestCommand = a_request.command; g_requestPayload = a_request.payloadJson; g_requestSource = a_request.sourceViewId;
 	}
 
-	// Complete ABI 2.0 OSF UI runtime bridge double for Client pass-through checks.
+	// Complete ABI 1.9 OSF UI runtime bridge double for Client pass-through checks.
 	struct TestRuntimeBridge final : OSFUI::API::IOSFUIBridge
 	{
+		std::uint32_t interfaceVersion{ OSFUI::API::kBridgeAPIVersion };
+		int commandCalls{ 0 };
+		int sendCalls{ 0 };
 		int requestCalls{ 0 };
-		std::uint32_t GetInterfaceVersion() override { return OSFUI::API::kBridgeAPIVersion; }
+		std::uint32_t GetInterfaceVersion() override { return interfaceVersion; }
 		void GetPluginVersion(std::uint32_t& a, std::uint32_t& b, std::uint32_t& c) override { a=b=c=0; }
 		const char* GetBridgeProtocolVersion() override { return "1.4"; }
 		bool IsBridgeReady() override { return false; }
-		void RegisterSend(const char*, OSFUI::API::SendFn, void*) override {}
-		void UnregisterSend(const char*) override {}
+		void RegisterCommand(const char*, OSFUI::API::CommandFn, void*) override { ++commandCalls; }
+		void UnregisterCommand(const char*) override { ++commandCalls; }
+		void RegisterSend(const char*, OSFUI::API::SendFn, void*) override { ++sendCalls; }
+		void UnregisterSend(const char*) override { ++sendCalls; }
 		bool SendToWeb(const char*, const char*, const char*) override { return false; }
 		bool SetViewState(const char*, const char*, const char*) override { return false; }
 		void SetReadyCallback(OSFUI::API::ReadyFn, void*) override {}
@@ -192,11 +197,12 @@ int main()
 	api.SetViewCatalog({ "someview" });
 	api.SetViewInstantiated("someview", true);
 
-	// --- version constants: breaking ABI 2.0 ----------------------------------
-	CHECK(OSFUI::API::kBridgeAPIMajor == 2);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 0);
-	CHECK(OSFUI::API::kBridgeAPIVersion == ((2u << 16) | 0u));
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 0);
+	// --- version constants: append-only ABI 1.9 -------------------------------
+	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
+	CHECK(OSFUI::API::kBridgeAPIMinor == 9);
+	CHECK(OSFUI::API::kBridgeAPIVersion == ((1u << 16) | 9u));
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 8);
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kSends) == 9);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "2.0");
 	CHECK(std::string_view(api.GetBridgeProtocolVersion()) == "2.0");
@@ -679,24 +685,24 @@ int main()
 		CHECK(LoggedContaining("WARN", "pending SetViewState queue full"));
 	}
 
-	// --- ABI compatibility callers, made visible -------------------------------
+	// --- unsupported ABI-major callers, made visible ---------------------------
 	{
-		api.TakeLegacyApiCallers();
-		api.NoteLegacyApiCaller("OldMod.dll", 1, 7, true);
-		api.NoteLegacyApiCaller("OldMod.dll", 1, 8, true);
-		api.NoteLegacyApiCaller("", 3, 5, false);
+		api.TakeUnsupportedApiCallers();
+		api.NoteUnsupportedApiCaller("FutureMod.dll", 3, 5);
+		api.NoteUnsupportedApiCaller("FutureMod.dll", 4, 0);
+		api.NoteUnsupportedApiCaller("", 7, 2);
 		{
-			const auto callers = api.TakeLegacyApiCallers();
+			const auto callers = api.TakeUnsupportedApiCallers();
 			CHECK(callers.size() == 2);
-			CHECK(callers.size() == 2 && callers[0].module == "OldMod.dll");
-			CHECK(callers.size() == 2 && callers[0].major == 1 && callers[0].minor == 7 && callers[0].supported);
-			CHECK(callers.size() == 2 && callers[1].module.empty() && callers[1].major == 3);
+			CHECK(callers.size() == 2 && callers[0].module == "FutureMod.dll");
+			CHECK(callers.size() == 2 && callers[0].major == 3 && callers[0].minor == 5);
+			CHECK(callers.size() == 2 && callers[1].module.empty() && callers[1].major == 7);
 		}
-		CHECK(api.TakeLegacyApiCallers().empty());
+		CHECK(api.TakeUnsupportedApiCallers().empty());
 		for (int i = 0; i < 40; ++i) {
-			api.NoteLegacyApiCaller(std::format("mod{}.dll", i), 1, 8, true);
+			api.NoteUnsupportedApiCaller(std::format("mod{}.dll", i), 2, 0);
 		}
-		CHECK(api.TakeLegacyApiCallers().size() == 32);
+		CHECK(api.TakeUnsupportedApiCallers().size() == 32);
 	}
 
 	// --- RegisterView takes qualified ids only (item 1) -----------------------
@@ -841,10 +847,23 @@ int main()
 
 		Client c;
 		TestRuntimeBridge runtimeBridge;
+		runtimeBridge.interfaceVersion = (1u << 16) | 8u;
 		CHECK(c.Attach(&runtimeBridge));
 		CHECK(c.Has(Feature::kDiagnostics));
 		CHECK(c.Has(Feature::kRequests));
 		CHECK(c.Has(Feature::kViewState));
+		CHECK(!c.Has(Feature::kSends));
+		c.RegisterCommand("acme.mymod.old-command", &HandlerA, nullptr);
+		c.UnregisterCommand("acme.mymod.old-command");
+		CHECK(runtimeBridge.commandCalls == 2);
+		c.RegisterSend("acme.mymod.new-send", &HandlerA, nullptr);
+		c.UnregisterSend("acme.mymod.new-send");
+		CHECK(runtimeBridge.sendCalls == 0);
+		runtimeBridge.interfaceVersion = OSFUI::API::kBridgeAPIVersion;
+		CHECK(c.Attach(&runtimeBridge));
+		c.RegisterSend("acme.mymod.new-send", &HandlerA, nullptr);
+		c.UnregisterSend("acme.mymod.new-send");
+		CHECK(runtimeBridge.sendCalls == 2);
 		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));  // test double returns false
 		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
 		c.UnregisterRequest("acme.mymod.old");
@@ -871,7 +890,7 @@ int main()
 			CHECK(ops.size() == 1 && ops[0].key == "wrapper");
 		}
 
-		// Every currently shipped feature is part of the 2.0 baseline.
+		// Historical features retain their original additive minor gates.
 		CHECK(c.Has(Feature::kRegisterView));
 		CHECK(c.Has(Feature::kRequestMenu));
 		CHECK(c.Has(Feature::kSettings));

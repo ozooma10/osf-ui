@@ -1,9 +1,9 @@
-// Temporary OSF UI 1.x helper compatibility facade.
+// Frozen OSF UI 1.x helper compatibility facade.
 //
 // This file is appended to the authored 2.0 helper at build/package time. It
 // replaces the page-visible object only when native navigation explicitly adds
-// `osfui-api=1`; modern pages keep the exact 2.0 helper surface. Delete this
-// file and the hooks named in docs/compat-v1-removal.md for OSF UI 2.1.0.
+// `osfui-api=1`; modern pages keep the exact 2.0 helper surface. Its maintained
+// compatibility contract is documented in docs/v1-compatibility.md.
 
 "use strict";
 

@@ -13,7 +13,6 @@ namespace OSFUI::Compat::V1::Papyrus
 		using PapVM = RE::BSScript::IVirtualMachine;
 		constexpr std::string_view kScriptName = API::Papyrus::kPlatformScriptName;
 		constexpr std::size_t kMaxPendingPushes = 1024;
-		constexpr std::size_t kMaxCallers = 128;
 
 		struct QueuedPush
 		{
@@ -28,7 +27,6 @@ namespace OSFUI::Compat::V1::Papyrus
 		{
 			std::mutex lock;
 			std::vector<QueuedPush> pushes;
-			std::vector<std::string> callers;
 		};
 
 		State& GetState()
@@ -49,16 +47,6 @@ namespace OSFUI::Compat::V1::Papyrus
 			return std::pair{ std::move(a_mod), std::move(a_key) };
 		}
 
-		void NoteCaller(std::string_view a_mod)
-		{
-			auto mod = StringUtil::ToLowerAscii(a_mod);
-			if (!Ids::IsValidModId(mod)) return;
-			std::lock_guard lock(GetState().lock);
-			if (GetState().callers.size() >= kMaxCallers ||
-				std::ranges::find(GetState().callers, mod) != GetState().callers.end()) return;
-			GetState().callers.push_back(std::move(mod));
-		}
-
 		void Enqueue(QueuedPush a_push)
 		{
 			std::lock_guard lock(GetState().lock);
@@ -73,7 +61,6 @@ namespace OSFUI::Compat::V1::Papyrus
 			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn,
 			RE::BSFixedString a_mod)
 		{
-			NoteCaller(a_mod.c_str());
 			return API::Papyrus::RegisterLegacyActionInstance(
 				a_receiver, a_fn, a_mod, false, "RegisterForViewActions");
 		}
@@ -81,7 +68,6 @@ namespace OSFUI::Compat::V1::Papyrus
 		std::int32_t RegisterForViewActionsStatic(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_script, RE::BSFixedString a_fn, RE::BSFixedString a_mod)
 		{
-			NoteCaller(a_mod.c_str());
 			return API::Papyrus::RegisterLegacyActionStatic(
 				a_script, a_fn, a_mod, false, "RegisterForViewActionsStatic");
 		}
@@ -90,7 +76,6 @@ namespace OSFUI::Compat::V1::Papyrus
 			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_fn,
 			RE::BSFixedString a_mod)
 		{
-			NoteCaller(a_mod.c_str());
 			return API::Papyrus::RegisterLegacyActionInstance(
 				a_receiver, a_fn, a_mod, true, "RegisterForViewActionsArgs");
 		}
@@ -98,7 +83,6 @@ namespace OSFUI::Compat::V1::Papyrus
 		std::int32_t RegisterForViewActionsArgsStatic(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_script, RE::BSFixedString a_fn, RE::BSFixedString a_mod)
 		{
-			NoteCaller(a_mod.c_str());
 			return API::Papyrus::RegisterLegacyActionStatic(
 				a_script, a_fn, a_mod, true, "RegisterForViewActionsArgsStatic");
 		}
@@ -138,7 +122,6 @@ namespace OSFUI::Compat::V1::Papyrus
 	{
 		auto target = FoldTarget(std::move(a_mod), std::move(a_key), "PushToView");
 		if (!target) return;
-		NoteCaller(target->first);
 		Enqueue(QueuedPush{ std::move(target->first), std::move(target->second),
 			std::move(a_values), {}, false });
 	}
@@ -147,7 +130,6 @@ namespace OSFUI::Compat::V1::Papyrus
 	{
 		auto target = FoldTarget(std::move(a_mod), std::move(a_key), "PushFormsToView");
 		if (!target) return;
-		NoteCaller(target->first);
 		Enqueue(QueuedPush{ std::move(target->first), std::move(target->second),
 			{}, std::move(a_formIds), true });
 	}
@@ -179,14 +161,6 @@ namespace OSFUI::Compat::V1::Papyrus
 	{
 		std::lock_guard lock(GetState().lock);
 		GetState().pushes.clear();
-	}
-
-	std::vector<std::string> TakeCallers()
-	{
-		std::lock_guard lock(GetState().lock);
-		std::vector<std::string> callers;
-		callers.swap(GetState().callers);
-		return callers;
 	}
 
 }

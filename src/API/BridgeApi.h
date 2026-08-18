@@ -5,7 +5,7 @@
 #include <thread>
 #include <unordered_set>
 
-#include "OSFUI_API.h"  // IOSFUIBridge, SendFn, ReadyFn, version constants (sdk/, on the include path)
+#include "OSFUI_API.h"  // IOSFUIBridge, callback types, version constants (sdk/, on the include path)
 
 #include "API/HotkeySubscriptions.h"
 #include "API/SettingsMirror.h"
@@ -33,6 +33,8 @@ namespace OSFUI::API
 		void          GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch) override;
 		const char*   GetBridgeProtocolVersion() override;
 		bool          IsBridgeReady() override;
+		void          RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user) override;
+		void          UnregisterCommand(const char* a_name) override;
 		void          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) override;
 		void          UnregisterSend(const char* a_name) override;
 		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
@@ -56,13 +58,6 @@ namespace OSFUI::API
 					 std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) override;
 		bool          ClearIssue(const char* a_modId, const char* a_id) override;
 		bool          ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) override;
-		// Temporary ABI 1.x endpoint kind. Kept out of IOSFUIBridge 2.0 so modern
-		// consumers cannot opt back into request-id injection or auto-ack.
-		void RegisterLegacyCommand(const char* a_name, SendFn a_handler, void* a_user);
-		void UnregisterLegacyCommand(const char* a_name);
-		bool RegisterLegacyRequest(const char* a_name, RequestFn a_handler, void* a_user);
-		void UnregisterLegacyRequest(const char* a_name);
-
 		// Runtime wiring (main thread only).
 		// A menu open/close a sibling plugin requested via RequestMenu.
 		struct ViewPresentationRequest
@@ -123,17 +118,16 @@ namespace OSFUI::API
 		// no form identities) and publishes it to the mod's instantiated views.
 		std::vector<ViewStateOp> TakeViewStateOps();
 
-		void NoteLegacyApiCaller(std::string a_moduleName, std::uint32_t a_major,
-			std::uint32_t a_minor, bool a_supported = false);
-		struct LegacyCaller
+		void NoteUnsupportedApiCaller(std::string a_moduleName, std::uint32_t a_major,
+			std::uint32_t a_minor);
+		struct UnsupportedCaller
 		{
 			std::string module;
 			std::uint32_t major{ 0 };
 			std::uint32_t minor{ 0 };
-			bool supported{ false };
 		};
-		static constexpr std::size_t kMaxLegacyCallers = 32;
-		std::vector<LegacyCaller> TakeLegacyApiCallers();
+		static constexpr std::size_t kMaxUnsupportedCallers = 32;
+		std::vector<UnsupportedCaller> TakeUnsupportedApiCallers();
 
 		// Drain queued RegisterView ids. Runtime validates each before the menu
 		// request snapshot; openOnStart views are instantiated there, while ordinary
@@ -185,7 +179,6 @@ namespace OSFUI::API
 		{
 			RequestFn fn{ nullptr };
 			void*     user{ nullptr };
-			bool      legacy{ false };
 		};
 		struct InflightRequest
 		{
@@ -225,14 +218,12 @@ namespace OSFUI::API
 		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
 		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex
 		HotkeySubscriptions                           _hotkeys;           // own locking; never touched under _mutex
-		std::unordered_map<std::string, Registration>        _sends;             // desired send set
-		std::unordered_map<std::string, Registration>        _legacyCommands;    // temporary ABI 1.x command set
+		std::unordered_map<std::string, Registration>        _commands;          // frozen RegisterCommand set
+		std::unordered_map<std::string, Registration>        _sends;             // strict RegisterSend set
 		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
-		std::unordered_map<std::string, RequestRegistration> _legacyRequests;    // temporary ABI 1.x request set
+		std::vector<std::string>                      _pendingCommandUnregister;
 		std::vector<std::string>                      _pendingSendUnregister;
 		std::vector<std::string>                      _pendingRequestUnregister;
-		std::vector<std::string>                      _pendingLegacyCommandUnregister;
-		std::vector<std::string>                      _pendingLegacyRequestUnregister;
 		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
 		std::uint64_t                                 _nextRequestToken{ 1 };
 		std::vector<PendingSend>                       _pendingSends;
@@ -242,7 +233,7 @@ namespace OSFUI::API
 		bool                                          _viewCatalogReady{ false };
 		std::vector<SchemaOp>                         _pendingSchemaOps;   // schema (un)registrations, drained by Runtime
 		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
-		std::vector<LegacyCaller>                     _legacyCallers;
+		std::vector<UnsupportedCaller>                _unsupportedCallers;
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
 		std::vector<HealthIssueOp>                    _pendingHealthIssueOps;
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread

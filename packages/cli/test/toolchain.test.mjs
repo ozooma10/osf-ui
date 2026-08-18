@@ -70,7 +70,7 @@ test('toolchain metadata and packaged helper match the runtime API', async () =>
   );
 });
 
-test('pre-2.0 targetVersion is previewed and built with a loud removal warning', async (t) => {
+test('pre-2.0 targetVersion is previewed and built through the frozen helper', async (t) => {
   const root = await projectFixture(t);
   await writeFile(resolve(root, 'osfui.config.ts'), `export default {
     modId: 'acme.widgets',
@@ -80,43 +80,33 @@ test('pre-2.0 targetVersion is previewed and built with a loud removal warning',
       targetVersion: '1.5.0',
     }],
   };`);
-  const warnings = [];
-  const originalWarn = console.warn;
-  console.warn = (message) => warnings.push(String(message));
-  try {
-    const project = await loadProject(root, 'build');
-    assert.equal(project.views[0].targetVersion, '1.5.0');
-    assert.equal(project.views[0].entry, 'index.html?mode=compact#inventory');
-    assert.equal(manifestFor(project.views[0]).targetVersion, '1.5.0');
+  const project = await loadProject(root, 'build');
+  assert.equal(project.views[0].targetVersion, '1.5.0');
+  assert.equal(project.views[0].entry, 'index.html?mode=compact#inventory');
+  assert.equal(manifestFor(project.views[0]).targetVersion, '1.5.0');
 
-    const transformed = harnessPlugin(project, project.views[0])
-      .transformIndexHtml.handler('', {
-        path: '/acme.widgets/panel/index.html?mode=compact',
-      });
-    const metaScript = transformed.find((tag) =>
-      typeof tag.children === 'string' && tag.children.includes('__OSFUI_HARNESS_META__'));
-    assert.match(
-      metaScript.children,
-      /"viewUrl":"\/acme\.widgets\/panel\/index\.html\?mode=compact&osfui-api=1#inventory"/,
-    );
+  const transformed = harnessPlugin(project, project.views[0])
+    .transformIndexHtml.handler('', {
+      path: '/acme.widgets/panel/index.html?mode=compact',
+    });
+  const metaScript = transformed.find((tag) =>
+    typeof tag.children === 'string' && tag.children.includes('__OSFUI_HARNESS_META__'));
+  assert.match(
+    metaScript.children,
+    /"viewUrl":"\/acme\.widgets\/panel\/index\.html\?mode=compact&osfui-api=1#inventory"/,
+  );
 
-    await buildProject(project, { quiet: true });
-    const manifest = JSON.parse(await readFile(
-      resolve(root, 'dist/SFSE/Plugins/OSFUI/views/acme.widgets/panel/manifest.json'),
-      'utf8',
-    ));
-    assert.equal(manifest.targetVersion, '1.5.0');
-    assert.equal(manifest.entry, 'index.html?mode=compact#inventory');
-    const zip = resolve(root, 'release/legacy-view.zip');
-    await writeZip(project.outDir, zip);
-    const archive = await readFile(zip);
-    assert.ok(archive.includes(Buffer.from('index.html?mode=compact#inventory')));
-  } finally {
-    console.warn = originalWarn;
-  }
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /temporary 1\.x compatibility bridge/);
-  assert.match(warnings[0], /removed in OSF UI 2\.1\.0/);
+  await buildProject(project, { quiet: true });
+  const manifest = JSON.parse(await readFile(
+    resolve(root, 'dist/SFSE/Plugins/OSFUI/views/acme.widgets/panel/manifest.json'),
+    'utf8',
+  ));
+  assert.equal(manifest.targetVersion, '1.5.0');
+  assert.equal(manifest.entry, 'index.html?mode=compact#inventory');
+  const zip = resolve(root, 'release/legacy-view.zip');
+  await writeZip(project.outDir, zip);
+  const archive = await readFile(zip);
+  assert.ok(archive.includes(Buffer.from('index.html?mode=compact#inventory')));
 });
 
 test('malformed targetVersion fails before dev or build can misrepresent it', async (t) => {

@@ -84,7 +84,7 @@ Form Function GetFormById(string asFormId) Global Native
 Form[] Function GetFormsById(string[] asFormIds) Global Native
 
 ; --- state --------------------------------------------------------------------
-; DEPRECATED 1.x compatibility (removed in OSF UI 2.1.0): transient pushes.
+; FROZEN 1.x compatibility: transient pushes. Prefer SetView* or SendViewEvent.
 ; Prefer SetViewStrings/SetViewForms, which are retained and replayed.
 Function PushToView(string asModId, string asKey, string[] asValues) Global Native
 Function PushFormsToView(string asModId, string asKey, Form[] akForms) Global Native
@@ -110,7 +110,7 @@ Function SetViewForms(string asModId, string asKey, Form[] akForms) Global Nativ
 Function SendViewEvent(string asModId, string asName, string[] asArgs) Global Native
 
 ; --- one-way messages FROM a view ---------------------------------------------
-; DEPRECATED 1.x compatibility (removed in OSF UI 2.1.0). Prefer the fixed
+; FROZEN 1.x compatibility. Prefer the fixed
 ; ListenForViewActions / ListenForViewActionsStatic callback below.
 int Function RegisterForViewActions(ScriptObject akReceiver, string asFn, string asModId) Global Native
 int Function RegisterForViewActionsStatic(string asScript, string asFn, string asModId) Global Native

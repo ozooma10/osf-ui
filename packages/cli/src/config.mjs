@@ -69,12 +69,6 @@ function targetVersion(value, label) {
   if (typeof value !== 'string' || !/^[0-9]+(?:\.[0-9]+){0,2}$/.test(value)) {
     throw new Error(`${label} targetVersion must be '<major>[.<minor>[.<patch>]]'.`);
   }
-  if (isPre2Target(value)) {
-    console.warn(
-      `[OSF UI] WARNING: ${label} targets OSF UI ${value}. The temporary 1.x compatibility ` +
-      `bridge will keep it running in 2.0.x, but will be removed in OSF UI 2.1.0. Migrate now.`,
-    );
-  }
   return value;
 }
 

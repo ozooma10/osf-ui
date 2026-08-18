@@ -42,9 +42,8 @@ namespace OSFUI
 		bool             _settingsSynced{ false };
 		HealthReconciler _healthReconciler;
 
-		std::vector<API::BridgeApi::LegacyCaller> _legacyApiCallers;
+		std::vector<API::BridgeApi::UnsupportedCaller> _unsupportedApiCallers;
 		std::unordered_set<std::string> _loggedCompatibility;
-		std::unordered_set<std::string> _legacyPapyrusCallers;
 		std::unordered_map<std::string, HotkeyTargetFailure> _hotkeyTargetFailures;
 		double _nextPoll{ 0.0 };
 	};

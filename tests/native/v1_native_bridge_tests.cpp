@@ -1,11 +1,43 @@
-#include "Compat/V1/NativeBridge.h"
-
 #include "API/BridgeApi.h"
+#include "OSFUI_API.h"
 #include "check.h"
 #include "Bridge/MessageBridge.h"
 
 namespace
 {
+	// Exact frozen ABI 1.8 prefix. Calling the current BridgeApi through this
+	// independently declared vtable proves that all published slots stayed put.
+	struct FrozenAbi18Bridge
+	{
+		virtual std::uint32_t GetInterfaceVersion() = 0;
+		virtual void GetPluginVersion(std::uint32_t&, std::uint32_t&, std::uint32_t&) = 0;
+		virtual const char* GetBridgeProtocolVersion() = 0;
+		virtual bool IsBridgeReady() = 0;
+		virtual void RegisterCommand(const char*, OSFUI::API::CommandFn, void*) = 0;
+		virtual void UnregisterCommand(const char*) = 0;
+		virtual bool SendToWeb(const char*, const char*, const char*) = 0;
+		virtual void SetReadyCallback(OSFUI::API::ReadyFn, void*) = 0;
+		virtual bool RequestMenu(const char*, bool) = 0;
+		virtual std::uint32_t SubscribeSettings(const char*, OSFUI::API::SettingChangedFn, void*) = 0;
+		virtual void UnsubscribeSettings(std::uint32_t) = 0;
+		virtual bool GetSettingBool(const char*, const char*, bool*) = 0;
+		virtual bool GetSettingInt(const char*, const char*, std::int64_t*) = 0;
+		virtual bool GetSettingFloat(const char*, const char*, double*) = 0;
+		virtual std::uint32_t GetSettingString(const char*, const char*, char*, std::uint32_t) = 0;
+		virtual bool RegisterSettingsSchema(const char*) = 0;
+		virtual void UnregisterSettingsSchema(const char*) = 0;
+		virtual std::uint32_t SubscribeHotkey(const char*, const char*, OSFUI::API::HotkeyFn, void*) = 0;
+		virtual void UnsubscribeHotkey(std::uint32_t) = 0;
+		virtual bool RegisterView(const char*) = 0;
+		virtual bool ReportIssue(const char*, const char*, const char*, std::uint32_t,
+			const char*, const char*) = 0;
+		virtual bool ClearIssue(const char*, const char*) = 0;
+		virtual bool ClearIssuesExcept(const char*, const char*) = 0;
+		virtual void RegisterRequest(const char*, OSFUI::API::RequestFn, void*) = 0;
+		virtual void UnregisterRequest(const char*) = 0;
+		virtual bool SetViewState(const char*, const char*, const char*) = 0;
+	};
+
 	struct Fire
 	{
 		std::string name;
@@ -18,11 +50,11 @@ namespace
 		fires.push_back({ a_name, nlohmann::json::parse(a_json), a_source });
 	}
 
-	std::optional<OSFUI::Compat::V1::Request> request;
+	std::optional<OSFUI::API::Request> request;
 	std::string requestCommand;
 	nlohmann::json requestPayload;
 	std::string requestSource;
-	void Request(const OSFUI::Compat::V1::Request& a_request, void*) noexcept
+	void Request(const OSFUI::API::Request& a_request, void*) noexcept
 	{
 		requestCommand = a_request.command ? a_request.command : "";
 		requestPayload = nlohmann::json::parse(a_request.payloadJson ? a_request.payloadJson : "{}");
@@ -63,18 +95,9 @@ namespace OSFUI::Log
 int main()
 {
 	using namespace OSFUI;
-	using Compat::V1::SupportsRequestedAbi;
-	for (std::uint32_t minor = 0; minor <= 8; ++minor) {
-		CHECK(SupportsRequestedAbi((1u << 16) | minor));
-	}
-	CHECK(!SupportsRequestedAbi(0));
-	CHECK(!SupportsRequestedAbi((2u << 16) | 0u));
-	CHECK(!SupportsRequestedAbi((3u << 16) | 4u));
-
 	auto& api = API::BridgeApi::Get();
-	auto& legacy = Compat::V1::NativeBridge::Get();
-	Compat::V1::IOSFUIBridge* bridgeVtable = &legacy;
-	CHECK(bridgeVtable->GetInterfaceVersion() == ((1u << 16) | 8u));
+	auto* bridgeVtable = reinterpret_cast<FrozenAbi18Bridge*>(&api);
+	CHECK(bridgeVtable->GetInterfaceVersion() == ((1u << 16) | 9u));
 	std::uint32_t major = 0, minor = 0, patch = 0;
 	bridgeVtable->GetPluginVersion(major, minor, patch);
 	CHECK(major == 2 && minor == 0 && patch == 0);
@@ -200,6 +223,6 @@ int main()
 	bridgeVtable->UnregisterRequest("acme.widgets.request");
 	api.PumpMainThread();
 
-	std::printf("v1 native bridge tests: %s\n", g_failures ? "FAILED" : "passed");
+	std::printf("native ABI compatibility tests: %s\n", g_failures ? "FAILED" : "passed");
 	return g_failures;
 }

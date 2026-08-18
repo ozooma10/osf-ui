@@ -12,7 +12,7 @@
 namespace OSFUI::API::Papyrus
 {
 	// Narrow hooks into the current registry/form serializer. These are the only
-	// unavoidable core contacts for the temporary v1 Papyrus adapter.
+	// unavoidable core contacts for the frozen v1 Papyrus adapter.
 	std::int32_t RegisterLegacyActionInstance(
 		const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver,
 		const RE::BSFixedString& a_fn, const RE::BSFixedString& a_mod,
@@ -38,5 +38,4 @@ namespace OSFUI::Compat::V1::Papyrus
 		std::vector<std::uint32_t> a_formIds);
 	void DrainPushes(const std::function<void(const Push&)>& a_deliver);
 	void ClearPendingPushes();
-	std::vector<std::string> TakeCallers();
 }

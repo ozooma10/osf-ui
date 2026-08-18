@@ -26,7 +26,6 @@ namespace OSFUI
 		// issues on every pass.
 		std::string code{ "compat.needs-newer-osfui" };
 		HealthRegistry::Severity severity{ HealthRegistry::Severity::Warning };
-		std::string removalVersion;
 		std::string declaration{ "targetVersion" };
 	};
 

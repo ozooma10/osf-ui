@@ -336,7 +336,7 @@ Nothing here needs a disabled client timeout: a request pending until the player
 
 ### From an SFSE plugin (C++)
 
-Fetch the bridge from [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) through the `Client` wrapper (C ABI 2.0 — see [native-plugin-api.md](native-plugin-api.md)):
+Fetch the bridge from [`sdk/OSFUI_API.h`](../sdk/OSFUI_API.h) through the `Client` wrapper (additive C ABI 1.9 — see [native-plugin-api.md](native-plugin-api.md)):
 
 ```cpp
 static OSFUI::API::Client g_ui;   // g_ui.Init() once, after SFSE kPostLoad
@@ -412,7 +412,7 @@ Settings cover pre-declared scalars. For **dynamic data** — pushing live lists
 
 - **Changing a default:** just change it. Persistence is sparse (only user-changed values are written), so users who never touched the knob get the new default.
 - **Changing a type:** old saved values that no longer validate fall back to the new default. Prefer a new key with an alias when the meaning changes.
-- **Using features newer than the OSF UI release you tested on:** declare `"targetVersion": "2.0.0"`. The schema still loads best-effort on older OSF UI releases — unknown decorations ignored, unknown types rendered read-only (a write to one rejects `read-only`, not `invalid-value`, so a view can say "needs a newer OSF UI"), saved values for unknown types preserved untouched — and Mod Settings badges "needs update" naming your mod. During OSF UI 2.0.x, a **view manifest** below 2.0 loads through the temporary 1.x façade with a persistent 2.1.0 removal warning.
+- **Using features newer than the OSF UI release you tested on:** declare `"targetVersion": "2.0.0"`. The schema still loads best-effort on older OSF UI releases — unknown decorations ignored, unknown types rendered read-only (a write to one rejects `read-only`, not `invalid-value`, so a view can say "needs a newer OSF UI"), saved values for unknown types preserved untouched — and Mod Settings badges "needs update" naming your mod. A **view manifest** below 2.0 loads through the frozen 1.x façade.
 - **Uninstall:** the values file is deliberately kept (MO2 profile switches look identical to uninstalls). Reinstalling restores the user's settings.
 
 ---

@@ -311,51 +311,15 @@ const COPY: Record<string, IssueCopy> = {
     next: ['issueNeedsNewerNext', 'Update OSF UI to the version it asks for.'],
     actions: ['copy-details'],
   },
-  'compat.pre-2-view': {
-    title: ['issuePre2ViewTitle', 'A screen still uses the OSF UI 1.x API'],
-    impact: [
-      'issuePre2ViewImpact',
-      'Temporary compatibility kept it running, but that bridge will be removed in OSF UI 2.1.0.',
-    ],
-    next: [
-      'issuePre2ViewNext',
-      'Update the mod that provides this screen to a version made for OSF UI 2.0.',
-    ],
-    actions: ['copy-details'],
-  },
-  'compat.legacy-api': {
-    title: ['issueLegacyAbiTitle', 'A native plugin still uses the OSF UI 1.x ABI'],
-    impact: [
-      'issueLegacyAbiImpact',
-      'Temporary compatibility kept it connected, but that bridge will be removed in OSF UI 2.1.0.',
-    ],
-    next: [
-      'issueLegacyAbiNext',
-      'Update the DLL named below to a version built for native ABI 2.0.',
-    ],
-    actions: ['copy-details'],
-  },
-  'compat.legacy-papyrus': {
-    title: ['issueLegacyPapyrusTitle', 'A mod still uses the OSF UI 1.x Papyrus API'],
-    impact: [
-      'issueLegacyPapyrusImpact',
-      'Temporary compatibility kept its calls working, but those natives will be removed in OSF UI 2.1.0.',
-    ],
-    next: [
-      'issueLegacyPapyrusNext',
-      'Update the mod named below to use SetView*, ListenForViewActions, or ListenForViewActionsStatic.',
-    ],
-    actions: ['copy-details'],
-  },
   'compat.unsupported-api': {
     title: ['issueUnsupportedAbiTitle', 'A native plugin requested an unsupported OSF UI ABI'],
     impact: [
       'issueUnsupportedAbiImpact',
-      'OSF UI refused the bridge request because that ABI major is neither 1.x nor 2.x.',
+      'OSF UI refused the bridge request because that plugin uses a different ABI major.',
     ],
     next: [
       'issueUnsupportedAbiNext',
-      'Update the DLL named below to a version built for native ABI 2.0.',
+      'Update the DLL named below to a version built for the OSF UI native ABI 1.x line.',
     ],
     actions: ['copy-details'],
   },
