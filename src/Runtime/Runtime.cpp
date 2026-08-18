@@ -875,8 +875,7 @@ namespace OSFUI
 				RefreshLocalizedData();
 			}
 		} else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
-			REX::INFO("Runtime: pause-menu entry setting changed to {}; takes effect on the next launch",
-				a_value.get<bool>());
+			REX::INFO("Runtime: pause-menu entry setting changed to {}; takes effect on the next launch", a_value.get<bool>());
 		}
 	}
 

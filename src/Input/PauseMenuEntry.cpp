@@ -17,13 +17,6 @@ namespace OSFUI
 {
 	namespace
 	{
-		constexpr REL::Version kRuntimeVersion{ 1, 16, 244, 0 };
-		constexpr REL::ID      kBuilderID{ 93641 };
-		constexpr REL::ID      kQueueActionID{ 87656 };
-		constexpr REL::ID      kEventSourceID{ 93711 };
-		constexpr REL::ID      kExtractActionID{ 93697 };
-		constexpr REL::ID      kEventSourceVtableID{ 445619 };
-
 		constexpr std::ptrdiff_t kQuitCallOffset = 0x48D;
 		constexpr std::uint32_t  kActionID = 100;
 
@@ -47,15 +40,9 @@ namespace OSFUI
 			0xE8, 0x0E, 0x79, 0xE5, 0xFF, 0x90
 		};
 
-		using QueueActionFn = void (*)(
-			void*, const RE::BSFixedStringCS*, std::uint32_t,
-			const RE::BSFixedStringCS*, bool);
-		using GetEventSourceFn = RE::BSTEventSource<RE::PauseMenu_StartAction>* (*)();
-		using ExtractActionFn = std::uint32_t* (*)(
-			std::uint32_t*, const RE::PauseMenu_StartAction*);
+		using QueueActionFn = void (*)(void*, const RE::BSFixedStringCS*, std::uint32_t, const RE::BSFixedStringCS*, bool);
 
 		std::atomic<QueueActionFn> g_originalQueueAction{ nullptr };
-		ExtractActionFn g_extractAction{ nullptr };
 		RE::BSTEventSource<RE::PauseMenu_StartAction>* g_eventSource{ nullptr };
 		const RE::BSFixedStringCS* g_label{ nullptr };
 		const RE::BSFixedStringCS* g_emptyConfirm{ nullptr };
@@ -66,18 +53,6 @@ namespace OSFUI
 		std::atomic_bool g_insertionLogged{ false };
 
 		template <std::size_t N>
-		bool VerifyBytes(std::string_view a_name, std::uintptr_t a_address,
-			const std::array<std::uint8_t, N>& a_expected)
-		{
-			std::array<std::uint8_t, N> actual{};
-			std::memcpy(actual.data(), reinterpret_cast<const void*>(a_address), N);
-			if (actual == a_expected) {
-				return true;
-			}
-			REX::ERROR("PauseMenuEntry: {} bytes changed at 0x{:X}; native integration disabled", a_name, a_address);
-			return false;
-		}
-
 		std::uintptr_t ReadCallTarget(std::uintptr_t a_site)
 		{
 			std::int32_t displacement = 0;
@@ -85,12 +60,7 @@ namespace OSFUI
 			return a_site + 5 + displacement;
 		}
 
-		void QueueActionThunk(
-			void* a_model,
-			const RE::BSFixedStringCS* a_label,
-			std::uint32_t a_actionType,
-			const RE::BSFixedStringCS* a_confirmText,
-			bool a_disabled)
+		void QueueActionThunk(void* a_model, const RE::BSFixedStringCS* a_label, std::uint32_t a_actionType, const RE::BSFixedStringCS* a_confirmText, bool a_disabled)
 		{
 			const auto original = g_originalQueueAction.load(std::memory_order_acquire);
 			if (!original) {
@@ -119,16 +89,13 @@ namespace OSFUI
 		class ActionSink final : public RE::BSTEventSink<RE::PauseMenu_StartAction>
 		{
 		public:
-			RE::BSEventNotifyControl ProcessEvent(
-				const RE::PauseMenu_StartAction& a_event,
-				RE::BSTEventSource<RE::PauseMenu_StartAction>*) override
+			RE::BSEventNotifyControl ProcessEvent(const RE::PauseMenu_StartAction& a_event, RE::BSTEventSource<RE::PauseMenu_StartAction>*) override
 			{
 				if (!g_armed.load(std::memory_order_acquire)) {
 					return RE::BSEventNotifyControl::kContinue;
 				}
 
-				std::uint32_t action = 0;
-				g_extractAction(&action, &a_event);
+				const auto action = a_event.GetActionType();
 				if (action != kActionID) {
 					return RE::BSEventNotifyControl::kContinue;
 				}
@@ -163,10 +130,10 @@ namespace OSFUI
 				return false;
 			}
 
-			a_addresses.builder = REL::Relocation<std::uintptr_t>{ kBuilderID }.address();
-			a_addresses.queueAction = REL::Relocation<std::uintptr_t>{ kQueueActionID }.address();
-			a_addresses.eventSource = REL::Relocation<std::uintptr_t>{ kEventSourceID }.address();
-			a_addresses.extractAction = REL::Relocation<std::uintptr_t>{ kExtractActionID }.address();
+			a_addresses.builder = REL::Relocation<std::uintptr_t>{ RE::ID::PauseMenu::RebuildActionList }.address();
+			a_addresses.queueAction = REL::Relocation<std::uintptr_t>{ RE::ID::PauseMenuListDataModel::QueueAction }.address();
+			a_addresses.eventSource = REL::Relocation<std::uintptr_t>{ RE::ID::PauseMenu_StartAction::GetEventSource }.address();
+			a_addresses.extractAction = REL::Relocation<std::uintptr_t>{ RE::ID::PauseMenu_StartAction::ExtractActionType }.address();
 			const auto callsite = a_addresses.builder + kQuitCallOffset;
 
 			if (!VerifyBytes("list builder", a_addresses.builder, kBuilderPrologue) ||
@@ -212,14 +179,15 @@ namespace OSFUI
 			return false;
 		}
 
-		g_extractAction = reinterpret_cast<ExtractActionFn>(addresses.extractAction);
-		g_eventSource = reinterpret_cast<GetEventSourceFn>(addresses.eventSource)();
+		g_eventSource = RE::PauseMenu_StartAction::GetEventSource();
 		if (!g_eventSource) {
 			REX::ERROR("PauseMenuEntry: native action source is null; integration disabled");
 			return false;
 		}
 
-		const auto expectedVtable = REL::Relocation<std::uintptr_t>{ kEventSourceVtableID }.address();
+		const auto expectedVtable = REL::Relocation<std::uintptr_t>{
+			RE::VTABLE::BSTGlobalEvent__EventSource_PauseMenu_StartAction_[0]
+		}.address();
 		const auto actualVtable = *reinterpret_cast<const std::uintptr_t*>(g_eventSource);
 		if (actualVtable != expectedVtable) {
 			REX::ERROR("PauseMenuEntry: native action source identity changed; integration disabled");
@@ -245,9 +213,8 @@ namespace OSFUI
 			reinterpret_cast<QueueActionFn>(addresses.queueAction), std::memory_order_release);
 		QueueActionFn captured = nullptr;
 		try {
-			REL::Relocation<std::uintptr_t> builder{ kBuilderID };
-			captured = reinterpret_cast<QueueActionFn>(
-				builder.write_call<5, kQuitCallOffset>(&QueueActionThunk));
+			REL::Relocation<std::uintptr_t> builder{ RE::ID::PauseMenu::RebuildActionList };
+			captured = reinterpret_cast<QueueActionFn>(builder.write_call<5, kQuitCallOffset>(&QueueActionThunk));
 		} catch (const std::exception& e) {
 			REX::ERROR("PauseMenuEntry: builder hook installation failed: {}; integration disabled", e.what());
 		} catch (...) {
