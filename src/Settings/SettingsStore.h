@@ -37,6 +37,8 @@ namespace OSFUI
 	//
 	// Threading: main thread only. Any-thread consumers (C ABI getters,
 	// Papyrus) read a mirror maintained by a change listener, never the store.
+
+	// Schema-driven settings registry. Mods ship read-only json schema (`settings/<id>.json` drop-in or runtime registration)
 	class SettingsStore
 	{
 	public:
