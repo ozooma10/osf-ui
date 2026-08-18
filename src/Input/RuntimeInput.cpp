@@ -48,13 +48,12 @@ namespace OSFUI
 			return true;
 		}
 
-		//@TODO: DEVMODE
-		// if (_config.devMode && a_vkCode == kVkF12) {
-		// 	if (a_down) {
-		// 		_devToolsRequested.store(true);
-		// 	}
-		// 	return true;
-		// }
+		if (_developerMode && a_vkCode == kVkF12) {
+			if (a_down) {
+				_devToolsRequested.store(true);
+			}
+			return true;
+		}
 
 		if (a_down) {
 			_hotkeys.OnKeyDown(a_scanCode);
@@ -70,13 +69,13 @@ namespace OSFUI
 				EnqueuePresentationRequest(ViewPresentationRequest::Back);
 			} else if (captured && _renderer) {
 				_renderer->InjectKeyEvent(a_vkCode, true);
-			} else if (Log::DevMode()) {
+			} else if (Log::DebugEnabled()) {
 				REX::DEBUG("Runtime: OnGameWindowKey down (vk {}, scan {}) passed to the game", a_vkCode, a_scanCode);
 			}
 		} else {
 			if (captured && _renderer) {
 				_renderer->InjectKeyEvent(a_vkCode, false);
-			} else if (Log::DevMode()) {
+			} else if (Log::DebugEnabled()) {
 				REX::DEBUG("Runtime: OnGameWindowKey up (vk {}, scan {}) passed to the game", a_vkCode, a_scanCode);
 			}
 		}
@@ -88,7 +87,7 @@ namespace OSFUI
 		const auto scan = static_cast<ScanCode>(a_scanCode);
 		const auto toggleKey = _toggleKey.load(std::memory_order_acquire);
 		const bool frameworkOwned = _captureArmed.load() || (_captureUpScan.load() != kInvalidScanCode && scan == _captureUpScan.load()) ||
-			(toggleKey != kInvalidScanCode && scan == toggleKey) /*|| (_config.devMode && a_vkCode == kVkF12) */ || (a_vkCode == 0x1B && IsInputCaptured());
+			(toggleKey != kInvalidScanCode && scan == toggleKey) || (_developerMode && a_vkCode == kVkF12) || (a_vkCode == 0x1B && IsInputCaptured());
 		return frameworkOwned && OnGameWindowKey(a_vkCode, scan, a_down);
 	}
 

@@ -102,7 +102,7 @@ namespace OSFUI
 			}
 			if (g_baseProcessMessage) {
 				const auto ret = g_baseProcessMessage(a_this, a_msg);
-				if (Log::DevMode()) {
+				if (Log::DebugEnabled()) {
 					REX::DEBUG("FocusMenu: ProcessMessage type={} -> engine base ret={}", type, ret);
 				}
 				return ret;

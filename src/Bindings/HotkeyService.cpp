@@ -22,7 +22,7 @@ namespace OSFUI
 			std::lock_guard lock(_mutex);
 			_bindings = std::move(bindings);
 		}
-		if (Log::DevMode()) {
+		if (Log::DebugEnabled()) {
 			REX::DEBUG("HotkeyService: registry rebuilt — {} binding(s)", count);
 		}
 	}

@@ -59,7 +59,7 @@ namespace OSFUI
 
 		void Thunk_OnCharacter(void*, const void* a_event)
 		{
-			if (a_event && Log::DevMode()) {
+			if (a_event && Log::DebugEnabled()) {
 				// CharacterEvent (proven layout): codepoint dword @ +0x28.
 				REX::DEBUG("EngineInput: char U+{:04X}",
 					*reinterpret_cast<const std::uint32_t*>(
@@ -77,7 +77,7 @@ namespace OSFUI
 					ConsumeEvent(a_event);
 				}
 			}
-			if (Log::DevMode()) {
+			if (Log::DebugEnabled()) {
 				REX::DEBUG("EngineInput: button dev={} id={:#x} value={:.2f} held={:.2f}",
 					static_cast<std::uint32_t>(a_event->deviceType), a_event->idCode,
 					a_event->value, a_event->heldDownSecs);

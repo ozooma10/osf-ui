@@ -206,7 +206,7 @@ namespace OSFUI
 			{ "frameGeneration", UiPass::FrameGenerationActive() },
 			{ "nativeFocus", runtime._renderer != nullptr },
 			{ "locale", runtime._localization.Locale() },
-			// { "devMode", runtime._config.devMode },
+			{ "devMode", runtime._developerMode },
 		});
 	}
 

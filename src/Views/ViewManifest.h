@@ -71,8 +71,8 @@ namespace OSFUI
 		// false = hidden utility view; still loads and works, just unadvertised.
 		// Field name predates Mod Settings, kept for compatibility.
 		bool catalogVisible{ true };  // serialized compatibility key: `hub`
-		// Kept out of Mod Settings unless config.json devMode is on; still loads
-		// and can be opened by id. Intended for developer-only tools.
+		// Kept out of Mod Settings unless the restart-latched developer mode is
+		// active; still loads and can be opened by id. Intended for local tools.
 		bool debugOnly{ false };
 
 		// OSF UI release version this view was authored against ("1.2.0"). Advisory only,

@@ -187,9 +187,9 @@ try {
     Step "Verifying staged payload"
     $required = @(
         'SFSE\Plugins\OSFUI.dll',
-        'SFSE\Plugins\OSFUI\config.json',
         'SFSE\Plugins\OSFUI\bin\osfui_webview2_host.exe',
         'SFSE\Plugins\OSFUI\settings\osfui.json',    # OSF UI's own Mod Settings schema
+        'SFSE\Plugins\OSFUI\views\osfui\settings\manifest.json', # hard-coded default menu
         'SFSE\Plugins\OSFUI\LICENSE',                # GPL-3.0 text (required to distribute)
         'SFSE\Plugins\OSFUI\EXCEPTIONS',             # GPL 7 modding/linking exception
         'SFSE\Plugins\OSFUI\CREDITS.md',             # attribution
@@ -220,52 +220,6 @@ try {
         if ($manifest.PSObject.Properties.Name -contains 'debugOnly' -and $manifest.debugOnly) {
             Die "Debug-only view must not ship in a release: $($_.FullName)"
         }
-    }
-
-    # --- content sanity checks ---------------------------------------------
-    $cfgPath = Join-Path $Staging 'SFSE\Plugins\OSFUI\config.json'
-    try {
-        $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-        # HARD FAIL: every view the shipped config references must be in the
-        # archive, or a fresh standalone install renders nothing on F10.
-        # View ids are qualified '<modId>/<viewName>' and map onto
-        # views/<modId>/<viewName>/manifest.json (src/Core/Ids.h grammar).
-        # External views (e.g. an 'ozooma10.almanac/planets') ship with their
-        # own mod and must not be a standalone default.
-        # Read the two keys defensively. Under `Set-StrictMode -Version Latest`
-        # (line 71) touching a property that does not exist THROWS, and the
-        # catch below downgrades that to a Warn -- so a config.json missing
-        # `views` used to skip this entire hard-fail check and still produce a
-        # zip. Probe the property names first so a missing key means "empty",
-        # not "silently unvalidated".
-        $names = $cfg.PSObject.Properties.Name
-        # configVersion 2 removed the central view lists; a shipped config that
-        # still carries one is a stale file, not a working configuration.
-        foreach ($legacy in @('views', 'warmViews')) {
-            if ($names -contains $legacy) {
-                Die "config.json still declares '$legacy' -- configVersion 2 removed the central view lists (HUD auto-start is player policy; other views are instantiated on first open)."
-            }
-        }
-        $viewValue = if ($names -contains 'view') { $cfg.view } else { $null }
-        $configuredViews = @(@($viewValue) | Where-Object { $_ } | Select-Object -Unique)
-        if ($configuredViews.Count -eq 0) {
-            Die "config.json declares no default 'view' -- a standalone release would render nothing on F10."
-        }
-        $missingViews = @($configuredViews | Where-Object {
-            -not (Test-Path (Join-Path $viewsRoot ($_ -replace '/', '\') 'manifest.json'))
-        })
-        if ($missingViews.Count -gt 0) {
-            $stagedViews = @(Get-ChildItem $viewsRoot -Directory | Where-Object Name -ne 'shared' | ForEach-Object {
-                $mod = $_.Name
-                Get-ChildItem $_.FullName -Directory |
-                    Where-Object { Test-Path (Join-Path $_.FullName 'manifest.json') } |
-                    ForEach-Object { "$mod/$($_.Name)" }
-            })
-            Die ("config.json references view(s) not shipped in this archive: " + ($missingViews -join ', ') + "`n    Shipped views: " + ($stagedViews -join ', ') + "`n    A standalone release must render out of the box -- default to 'osfui/settings'.")
-        }
-        if ($names -contains 'devMode' -and $cfg.devMode) { Warn "config.json has devMode=true (verbose logs + PNG dump). Turn OFF for release." }
-    } catch {
-        Warn "Could not parse staged config.json to sanity-check it: $($_.Exception.Message)"
     }
 
     # --- zip ---------------------------------------------------------------

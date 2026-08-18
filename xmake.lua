@@ -12,7 +12,7 @@ set_warnings("allextra")
 add_rules("mode.debug", "mode.releasedbg")
 add_rules("plugin.vsxmake.autoupdate")
 
--- JSON for config, view manifests, and the message bridge
+-- JSON for settings, view manifests, and the message bridge
 add_requires("nlohmann_json")
 
 -- Production host executable. Self-contained on purpose: static CRT + static

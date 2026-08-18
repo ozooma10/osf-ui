@@ -54,15 +54,15 @@ namespace
 // game deps — stub it here instead).
 namespace OSFUI::Log
 {
-	static bool g_devMode = true;
+	static bool g_debugEnabled = true;
 
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message)
 	{
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
 
-	bool DevMode() { return g_devMode; }
-	void SetDevMode(bool a_enabled) { g_devMode = a_enabled; }
+	bool DebugEnabled() { return g_debugEnabled; }
+	void SetDebugLogging(bool a_enabled) { g_debugEnabled = a_enabled; }
 }
 
 int main()
@@ -1029,7 +1029,7 @@ int main()
 		WriteFile(sd / "t.good.json", R"json({ "id": "t.good",
 			"groups": [ { "settings": [ { "key": "on", "type": "bool", "default": true } ] } ] })json");
 		WriteFile(sd / "t.broken.json", R"json({ "id": "t.broken", )json");  // torn/unparseable
-		WriteFile(sd / "badname.json", "{}");                                // malformed document
+		WriteFile(sd / "bad%name.json", "{}");                               // unsafe filename stem
 		WriteFile(vd / "t.good.json", R"json({ "on": fa)json");              // corrupt values
 
 		SettingsStore s;
@@ -1057,7 +1057,7 @@ int main()
 		CHECK(!parseErr.is_null() && parseErr["message"].get<std::string>().find("parse error") != std::string::npos);
 		CHECK(!parseErr.is_null() && !parseErr.contains("mod"));
 		const auto nameErr = findKind("schema-name");
-		CHECK(!nameErr.is_null() && nameErr["file"] == "badname.json");
+		CHECK(!nameErr.is_null() && nameErr["file"] == "bad%name.json");
 		const auto valuesErr = findKind("values-parse");
 		CHECK(!valuesErr.is_null() && valuesErr["file"] == "t.good.json" && valuesErr["mod"] == "t.good");
 
@@ -1164,6 +1164,39 @@ int main()
 		// The aggregate projections the bridge and the persist path serialize.
 		CHECK(StrictDumpOk(s.DataView()));
 		CHECK(!s.DataJson().empty());
+	}
+
+	// --- restart-latched developer-mode bootstrap values --------------------
+	// Runtime reads this through the already-loaded authoritative store. A
+	// missing or invalid persisted value must therefore resolve to the schema's
+	// fail-closed false default, while a valid true survives for startup latch.
+	{
+		const auto bootRoot = root / "developer-mode-bootstrap";
+		const auto bootSchemas = bootRoot / "settings";
+		const auto bootValues = bootRoot / "values";
+		WriteFile(bootSchemas / "osfui.json", R"json({
+			"id": "osfui",
+			"groups": [{ "settings": [
+				{ "key": "developerMode", "type": "bool", "default": false, "requires": "restart" }
+			] }]
+		})json");
+
+		SettingsStore missing;
+		missing.LoadAll(bootSchemas, bootValues);
+		CHECK(missing.GetValue("osfui", "developerMode") &&
+			*missing.GetValue("osfui", "developerMode") == false);
+
+		WriteFile(bootValues / "osfui.json", R"json({ "developerMode": true })json");
+		SettingsStore enabled;
+		enabled.LoadAll(bootSchemas, bootValues);
+		CHECK(enabled.GetValue("osfui", "developerMode") &&
+			*enabled.GetValue("osfui", "developerMode") == true);
+
+		WriteFile(bootValues / "osfui.json", R"json({ "developerMode": "yes" })json");
+		SettingsStore malformed;
+		malformed.LoadAll(bootSchemas, bootValues);
+		CHECK(malformed.GetValue("osfui", "developerMode") &&
+			*malformed.GetValue("osfui", "developerMode") == false);
 	}
 
 	// ---------------------------------------------------------------------------

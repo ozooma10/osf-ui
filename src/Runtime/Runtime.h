@@ -66,7 +66,9 @@ namespace OSFUI
 		friend class RuntimeHealthCoordinator;
 		Runtime() = default;
 
-		bool LoadRuntimeConfig();
+		bool InitializePaths();
+		void InitializeSettingsModule();
+		void LoadLocalization();
 		void LoadStartupContent();
 		bool InitializeRenderer();
 		void WireRendererLifecycleCallbacks();
@@ -235,6 +237,7 @@ namespace OSFUI
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
+		bool                          _developerMode{ false };  // startup-latched; setting changes apply next launch
 
 		ViewRevealGate                 m_viewReveal;
 

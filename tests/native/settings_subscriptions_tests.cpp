@@ -62,15 +62,15 @@ namespace
 // suites).
 namespace OSFUI::Log
 {
-	static bool g_devMode = true;
+	static bool g_debugEnabled = true;
 
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message)
 	{
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
 
-	bool DevMode() { return g_devMode; }
-	void SetDevMode(bool a_enabled) { g_devMode = a_enabled; }
+	bool DebugEnabled() { return g_debugEnabled; }
+	void SetDebugLogging(bool a_enabled) { g_debugEnabled = a_enabled; }
 }
 
 int main()

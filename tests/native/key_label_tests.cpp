@@ -96,8 +96,8 @@ namespace OSFUI::Log
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
 
-	bool DevMode() { return false; }
-	void SetDevMode(bool) {}
+	bool DebugEnabled() { return false; }
+	void SetDebugLogging(bool) {}
 }
 
 int main()

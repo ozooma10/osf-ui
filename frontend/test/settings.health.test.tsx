@@ -66,6 +66,27 @@ describe('subscription + rail', () => {
     expect(el.querySelector('.rail-item--health')!.classList.contains('rail-item--health-error'))
       .toBe(true);
   });
+
+  it('shows developer mode from effective System Health state, not from desired settings', async () => {
+    const { bridge, el } = await mountHealth([], { devMode: false });
+    const tag = el.querySelector<HTMLElement>('#devmode-tag')!;
+    expect(tag.hidden).toBe(true);
+
+    bridge.publish('osfui/diagnostics', {
+      system: { devMode: true },
+      issues: [],
+    });
+    await flush();
+    expect(tag.hidden).toBe(false);
+    expect(tag.textContent).toBe('DEVELOPER MODE');
+
+    bridge.publish('osfui/diagnostics', {
+      system: { devMode: false },
+      issues: [],
+    });
+    await flush();
+    expect(tag.hidden).toBe(true);
+  });
 });
 
 describe('summary states', () => {

@@ -22,7 +22,7 @@ namespace OSFUI
 		// are the normal compatible case (a newer mod on an older OSF UI release), so they
 		// report as developer-mode INFO, never a warning.
 		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: [content] " + a_path.string());
-		if (Log::DevMode()) {
+		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "mod", "title", "description", "hub", "debugOnly", "entry",
 					"width", "height", "transparent", "kind",

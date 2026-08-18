@@ -144,13 +144,95 @@ int main()
 	const auto runtimeSource = ReadSource("../../src/Runtime/Runtime.cpp") +
 		ReadSource("../../src/Runtime/RuntimeFrame.cpp") +
 		ReadSource("../../src/Bridge/RuntimeBridge.cpp") +
-		ReadSource("../../src/Views/RuntimeViews.cpp");
+		ReadSource("../../src/Views/RuntimeViews.cpp") +
+		ReadSource("../../src/Input/RuntimeInput.cpp");
+	const auto runtimeHeader = ReadSource("../../src/Runtime/Runtime.h");
+	const auto runtimeHealthSource = ReadSource("../../src/Runtime/RuntimeHealthCoordinator.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
 	const auto hostSource = ReadSource("../../tools/webview2_host/HostApp.cpp") +
 		ReadSource("../../tools/webview2_host/GameMessages.inl");
 	const auto hostMessages = ReadSource("../../tools/webview2_shared/Wv2Messages.h");
 	const auto menuEventSource = ReadSource("../../src/Input/MenuEventSink.cpp");
 	const auto presentationSource = ReadSource("../../src/Views/ViewPresentationController.cpp");
+
+	const auto initialize = FunctionBody(runtimeSource, "bool Runtime::Initialize()");
+	Check(ContainsInOrder(initialize, {
+		"InitializePaths()",
+		"LoadLocalization()",
+		"InitializeSettingsModule()",
+		"InitializeFeatureModules()",
+		"LoadStartupContent()",
+		"InitializeRenderer()" }),
+		"paths and localization must initialize before developer settings latch, which must precede manifest discovery and renderer startup");
+	Check(initialize.find("_developerMode") != std::string::npos &&
+		initialize.find("std::make_unique<DevViewReloadWorker>") != std::string::npos,
+		"the loose-view reload worker must be constructed only from the startup-latched developer branch");
+
+	const auto initializeSettings = FunctionBody(runtimeSource, "void Runtime::InitializeSettingsModule()");
+	Check(ContainsInOrder(initializeSettings, {
+		"std::make_unique<SettingsModule>",
+		"_settings = settings.get()",
+		"GetValue(\"osfui\", \"developerMode\")",
+		"_developerMode = configured->get<bool>()",
+		"Log::SetDebugLogging(_developerMode)" }),
+		"the one authoritative SettingsModule must supply and latch developer mode before debug logging is configured");
+	Check(initializeSettings.find("_developerMode = false") != std::string::npos,
+		"an unavailable or malformed developer setting must fail closed");
+
+	const auto initializeRenderer = FunctionBody(runtimeSource, "bool Runtime::InitializeRenderer()");
+	Check(initializeRenderer.find(".devMode = _developerMode") != std::string::npos,
+		"the WebView host must receive the effective startup latch");
+
+	const auto onSettingChanged = FunctionBody(runtimeSource,
+		"void Runtime::OnSettingChanged(std::string_view a_modId");
+	Check(onSettingChanged.find("a_key == \"developerMode\"") != std::string::npos &&
+		onSettingChanged.find("desired != _developerMode") != std::string::npos &&
+		onSettingChanged.find("_developerMode = desired") == std::string::npos &&
+		onSettingChanged.find("SetDebugLogging") == std::string::npos,
+		"changing developerMode must report a next-launch preference without mutating the effective session");
+
+	const auto settingsMaintenance = FunctionBody(runtimeSource,
+		"void Runtime::ProcessSettingsMaintenance()");
+	Check(ContainsInOrder(settingsMaintenance, {
+		"PumpPersistence(_uptime)",
+		"if (_developerMode)",
+		"PumpSchemaHotReload(_uptime)" }),
+		"schema hot reload must run only in effective developer mode while persistence always runs");
+
+	const auto gameWindowKey = FunctionBody(runtimeSource,
+		"bool Runtime::OnGameWindowKey(std::uint32_t a_vkCode");
+	const auto nativeAccelerator = FunctionBody(runtimeSource,
+		"bool Runtime::OnNativeAcceleratorKey(std::uint32_t a_vkCode");
+	Check(gameWindowKey.find("_developerMode && a_vkCode == kVkF12") != std::string::npos &&
+		gameWindowKey.find("_devToolsRequested.store(true)") != std::string::npos &&
+		nativeAccelerator.find("_developerMode && a_vkCode == kVkF12") != std::string::npos,
+		"F12 must be framework-owned and request DevTools only in effective developer mode");
+
+	const auto instantiateView = FunctionBody(runtimeSource,
+		"bool Runtime::InstantiateView(const ViewManifest& a_manifest");
+	Check(instantiateView.find("if (_developerMode)") != std::string::npos &&
+		instantiateView.find("SetConsoleHandler") != std::string::npos,
+		"browser console forwarding must be installed only in effective developer mode");
+
+	const auto hudEligible = FunctionBody(runtimeSource,
+		"bool Runtime::HudAutoStartEligible(const ViewManifest& a_manifest) const");
+	const auto viewsData = FunctionBody(runtimeSource, "nlohmann::json Runtime::BuildViewsData() const");
+	Check(hudEligible.find("!a_manifest.debugOnly || _developerMode") != std::string::npos &&
+		viewsData.find("!m.debugOnly || _developerMode") != std::string::npos,
+		"debugOnly views must remain discovered but gain catalog and HUD eligibility only in effective developer mode");
+
+	const auto protocolFault = FunctionBody(runtimeSource,
+		"void Runtime::OnProtocolFault(std::string_view a_viewId");
+	Check(protocolFault.find("_developerMode && _bridge && !a_viewId.empty()") != std::string::npos &&
+		protocolFault.find("osfui.debug.error") != std::string::npos,
+		"per-view protocol diagnostics must be a developer-mode-only event");
+
+	Check(runtimeHeader.find("_developerMode{ false }") != std::string::npos &&
+		runtimeHealthSource.find("{ \"devMode\", runtime._developerMode }") != std::string::npos,
+		"System Health must publish the effective runtime latch, defaulting fail closed");
+	Check(runtimeSource.find("Log::DevMode") == std::string::npos &&
+		runtimeSource.find("_config.devMode") == std::string::npos,
+		"runtime feature policy must not be owned by the logging namespace or a removed config object");
 
 	const auto tick = FunctionBody(runtimeSource, "void Runtime::Tick(double a_deltaSeconds)");
 	Check(ContainsInOrder(tick, {
@@ -173,11 +255,11 @@ int main()
 	const auto applyRequests = FunctionBody(runtimeSource,
 		"void Runtime::ApplyPresentationRequests(const PendingPresentationWork& a_work)");
 	Check(ContainsInOrder(applyRequests, {
-		"case PresentationRequest::ToggleDefault:",
+		"case ViewPresentationRequest::ToggleDefault:",
 		"CancelPendingOpen()",
-		"case PresentationRequest::Back:",
+		"case ViewPresentationRequest::Back:",
 		"CancelPendingOpen()",
-		"case PresentationRequest::CloseAll:",
+		"case ViewPresentationRequest::CloseAll:",
 		"CancelPendingOpen()",
 		"_presentation.CloseAll()" }),
 		"toggle, Escape/Back, and CloseAll must cancel a pending open");
@@ -313,10 +395,10 @@ int main()
 		"CloseAll must close both the active menu and every HUD");
 
 	const auto startup = FunctionBody(runtimeSource, "void Runtime::InitializeStartupViews()");
-	Check(startup.find("kSettingsViewId") == std::string::npos &&
-		startup.find("PrewarmView") == std::string::npos &&
+	Check(startup.find("PrewarmView") == std::string::npos &&
 		ContainsInOrder(startup, {
 			"manifest.kind != ViewKind::Hud",
+			"HudAutoStartEligible(manifest)",
 			"_viewPolicy.HudAutoStart",
 			"InstantiateView(manifest, \"for HUD auto-start\")" }),
 		"startup must instantiate only HUDs whose effective auto-start policy is on");

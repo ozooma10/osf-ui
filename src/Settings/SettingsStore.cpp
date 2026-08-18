@@ -380,7 +380,7 @@ namespace OSFUI
 		}
 		// Unknown top-level keys are the normal compatible case (a newer schema on
 		// an older OSF UI runtime), so developer mode only.
-		if (Log::DevMode()) {
+		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(a_schema,
 				{ "id", "title", "description", "version", "targetVersion", "accent",
 					"icon", "presets", "inputContexts", "pages", "groups" },
@@ -639,7 +639,7 @@ namespace OSFUI
 			}
 			mod.preserved[key] = value;
 		}
-		if (!mod.preserved.empty() && Log::DevMode()) {
+		if (!mod.preserved.empty() && Log::DebugEnabled()) {
 			REX::DEBUG("SettingsStore: '{}' preserving {} entr{} this OSF UI runtime can't understand (kept verbatim, not served)",
 				mod.id, mod.preserved.size(), mod.preserved.size() == 1 ? "y" : "ies");
 		}
@@ -1306,7 +1306,7 @@ namespace OSFUI
 		InvalidateData();
 		MarkDirty(*mod);  // notification immediate; disk write coalesced (PumpPersistence)
 		Notify(mod->id, key, mod->values[key]);
-		if (Log::DevMode()) {
+		if (Log::DebugEnabled()) {
 			const auto shown = Json::Dump(mod->values[key]);
 			REX::DEBUG("SettingsStore: set '{}.{}' = {}", mod->id, key,
 				shown.substr(0, StringUtil::Utf8TruncateLen(shown, 128)));

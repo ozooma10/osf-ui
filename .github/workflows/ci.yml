@@ -200,8 +200,9 @@ jobs:
           $must = @(
             "$root/SFSE/Plugins/OSFUI.dll",
             "$root/SFSE/Plugins/OSFUI.pdb",
-            "$root/SFSE/Plugins/OSFUI/config.json",
-            "$root/SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe"
+            "$root/SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe",
+            "$root/SFSE/Plugins/OSFUI/settings/osfui.json",
+            "$root/SFSE/Plugins/OSFUI/views/osfui/settings/manifest.json"
           )
           $failed = $false
           foreach ($f in $must) {

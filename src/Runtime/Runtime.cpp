@@ -55,24 +55,56 @@ namespace OSFUI
 		return *instance;
 	}
 
-	bool Runtime::LoadRuntimeConfig()
+	bool Runtime::InitializePaths()
 	{
-		if(!Paths::Initialize()) {
-			return false;
-		}
+		return Paths::Initialize();
+	}
 
-		//@TODO: DEVMODE
-		Log::SetDevMode(false);
-		return true;
+	void Runtime::InitializeSettingsModule()
+	{
+		const auto schemaDir = Paths::DataDir() / "settings";
+		const auto valuesDir = schemaDir / "values";
+		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
+			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
+				OnSettingChanged(a_mod, a_key, a_value);
+			},
+			// v1 -> v2 values migration: pre-2.x key names were VK-anchored; reanchor to physical key on layout active right now.
+			[](const std::string& a_name) -> std::string {
+				const auto vk = Legacy::ResolveKeyNameVk(a_name);
+				if (vk == 0) {
+					return a_name;
+				}
+				const auto scan = Platform::VkToDirectInputScan(vk);
+				if (scan == 0) {
+					return a_name;
+				}
+				auto name = KeyName(static_cast<ScanCode>(scan));
+				return name.empty() ? a_name : name;
+			});
+
+		_settings = settings.get();
+		_modules.push_back(std::move(settings));
+
+		const auto* configured = _settings->Store().GetValue("osfui", "developerMode");
+		if (configured && configured->is_boolean()) {
+			_developerMode = configured->get<bool>();
+		} else {
+			_developerMode = false;
+			REX::WARN("Runtime: setting 'osfui.developerMode' is unavailable or invalid; developer mode disabled");
+		}
+		Log::SetDebugLogging(_developerMode);
+		REX::INFO("Runtime: developer mode = {} (restart-latched from osfui.developerMode)", _developerMode);
+	}
+
+	void Runtime::LoadLocalization()
+	{
+		const auto documents = Platform::GetDocumentsPath();
+		const auto starfieldDir = documents.empty() ? std::filesystem::path{} : documents / "My Games" / "Starfield";
+		_localization.Load(Paths::DataDir() / "l10n", LocalizationService::DetectGameLocale(starfieldDir));
 	}
 
 	void Runtime::LoadStartupContent()
 	{
-		const auto documents = Platform::GetDocumentsPath();
-		const auto starfieldDir = documents.empty() ? std::filesystem::path{} : documents / "My Games" / "Starfield";
-
-		_localization.Load(Paths::DataDir() / "l10n", LocalizationService::DetectGameLocale(starfieldDir));
-
 		_views.DiscoverAll(Paths::ViewsDir());
 		_viewPolicy.Load(Paths::DataDir() / "state" / "view-policy.json");
 
@@ -102,7 +134,7 @@ namespace OSFUI
 		WebView2HostConfig rendererConfig{
 			.width = initialWidth,
 			.height = initialHeight,
-			.devMode = false,
+			.devMode = _developerMode,
 			.dataDir = Paths::DataDir(),
 		};
 
@@ -156,27 +188,6 @@ namespace OSFUI
 
 	void Runtime::InitializeFeatureModules()
 	{
-		// Settings: schemas ship read-only under <data>/settings/*.json; values persist per-mod under <data>/settings/values 
-		const auto schemaDir = Paths::DataDir() / "settings";
-		const auto valuesDir = schemaDir / "values";
-		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
-			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
-				OnSettingChanged(a_mod, a_key, a_value);
-			},
-			// v1 -> v2 values migration: pre-2.x key names were VK-anchored; reanchor to physical key on layout active right now.
-			[](const std::string& a_name) -> std::string {
-				const auto vk = Legacy::ResolveKeyNameVk(a_name);
-				if (vk == 0) {
-					return a_name;
-				}
-				const auto scan = Platform::VkToDirectInputScan(vk);
-				if (scan == 0) {
-					return a_name;
-				}
-				auto name = KeyName(static_cast<ScanCode>(scan));
-				return name.empty() ? a_name : name;
-			});
-		_settings = settings.get();  // core needs schema facts (e.g. key-capture gating)
 		_settings->Store().SetTextResolver([this](std::string_view a_mod, std::string_view a_address, std::string_view a_english) {
 			return _localization.Resolve(a_mod, a_address, a_english);
 		});
@@ -210,8 +221,6 @@ namespace OSFUI
 		_hotkeys.Rebuild(store);  // LoadAll already ran in the module's constructor
 
 		RefreshKeyboardLabels("startup");
-
-		_modules.push_back(std::move(settings));
 
 		auto healthRegistry = std::make_unique<HealthRegistry>();
 		_healthRegistry = healthRegistry.get();
@@ -304,10 +313,13 @@ namespace OSFUI
 		_rendererFailureLatched = false;
 		_browserHostRecovery.Reset();
 
-		if(!LoadRuntimeConfig()) {
+		if(!InitializePaths()) {
 			return false;
 		}
 
+		LoadLocalization();
+		InitializeSettingsModule();
+		InitializeFeatureModules();
 		LoadStartupContent();
 
 		if(!InitializeRenderer()) {
@@ -320,16 +332,15 @@ namespace OSFUI
 			return false;
 		}
 		WireRenderPipeline();
-		InitializeFeatureModules();
 		InitializeBridge();
 		InitializeStartupViews();
 		ConfigureInputRouting();
 
-		//@TODO: DEV RELOAD WORKER
-		// _devViewReload = std::make_unique<DevViewReloadWorker>(
-		// 	Paths::ViewsDir(), [this](std::string_view a_id) {
-		// 		return _renderer && _renderer->RefreshViewFiles(a_id);
-		// 	});
+		if (_developerMode) {
+			_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_id) {
+				return _renderer && _renderer->RefreshViewFiles(a_id);
+			});
+		}
 
 		_initialized = true;
 		// Push the initial policy derived from whatever is open (incl. nothing).
@@ -885,6 +896,11 @@ namespace OSFUI
 			}
 		} else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
 			REX::INFO("Runtime: pause-menu entry setting changed to {}; takes effect on the next launch", a_value.get<bool>());
+		} else if (a_key == "developerMode" && a_value.is_boolean()) {
+			const auto desired = a_value.get<bool>();
+			if (desired != _developerMode) {
+				REX::INFO("Runtime: developer mode setting changed to {}; effective mode remains {} until the next launch", desired, _developerMode);
+			}
 		}
 	}
 

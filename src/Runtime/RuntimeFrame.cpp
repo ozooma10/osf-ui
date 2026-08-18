@@ -107,6 +107,9 @@ namespace OSFUI
     {
 		if (_settings) {
 			_settings->Store().PumpPersistence(_uptime);
+			if (_developerMode) {
+				_settings->PumpSchemaHotReload(_uptime);
+			}
 		}
     }
 

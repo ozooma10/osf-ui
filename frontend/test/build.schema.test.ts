@@ -37,6 +37,8 @@ const files = [
   join(REPO, 'tests', 'papyrus', 'osfui.paptest.json'),
 ];
 
+const osfuiSettingsFile = files[0]!;
+
 describe('shipped settings-schema JSON files', () => {
   it('all exist (a renamed/moved file must update this list, not vanish silently)', () => {
     expect(files.filter((f) => !existsSync(f))).toEqual([]);
@@ -60,6 +62,24 @@ describe('shipped settings-schema JSON files', () => {
     const doc = JSON.parse(readFileSync(file, 'utf8')) as { id?: unknown };
     const stem = file.split(/[\\/]/).pop()!.replace(/\.json$/, '');
     expect(doc.id).toBe(stem);
+  });
+
+  it('declares developer mode as an off-by-default restart setting in a collapsed group', () => {
+    const doc = JSON.parse(readFileSync(osfuiSettingsFile, 'utf8')) as {
+      groups?: Array<{
+        id?: string;
+        collapsed?: boolean;
+        settings?: Array<Record<string, unknown>>;
+      }>;
+    };
+    const group = doc.groups?.find((candidate) => candidate.id === 'developer');
+    expect(group).toMatchObject({ collapsed: true });
+    const setting = group?.settings?.find((candidate) => candidate.key === 'developerMode');
+    expect(setting).toMatchObject({
+      type: 'bool',
+      default: false,
+      requires: 'restart',
+    });
   });
 });
 
