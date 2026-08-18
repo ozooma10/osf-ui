@@ -358,7 +358,6 @@ namespace OSFUI::UiPass
 
 		[[nodiscard]] std::uintptr_t HookExecuteSlot(
 			const char* a_label,
-			const detail::ExecuteSlotKind a_kind,
 			const REL::ID a_vtblId,
 			const REL::ID a_implId,
 			ExecuteFn a_thunk,
@@ -371,22 +370,16 @@ namespace OSFUI::UiPass
 
 			std::uintptr_t current = 0;
 			if (!Platform::SafeReadPointer(slotAddress, current)) {
-				REX::WARN("[UiPass] {}: vtable slot at 0x{:X} unreadable; not hooking",
-					a_label, slotAddress);
+				REX::WARN("[UiPass] {}: vtable slot at 0x{:X} unreadable; not hooking", a_label, slotAddress);
 				return 0;
 			}
 			if (current != expected.address()) {
-				const auto owner = Platform::ModuleNameForAddress(
-					reinterpret_cast<const void*>(current));
-				if (!detail::CanChainForeignExecute(a_kind, owner)) {
-					REX::WARN("[UiPass] {}: slot 7 holds 0x{:X} from '{}', expected "
-							  "0x{:X} (game patch or unsupported foreign hook); not hooking",
-						a_label, current, owner.empty() ? "unknown module" : owner,
-						expected.address());
+				if (!detail::CanChainForeignExecute(current)) {
+					REX::WARN("[UiPass] {}: slot 7 is null; nothing to chain, not hooking", a_label);
 					return 0;
 				}
-				REX::INFO("[UiPass] {}: chaining compatible hook from '{}' at 0x{:X}",
-					a_label, owner, current);
+				const auto owner = Platform::ModuleNameForAddress(reinterpret_cast<const void*>(current));
+				REX::INFO("[UiPass] {}: chaining foreign hook from '{}' at 0x{:X} (vanilla implementation was 0x{:X})", a_label, owner.empty() ? "unknown module" : owner, current, expected.address());
 			}
 
 			auto** slot = reinterpret_cast<void**>(slotAddress);
@@ -446,17 +439,17 @@ namespace OSFUI::UiPass
 		}
 
 		const auto origBegin = HookExecuteSlot(
-			"ScaleformBegin", detail::ExecuteSlotKind::Begin,
+			"ScaleformBegin",
 			RE::VTABLE::CreationRendererPrivate____ScaleformBeginRenderPass[0],
 			RE::ID::CreationRendererPrivate::ScaleformBeginRenderPass::ExecuteRenderPass,
 			&BeginThunk, g_origBegin);
 		const auto origEnd = HookExecuteSlot(
-			"ScaleformEnd", detail::ExecuteSlotKind::End,
+			"ScaleformEnd",
 			RE::VTABLE::CreationRendererPrivate____ScaleformEndRenderPass[0],
 			RE::ID::CreationRendererPrivate::ScaleformEndRenderPass::ExecuteRenderPass,
 			&EndThunk, g_origEnd);
 		const auto origComposite = HookExecuteSlot(
-			"ScaleformComposite", detail::ExecuteSlotKind::Composite,
+			"ScaleformComposite",
 			RE::VTABLE::CreationRendererPrivate__ScaleformCompositeRenderPass[0],
 			RE::ID::CreationRendererPrivate::ScaleformCompositeRenderPass::ExecuteRenderPass,
 			&CompositeThunk, g_origComposite);
