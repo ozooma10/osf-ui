@@ -3,6 +3,7 @@
 #include "Composite/EngineD3D12.h"
 #include "Composite/UiTargetFormat.h"
 #include "Core/Log.h"
+#include "REL/Utility.h"
 
 #include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
@@ -442,17 +443,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 						   "the engine queue; overlay disabled");
 				return false;
 			}
-			DWORD oldProtect = 0;
-			if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) {
-				REX::ERROR("D3D12Compositor: could not make the command-queue vtable writable; "
-						   "overlay disabled");
-				return false;
-			}
+
 			g_origExecuteCommandLists.store(current, std::memory_order_release);
-			*slot = reinterpret_cast<void*>(&ExecuteCommandListsThunk);
-			DWORD ignored = 0;
-			if (!::VirtualProtect(slot, sizeof(void*), oldProtect, &ignored)) {
-				REX::WARN("D3D12Compositor: command-queue vtable protection could not be restored");
+			if (!REL::WriteSafeData(slot, reinterpret_cast<void*>(&ExecuteCommandListsThunk))) {
+				if (*slot != reinterpret_cast<void*>(&ExecuteCommandListsThunk)) {
+					g_origExecuteCommandLists.store(nullptr, std::memory_order_release);
+				}
+				REX::ERROR("D3D12Compositor: could not write the command-queue vtable slot; overlay disabled");
+				return false;
 			}
 			return true;
 		}

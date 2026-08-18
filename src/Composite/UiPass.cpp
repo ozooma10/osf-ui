@@ -10,6 +10,7 @@
 #include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
 #include "RE/IDs_VTABLE.h"
+#include "REL/Utility.h"
 
 #include <atomic>
 #include <cstddef>
@@ -153,13 +154,10 @@ namespace OSFUI::UiPass
 
 		[[nodiscard]] void* PatchSlot(void** a_vtbl, const std::size_t a_slot, void* a_thunk)
 		{
-			DWORD oldProtect = 0;
-			if (!::VirtualProtect(&a_vtbl[a_slot], sizeof(void*), PAGE_READWRITE, &oldProtect)) {
+			void* original = a_vtbl[a_slot];
+			if (!REL::WriteSafeData(&a_vtbl[a_slot], a_thunk)) {
 				return nullptr;
 			}
-			void* original = a_vtbl[a_slot];
-			a_vtbl[a_slot] = a_thunk;
-			::VirtualProtect(&a_vtbl[a_slot], sizeof(void*), oldProtect, &oldProtect);
 			return original;
 		}
 
@@ -382,15 +380,11 @@ namespace OSFUI::UiPass
 				REX::INFO("[UiPass] {}: chaining foreign hook from '{}' at 0x{:X} (vanilla implementation was 0x{:X})", a_label, owner.empty() ? "unknown module" : owner, current, expected.address());
 			}
 
-			auto** slot = reinterpret_cast<void**>(slotAddress);
-			DWORD oldProtect = 0;
-			if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) {
-				REX::WARN("[UiPass] {}: VirtualProtect failed; not hooking", a_label);
+			a_orig.store(current, std::memory_order_release);
+			if (!REL::WriteSafeData(slotAddress, reinterpret_cast<std::uintptr_t>(a_thunk))) {
+				REX::WARN("[UiPass] {}: vtable slot write failed; not hooking", a_label);
 				return 0;
 			}
-			a_orig.store(current, std::memory_order_release);
-			*slot = reinterpret_cast<void*>(a_thunk);
-			::VirtualProtect(slot, sizeof(void*), oldProtect, &oldProtect);
 			REX::INFO("[UiPass] hooked {} slot 7 "
 					   "(vtbl 0x{:X}, original 0x{:X})",
 				a_label, vtbl.address(), current);
@@ -416,17 +410,10 @@ namespace OSFUI::UiPass
 					a_label);
 				return;
 			}
-			auto** slot = reinterpret_cast<void**>(slotAddress);
-			DWORD oldProtect = 0;
-			if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) {
-				REX::ERROR("[UiPass] {}: incomplete hook rollback could not make slot 7 writable",
+			if (!REL::WriteSafeData(slotAddress, a_original)) {
+				REX::ERROR("[UiPass] {}: incomplete hook rollback could not restore slot 7",
 					a_label);
 				return;
-			}
-			*slot = reinterpret_cast<void*>(a_original);
-			DWORD ignored = 0;
-			if (!::VirtualProtect(slot, sizeof(void*), oldProtect, &ignored)) {
-				REX::WARN("[UiPass] {}: slot 7 restored but its page protection was not", a_label);
 			}
 			REX::INFO("[UiPass] restored {} slot 7 after incomplete hook installation", a_label);
 		}
