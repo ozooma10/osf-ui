@@ -9,19 +9,21 @@
 // heard of still renders: it degrades to a generic issue with its technical
 // details shown, never to a blank one.
 //
-// Records are typed loosely (every field optional but `id`) for the same reason
-// the rail model is: this also runs against harness mocks and, in principle,
-// against an OSF UI runtime newer than the frontend.
+// The wire is treated as untrusted/version-skewed once, here. Everything after
+// readHealth receives a complete internal record and does not repeat defaults.
 
 import type { DiagnosticIssue, DiagnosticsData } from '@sdk';
 
-/** An `osfui/diagnostics` issue as the renderer actually treats it. */
-export type IssueRecord = Partial<DiagnosticIssue> & { id: string };
-
 export type Severity = 'error' | 'warning';
+export type SourceKind = 'platform' | 'mod';
+
+/** A fully normalized `osfui/diagnostics` issue used by the renderer. */
+export type IssueRecord = Omit<DiagnosticIssue, 'sourceKind'> & {
+  sourceKind: SourceKind;
+};
 
 /** The `system` block, values rendered as text whatever their type. */
-export type SystemInfo = Partial<DiagnosticsData>['system'];
+export type SystemInfo = DiagnosticsData['system'];
 
 export interface HealthModel {
   system: SystemInfo;
@@ -38,13 +40,63 @@ export const HEALTH_ID = ':health';
 
 /** Normalise an untrusted `osfui/diagnostics` state payload into the model. */
 export function readHealth(payload: unknown): HealthModel {
-  const p = (payload || {}) as Partial<DiagnosticsData>;
-  const issues = Array.isArray(p.issues) ? (p.issues as IssueRecord[]) : [];
+  const p = isRecord(payload) ? payload : {};
+  const rawIssues = Array.isArray(p.issues) ? p.issues : [];
   return {
-    system: p.system && typeof p.system === 'object' ? p.system : {},
-    // A record with no id has no identity to key, sort or deep-link by.
-    issues: issues.filter((i) => i && typeof i.id === 'string' && i.id !== ''),
+    system: scalarRecord(p.system),
+    issues: rawIssues.map(readIssue).filter((issue): issue is IssueRecord => issue !== null),
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function scalarRecord(value: unknown): Record<string, string | number | boolean> {
+  if (!isRecord(value)) return {};
+  const out: Record<string, string | number | boolean> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (
+      typeof item === 'string' ||
+      typeof item === 'boolean' ||
+      (typeof item === 'number' && Number.isFinite(item))
+    ) {
+      out[key] = item;
+    }
+  }
+  return out;
+}
+
+function readIssue(value: unknown): IssueRecord | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || value.id === '') return null;
+  const resolvedAt = optionalNumber(value.resolvedAt);
+  const issue: IssueRecord = {
+    id: value.id,
+    code: stringValue(value.code),
+    severity: value.severity === 'error' ? 'error' : 'warning',
+    status: value.status === 'resolved' ? 'resolved' : 'active',
+    source: stringValue(value.source),
+    sourceKind: value.sourceKind === 'mod' ? 'mod' : 'platform',
+    subject: stringValue(value.subject),
+    context: scalarRecord(value.context),
+    occurrences: Math.max(1, Math.trunc(numberValue(value.occurrences))),
+    firstAt: numberValue(value.firstAt),
+    lastAt: numberValue(value.lastAt),
+  };
+  if (resolvedAt !== undefined) issue.resolvedAt = resolvedAt;
+  return issue;
 }
 
 export function isResolved(issue: IssueRecord): boolean {
@@ -52,7 +104,7 @@ export function isResolved(issue: IssueRecord): boolean {
 }
 
 export function severityOf(issue: IssueRecord): Severity {
-  return issue.severity === 'error' ? 'error' : 'warning';
+  return issue.severity;
 }
 
 export interface HealthCounts {
@@ -99,7 +151,7 @@ export function sortIssues(issues: readonly IssueRecord[]): IssueRecord[] {
     const sa = severityOf(a) === 'error' ? 0 : 1;
     const sb = severityOf(b) === 'error' ? 0 : 1;
     if (sa !== sb) return sa - sb;
-    return (b.lastAt ?? 0) - (a.lastAt ?? 0);
+    return b.lastAt - a.lastAt;
   });
 }
 
@@ -129,7 +181,7 @@ export function severityForMod(
   let worst: Severity | null = null;
   for (const issue of issues) {
     if (isResolved(issue)) continue;
-    const subject = issue.subject || '';
+    const subject = issue.subject;
     // `source` is the authority for a mod's OWN reports (ABI 1.7): those name
     // whatever the mod cares about as the subject — a pack, a file, an actor —
     // so subject-matching alone would leave them off that mod's rail marker.
@@ -365,7 +417,7 @@ export const MOD_COPY: IssueCopy = {
  * inferred from punctuation in `source`.
  */
 export function modIdOf(issue: IssueRecord): string | null {
-  const source = issue.source || '';
+  const source = issue.source;
   return issue.sourceKind === 'mod' && source ? source : null;
 }
 
@@ -379,7 +431,7 @@ export function modIdOf(issue: IssueRecord): string | null {
  * OSF UI and telling them to contact the mod author.
  */
 export function copyForIssue(issue: IssueRecord): IssueCopy {
-  const exact = issue.code ? COPY[issue.code] : undefined;
+  const exact = COPY[issue.code];
   if (exact) return exact;
   const mod = modIdOf(issue);
   return mod ? { ...MOD_COPY, params: { mod } } : GENERIC_COPY;

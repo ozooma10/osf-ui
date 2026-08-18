@@ -153,9 +153,6 @@ namespace OSFUI
 			_bridge->OnViewDestroyed(a_id);
 		}
 		m_viewInputGrants.ResetPage(a_id);
-		for (const auto& mod : _modules) {
-			mod->OnViewDestroyed(a_id);
-		}
 		BroadcastViewsData();
 	}
 

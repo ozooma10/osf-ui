@@ -1,7 +1,5 @@
 #include "Composite/EngineD3D12.h"
 
-#include "Platform/WindowsPlatform.h"
-
 #include "RE/C/CreationRenderer.h"
 
 #include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
@@ -10,15 +8,14 @@ namespace OSFUI
 {
 	namespace
 	{
-		// QI a candidate pointer to T. The engine accessor hands back raw,
-		// unvalidated pointers, so check readability before touching the vtable:
-		// a not-yet-initialized renderer fails cleanly instead of crashing.
-		// A successful QI AddRefs; the caller owns that reference and Releases it.
+		// QI a candidate pointer to T. The engine accessor can return null before
+		// the renderer is initialized. A successful QI AddRefs; the caller owns
+		// that reference and Releases it.
 		template <class T>
 		[[nodiscard]] T* QueryCandidate(const char* a_label, const std::uintptr_t a_candidate)
 		{
-			if (a_candidate == 0 || !Platform::IsReadableRange(a_candidate, sizeof(std::uintptr_t))) {
-				REX::WARN("EngineD3D12: {} candidate 0x{:X} is null or unreadable", a_label, a_candidate);
+			if (a_candidate == 0) {
+				REX::WARN("EngineD3D12: {} candidate is null", a_label);
 				return nullptr;
 			}
 			auto* unknown = reinterpret_cast<IUnknown*>(a_candidate);

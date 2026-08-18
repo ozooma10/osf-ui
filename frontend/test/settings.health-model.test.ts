@@ -37,10 +37,23 @@ describe('readHealth', () => {
   it('normalizes an untrusted payload and drops idless issues', () => {
     const model = readHealth({
       system: { version: '1.4' },
-      issues: [issue({ id: 'a' }), { code: 'x' }, null, { id: '' }],
+      issues: [issue({ id: 'a' }), { id: 'defaults', context: { nested: {} } }, { code: 'x' }, null, { id: '' }],
     });
     expect(model.system).toEqual({ version: '1.4' });
-    expect(model.issues.map((i) => i.id)).toEqual(['a']);
+    expect(model.issues.map((i) => i.id)).toEqual(['a', 'defaults']);
+    expect(model.issues[1]).toEqual({
+      id: 'defaults',
+      code: '',
+      severity: 'warning',
+      status: 'active',
+      source: '',
+      sourceKind: 'platform',
+      subject: '',
+      context: {},
+      occurrences: 1,
+      firstAt: 0,
+      lastAt: 0,
+    });
   });
 
   it('survives a missing or malformed payload', () => {

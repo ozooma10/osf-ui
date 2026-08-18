@@ -13,4 +13,7 @@ namespace OSFUI::Paths
 	// <data>/views
 	[[nodiscard]] std::filesystem::path ViewsDir();
 
+	// Documents/My Games/Starfield, derived from CommonLibSF's log directory; Empty when CommonLibSF cannot resolve the user directory.
+	[[nodiscard]] std::filesystem::path StarfieldUserDir();
+
 }

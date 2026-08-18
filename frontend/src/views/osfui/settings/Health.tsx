@@ -346,12 +346,12 @@ function IssueCard({
 
   const tag = resolvedCard ? (
     <span class="health-card-tag">{tr('resolved', 'Resolved')}</span>
-  ) : (issue.occurrences ?? 1) > 1 ? (
+  ) : issue.occurrences > 1 ? (
     <span
       class="health-card-tag"
       title={tr('occurrenceHint', 'How many times this happened this session')}
     >
-      {tr('timesCount', '{count}×', { count: issue.occurrences ?? 1 })}
+      {tr('timesCount', '{count}×', { count: issue.occurrences })}
     </span>
   ) : null;
 
@@ -402,7 +402,7 @@ function IssueCard({
           rowOpen ? ' health-card--row-open' : ''
         }${resolvedCard ? ' health-card--resolved' : ''}`}
         data-issue={issue.id}
-        data-code={issue.code || ''}
+        data-code={issue.code}
       >
         {/* The whole row is the control: a one-line summary that is its own
             disclosure button, so there is no separate hit target to find. */}
@@ -429,7 +429,7 @@ function IssueCard({
     <article
       class={`health-card health-card--${severity}${resolvedCard ? ' health-card--resolved' : ''}`}
       data-issue={issue.id}
-      data-code={issue.code || ''}
+      data-code={issue.code}
     >
       <header class="health-card-head">
         <SeverityMark severity={resolvedCard ? null : severity} tr={tr} />
@@ -464,16 +464,16 @@ export function technicalText(issue: IssueRecord): string {
     `code: ${issue.code || '(none)'}`,
     `id: ${issue.id}`,
     `severity: ${severityOf(issue)}`,
-    `status: ${issue.status || 'active'}`,
+    `status: ${issue.status}`,
   ];
   if (issue.subject) lines.push(`subject: ${issue.subject}`);
   if (issue.source) lines.push(`source: ${issue.source}`);
-  lines.push(`occurrences: ${issue.occurrences ?? 1}`);
+  lines.push(`occurrences: ${issue.occurrences}`);
   lines.push(
-    `session: first ${issue.firstAt ?? 0}s, last ${issue.lastAt ?? 0}s` +
+    `session: first ${issue.firstAt}s, last ${issue.lastAt}s` +
       (isResolved(issue) ? `, resolved ${issue.resolvedAt ?? 0}s` : ''),
   );
-  const context = issue.context || {};
+  const context = issue.context;
   for (const key of Object.keys(context)) lines.push(`${key}: ${String(context[key])}`);
   return lines.join('\n');
 }

@@ -133,14 +133,6 @@ namespace OSFUI
 		_bridge = nullptr;
 	}
 
-	void SettingsModule::OnViewDestroyed(std::string_view)
-	{
-		// Nothing to prune. Delivery is scoped by the bridge's own greeted-view
-		// set, which a destroyed view leaves automatically — the 1.x subscriber
-		// set had to be swept here or a crash-recovered view kept receiving
-		// pushes for the process lifetime.
-	}
-
 	void SettingsModule::PushHotkey(std::string_view a_modId, std::string_view a_key) const
 	{
 		if (_bridge) {

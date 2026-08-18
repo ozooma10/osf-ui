@@ -1,7 +1,9 @@
 #include "Core/Paths.h"
 
 #include "Core/Version.h"
-#include "Platform/WindowsPlatform.h"
+
+#include "REX/FModule.h"
+#include "SFSE/Logger.h"
 
 namespace OSFUI::Paths
 {
@@ -13,12 +15,7 @@ namespace OSFUI::Paths
 
 	bool Initialize()
 	{
-		const auto modulePath = Platform::GetThisModulePath();
-		if (modulePath.empty()) {
-			REX::ERROR("Paths: failed to resolve plugin module path");
-			return false;
-		}
-
+		const std::filesystem::path modulePath = REX::FModule::GetCurrentModule().GetFileName();
 		g_pluginDir = modulePath.parent_path();
 		g_dataDir = g_pluginDir / kDataFolderName;
 
@@ -45,6 +42,12 @@ namespace OSFUI::Paths
 	std::filesystem::path ViewsDir()
 	{
 		return g_dataDir / "views";
+	}
+
+	std::filesystem::path StarfieldUserDir()
+	{
+		const auto logDir = SFSE::log::log_directory();
+		return logDir ? logDir->parent_path().parent_path() : std::filesystem::path{};
 	}
 
 }

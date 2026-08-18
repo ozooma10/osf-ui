@@ -376,11 +376,7 @@ namespace OSFUI::UiPass
 			const auto slotAddress =
 				vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
 
-			std::uintptr_t current = 0;
-			if (!Platform::SafeReadPointer(slotAddress, current)) {
-				REX::WARN("[UiPass] {}: vtable slot at 0x{:X} unreadable; not hooking", a_label, slotAddress);
-				return 0;
-			}
+			const auto current = *reinterpret_cast<const std::uintptr_t*>(slotAddress);
 			if (current != expected.address()) {
 				if (!detail::CanChainForeignExecute(current)) {
 					REX::WARN("[UiPass] {}: slot 7 is null; nothing to chain, not hooking", a_label);
@@ -412,9 +408,8 @@ namespace OSFUI::UiPass
 			}
 			const REL::Relocation<std::uintptr_t> vtbl{ a_vtblId };
 			const auto slotAddress = vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
-			std::uintptr_t current = 0;
-			if (!Platform::SafeReadPointer(slotAddress, current) ||
-				current != reinterpret_cast<std::uintptr_t>(a_thunk)) {
+			const auto current = *reinterpret_cast<const std::uintptr_t*>(slotAddress);
+			if (current != reinterpret_cast<std::uintptr_t>(a_thunk)) {
 				REX::ERROR("[UiPass] {}: incomplete hook rollback could not verify slot 7; "
 						   "leaving the current owner untouched",
 					a_label);

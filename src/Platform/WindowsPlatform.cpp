@@ -8,30 +8,13 @@
 #define NOMINMAX
 #include <Windows.h>
 
-#include <ShlObj.h>
+#include "REX/FModule.h"
+
 #include "Win32Util.h"
 
 namespace OSFUI::Platform
 {
-	namespace
-	{
-		using osfui::win32::ToUtf8;
-
-	}
-
-	std::filesystem::path GetDocumentsPath()
-	{
-		PWSTR raw = nullptr;
-		const auto hr = ::SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &raw);
-		std::filesystem::path result;
-		if (SUCCEEDED(hr) && raw) {
-			result = raw;
-		}
-		if (raw) {
-			::CoTaskMemFree(raw);
-		}
-		return result;
-	}
+	using osfui::win32::ToUtf8;
 
 	KeyLabelSource MakeKeyLabelSource(void* a_gameWindow)
 	{
@@ -134,32 +117,6 @@ namespace OSFUI::Platform
 		return base;
 	}
 
-	std::filesystem::path GetThisModulePath()
-	{
-		HMODULE module = nullptr;
-		if (!::GetModuleHandleExW(
-				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-				reinterpret_cast<LPCWSTR>(&GetThisModulePath),
-				&module)) {
-			return {};
-		}
-
-		std::wstring buffer(MAX_PATH, L'\0');
-		for (;;) {
-			const auto len = ::GetModuleFileNameW(module, buffer.data(), static_cast<DWORD>(buffer.size()));
-			if (len == 0) {
-				return {};
-			}
-			if (len < buffer.size()) {
-				buffer.resize(len);
-				break;
-			}
-			// Truncated; grow and retry.
-			buffer.resize(buffer.size() * 2);
-		}
-		return std::filesystem::path(buffer);
-	}
-
 	std::string ModuleNameForAddress(const void* a_address)
 	{
 		if (!a_address) {
@@ -175,54 +132,8 @@ namespace OSFUI::Platform
 			!module) {
 			return {};
 		}
-		std::wstring buffer(MAX_PATH, L'\0');
-		const auto len = ::GetModuleFileNameW(module, buffer.data(), static_cast<DWORD>(buffer.size()));
-		if (len == 0 || len >= buffer.size()) {
-			return {};
-		}
-		buffer.resize(len);
-		return std::filesystem::path(buffer).filename().string();
+		const REX::FModule owner{ reinterpret_cast<REX::W32::HMODULE>(module) };
+		return std::filesystem::path(owner.GetFileName()).filename().string();
 	}
 
-	bool IsReadableRange(const std::uintptr_t a_address, const std::size_t a_size)
-	{
-		if (a_address == 0 || a_size == 0) {
-			return false;
-		}
-
-		std::uintptr_t cursor = a_address;
-		const auto end = a_address + a_size;
-		if (end < a_address) {
-			// Range wraps the top of the address space (e.g. probing a garbage
-			// value like 0xFFFF'FFFF'FFFF'FFFF): the walk below would be
-			// vacuously true. Seen in the wild via UiPass scanning -1 out
-			// of a worker-stack blob.
-			return false;
-		}
-		while (cursor < end) {
-			MEMORY_BASIC_INFORMATION mbi{};
-			if (::VirtualQuery(reinterpret_cast<LPCVOID>(cursor), &mbi, sizeof(mbi)) == 0) {
-				return false;
-			}
-			if (mbi.State != MEM_COMMIT || (mbi.Protect & PAGE_GUARD) != 0 ||
-				(mbi.Protect & 0xFF) == PAGE_NOACCESS) {
-				return false;
-			}
-			const auto regionEnd = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
-			if (regionEnd <= cursor) {
-				return false;
-			}
-			cursor = regionEnd < end ? regionEnd : end;
-		}
-		return true;
-	}
-
-	bool SafeReadPointer(const std::uintptr_t a_address, std::uintptr_t& a_value)
-	{
-		if (!IsReadableRange(a_address, sizeof(std::uintptr_t))) {
-			return false;
-		}
-		a_value = *reinterpret_cast<const std::uintptr_t*>(a_address);
-		return true;
-	}
 }

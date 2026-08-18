@@ -1,15 +1,15 @@
 #pragma once
 
+#include <span>
 #include <unordered_set>  // not in pch.h
 
 #include <nlohmann/json.hpp>
 
-#include "Runtime/UiModule.h"
-
 namespace OSFUI
 {
-	// Session-scoped health registry behind Mod Settings' System Health destination (introduced in web bridge protocol 1.4).
-	class HealthRegistry final : public IUiModule
+	class MessageBridge;
+
+	class HealthRegistry final
 	{
 	public:
 		enum class Severity
@@ -37,26 +37,27 @@ namespace OSFUI
 			SourceKind     sourceKind{ SourceKind::Platform };
 			std::string    subject;   // affected mod / view / component id, "" when none
 			nlohmann::json context;   // bounded technical detail (object), sanitized on entry
+			std::string    scope;     // internal reconciliation owner; never serialized
 		};
 
-		void RegisterEndpoints(MessageBridge& a_bridge) override;
-		void OnBridgeDown() override;
-		void OnViewDestroyed(std::string_view a_viewId) override;
-		[[nodiscard]] std::string_view Name() const override { return "health"; }
+		void AttachBridge(MessageBridge& a_bridge);
+		void DetachBridge();
 
-		// Raise or refresh one condition. Returns true when the snapshot changed (a new issue, a reactivation, or altered fields
+		// Record another observation of one condition. Repeated observations increment occurrences and refresh lastAt, even when every descriptive field is unchanged.
 		bool Upsert(const IssueSpec& a_spec, double a_now);
+
+		// Replace the complete current set owned by a_scope. Unchanged active issues remain untouched; newly present/reactivated/changed issues are updated, and missing ones are resolved
+		bool ReplaceScope(std::string_view a_scope, std::span<const IssueSpec> a_specs, double a_now);
 
 		// Withdraw one condition by id. Returns false when it was unknown or already resolved, so callers can resolve unconditionally every tick without generating pushes.
 		bool Resolve(std::string_view a_id, double a_now);
 
-		// Resolve every ACTIVE issue of `a_source` whose id is not in `a_keep`. The reconcile primitive for producers that recompute a whole set (settings load errors, targetVersion compatibility): 
-		// upsert what is wrong now, then sweep away what no longer is. Returns true if anything moved.
-		bool ResolveMissing(std::string_view a_source, const std::unordered_set<std::string>& a_keep, double a_now);
+		// Sweep-only form used by the native ABI's ordered Report/ClearExcept queue.
+		bool ResolveMissingInScope(std::string_view a_scope, const std::unordered_set<std::string>& a_keep, double a_now);
 
-		[[nodiscard]] bool IsActive(std::string_view a_id) const;
+		bool IsActive(std::string_view a_id) const;
 
-		void SetSystemInfo(nlohmann::json a_info);
+		bool SetSystemInfo(nlohmann::json a_info);
 
 		// { system, issues } - `osfui/diagnostics` state value. Issues are ordered errors first, then warnings, newest first within a severity; resolved ones sort after every active one.
 		[[nodiscard]] nlohmann::json Snapshot() const;
@@ -76,6 +77,7 @@ namespace OSFUI
 			SourceKind     sourceKind{ SourceKind::Platform };
 			std::string    subject;
 			nlohmann::json context;
+			std::string    scope;
 			bool           resolved{ false };
 			std::uint32_t  occurrences{ 0 };
 			double         firstAt{ 0.0 };
@@ -85,6 +87,7 @@ namespace OSFUI
 
 		[[nodiscard]] Issue*       Find(std::string_view a_id);
 		[[nodiscard]] const Issue* Find(std::string_view a_id) const;
+		bool Apply(const IssueSpec& a_spec, double a_now, bool a_recordOccurrence, std::string_view a_scope);
 
 		void EnforceCaps();
 

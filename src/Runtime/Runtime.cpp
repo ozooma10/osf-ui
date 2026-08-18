@@ -64,7 +64,7 @@ namespace OSFUI
 	{
 		const auto schemaDir = Paths::DataDir() / "settings";
 		const auto valuesDir = schemaDir / "values";
-		auto settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
+		_settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
 			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 				OnSettingChanged(a_mod, a_key, a_value);
 			},
@@ -82,9 +82,6 @@ namespace OSFUI
 				return name.empty() ? a_name : name;
 			});
 
-		_settings = settings.get();
-		_modules.push_back(std::move(settings));
-
 		const auto* configured = _settings->Store().GetValue("osfui", "developerMode");
 		if (configured && configured->is_boolean()) {
 			_developerMode = configured->get<bool>();
@@ -98,9 +95,7 @@ namespace OSFUI
 
 	void Runtime::LoadLocalization()
 	{
-		const auto documents = Platform::GetDocumentsPath();
-		const auto starfieldDir = documents.empty() ? std::filesystem::path{} : documents / "My Games" / "Starfield";
-		_localization.Load(Paths::DataDir() / "l10n", LocalizationService::DetectGameLocale(starfieldDir));
+		_localization.Load(Paths::DataDir() / "l10n", LocalizationService::DetectGameLocale(Paths::StarfieldUserDir()));
 	}
 
 	void Runtime::LoadStartupContent()
@@ -222,15 +217,8 @@ namespace OSFUI
 
 		RefreshKeyboardLabels("startup");
 
-		auto healthRegistry = std::make_unique<HealthRegistry>();
-		_healthRegistry = healthRegistry.get();
-		_modules.push_back(std::move(healthRegistry));
-
-		REX::INFO("Runtime: {} UI module(s) loaded", _modules.size());
-
-		for (const auto& module : _modules) {
-			module->OnStart();
-		}
+		_settings->OnStart();
+		REX::INFO("Runtime: settings and diagnostics initialized");
 	}
 
 	void Runtime::InitializeBridge()
@@ -250,9 +238,8 @@ namespace OSFUI
 
 		RegisterPlatformEndpoints(*_bridge);
 
-		for(const auto& module : _modules) {
-			module->RegisterEndpoints(*_bridge);
-		}
+		_settings->RegisterEndpoints(*_bridge);
+		_healthRegistry.AttachBridge(*_bridge);
 
 		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (_bridge) {
@@ -392,7 +379,7 @@ namespace OSFUI
 		API::Papyrus::Install();
 		_controlMap.Initialize();
 		SyncLiveControlMapBindings();
-		SyncLiveControlMapHealth();
+		_runtimeHealth.SyncControlMap();
 		PublishPlatformState("keybindings");
 		PublishPlatformState("input-context");
 	}
@@ -864,10 +851,7 @@ namespace OSFUI
 
 		if (a_key == "language" && a_value.is_string()) {
 			const auto requested = a_value.get<std::string>();
-			const auto documents = Platform::GetDocumentsPath();
-			const auto locale = requested == "auto"
-				? LocalizationService::DetectGameLocale(documents.empty() ? std::filesystem::path{} : documents / "My Games" / "Starfield")
-				: LocalizationService::NormalizeLocale(requested);
+			const auto locale = requested == "auto" ? LocalizationService::DetectGameLocale(Paths::StarfieldUserDir()) : LocalizationService::NormalizeLocale(requested);
 			if (_localization.SetLocale(locale)) {
 				RefreshLocalizedData();
 			}
@@ -925,7 +909,7 @@ namespace OSFUI
 				PublishPlatformState("keybindings");
 			} else if (_controlMap.Initialized() && !_controlMap.Available()) {
 				SyncLiveControlMapBindings();
-				SyncLiveControlMapHealth();
+				_runtimeHealth.SyncControlMap();
 				PublishPlatformState("keybindings");
 				PublishPlatformState("input-context");
 			} else {
@@ -966,23 +950,6 @@ namespace OSFUI
 		if (bindingsChanged || warningChanged) {
 			_settings->BroadcastData();
 		}
-	}
-
-	void Runtime::SyncLiveControlMapHealth()
-	{
-		if (!_healthRegistry || !_controlMap.Initialized()) return;
-		constexpr std::string_view id{ "input.control-map-unavailable" };
-		if (_controlMap.Available()) {
-			_healthRegistry->Resolve(id, _uptime);
-		} else {
-			_healthRegistry->Upsert({
-				.id = std::string(id), .code = std::string(id),
-				.severity = HealthRegistry::Severity::Warning,
-				.source = "input", .subject = "Starfield ControlMap",
-				.context = { { "gameVersion", _controlMap.GameVersion() }, { "reason", _controlMap.FailureReason() } },
-			}, _uptime);
-		}
-		_healthRegistry->Broadcast();
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)

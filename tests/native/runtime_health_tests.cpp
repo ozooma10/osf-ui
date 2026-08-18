@@ -94,5 +94,25 @@ int main()
 	reconciler.ReportViewLoad(healthRegistry, "acme/view", false, "", 0, 0, 8.0);
 	assert(!healthRegistry.IsActive("view.load-failed:acme/view"));
 
+	reconciler.SyncControlMap(healthRegistry, false, "1.16.244.0", "layout mismatch", 9.0);
+	const auto controlMapId = "input.control-map-unavailable";
+	assert(healthRegistry.IsActive(controlMapId));
+	const auto controlMapOccurrences = IssueById(healthRegistry, controlMapId).value("occurrences", 0u);
+	reconciler.SyncControlMap(healthRegistry, false, "1.16.244.0", "layout mismatch", 10.0);
+	assert(IssueById(healthRegistry, controlMapId).value("occurrences", 0u) == controlMapOccurrences);
+	reconciler.SyncControlMap(healthRegistry, true, "1.16.244.0", "", 11.0);
+	assert(!healthRegistry.IsActive(controlMapId));
+
+	reconciler.ReportRendererHealth(healthRegistry, "host.ring-truncated", true,
+		"mixed helper", true, 12.0);
+	assert(healthRegistry.IsActive("host.ring-truncated"));
+	assert(IssueById(healthRegistry, "host.ring-truncated").at("context").value("renderer", "") == "webview2");
+	reconciler.ReportRendererHealth(healthRegistry, "host.ring-truncated", false,
+		"", true, 13.0);
+	assert(!healthRegistry.IsActive("host.ring-truncated"));
+
+	reconciler.ReportProtocolMisuse(healthRegistry, "acme/view", "unknown-endpoint", 10, 14.0);
+	assert(healthRegistry.IsActive("view.protocol-misuse:acme/view"));
+
 	std::cout << "runtime health tests passed\n";
 }

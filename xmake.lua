@@ -88,7 +88,7 @@ target("OSF UI")
 
     -- D3D12 overlay compositor (Composite/): the device/queue are the game's, but we still need these for our own root signature, pipeline state, and runtime shader compilation.
     -- d3dcompiler is used to build the overlay shaders at runtime
-    -- shell32/ole32: SHGetKnownFolderPath for the writable settings path.
+    -- shell32/ole32: SHGetKnownFolderPath for the browser host's local data path.
     add_syslinks("d3d12", "dxgi", "dxguid", "d3dcompiler", "shell32", "ole32", "xinput")
 
     -- add src files

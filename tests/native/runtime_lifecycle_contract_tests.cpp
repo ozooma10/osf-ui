@@ -170,8 +170,7 @@ int main()
 
 	const auto initializeSettings = FunctionBody(runtimeSource, "void Runtime::InitializeSettingsModule()");
 	Check(ContainsInOrder(initializeSettings, {
-		"std::make_unique<SettingsModule>",
-		"_settings = settings.get()",
+		"_settings = std::make_unique<SettingsModule>",
 		"GetValue(\"osfui\", \"developerMode\")",
 		"_developerMode = configured->get<bool>()",
 		"Log::SetDebugLogging(_developerMode)" }),

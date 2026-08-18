@@ -427,13 +427,10 @@ int main()
 	CHECK(EventsTo("t.alpha/other", "ui.hotkey").empty());  // never greeted
 
 	// --- a torn-down view stops receiving pushes -----------------------------
-	// The module has nothing to prune any more (its OnViewDestroyed is a no-op):
-	// the gate the bridge drops IS the subscription. 1.x had to sweep a set
-	// here, and a crash-recovered view that missed the sweep kept receiving
-	// pushes for the process lifetime.
+	// The gate the bridge drops is the subscription. The settings module owns no
+	// per-view lifecycle state; 1.x had to sweep a separate subscriber set here.
 	g_sent.clear();
 	bridge.OnViewDestroyed("t.alpha/hud");
-	module.OnViewDestroyed("t.alpha/hud");
 	CHECK(module.Store().Set("t.alpha", "scale", "0.75"));
 	CHECK(EventsTo("t.alpha/hud", "settings.changed").empty());
 	CHECK(EventsTo("osfui/settings", "settings.changed").size() == 1);  // others unaffected

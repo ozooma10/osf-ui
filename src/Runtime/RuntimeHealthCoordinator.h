@@ -18,6 +18,8 @@ namespace OSFUI
 		void Pump();
 		void OnRendererHealth(const WebView2HostWebRenderer::HealthEvent& a_event);
 		void ReportViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft);
+		void ReportProtocolFault(std::string_view a_viewId, std::string_view a_code);
+		void SyncControlMap();
 		void ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key, std::string_view a_script, std::string_view a_function, std::string_view a_message);
 		void ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key);
 
@@ -45,6 +47,7 @@ namespace OSFUI
 		std::vector<API::BridgeApi::UnsupportedCaller> _unsupportedApiCallers;
 		std::unordered_set<std::string> _loggedCompatibility;
 		std::unordered_map<std::string, HotkeyTargetFailure> _hotkeyTargetFailures;
+		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;
 		double _nextPoll{ 0.0 };
 	};
 }

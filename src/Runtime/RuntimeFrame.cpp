@@ -34,7 +34,7 @@ namespace OSFUI
 				PublishPlatformState("keybindings");
 			} else if(_controlMap.Initialized() && !_controlMap.Available()) {
 				SyncLiveControlMapBindings();
-				SyncLiveControlMapHealth();
+				_runtimeHealth.SyncControlMap();
 				PublishPlatformState("keybindings");
 				PublishPlatformState("input-context");
 			}
@@ -44,12 +44,12 @@ namespace OSFUI
 
 		if(changes.keybindings) {
 			SyncLiveControlMapBindings();
-			SyncLiveControlMapHealth();
+			_runtimeHealth.SyncControlMap();
 			PublishPlatformState("keybindings");
 		}
 
 		if(changes.engineInputContext) {
-			SyncLiveControlMapHealth();
+			_runtimeHealth.SyncControlMap();
 			PublishPlatformState("input-context");
 		}
 	}

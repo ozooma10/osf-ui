@@ -218,21 +218,30 @@ int main()
 		CHECK(!again.contains("resolvedAt"));
 	}
 
-	// --- ResolveMissing sweeps one source against a recomputed set ---------
+	// --- ReplaceScope is idempotent and sweeps only its explicit owner ------
 	{
 		HealthRegistry healthRegistry;
-		healthRegistry.Upsert(spec("settings.values-parse:acme", "settings.values-parse", Severity::Warning, "settings", "acme"), 1.0);
-		healthRegistry.Upsert(spec("settings.schema-parse:beta", "settings.schema-parse", Severity::Error, "settings", "beta"), 1.0);
+		const std::array initial{
+			spec("settings.values-parse:acme", "settings.values-parse", Severity::Warning, "settings", "acme"),
+			spec("settings.schema-parse:beta", "settings.schema-parse", Severity::Error, "settings", "beta"),
+		};
+		CHECK(healthRegistry.ReplaceScope("settings-load", initial, 1.0));
 		healthRegistry.Upsert(spec("view.load-failed:acme/panel", "view.load-failed", Severity::Error, "views", "acme/panel"), 1.0);
 
 		// A reload fixed beta but not acme. The views issue belongs to another
 		// producer and must not be swept by the settings reconcile.
-		CHECK(healthRegistry.ResolveMissing("settings", { "settings.values-parse:acme" }, 7.0));
+		const std::array remaining{
+			spec("settings.values-parse:acme", "settings.values-parse", Severity::Warning, "settings", "acme"),
+		};
+		CHECK(healthRegistry.ReplaceScope("settings-load", remaining, 7.0));
 		CHECK(healthRegistry.IsActive("settings.values-parse:acme"));
 		CHECK(!healthRegistry.IsActive("settings.schema-parse:beta"));
 		CHECK(healthRegistry.IsActive("view.load-failed:acme/panel"));
-		// Idempotent: nothing left to sweep.
-		CHECK(!healthRegistry.ResolveMissing("settings", { "settings.values-parse:acme" }, 8.0));
+		const auto unchanged = IssueById(healthRegistry.Snapshot(), "settings.values-parse:acme");
+		CHECK(unchanged.value("occurrences", 0u) == 1u);
+		CHECK(unchanged.value("lastAt", -1.0) == 1.0);
+		// Idempotent: the same current set is not another occurrence or push.
+		CHECK(!healthRegistry.ReplaceScope("settings-load", remaining, 8.0));
 	}
 
 	// --- Wire ordering: errors, then warnings, newest first, resolved last --
@@ -313,10 +322,14 @@ int main()
 
 		// The same rule applies to the system-information block.
 		HealthRegistry healthRegistry;
-		healthRegistry.SetSystemInfo(nlohmann::json{
+		CHECK(healthRegistry.SetSystemInfo(nlohmann::json{
 			{ "renderer", "webview2" },
 			{ "logFolder", R"(C:\Users\someone\Documents\My Games\Starfield\SFSE\Logs)" },
-		});
+		}));
+		CHECK(!healthRegistry.SetSystemInfo(nlohmann::json{
+			{ "renderer", "webview2" },
+			{ "logFolder", R"(C:\Users\someone\Documents\My Games\Starfield\SFSE\Logs)" },
+		}));
 		const auto system = healthRegistry.Snapshot().at("system");
 		CHECK(system.value("renderer", "") == "webview2");
 		CHECK(system.value("logFolder", "") == "Logs");
@@ -335,7 +348,7 @@ int main()
 		g_sent.clear();
 		MessageBridge      bridge(Capture);
 		HealthRegistry  healthRegistry;
-		healthRegistry.RegisterEndpoints(bridge);
+		healthRegistry.AttachBridge(bridge);
 
 		// `diagnostics.get` is gone as a NAME, not merely unused: a stale 1.x
 		// view naming it must get `unknown-endpoint`, never a half-working read.
@@ -392,19 +405,17 @@ int main()
 		CHECK(IssueById(latest, "view.load-failed:acme/panel").value("status", "") == "resolved");
 
 		// A destroyed view stops receiving pushes; the survivor keeps them. The
-		// module prunes nothing of its own here (OnViewDestroyed is a no-op now):
-		// the gate the BRIDGE drops IS the subscription, so a view that goes away
-		// without the module hearing about it cannot keep receiving pushes.
+		// gate the bridge drops is the subscription, so the registry owns no
+		// per-view lifecycle state.
 		const auto before = StateTo("acme/panel", "osfui", "diagnostics").size();
 		bridge.OnViewDestroyed("acme/panel");
-		healthRegistry.OnViewDestroyed("acme/panel");
 		healthRegistry.Upsert(spec("host.ring-truncated", "host.ring-truncated", Severity::Warning, "host"), 7.0);
 		healthRegistry.Broadcast();
 		CHECK(StateTo("acme/panel", "osfui", "diagnostics").size() == before);
 		CHECK(StateTo("osfui/settings", "osfui", "diagnostics").size() == 4);
 
 		// A bridge teardown drops the retained pointer; nothing dangles.
-		healthRegistry.OnBridgeDown();
+		healthRegistry.DetachBridge();
 		const auto sealed = g_sent.size();
 		healthRegistry.Upsert(spec("settings.schema-parse:late.mod", "settings.schema-parse", Severity::Error, "settings"), 9.0);
 		healthRegistry.Broadcast();
@@ -424,7 +435,7 @@ int main()
 		g_sent.clear();
 		MessageBridge     bridge(Capture);
 		HealthRegistry healthRegistry;
-		healthRegistry.RegisterEndpoints(bridge);
+		healthRegistry.AttachBridge(bridge);
 		bridge.SetHelloHook([&](std::string_view a_view) {
 			bridge.PublishState(a_view, "osfui", "diagnostics", healthRegistry.Snapshot());
 		});

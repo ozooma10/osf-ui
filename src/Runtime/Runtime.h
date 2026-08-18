@@ -18,7 +18,6 @@
 #include "Runtime/RuntimeHealthCoordinator.h"
 #include "Bridge/MessageBridge.h"
 #include "Settings/SettingsModule.h"
-#include "Runtime/UiModule.h"
 #include "Input/ViewInputGrants.h"
 #include "Views/ViewManager.h"
 #include "Views/ViewLoadTracker.h"
@@ -136,7 +135,6 @@ namespace OSFUI
 		void ProcessRendererFrame(double a_deltaSeconds);
 
 		void SyncLiveControlMapBindings();
-		void SyncLiveControlMapHealth();
 		// Invalidate and re-broadcast every projection that contains localized text after a locale/catalog change.
 		void RefreshLocalizedData();
 
@@ -182,9 +180,8 @@ namespace OSFUI
 		std::unique_ptr<WebView2HostWebRenderer> _renderer;
 		std::unique_ptr<D3D12Compositor> _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
-		std::vector<std::unique_ptr<IUiModule>> _modules;
-		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
-		HealthRegistry*                         _healthRegistry{ nullptr };  // owned by _modules
+		std::unique_ptr<SettingsModule>          _settings;
+		HealthRegistry                          _healthRegistry;
 		RuntimeHealthCoordinator                _runtimeHealth{ *this };
 
 		HotkeyService                           _hotkeys;
@@ -253,7 +250,6 @@ namespace OSFUI
 
 		
 		std::string                     _lastViewsData;
-		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;
 
 		double _uptime{ 0.0 };
 	};

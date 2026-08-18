@@ -98,6 +98,11 @@ namespace OSFUI
 
 	bool HealthRegistry::Upsert(const IssueSpec& a_spec, double a_now)
 	{
+		return Apply(a_spec, a_now, true, a_spec.scope);
+	}
+
+	bool HealthRegistry::Apply(const IssueSpec& a_spec, double a_now, bool a_recordOccurrence, std::string_view a_scope)
+	{
 		if (a_spec.id.empty() || a_spec.code.empty()) {
 			REX::WARN("HealthRegistry: ignoring an issue with no id/code (code '{}')", a_spec.code);
 			return false;
@@ -106,15 +111,33 @@ namespace OSFUI
 		auto         context = Sanitize(a_spec.context);
 
 		if (auto* existing = Find(a_spec.id)) {
+			std::string scope(a_scope);
+			if (scope.empty()) {
+				scope = existing->scope;
+			} else if (!existing->scope.empty() && existing->scope != scope) {
+				REX::WARN("HealthRegistry: refusing to move issue '{}' from scope '{}' to '{}'", a_spec.id, existing->scope, scope);
+				return false;
+			}
+
+			const bool descriptionChanged = existing->code != a_spec.code || existing->severity != a_spec.severity || existing->source != a_spec.source ||
+				existing->sourceKind != a_spec.sourceKind || existing->subject != a_spec.subject || existing->context != context || existing->scope != scope;
+			const bool reactivated = existing->resolved;
+			if (!a_recordOccurrence && !reactivated && !descriptionChanged) {
+				return false;
+			}
+
 			existing->code = a_spec.code;
 			existing->severity = a_spec.severity;
 			existing->source = a_spec.source;
 			existing->sourceKind = a_spec.sourceKind;
 			existing->subject = a_spec.subject;
 			existing->context = std::move(context);
+			existing->scope = std::move(scope);
 			existing->resolved = false;
 			existing->resolvedAt = 0.0;
-			existing->occurrences += 1;
+			if (a_recordOccurrence || reactivated) {
+				existing->occurrences += 1;
+			}
 			existing->lastAt = now;
 			++_generation;
 			return true;
@@ -128,6 +151,7 @@ namespace OSFUI
 			.sourceKind = a_spec.sourceKind,
 			.subject = a_spec.subject,
 			.context = std::move(context),
+			.scope = std::string(a_scope),
 			.resolved = false,
 			.occurrences = 1,
 			.firstAt = now,
@@ -137,6 +161,31 @@ namespace OSFUI
 		EnforceCaps();
 		++_generation;
 		return true;
+	}
+
+	bool HealthRegistry::ReplaceScope(std::string_view a_scope, std::span<const IssueSpec> a_specs, double a_now)
+	{
+		if (a_scope.empty()) {
+			REX::WARN("HealthRegistry: refusing to reconcile an empty scope");
+			return false;
+		}
+
+		bool changed = false;
+		std::unordered_set<std::string> live;
+		live.reserve(a_specs.size());
+		for (const auto& spec : a_specs) {
+			if (spec.id.empty() || spec.code.empty()) {
+				changed |= Apply(spec, a_now, false, a_scope);
+				continue;
+			}
+			if (!live.insert(spec.id).second) {
+				REX::WARN("HealthRegistry: ignoring duplicate issue '{}' in scope '{}'", spec.id, a_scope);
+				continue;
+			}
+			changed |= Apply(spec, a_now, false, a_scope);
+		}
+		changed |= ResolveMissingInScope(a_scope, live, a_now);
+		return changed;
 	}
 
 	bool HealthRegistry::Resolve(std::string_view a_id, double a_now)
@@ -152,12 +201,11 @@ namespace OSFUI
 		return true;
 	}
 
-	bool HealthRegistry::ResolveMissing(std::string_view a_source,
-		const std::unordered_set<std::string>& a_keep, double a_now)
+	bool HealthRegistry::ResolveMissingInScope(std::string_view a_scope, const std::unordered_set<std::string>& a_keep, double a_now)
 	{
 		bool changed = false;
 		for (auto& issue : _issues) {
-			if (issue.resolved || issue.source != a_source || a_keep.contains(issue.id)) {
+			if (issue.resolved || issue.scope != a_scope || a_keep.contains(issue.id)) {
 				continue;
 			}
 			issue.resolved = true;
@@ -174,14 +222,12 @@ namespace OSFUI
 	void HealthRegistry::EnforceCaps()
 	{
 		const auto countOf = [this](bool a_resolved) {
-			return static_cast<std::size_t>(
-				std::ranges::count(_issues, a_resolved, &Issue::resolved));
+			return static_cast<std::size_t>(std::ranges::count(_issues, a_resolved, &Issue::resolved));
 		};
 		const auto evictOldest = [this](bool a_resolved) {
 			const auto it = std::ranges::find(_issues, a_resolved, &Issue::resolved);
 			if (it != _issues.end()) {
-				REX::WARN("HealthRegistry: evicting {} issue '{}' — history cap reached",
-					a_resolved ? "resolved" : "active", it->id);
+				REX::WARN("HealthRegistry: evicting {} issue '{}' — history cap reached", a_resolved ? "resolved" : "active", it->id);
 				_issues.erase(it);
 
 				++_generation;
@@ -195,10 +241,15 @@ namespace OSFUI
 		}
 	}
 
-	void HealthRegistry::SetSystemInfo(nlohmann::json a_info)
+	bool HealthRegistry::SetSystemInfo(nlohmann::json a_info)
 	{
-		_system = Sanitize(a_info);
+		auto sanitized = Sanitize(a_info);
+		if (_system == sanitized) {
+			return false;
+		}
+		_system = std::move(sanitized);
 		++_generation;
+		return true;
 	}
 
 	nlohmann::json HealthRegistry::Encode(const Issue& a_issue)
@@ -264,19 +315,15 @@ namespace OSFUI
 		_bridge->PublishStateAll("osfui", "diagnostics", Snapshot());
 	}
 
-	void HealthRegistry::RegisterEndpoints(MessageBridge& a_bridge)
+	void HealthRegistry::AttachBridge(MessageBridge& a_bridge)
 	{
 		_bridge = &a_bridge;
-	}
-
-	void HealthRegistry::OnBridgeDown()
-	{
-		_bridge = nullptr;
 		_sentGeneration = 0;
 	}
 
-	void HealthRegistry::OnViewDestroyed(std::string_view)
+	void HealthRegistry::DetachBridge()
 	{
-		// Nothing to prune: delivery is scoped by the bridge's greeted-view set.
+		_bridge = nullptr;
+		_sentGeneration = 0;
 	}
 }

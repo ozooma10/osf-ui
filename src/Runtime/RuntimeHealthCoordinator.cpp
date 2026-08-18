@@ -16,7 +16,6 @@ namespace OSFUI
 	void RuntimeHealthCoordinator::Pump()
 	{
 		auto& runtime = _runtime;
-		if (!runtime._healthRegistry) return;
 
 		DrainPluginHealthReports();
 		if (runtime._settings) {
@@ -32,7 +31,7 @@ namespace OSFUI
 			SyncCompatibility();
 			UpdateSystemInfo();
 		}
-		runtime._healthRegistry->Broadcast();
+		runtime._healthRegistry.Broadcast();
 	}
 
 	void RuntimeHealthCoordinator::DrainPluginHealthReports()
@@ -45,7 +44,7 @@ namespace OSFUI
 		for (const auto& op : ops) {
 			switch (op.kind) {
 			case API::BridgeApi::HealthIssueOp::Kind::kReport:
-				runtime._healthRegistry->Upsert(HealthRegistry::IssueSpec{
+				runtime._healthRegistry.Upsert(HealthRegistry::IssueSpec{
 					.id = qualify(op.modId, op.id),
 					.code = qualify(op.modId, op.code),
 					.severity = op.error ? HealthRegistry::Severity::Error : HealthRegistry::Severity::Warning,
@@ -53,17 +52,18 @@ namespace OSFUI
 					.sourceKind = HealthRegistry::SourceKind::Mod,
 					.subject = op.subject,
 					.context = op.context,
+					.scope = op.modId,
 				}, runtime._uptime);
 				break;
 			case API::BridgeApi::HealthIssueOp::Kind::kClear:
-				runtime._healthRegistry->Resolve(qualify(op.modId, op.id), runtime._uptime);
+				runtime._healthRegistry.Resolve(qualify(op.modId, op.id), runtime._uptime);
 				break;
 			case API::BridgeApi::HealthIssueOp::Kind::kClearExcept:
 				{
 					std::unordered_set<std::string> keep;
 					keep.reserve(op.keep.size());
 					for (const auto& local : op.keep) keep.insert(qualify(op.modId, local));
-					runtime._healthRegistry->ResolveMissing(op.modId, keep, runtime._uptime);
+					runtime._healthRegistry.ResolveMissingInScope(op.modId, keep, runtime._uptime);
 				}
 				break;
 			}
@@ -73,7 +73,7 @@ namespace OSFUI
 	void RuntimeHealthCoordinator::SyncSettings()
 	{
 		auto& runtime = _runtime;
-		if (!runtime._settings || !runtime._healthRegistry) return;
+		if (!runtime._settings) return;
 		auto& store = runtime._settings->Store();
 		for (auto it = _hotkeyTargetFailures.begin(); it != _hotkeyTargetFailures.end();) {
 			const auto target = store.GetHotkeyTarget(it->second.mod, it->second.key);
@@ -100,7 +100,7 @@ namespace OSFUI
 					{ "function", failure.function },
 				} });
 		}
-		_healthReconciler.SyncSettings(*runtime._healthRegistry, errors, runtime._uptime);
+		_healthReconciler.SyncSettings(runtime._healthRegistry, errors, runtime._uptime);
 	}
 
 	std::string RuntimeHealthCoordinator::HotkeyTargetId(std::string_view a_mod, std::string_view a_key)
@@ -121,9 +121,6 @@ namespace OSFUI
 		_hotkeyTargetFailures.insert_or_assign(id, failure);
 		REX::ERROR("Runtime: [content] declarative hotkey {}.{} could not queue {}.{} — {}", a_mod, a_key, a_script, a_function, a_message);
 		SyncSettings();
-		if (_runtime._healthRegistry) {
-			_runtime._healthRegistry->Broadcast();
-		}
 	}
 
 	void RuntimeHealthCoordinator::ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key)
@@ -132,15 +129,11 @@ namespace OSFUI
 			return;
 		}
 		SyncSettings();
-		if (_runtime._healthRegistry) {
-			_runtime._healthRegistry->Broadcast();
-		}
 	}
 
 	void RuntimeHealthCoordinator::SyncCompatibility()
 	{
 		auto& runtime = _runtime;
-		if (!runtime._healthRegistry) return;
 
 		std::vector<CompatibilityTarget> targets;
 		for (const auto& manifest : runtime._views.All()) {
@@ -190,14 +183,13 @@ namespace OSFUI
 				REX::WARN("Compatibility: {} '{}' requested unsupported ABI {}; OSF UI {} refused it", target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion);
 			}
 		}
-		_healthReconciler.SyncCompatibility(*runtime._healthRegistry, targets, kOsfuiReleaseVersion, runtime._uptime);
+		_healthReconciler.SyncCompatibility(runtime._healthRegistry, targets, kOsfuiReleaseVersion, runtime._uptime);
 	}
 
 	void RuntimeHealthCoordinator::UpdateSystemInfo()
 	{
 		auto& runtime = _runtime;
-		if (!runtime._healthRegistry) return;
-		runtime._healthRegistry->SetSystemInfo(nlohmann::json{
+		runtime._healthRegistry.SetSystemInfo(nlohmann::json{
 			{ "version", kOsfuiReleaseVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
 			{ "renderer", runtime._renderer ? "webview2" : "none" },
@@ -213,25 +205,7 @@ namespace OSFUI
 	void RuntimeHealthCoordinator::OnRendererHealth(const WebView2HostWebRenderer::HealthEvent& a_event)
 	{
 		auto& runtime = _runtime;
-		if (!runtime._healthRegistry || a_event.code.empty()) return;
-		const std::string code(a_event.code);
-		if (!a_event.active) {
-			runtime._healthRegistry->Resolve(code, runtime._uptime);
-			runtime._healthRegistry->Broadcast();
-			return;
-		}
-		nlohmann::json context = nlohmann::json::object();
-		if (!a_event.detail.empty()) context["detail"] = std::string(a_event.detail);
-		context["renderer"] = runtime._renderer ? "webview2" : "none";
-		runtime._healthRegistry->Upsert(HealthRegistry::IssueSpec{
-			.id = code,
-			.code = code,
-			.severity = HealthRegistry::Severity::Warning,
-			.source = "host",
-			.subject = runtime._renderer ? "webview2" : std::string{},
-			.context = std::move(context),
-		}, runtime._uptime);
-		runtime._healthRegistry->Broadcast();
+		_healthReconciler.ReportRendererHealth(runtime._healthRegistry, a_event.code, a_event.active, a_event.detail, runtime._renderer != nullptr, runtime._uptime);
 	}
 
 
@@ -239,8 +213,23 @@ namespace OSFUI
 		std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft)
 	{
 		auto& runtime = _runtime;
-		if (!runtime._healthRegistry) return;
-		_healthReconciler.ReportViewLoad(*runtime._healthRegistry, a_viewId, a_failed,
-			a_description, a_errorCode, a_attemptsLeft, runtime._uptime);
+		_healthReconciler.ReportViewLoad(runtime._healthRegistry, a_viewId, a_failed, a_description, a_errorCode, a_attemptsLeft, runtime._uptime);
+	}
+
+	void RuntimeHealthCoordinator::ReportProtocolFault(std::string_view a_viewId, std::string_view a_code)
+	{
+		if (a_viewId.empty()) return;
+		constexpr std::uint32_t kProtocolFaultThreshold = 10;
+		const auto count = ++_viewProtocolFaultCounts[std::string(a_viewId)];
+		if (count == kProtocolFaultThreshold) {
+			_healthReconciler.ReportProtocolMisuse(_runtime._healthRegistry, a_viewId, a_code, count, _runtime._uptime);
+		}
+	}
+
+	void RuntimeHealthCoordinator::SyncControlMap()
+	{
+		auto& runtime = _runtime;
+		if (!runtime._controlMap.Initialized()) return;
+		_healthReconciler.SyncControlMap(runtime._healthRegistry, runtime._controlMap.Available(), runtime._controlMap.GameVersion(), runtime._controlMap.FailureReason(), runtime._uptime);
 	}
 }

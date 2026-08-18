@@ -3,16 +3,15 @@
 #include <unordered_set>  // not in pch.h
 
 #include "Settings/SettingsStore.h"
-#include "Runtime/UiModule.h"
 
 namespace OSFUI
 {
+	class MessageBridge;
+
 	// The schema-driven settings feature as a self-contained module: owns the
 	// SettingsStore, registers the settings.* bridge endpoints, and applies
-	// persisted values at startup. The runtime holds it by `unique_ptr<IUiModule>`
-	// in `_modules` and keeps a non-owning `SettingsModule*` beside it, so it is
-	// both driven through the shared IUiModule lifecycle and reached through
-	// concretely for schema facts.
+	// persisted values at startup. Runtime owns it directly and reaches its store
+	// for schema facts and native reactions.
 	//
 	// Native reactions are the consumer's job; the module only stores/
 	// validates/persists/notifies. Inject a ChangeListener and react to the
@@ -23,7 +22,7 @@ namespace OSFUI
 	// commits emit `settings.changed { mod, key, value }`, registry-shape changes
 	// republish the document, and a landed write-behind disk write emits
 	// `settings.persisted { mod }`.
-	class SettingsModule final : public IUiModule
+	class SettingsModule final
 	{
 	public:
 		// a_legacyKeyMigrator (optional) must be handed in here rather than set
@@ -34,11 +33,9 @@ namespace OSFUI
 			SettingsStore::ChangeListener a_onChange,
 			SettingsStore::LegacyKeyMigrator a_legacyKeyMigrator = {});
 
-		void OnStart() override;  // apply persisted values (fires reactions)
-		void RegisterEndpoints(MessageBridge& a_bridge) override;
-		void OnBridgeDown() override;
-		void OnViewDestroyed(std::string_view a_viewId) override;
-		[[nodiscard]] std::string_view Name() const override { return "settings"; }
+		void OnStart();  // apply persisted values (fires reactions)
+		void RegisterEndpoints(MessageBridge& a_bridge);
+		void OnBridgeDown();
 
 		// The store is the single source of truth every settings consumer projects
 		// over; native typed getters reach it through here.
