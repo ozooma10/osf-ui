@@ -113,7 +113,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		ID3D12Fence*    retiredProduce{ nullptr };
 		ID3D12Fence*    retiredConsume{ nullptr };
 
-		std::mutex     sharedMutex;
+		// Pending ring announcements are published and adopted on the game thread.
 		SharedRingDesc sharedPending{};
 		bool           sharedDirty{ false };
 		
@@ -167,12 +167,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				REX::ERROR("D3D12Compositor: retaining GPU objects during shutdown because recorded overlay work could not be proven idle");
 			}
 			ReleasePendingConsumes();
-			{
-				std::scoped_lock lk(sharedMutex);
-				if (sharedDirty) {
-					CloseRingHandles(sharedPending);
-					sharedDirty = false;
-				}
+			if (sharedDirty) {
+				CloseRingHandles(sharedPending);
+				sharedDirty = false;
 			}
 			if (gpuIdle && !hasUnsubmittedDraws) {
 				for (auto& pipeline : overlayPipelines) {
@@ -282,7 +279,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		// Game thread. The compositor owns the handles from here on.
 		void SetSharedRing(const SharedRingDesc& a_desc)
 		{
-			std::scoped_lock lk(sharedMutex);
 			if (sharedDirty) {
 				CloseRingHandles(sharedPending);  // superseded before adoption
 			}
@@ -406,29 +402,21 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		[[nodiscard]] bool EnsureSharedRing()
 		{
 			SharedRingDesc pending{};
-			{
-				std::scoped_lock lk(sharedMutex);
-				if (!sharedDirty) {
-					std::scoped_lock ring(ringMutex);
-					return sharedSlots[0] != nullptr;
-				}
-				pending = sharedPending;
-				sharedPending = {};
-				sharedDirty = false;
+			if (!sharedDirty) {
+				std::scoped_lock ring(ringMutex);
+				return sharedSlots[0] != nullptr;
 			}
+			pending = sharedPending;
+			sharedPending = {};
+			sharedDirty = false;
 			// Hold the draw lock across the pending-list check and queue drain.
 			// That closes the window where a render worker could record another
 			// old-ring draw after the idle fence had already been queued.
 			std::scoped_lock ring(ringMutex);
 			const auto deferAdoption = [&]() {
-				std::scoped_lock lk(sharedMutex);
-				if (sharedDirty) {
-					CloseRingHandles(pending);  // a newer announcement superseded this one
-				} else {
-					sharedPending = pending;
-					pending = {};
-					sharedDirty = true;
-				}
+				sharedPending = pending;
+				pending = {};
+				sharedDirty = true;
 				return sharedSlots[0] != nullptr;
 			};
 			if (HasPendingConsumes()) {
