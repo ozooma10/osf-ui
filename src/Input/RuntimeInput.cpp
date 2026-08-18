@@ -64,9 +64,9 @@ namespace OSFUI
 		const bool isToggle = toggleKey != kInvalidScanCode && a_scanCode == toggleKey;
 		if (a_down) {
 			if (isToggle) {
-				EnqueuePresentationRequest(PresentationRequest::ToggleDefault);
+				EnqueuePresentationRequest(ViewPresentationRequest::ToggleDefault);
 			} else if (captured && a_scanCode == kScanEscape) {
-				EnqueuePresentationRequest(PresentationRequest::Back);
+				EnqueuePresentationRequest(ViewPresentationRequest::Back);
 			} else if (captured && _renderer) {
 				_renderer->InjectKeyEvent(a_vkCode, true);
 			} else if (Log::DevMode()) {
@@ -203,7 +203,7 @@ namespace OSFUI
 			case GamepadSession::Action::kRight:    key = 0x27; break;  // VK_RIGHT
 			case GamepadSession::Action::kActivate: key = 0x0D; break;  // VK_RETURN
 			case GamepadSession::Action::kBack:
-				EnqueuePresentationRequest(PresentationRequest::Back);
+				EnqueuePresentationRequest(ViewPresentationRequest::Back);
 				return;
 			case GamepadSession::Action::kNone:
 				return;

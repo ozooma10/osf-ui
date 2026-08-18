@@ -432,7 +432,7 @@ namespace OSFUI
 		}
 	}
 
-	void Runtime::EnqueuePresentationRequest(PresentationRequest a_req)
+	void Runtime::EnqueuePresentationRequest(ViewPresentationRequest a_req)
 	{
 		m_viewRequests.Enqueue(a_req);
 	}
@@ -473,7 +473,7 @@ namespace OSFUI
 			}
 		}
 		if (!_pendingViewOpen && !_presentation.ActiveMenu() &&
-			std::ranges::find(a_work.local, PresentationRequest::ToggleDefault) != a_work.local.end()) {
+			std::ranges::find(a_work.local, ViewPresentationRequest::ToggleDefault) != a_work.local.end()) {
 			prepare(_config.view, "for the default-menu toggle");
 		}
 	}
@@ -487,7 +487,7 @@ namespace OSFUI
 		}
 		for (const auto req : reqs) {
 			switch (req) {
-			case PresentationRequest::ToggleDefault:
+			case ViewPresentationRequest::ToggleDefault:
 				if (_pendingViewOpen) {
 					CancelPendingOpen();
 				} else if (_presentation.ActiveMenu()) {
@@ -496,7 +496,7 @@ namespace OSFUI
 					BeginViewOpen(_config.view);
 				}
 				break;
-			case PresentationRequest::Back: {
+			case ViewPresentationRequest::Back: {
 				// Esc / pad-B. A back-owning active menu (osfui.handleBack) gets
 				// the action delegated as a synthetic Escape tap and decides for
 				// itself — navigate elsewhere, peel an inner panel, or send
@@ -515,7 +515,7 @@ namespace OSFUI
 				}
 				break;
 			}
-			case PresentationRequest::CloseAll:
+			case ViewPresentationRequest::CloseAll:
 				CancelPendingOpen();
 				_presentation.CloseAll();
 				break;

@@ -83,10 +83,9 @@ namespace OSFUI
 		// pre-2.0 target is retained so the temporary v1 navigation façade and its
 		// persistent 2.1.0 removal warning can be selected deterministically.
 		if (auto target = Json::Get(*json, "targetVersion", ""); !target.empty()) {
-			std::array<std::uint32_t, 3> targetParts{};
-			if (ParseDottedVersion(target, targetParts)) {
+			if (const auto targetParts = ParseDottedVersion(target)) {
 				manifest.targetVersion = std::move(target);
-				if (kOsfuiReleaseVersionParts < targetParts) {
+				if (kOsfuiReleaseVersionParts < *targetParts) {
 					REX::WARN("ViewManifest: [content] view '{}' targets OSF UI {} but this is {} — update OSF UI",
 						manifest.id, manifest.targetVersion, kOsfuiReleaseVersion);
 				}

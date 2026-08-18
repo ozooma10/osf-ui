@@ -469,10 +469,9 @@ namespace OSFUI
 		// loads best-effort (unknown types serve read-only defaults, unknown keys
 		// are preserved). Carried in `osfui/settings` state for the "needs update" badge.
 		if (auto target = Json::Get(mod.schema, "targetVersion", ""); !target.empty()) {
-			std::array<std::uint32_t, 3> targetParts{};
-			if (ParseDottedVersion(target, targetParts)) {
+			if (const auto targetParts = ParseDottedVersion(target)) {
 				mod.targetVersion = std::move(target);
-				if (kOsfuiReleaseVersionParts < targetParts) {
+				if (kOsfuiReleaseVersionParts < *targetParts) {
 					REX::WARN("SettingsStore: [content] '{}' targets OSF UI {} but this is {} — update OSF UI",
 						mod.id, mod.targetVersion, kOsfuiReleaseVersion);
 				}

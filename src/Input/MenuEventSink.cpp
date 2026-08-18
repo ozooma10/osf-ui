@@ -42,7 +42,7 @@ namespace OSFUI
 			const std::string_view name = a_event.menuName;
 			if ((name == "LoadingMenu" || name == "MainMenu") && Runtime::Get().IsVisible()) {
 				REX::DEBUG("MenuEventSink: '{}' opened -> closing all OSF UI views", name);
-				Runtime::Get().EnqueuePresentationRequest(Runtime::PresentationRequest::CloseAll);
+				Runtime::Get().EnqueuePresentationRequest(ViewPresentationRequest::CloseAll);
 			}
 		}
 
