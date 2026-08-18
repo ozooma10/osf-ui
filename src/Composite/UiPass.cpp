@@ -9,6 +9,8 @@
 
 #include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
+#include "RE/IDs_VTABLE.h"
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -17,15 +19,6 @@ namespace OSFUI::UiPass
 {
 	namespace
 	{
-		// AddrLib IDs, proven on 1.16.244. Canonical record with disassembly
-		// evidence: OSF RE context module `rendering.ui_pass` (2026-07-21).
-		constexpr std::uint64_t kVtblScaleformBegin = 497423;
-		constexpr std::uint64_t kVtblScaleformEnd = 497425;
-		constexpr std::uint64_t kVtblScaleformComposite = 497272;
-		constexpr std::uint64_t kIdBeginExecute = 145955;
-		constexpr std::uint64_t kIdEndExecute = 145956;
-		constexpr std::uint64_t kIdCompositeExecute = 145827;
-
 		constexpr std::size_t kExecuteSlot = 7;
 
 		using ExecuteFn = void* (*)(void*, void*, void*, void*);
@@ -353,13 +346,13 @@ namespace OSFUI::UiPass
 		[[nodiscard]] std::uintptr_t HookExecuteSlot(
 			const char* a_label,
 			const detail::ExecuteSlotKind a_kind,
-			const std::uint64_t a_vtblId,
-			const std::uint64_t a_implId,
+			const REL::ID a_vtblId,
+			const REL::ID a_implId,
 			ExecuteFn a_thunk,
 			std::atomic<std::uintptr_t>& a_orig)
 		{
-			const REL::Relocation<std::uintptr_t> vtbl{ REL::ID(a_vtblId) };
-			const REL::Relocation<std::uintptr_t> expected{ REL::ID(a_implId) };
+			const REL::Relocation<std::uintptr_t> vtbl{ a_vtblId };
+			const REL::Relocation<std::uintptr_t> expected{ a_implId };
 			const auto slotAddress =
 				vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
 
@@ -400,14 +393,14 @@ namespace OSFUI::UiPass
 
 		void RestoreExecuteSlot(
 			const char* a_label,
-			const std::uint64_t a_vtblId,
+			const REL::ID a_vtblId,
 			const std::uintptr_t a_original,
 			ExecuteFn a_thunk)
 		{
 			if (a_original == 0) {
 				return;
 			}
-			const REL::Relocation<std::uintptr_t> vtbl{ REL::ID(a_vtblId) };
+			const REL::Relocation<std::uintptr_t> vtbl{ a_vtblId };
 			const auto slotAddress = vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
 			std::uintptr_t current = 0;
 			if (!Platform::SafeReadPointer(slotAddress, current) ||
@@ -441,15 +434,18 @@ namespace OSFUI::UiPass
 
 		const auto origBegin = HookExecuteSlot(
 			"ScaleformBegin", detail::ExecuteSlotKind::Begin,
-			kVtblScaleformBegin, kIdBeginExecute,
+			RE::VTABLE::CreationRendererPrivate____ScaleformBeginRenderPass[0],
+			RE::ID::CreationRendererPrivate::ScaleformBeginRenderPass::ExecuteRenderPass,
 			&BeginThunk, g_origBegin);
 		const auto origEnd = HookExecuteSlot(
 			"ScaleformEnd", detail::ExecuteSlotKind::End,
-			kVtblScaleformEnd, kIdEndExecute,
+			RE::VTABLE::CreationRendererPrivate____ScaleformEndRenderPass[0],
+			RE::ID::CreationRendererPrivate::ScaleformEndRenderPass::ExecuteRenderPass,
 			&EndThunk, g_origEnd);
 		const auto origComposite = HookExecuteSlot(
 			"ScaleformComposite", detail::ExecuteSlotKind::Composite,
-			kVtblScaleformComposite, kIdCompositeExecute,
+			RE::VTABLE::CreationRendererPrivate__ScaleformCompositeRenderPass[0],
+			RE::ID::CreationRendererPrivate::ScaleformCompositeRenderPass::ExecuteRenderPass,
 			&CompositeThunk, g_origComposite);
 
 		const bool ok =
@@ -459,9 +455,14 @@ namespace OSFUI::UiPass
 		if (!ok) {
 			// The three entrypoints form one protocol. Leaving only a subset
 			// patched lets their thread-local hand-off state drift indefinitely.
-			RestoreExecuteSlot("ScaleformBegin", kVtblScaleformBegin, origBegin, &BeginThunk);
-			RestoreExecuteSlot("ScaleformEnd", kVtblScaleformEnd, origEnd, &EndThunk);
-			RestoreExecuteSlot("ScaleformComposite", kVtblScaleformComposite,
+			RestoreExecuteSlot("ScaleformBegin",
+				RE::VTABLE::CreationRendererPrivate____ScaleformBeginRenderPass[0],
+				origBegin, &BeginThunk);
+			RestoreExecuteSlot("ScaleformEnd",
+				RE::VTABLE::CreationRendererPrivate____ScaleformEndRenderPass[0],
+				origEnd, &EndThunk);
+			RestoreExecuteSlot("ScaleformComposite",
+				RE::VTABLE::CreationRendererPrivate__ScaleformCompositeRenderPass[0],
 				origComposite, &CompositeThunk);
 			REX::ERROR("[UiPass] hook set incomplete — the overlay has no draw path this "
 					   "session. See the per-hook lines above for which slot declined.");
