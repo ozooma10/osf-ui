@@ -334,18 +334,13 @@ namespace OSFUI
 		_overlayDrawAvailable.store(installed, std::memory_order_release);
 		_compositor->SetUiPassDrawEnabled(installed);
 		if (!installed) {
-			REX::ERROR("Runtime: the Scaleform UI pass could not be hooked — menu opens will be "
-					   "refused this session so OSF UI cannot capture input without a draw path. "
-					   "See the [UiPass] lines above.");
+			REX::ERROR("Runtime: Scaleform UI pass hook failed");
 		}
 		return installed;
 	}
 
 	void Runtime::OnDataLoaded()
 	{
-		// Messaging callbacks are not serialized with the BSService-backed main-
-		// thread tick. Never expose a partially initialized ControlMap snapshot to
-		// an already-running tick; only publish a coalesced work notification here.
 		_controlMapInit.Request();
 	}
 
@@ -369,18 +364,12 @@ namespace OSFUI
 	{
 		REX::DEBUG("Runtime: consuming kPostPostDataLoad work on the main-thread tick");
 		if (!UiLayoutGuard::VerifyUiLayout()) {
-			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration "
-				"(menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
+			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
 			return;
 		}
 		const bool menuEventsInstalled = MenuEventSink::Install();
-		// Hook the main-loop UI update so PauseMenuEntry's Scaleform access runs
-		// not only on the main thread, but specifically after active movies have
-		// advanced and nothing else is inside the AS3 VM.
 		MainThreadMenuPump::Install();
 		const bool focusMenuRegistered = FocusMenu::Register();
-		// The WndProc subclass is the only input path: it drives the toggle key
-		// and consumes/routes keyboard and mouse while the overlay captures input.
 		const bool inputInstalled = OverlayInputHook::Install();
 		_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
 		if (!_captureIntegrationAvailable) {
