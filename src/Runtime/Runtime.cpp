@@ -372,7 +372,7 @@ namespace OSFUI
 
 	bool Runtime::InstallOverlayDrawPath()
 	{
-		if (!_config.enabled || !_compositor) {
+		if (!_compositor) {
 			return false;
 		}
 		const bool installed = UiPassSeam::Install();

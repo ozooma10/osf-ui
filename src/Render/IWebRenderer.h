@@ -10,9 +10,6 @@ namespace OSFUI
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
 
-		// Plugin data root (Paths::DataDir()). Web renderer implementations resolve packaged assets
-		// such as bin/osfui_webview2_host.exe under here, keeping render/
-		// decoupled from Core/Paths.
 		std::filesystem::path dataDir;
 
 	};
