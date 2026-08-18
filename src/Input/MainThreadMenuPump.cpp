@@ -21,8 +21,6 @@ namespace OSFUI::MainThreadMenuPump
 		// that owns Scaleform. 130455 = UI_AdvanceActiveMenus 0x142542320; the
 		// caller invokes it twice (base+0x228 and base+0x2A1, each E8 rel32
 		// followed by a NOP).
-		constexpr std::uint64_t kIdUiUpdateCaller = 99438;
-		constexpr std::uint64_t kIdAdvanceActiveMenus = 130455;
 		constexpr std::size_t   kCallSiteOffsets[2] = { 0x228, 0x2A1 };
 
 		// Prologue of 130455 spills RDX/R8 as GP registers (no XMM), so a
@@ -53,8 +51,8 @@ namespace OSFUI::MainThreadMenuPump
 			return g_installed.load(std::memory_order_acquire);
 		}
 
-		const REL::Relocation<std::uintptr_t> caller{ REL::ID(kIdUiUpdateCaller) };
-		const REL::Relocation<std::uintptr_t> advance{ REL::ID(kIdAdvanceActiveMenus) };
+		const REL::Relocation<std::uintptr_t> caller{ RE::ID::UI::UpdateMenus };
+		const REL::Relocation<std::uintptr_t> advance{ RE::ID::UI::AdvanceActiveMenus };
 
 		// Verify both call sites byte-exactly before touching anything: each
 		// must be an E8 rel32 whose target is UI_AdvanceActiveMenus. A mismatch
