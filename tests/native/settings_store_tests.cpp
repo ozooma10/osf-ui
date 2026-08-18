@@ -458,6 +458,118 @@ int main()
 		CHECK(saved["n"] == 2);
 	}
 
+	// --- failed prerequisite flush cannot discard a dirty schema -----------------
+	{
+		const auto sd = root / "settings-replace-guard";
+		const auto blockedValues = root / "values-replace-guard";
+		const auto schemaPath = sd / "t.replace-guard.json";
+		WriteFile(schemaPath, R"json({
+			"id": "t.replace-guard", "title": "Replace Guard v1",
+			"groups": [ { "settings": [
+				{ "key": "speed", "type": "int", "default": 5, "min": 0, "max": 10 }
+			] } ] })json");
+		// A regular file where the values directory belongs makes PersistNow fail
+		// deterministically without depending on platform permissions.
+		WriteFile(blockedValues, "not a directory");
+
+		SettingsStore guarded;
+		std::size_t registryFires = 0;
+		std::size_t persisted = 0;
+		guarded.AddRegistryListener([&] { ++registryFires; });
+		guarded.AddPersistListener([&](std::string_view) { ++persisted; });
+		guarded.LoadAll(sd, blockedValues);
+		CHECK(guarded.Set("t.replace-guard", "speed", "8"));
+		const auto generationBefore = guarded.Generation();
+
+		// The replacement would adopt `speed` through the alias, but it may not
+		// begin until the dirty v1 value is durable. A failed prerequisite flush
+		// must leave the complete old Mod in place for the normal retry pump.
+		WriteFile(schemaPath, R"json({
+			"id": "t.replace-guard", "title": "Replace Guard v2",
+			"groups": [ { "settings": [
+				{ "key": "velocity", "type": "int", "default": 5, "min": 0, "max": 10,
+				  "aliases": ["speed"] },
+				{ "key": "added", "type": "bool", "default": true }
+			] } ] })json");
+		CHECK(!guarded.ReloadDropInFile(schemaPath));
+		CHECK(guarded.Generation() == generationBefore);
+		CHECK(registryFires == 0);
+		CHECK(persisted == 0);
+		CHECK(guarded.GetValue("t.replace-guard", "speed") &&
+		      *guarded.GetValue("t.replace-guard", "speed") == 8);
+		CHECK(guarded.GetValue("t.replace-guard", "velocity") == nullptr);
+		CHECK(guarded.GetValue("t.replace-guard", "added") == nullptr);
+		CHECK(guarded.DataView()["mods"][0]["title"] == "Replace Guard v1");
+
+		// Storage recovery lands the still-dirty v1 value. Retrying the schema
+		// operation can then adopt it under the v2 alias without data loss.
+		std::error_code ec;
+		fs::remove(blockedValues, ec);
+		CHECK(!ec);
+		fs::create_directories(blockedValues, ec);
+		CHECK(!ec);
+		guarded.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+		CHECK(persisted == 1);
+		{
+			auto saved = nlohmann::json::parse(
+				std::ifstream(blockedValues / "t.replace-guard.json"), nullptr, false);
+			CHECK(saved["speed"] == 8);
+		}
+		CHECK(guarded.ReloadDropInFile(schemaPath));
+		CHECK(registryFires == 1);
+		CHECK(guarded.GetValue("t.replace-guard", "speed") == nullptr);
+		CHECK(guarded.GetValue("t.replace-guard", "velocity") &&
+		      *guarded.GetValue("t.replace-guard", "velocity") == 8);
+		CHECK(guarded.GetValue("t.replace-guard", "added") &&
+		      *guarded.GetValue("t.replace-guard", "added") == true);
+	}
+
+	// --- failed prerequisite flush cannot discard a dirty removed mod ------------
+	{
+		const auto sd = root / "settings-remove-guard";
+		const auto blockedValues = root / "values-remove-guard";
+		WriteFile(sd / "t.remove-guard.json", R"json({
+			"id": "t.remove-guard", "groups": [ { "settings": [
+				{ "key": "n", "type": "int", "default": 1 }
+			] } ] })json");
+		WriteFile(blockedValues, "not a directory");
+
+		SettingsStore guarded;
+		std::size_t registryFires = 0;
+		std::size_t persisted = 0;
+		guarded.AddRegistryListener([&] { ++registryFires; });
+		guarded.AddPersistListener([&](std::string_view) { ++persisted; });
+		guarded.LoadAll(sd, blockedValues);
+		CHECK(guarded.Set("t.remove-guard", "n", "2"));
+		const auto generationBefore = guarded.Generation();
+
+		CHECK(!guarded.RemoveMod("t.remove-guard"));
+		CHECK(guarded.Generation() == generationBefore);
+		CHECK(registryFires == 0);
+		CHECK(persisted == 0);
+		CHECK(guarded.GetValue("t.remove-guard", "n") &&
+		      *guarded.GetValue("t.remove-guard", "n") == 2);
+
+		// Once storage recovers, the existing dirty Mod remains available to the
+		// persistence pump; a second removal request can then complete normally.
+		std::error_code ec;
+		fs::remove(blockedValues, ec);
+		CHECK(!ec);
+		fs::create_directories(blockedValues, ec);
+		CHECK(!ec);
+		guarded.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+		CHECK(persisted == 1);
+		{
+			auto saved = nlohmann::json::parse(
+				std::ifstream(blockedValues / "t.remove-guard.json"), nullptr, false);
+			CHECK(saved["n"] == 2);
+		}
+		CHECK(guarded.RemoveMod("t.remove-guard"));
+		CHECK(guarded.GetValue("t.remove-guard", "n") == nullptr);
+		CHECK(guarded.Generation() > generationBefore);
+		CHECK(registryFires == 1);
+	}
+
 	// --- sparse persistence: only ≠ default on disk; reset = key removal ----------
 	CHECK(store.Set("t.gamma", "fancy", "true"));  // ≠ default (false)
 	store.FlushPersistence();

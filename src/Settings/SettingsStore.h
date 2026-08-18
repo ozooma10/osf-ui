@@ -474,7 +474,7 @@ namespace OSFUI
 		void        MarkDirty(Mod& a_mod);
 		// The one flush path: write, then clear dirty and fire persist listeners
 		// only on success. Every site that lands a values file goes through here.
-		void        PersistNow(Mod& a_mod) const;
+		[[nodiscard]] bool        PersistNow(Mod& a_mod) const;
 		static bool Persist(const Mod& a_mod);
 		void        Notify(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value) const;
 		void        NotifyRegistryChanged() const;

@@ -365,10 +365,8 @@ namespace OSFUI
 			return false;
 		}
 		auto id = Json::Get(a_schema, "id", a_idHint);
-		// Drop-ins: the id must equal the filename stem (documented contract,
-		// precedence policy) — warn and override, so a file can't hijack another
-		// mod's id and MO2's per-file VFS priority stays the arbiter of who owns
-		// settings/<id>.json.
+		// Drop-ins: the id must equal the filename stem (documented contract, precedence policy); 
+		// warn and override, so a file can't hijack another mod's id and MO2's per-file VFS priority stays the arbiter of who owns settings/<id>.json.
 		if (a_source == Source::kDropIn && !a_idHint.empty() && id != a_idHint) {
 			REX::WARN("SettingsStore: [content] schema id '{}' must equal the filename stem — using '{}'",
 				id.substr(0, kMaxModIdLen), a_idHint);
@@ -387,25 +385,13 @@ namespace OSFUI
 				"SettingsStore: schema '" + id + "'", /*a_warn=*/false);
 		}
 
-		// Source precedence on id collision: a runtime (DLL)
-		// registration replaces a drop-in file (so upgrading tiers needs no
-		// hand-deleted JSON) and its own earlier registration (dev iteration).
-		// A drop-in replaces nothing; duplicate drop-in ids are first-wins, with
-		// MO2's per-file VFS priority as the intended arbiter (§8.1).
+		// dll registration beats drop-in, and beats its own earlier registreation.
 		Mod* existing = FindMod(id);
 		if (existing) {
-			if (a_source == Source::kDropIn &&
-				!(a_dropInReplace && existing->source == Source::kDropIn)) {
-				// First-wins: log both files and record the loser so Data() can
-				// report the conflict.
-				const auto kept = existing->source == Source::kNative
-					                      ? std::string("the native registration")
-				                      : (existing->schemaPath.empty() ? std::string("the first-loaded schema")
-				                                                      : existing->schemaPath.string());
-				REX::ERROR("SettingsStore: [content] duplicate schema id '{}' — keeping {}, ignoring {}",
-					id, kept, a_sourcePath.empty() ? std::string("the drop-in file") : a_sourcePath.string());
-				// File-vs-file collisions only; a native registration outranking
-				// its own drop-in file is the tier-upgrade path, not a conflict.
+			if (a_source == Source::kDropIn && !(a_dropInReplace && existing->source == Source::kDropIn)) {
+				// First-wins: log both files and record the loser so Data() can report the conflict.
+				const auto kept = existing->source == Source::kNative ? std::string("the native registration") : (existing->schemaPath.empty() ? std::string("the first-loaded schema") : existing->schemaPath.string());
+				REX::ERROR("SettingsStore: [content] duplicate schema id '{}' - keeping {}, ignoring {}", id, kept, a_sourcePath.empty() ? std::string("the drop-in file") : a_sourcePath.string());
 				if (!a_sourcePath.empty() && existing->source == Source::kDropIn) {
 					const auto loser = a_sourcePath.filename().string();
 					if (std::find(existing->shadowed.begin(), existing->shadowed.end(), loser) == existing->shadowed.end()) {
@@ -415,16 +401,15 @@ namespace OSFUI
 				}
 				return false;
 			}
+
+			if (existing->dirty && !PersistNow(*existing)) {
+				REX::ERROR("SettingsStore: cannot replace schema '{}'; pending values could not be saved", existing->id);
+				return false;
+			}
 			if (a_source == Source::kDropIn) {
 				REX::DEBUG("SettingsStore: hot-reloading drop-in schema '{}'", id);
 			} else {
-				REX::WARN("SettingsStore: [content] native registration replaces {} schema for id '{}'",
-					existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
-			}
-			if (existing->dirty) {
-				// The overlay below reads the values file; land any unflushed
-				// write-behind changes first or the replacement reverts them.
-				PersistNow(*existing);
+				REX::WARN("SettingsStore: [content] native registration replaces {} schema for id '{}'", existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id);
 			}
 		}
 
@@ -691,8 +676,9 @@ namespace OSFUI
 		if (it == _mods.end()) {
 			return false;
 		}
-		if (it->dirty) {
-			PersistNow(*it);  // the kept values file must carry the last changes
+		if (it->dirty && !PersistNow(*it)) {
+			REX::ERROR("SettingsStore: cannot remove mod '{}'; pending values could not be saved", it->id);
+			return false;
 		}
 		REX::INFO("SettingsStore: removed mod '{}' (values file kept)", it->id);
 		EraseLoadErrorsForMod(it->id);
@@ -1416,13 +1402,12 @@ namespace OSFUI
 		}
 	}
 
-	void SettingsStore::PersistNow(Mod& a_mod) const
+	bool SettingsStore::PersistNow(Mod& a_mod) const
 	{
 		if (!Persist(a_mod)) {
-			// Keep the pending write alive, but back off so a read-only or full
-			// filesystem does not turn every frame into another write attempt.
+			// Keep the pending write alive, but back off so a read-only or full filesystem does not turn every frame into another write attempt.
 			a_mod.dueAt = _now + kPersistDelaySeconds;
-			return;
+			return false;
 		}
 		a_mod.dirty = false;
 		REX::DEBUG("SettingsStore: saved '{}' values", a_mod.id);
@@ -1431,6 +1416,7 @@ namespace OSFUI
 				listener(a_mod.id);
 			}
 		}
+		return true;
 	}
 
 	void SettingsStore::PumpPersistence(double a_nowSeconds)
@@ -1438,7 +1424,7 @@ namespace OSFUI
 		_now = a_nowSeconds;
 		for (auto& mod : _mods) {
 			if (mod.dirty && _now >= mod.dueAt) {
-				PersistNow(mod);
+				(void)PersistNow(mod);
 			}
 		}
 	}
@@ -1447,7 +1433,7 @@ namespace OSFUI
 	{
 		for (auto& mod : _mods) {
 			if (mod.dirty) {
-				PersistNow(mod);
+				(void)PersistNow(mod);
 			}
 		}
 	}
