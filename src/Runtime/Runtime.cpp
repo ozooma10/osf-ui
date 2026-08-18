@@ -47,7 +47,7 @@ namespace OSFUI
 			return false;
 		}
 
-		Log::SetDevMode(_config.devMode);
+		Log::SetDevMode(false);
 		return true;
 	}
 
@@ -75,7 +75,7 @@ namespace OSFUI
 	{
 		_renderer = std::make_unique<WebView2HostWebRenderer>();
 
-		const auto* view = _views.Find(_config.view);
+		const auto* view = _views.Find(Ids::kSettingsViewId);
 		const auto initialWidth = view ? view->width : kDefaultViewWidth;
 		const auto initialHeight = view ? view->height : kDefaultViewHeight;
 
@@ -87,7 +87,7 @@ namespace OSFUI
 		WebView2HostConfig rendererConfig{
 			.width = initialWidth,
 			.height = initialHeight,
-			.devMode = _config.devMode,
+			.devMode = false,
 			.dataDir = Paths::DataDir(),
 		};
 
@@ -291,19 +291,19 @@ namespace OSFUI
 				}
 			}
 		}
-		REX::INFO("Runtime: instantiated {} auto-start HUD view(s); default menu = '{}'", instantiated, _config.view);
-		if (!_views.Find(_config.view)) {
-			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open", _config.view);
+		REX::INFO("Runtime: instantiated {} auto-start HUD view(s); default menu = '{}'", instantiated, Ids::kSettingsViewId);
+		if (!_views.Find(Ids::kSettingsViewId)) {
+			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open", Ids::kSettingsViewId);
 		}
     }
 
     void Runtime::ConfigureInputRouting()
     {
-		const auto toggleKey = ResolveKeyName(_config.toggleKey);
+		const auto toggleKey = ResolveKeyName(Ids::kToggleKey);
 		_toggleKey.store(toggleKey, std::memory_order_release);
 
 		if (toggleKey != kInvalidScanCode) {
-			REX::INFO("Runtime: toggleKey '{}' resolved to scan code {:#x}", _config.toggleKey, toggleKey);
+			REX::INFO("Runtime: toggleKey '{}' resolved to scan code {:#x}", Ids::kToggleKey, toggleKey);
 		}
 
 		_renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down) {
@@ -324,11 +324,6 @@ namespace OSFUI
 			return false;
 		}
 
-		if (!_config.enabled) {
-			REX::INFO("Runtime: disabled via config; nothing further will be initialized");
-			return true;
-		}
-
 		LoadStartupContent();
 
 		if(!InitializeRenderer()) {
@@ -346,12 +341,11 @@ namespace OSFUI
 		InitializeStartupViews();
 		ConfigureInputRouting();
 
-		if (_config.devMode) {
-			_devViewReload = std::make_unique<DevViewReloadWorker>(
-				Paths::ViewsDir(), [this](std::string_view a_id) {
-					return _renderer && _renderer->RefreshViewFiles(a_id);
-				});
-		}
+		//@TODO: DEV RELOAD WORKER
+		// _devViewReload = std::make_unique<DevViewReloadWorker>(
+		// 	Paths::ViewsDir(), [this](std::string_view a_id) {
+		// 		return _renderer && _renderer->RefreshViewFiles(a_id);
+		// 	});
 
 		_initialized = true;
 		// Push the initial policy derived from whatever is open (incl. nothing).
@@ -466,7 +460,7 @@ namespace OSFUI
 		}
 		if (!_pendingViewOpen && !_presentation.ActiveMenu() &&
 			std::ranges::find(a_work.local, ViewPresentationRequest::ToggleDefault) != a_work.local.end()) {
-			prepare(_config.view, "for the default-menu toggle");
+			prepare(Ids::kSettingsViewId, "for the default-menu toggle");
 		}
 	}
 
@@ -485,7 +479,7 @@ namespace OSFUI
 				} else if (_presentation.ActiveMenu()) {
 					_presentation.CloseActiveMenu();
 				} else {
-					BeginViewOpen(_config.view);
+					BeginViewOpen(Ids::kSettingsViewId);
 				}
 				break;
 			case ViewPresentationRequest::Back: {
@@ -972,25 +966,9 @@ namespace OSFUI
 		if (a_modId != "osfui") {
 			return;
 		}
-		// Toggle key rebind: re-resolve and publish it to the window thread. An
-		// unresolvable name keeps the working key rather than disabling the toggle.
-		if (a_key == "toggleKey" && a_value.is_string()) {
-			const auto name = a_value.get<std::string>();
-			const auto scan = ResolveKeyName(name);
-			if (scan == kInvalidScanCode) {
-				REX::WARN("Runtime: setting osfui.toggleKey '{}' is not a resolvable key; keeping '{}'", name, _config.toggleKey);
-				return;
-			}
-			_config.toggleKey = name;
-			_toggleKey.store(scan, std::memory_order_release);
-			REX::INFO("Runtime: setting osfui.toggleKey -> {} (scan {:#x})", name, scan);
-		}
+
 		// Game-binding conflict warnings (Mod Settings-owned). Lazy build / clear.
-		else if (a_key == "vanillaKeyConflicts" && a_value.is_boolean()) {
-			_config.gameBindingWarnings = a_value.get<bool>();
-			ApplyGameBindingConflictWarnings(_config.gameBindingWarnings);
-		}
-		else if (a_key == "language" && a_value.is_string()) {
+		if (a_key == "language" && a_value.is_string()) {
 			const auto requested = a_value.get<std::string>();
 			const auto documents = Platform::GetDocumentsPath();
 			const auto locale = requested == "auto"
@@ -1086,7 +1064,7 @@ namespace OSFUI
 		}
 		auto& store = _settings->Store();
 		const bool bindingsChanged = store.SetGameBindings(std::move(bindings));
-		const bool warningChanged = store.SetGameBindingWarningsEnabled(_config.gameBindingWarnings);
+		const bool warningChanged = store.SetGameBindingWarningsEnabled(true);
 		if (bindingsChanged || warningChanged) {
 			_settings->BroadcastData();
 		}

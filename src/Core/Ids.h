@@ -24,6 +24,12 @@ namespace OSFUI::Ids
 	inline constexpr std::size_t kMaxModIdLen = 64;
 	inline constexpr std::size_t kMaxViewNameLen = 64;
 
+	constexpr std::string_view kBuiltInModId = "osfui";
+	constexpr std::string_view kSettingsViewId = "osfui/settings";
+	constexpr std::string_view kKeybindingsViewId = "osfui/keybinds";
+
+	constexpr std::string_view kToggleKey = "F10";  // the default key name the input layer listens for to open the default menu
+
 	// ASCII-only case-insensitive equality, used by the Papyrus API to match
 	// names and enum values (rationale in Core/StringUtil.h). Re-exported here so
 	// the existing Ids::EqualsCaseInsensitiveAscii call sites read naturally.
@@ -119,7 +125,7 @@ namespace OSFUI::Ids
 	// platform requests use the same exact-id granularity.
 	[[nodiscard]] inline bool IsSettingsEditorView(std::string_view a_viewId)
 	{
-		return a_viewId == "osfui/settings" || a_viewId == "osfui/keybinds";
+		return a_viewId == kSettingsViewId || a_viewId == kKeybindingsViewId;
 	}
 
 	// The mod a settings write from a_sourceView is allowed to target, given the
