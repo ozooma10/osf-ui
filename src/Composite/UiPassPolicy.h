@@ -38,8 +38,7 @@ namespace OSFUI::UiPass::detail
 		{
 			bool classificationKnown = _classificationKnown.load(std::memory_order_acquire);
 			if (a_regionFirst) {
-				const bool previousRegionHadFgTarget =
-					_regionSawFgTarget.exchange(false, std::memory_order_acq_rel);
+				const bool previousRegionHadFgTarget = _regionSawFgTarget.exchange(false, std::memory_order_acq_rel);
 				_frameGeneration.store(previousRegionHadFgTarget, std::memory_order_release);
 				classificationKnown = _classificationKnown.exchange(true, std::memory_order_acq_rel);
 			}
@@ -49,8 +48,7 @@ namespace OSFUI::UiPass::detail
 			}
 
 			const bool frameGeneration = _frameGeneration.load(std::memory_order_acquire);
-			const bool draw = (classificationKnown || a_fgTarget) &&
-				(!frameGeneration || a_fgTarget);
+			const bool draw = (classificationKnown || a_fgTarget) && (!frameGeneration || a_fgTarget);
 			return {
 				.draw = draw,
 				.firstDrawInRegion = draw && (a_regionFirst || (frameGeneration && a_fgTarget)),

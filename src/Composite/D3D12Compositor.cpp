@@ -561,8 +561,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return g_origExecuteCommandLists.load(std::memory_order_acquire) != nullptr;
 			}
 			if (g_origExecuteCommandLists.load(std::memory_order_acquire) != nullptr) {
-				REX::ERROR("D3D12Compositor: ExecuteCommandLists hook state conflicts with "
-						   "the engine queue; overlay disabled");
+				REX::ERROR("D3D12Compositor: ExecuteCommandLists hook state conflicts with the engine queue; overlay disabled");
 				return false;
 			}
 
@@ -577,8 +576,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		// Submit/tick thread: adopt the latest announced ring. Returns true when a
-		// usable ring is open.
+		// Submit/tick thread: adopt the latest announced ring. Returns true when a usable ring is open.
 		[[nodiscard]] bool EnsureSharedRing()
 		{
 			if (!sharedRing.pendingDirty) {
@@ -586,9 +584,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return sharedRing.slots[0] != nullptr;
 			}
 			auto pending = sharedRing.TakePending();
-			// Hold the draw lock across the pending-list check and queue drain.
-			// That closes the window where a render worker could record another
-			// old-ring draw after the idle fence had already been queued.
+			// Hold the draw lock across the pending-list check and queue drain. That closes the window where a render worker could record another old-ring draw after the idle fence had already been queued.
 			std::scoped_lock ring(sharedRing.drawMutex);
 			const auto deferAdoption = [&]() {
 				sharedRing.DeferPending(pending);
@@ -597,17 +593,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (consumes.HasPending()) {
 				return deferAdoption();
 			}
-			// Old slots may still be referenced by in-flight ENGINE lists
-			// carrying overlay draws. A failed drain must keep this generation
-			// alive; it is never treated as a successful timeout.
 			if (!draw.WaitForGpuIdle(engine.directQueue)) {
 				return deferAdoption();
 			}
 			sharedRing.Retire();
 
 			auto* dev = engine.device;
-			bool ok = pending.slotCount > 0 &&
-			          pending.slotCount <= SharedRingDesc::kMaxSlots;
+			bool ok = pending.slotCount > 0 && pending.slotCount <= SharedRingDesc::kMaxSlots;
 			HRESULT openHr = ok ? S_OK : E_INVALIDARG;
 			const char* openObject = "ring metadata";
 			int openSlot = -1;
@@ -618,33 +610,25 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					openHr = E_HANDLE;
 					ok = false;
 				} else {
-					openHr = dev->OpenSharedHandle(pending.slotHandles[i],
-						__uuidof(ID3D12Resource), reinterpret_cast<void**>(&sharedRing.slots[i]));
+					openHr = dev->OpenSharedHandle(pending.slotHandles[i], __uuidof(ID3D12Resource), reinterpret_cast<void**>(&sharedRing.slots[i]));
 					ok = SUCCEEDED(openHr);
 				}
 			}
 			if (ok) {
 				openObject = "produce fence";
 				openSlot = -1;
-				openHr = pending.produceFence ? dev->OpenSharedHandle(pending.produceFence,
-					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.produceFence)) : E_HANDLE;
+				openHr = pending.produceFence ? dev->OpenSharedHandle(pending.produceFence, __uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.produceFence)) : E_HANDLE;
 				ok = SUCCEEDED(openHr);
 			}
 			if (ok) {
 				openObject = "consume fence";
-				openHr = pending.consumeFence ? dev->OpenSharedHandle(pending.consumeFence,
-					__uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.consumeFence)) : E_HANDLE;
+				openHr = pending.consumeFence ? dev->OpenSharedHandle(pending.consumeFence, __uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.consumeFence)) : E_HANDLE;
 				ok = SUCCEEDED(openHr);
 			}
 			SharedRingState::CloseHandles(pending);
 			if (!ok) {
 				const auto gameLuid = dev->GetAdapterLuid();
-				REX::ERROR("D3D12Compositor: OpenSharedHandle failed for {} (slot {}, hr=0x{:08X}); "
-					"game adapter LUID 0x{:08X}:0x{:08X}, browser-host adapter LUID 0x{:08X}:0x{:08X} — "
-					"GPU frames from the browser host cannot be composited",
-					openObject, openSlot, static_cast<std::uint32_t>(openHr),
-					static_cast<std::uint32_t>(gameLuid.HighPart), gameLuid.LowPart,
-					pending.adapterLuidHigh, pending.adapterLuidLow);
+				REX::ERROR("D3D12Compositor: OpenSharedHandle failed for {} (slot {}, hr=0x{:08X}); game adapter LUID 0x{:08X}:0x{:08X}, browser-host adapter LUID 0x{:08X}:0x{:08X}", openObject, openSlot, static_cast<std::uint32_t>(openHr), static_cast<std::uint32_t>(gameLuid.HighPart), gameLuid.LowPart, pending.adapterLuidHigh, pending.adapterLuidLow);
 				sharedRing.Release();
 				return false;
 			}
@@ -656,13 +640,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 				srv.Texture2D.MipLevels = 1;
 				const D3D12_CPU_DESCRIPTOR_HANDLE handle{
-					draw.srvHeap->GetCPUDescriptorHandleForHeapStart().ptr +
-					static_cast<SIZE_T>(i) * draw.srvStride
+					draw.srvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(i) * draw.srvStride
 				};
 				dev->CreateShaderResourceView(sharedRing.slots[i], &srv, handle);
 			}
-			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, {} slots, generation {})",
-				pending.width, pending.height, sharedRing.slotCount, pending.generation);
+			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, {} slots, generation {})", pending.width, pending.height, sharedRing.slotCount, pending.generation);
 			return true;
 		}
 
@@ -700,20 +682,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		void ObserveOutputSize(const D3D12_RESOURCE_DESC& a_desc)
 		{
-			const auto width = static_cast<std::uint32_t>((std::min)(a_desc.Width,
-				static_cast<std::uint64_t>(UINT32_MAX)));
+			const auto width = static_cast<std::uint32_t>((std::min)(a_desc.Width, static_cast<std::uint64_t>(UINT32_MAX)));
 			outputSize.Publish(width, a_desc.Height);
 		}
 
-		// Overlay draw (UiPass, render worker, inside the engine's UI-buffer
-		// hand-off): record the overlay quad onto the ENGINE's list into the
-		// engine's UI buffer — upstream of Frame Generation, so both real and
-		// generated frames carry it. v1 transport: the produce fence is checked
-		// on the CPU (we cannot wait on a queue we don't control). The command
-		// queue hook signals consumption only after the exact engine command list
-		// containing this draw has been submitted.
-		[[nodiscard]] bool RecordOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_firstDrawInRegion)
+		[[nodiscard]] bool RecordOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
 		{
 			if (!setupOk || !draw.rtvHeap || !a_buffer) {
 				return false;
@@ -731,26 +704,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			std::scoped_lock ring(sharedRing.drawMutex);
 			if (!frame.ready) {
-				// Normally a brief startup transient: the overlay can be revealed
-				// on the frame the browser host publishes its first shared slot.
 				if (!noSharedFrameLogged) {
 					noSharedFrameLogged = true;
-					REX::DEBUG("D3D12Compositor: UI-pass hand-off reached before the browser host "
-							   "published a shared-ring frame; nothing to draw yet");
+					REX::DEBUG("D3D12Compositor: UI-pass hand-off reached before the browser host published a shared-ring frame; nothing to draw yet");
 				}
 				return false;
 			}
-			// Promote the newest frame to "ready" once its produce fence has
-			// completed; an incomplete newest frame falls back to the last
-			// ready one (see readySlot) instead of skipping the draw.
-			if (a_firstDrawInRegion &&
-				serial != 0 && ringSlot < sharedRing.slotCount && sharedRing.slots[ringSlot] &&
-				(!sharedRing.produceFence || sharedRing.produceFence->GetCompletedValue() >= serial)) {
+			if (a_firstDrawInRegion && serial != 0 && ringSlot < sharedRing.slotCount && sharedRing.slots[ringSlot] && (!sharedRing.produceFence || sharedRing.produceFence->GetCompletedValue() >= serial)) {
 				sharedRing.readySlot = ringSlot;
 				sharedRing.readySerial = serial;
 			}
-			if (sharedRing.readySerial == 0 || sharedRing.readySlot >= sharedRing.slotCount ||
-				!sharedRing.slots[sharedRing.readySlot]) {
+			if (sharedRing.readySerial == 0 || sharedRing.readySlot >= sharedRing.slotCount || !sharedRing.slots[sharedRing.readySlot]) {
 				return false;  // no fully-produced frame yet this ring generation
 			}
 			ringSlot = sharedRing.readySlot;
@@ -789,16 +753,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			consumes.Track(a_list, sharedRing.consumeFence, serial);
 			const bool firstDraw = !overlayDrawLogged.exchange(true, std::memory_order_relaxed);
 			if (firstDraw) {
-				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})",
-					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,
-					UiTargetFormat::Name(rtvFormat),
-					reinterpret_cast<std::uintptr_t>(a_buffer));
+				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})", 
+					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height, UiTargetFormat::Name(rtvFormat), reinterpret_cast<std::uintptr_t>(a_buffer));
 			}
 			return true;
 		}
 
-		static bool OverlayDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			const bool a_firstDrawInRegion)
+		static bool OverlayDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
 		{
 			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
 			return self && self->RecordOverlay(a_list, a_buffer, a_firstDrawInRegion);
@@ -812,8 +773,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	bool D3D12Compositor::Initialize()
 	{
 		_impl = std::make_unique<Impl>();
-		REX::INFO("D3D12Compositor: initialized (UI-pass-only overlay; engine device/queue are set up "
-				  "on the first submitted frame)");
+		REX::INFO("D3D12Compositor: initialized (UI-pass-only overlay; engine device/queue are set up on the first submitted frame)");
 		return true;
 	}
 
@@ -830,8 +790,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 	}
 
-	bool RecordOverlayIntoUIBuffer(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-		const bool a_firstDrawInRegion)
+	bool RecordOverlayIntoUIBuffer(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
 	{
 		const auto fn = g_overlayDrawFn.load(std::memory_order_acquire);
 		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_firstDrawInRegion);

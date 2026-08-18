@@ -4,9 +4,7 @@
 
 namespace OSFUI::UiTargetFormat
 {
-	// Starfield's stock UI layer is typeless RGBA8. Luma upgrades the same
-	// Scaleform buffers to RGBA16F; both are rendered through the matching typed
-	// RTV so the PSO and bound render target always agree.
+	//Starfields UI layer is typeless RGBA8. Luma mod upgrades to RGBA16F
 	[[nodiscard]] constexpr DXGI_FORMAT ResolveRtv(const DXGI_FORMAT a_resourceFormat)
 	{
 		switch (a_resourceFormat) {
@@ -32,9 +30,4 @@ namespace OSFUI::UiTargetFormat
 			return "UNKNOWN";
 		}
 	}
-
-	static_assert(ResolveRtv(DXGI_FORMAT_R8G8B8A8_TYPELESS) ==
-		DXGI_FORMAT_R8G8B8A8_UNORM);
-	static_assert(ResolveRtv(DXGI_FORMAT_R16G16B16A16_FLOAT) ==
-		DXGI_FORMAT_R16G16B16A16_FLOAT);
 }

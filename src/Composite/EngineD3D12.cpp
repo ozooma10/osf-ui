@@ -8,9 +8,6 @@ namespace OSFUI
 {
 	namespace
 	{
-		// QI a candidate pointer to T. The engine accessor can return null before
-		// the renderer is initialized. A successful QI AddRefs; the caller owns
-		// that reference and Releases it.
 		template <class T>
 		[[nodiscard]] T* QueryCandidate(const char* a_label, const std::uintptr_t a_candidate)
 		{
@@ -22,8 +19,7 @@ namespace OSFUI
 			T* result = nullptr;
 			const auto hr = unknown->QueryInterface(__uuidof(T), reinterpret_cast<void**>(&result));
 			if (FAILED(hr) || !result) {
-				REX::WARN("EngineD3D12: {} candidate 0x{:X} failed QueryInterface (hr=0x{:08X})",
-					a_label, a_candidate, static_cast<std::uint32_t>(hr));
+				REX::WARN("EngineD3D12: {} candidate 0x{:X} failed QueryInterface (hr=0x{:08X})", a_label, a_candidate, static_cast<std::uint32_t>(hr));
 				return nullptr;
 			}
 			return result;
@@ -33,9 +29,7 @@ namespace OSFUI
 		{
 			IUnknown* lhs = nullptr;
 			IUnknown* rhs = nullptr;
-			const bool ok =
-				SUCCEEDED(a_lhs->QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(&lhs))) &&
-				SUCCEEDED(a_rhs->QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(&rhs)));
+			const bool ok = SUCCEEDED(a_lhs->QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(&lhs))) && SUCCEEDED(a_rhs->QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(&rhs)));
 			const bool same = ok && lhs == rhs;
 			if (lhs) {
 				lhs->Release();
@@ -51,17 +45,12 @@ namespace OSFUI
 	{
 		EngineD3D12 result{};
 
-		// The offset walk (g_RendererRoot -> device / DIRECT queue) lives in
-		// CommonLibSF; it returns raw, unverified engine pointers.
 		auto* renderer = RE::CreationRendererPrivate::Renderer::GetSingleton();
 		if (!renderer) {
 			REX::WARN("EngineD3D12: RE::CreationRendererPrivate::Renderer is null — renderer not initialized yet?");
 			return result;
 		}
 
-		// Re-verify the pair here: QI confirms the pointers are the interfaces we
-		// expect (catches a layout that drifted under a patch), the queue must be
-		// DIRECT, and it must belong to this exact device.
 		auto* device = QueryCandidate<ID3D12Device>("device", reinterpret_cast<std::uintptr_t>(renderer->GetDevice()));
 		if (!device) {
 			return result;
@@ -82,9 +71,7 @@ namespace OSFUI
 		}
 
 		ID3D12Device* queueDevice = nullptr;
-		const bool sameDevice =
-			SUCCEEDED(queue->GetDevice(__uuidof(ID3D12Device), reinterpret_cast<void**>(&queueDevice))) &&
-			queueDevice && IsSameComObject(queueDevice, device);
+		const bool sameDevice = SUCCEEDED(queue->GetDevice(__uuidof(ID3D12Device), reinterpret_cast<void**>(&queueDevice))) && queueDevice && IsSameComObject(queueDevice, device);
 		if (queueDevice) {
 			queueDevice->Release();
 		}
@@ -95,10 +82,7 @@ namespace OSFUI
 			return result;
 		}
 
-		REX::INFO(
-			"EngineD3D12: located ID3D12Device=0x{:X} + DIRECT ID3D12CommandQueue=0x{:X} "
-			"(via RE::CreationRendererPrivate::Renderer; all pointers QI-verified)",
-			reinterpret_cast<std::uintptr_t>(device), reinterpret_cast<std::uintptr_t>(queue));
+		REX::INFO("EngineD3D12: located ID3D12Device=0x{:X} + DIRECT ID3D12CommandQueue=0x{:X}", reinterpret_cast<std::uintptr_t>(device), reinterpret_cast<std::uintptr_t>(queue));
 
 		result.device = device;
 		result.directQueue = queue;
