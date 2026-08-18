@@ -52,5 +52,5 @@ OSF-UI-v<version>-alpha.zip
 ## Not packaged
 
 - The WebView2 SDK headers and static loader library (build-time only).
-- Dev/test files: only `build/frontend/views/` is installed; `frontend/` source, `node_modules`, the dev mock (`devmock/`, `osfui.mock.ts`), `tests/`, and `packaging/` are excluded.
+- Dev/test files: only `build/frontend/views/` is installed; `frontend/` source, `node_modules`, `tests/`, and `packaging/` are excluded.
 - Source maps. The frontend build emits none and its output gate fails on a stray `.map`; nothing here excludes by extension, so one would otherwise ship.

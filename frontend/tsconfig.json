@@ -28,8 +28,7 @@
       "@sdk": ["../sdk/osfui.d.ts"],
       "@lib/*": ["./src/lib/*"],
       "@ui/*": ["./src/ui/*"],
-      "@views/*": ["./src/views/*"],
-      "@devmock/*": ["./devmock/*"]
+      "@views/*": ["./src/views/*"]
     },
     "allowJs": true,
     "checkJs": false,
@@ -37,7 +36,7 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "devmock", "test", "scripts", "vite.config.ts", "osfui.config.ts", "osfui.mock.ts"],
+  "include": ["src", "test", "scripts", "vite.config.ts"],
   "exclude": [
     "node_modules",
     // Frozen public contract, shipped verbatim - described by osfui-global.d.ts,

@@ -25,7 +25,6 @@ release packaging use it; the native test suite does not.
 
 | Command | Does |
 |---|---|
-| `npm run dev` | `osfui dev` — the authoring harness (same one third-party mods use) with the full mock bridge. Develop any view without launching Starfield. |
 | `npm run build` | Generate `../build/frontend/views/`, then run the output gates. |
 | `npm test` | Vitest: pure logic, protocol, components, and build-output gates. |
 | `npm run typecheck` | `tsc --noEmit`. |
@@ -52,75 +51,9 @@ frontend/
     views/osfui/
       settings/     the Mod Settings view
       keybinds/     the Keybindings view
-  devmock/          DEV ONLY — the mock bridge + fixtures (installed by osfui.mock.ts)
-  osfui.config.ts   the built-ins as an @osfui/cli project (what `osfui dev` serves)
-  osfui.mock.ts     mock module: installs devmock/ + registers the toolbar tools
-  scripts/          build orchestrator + output gates + builtin-dev-plugin (dev shims)
+  scripts/          build orchestrator + output gates
   test/             vitest suites
 ```
-
-## Development
-
-```bat
-npm run dev
-```
-
-This is `osfui dev` on this directory's `osfui.config.ts` — the same authoring
-harness third-party mods get, serving the built-ins through their real
-`index.html` → shared-kit → padnav boot contract in an iframe. The rich mock
-(`devmock/`, installed by `osfui.mock.ts`) registers the extra toolbar tools:
-Reset values, Sample views, System Health scenarios, and Hotkey/LB/RB.
-
-Pick a view from the toolbar's view select, or deep-link:
-
-| View | URL |
-|---|---|
-| Harness | `http://127.0.0.1:5173/__osfui/` |
-| Mod Settings | `http://127.0.0.1:5173/__osfui/?view=osfui%2Fsettings` |
-| Keybindings | `http://127.0.0.1:5173/__osfui/?view=osfui%2Fkeybinds` |
-
-Query parameters (`view` and `res` are the harness page's own; everything else
-— and the `#hash` — is forwarded to the view, so mock params and `#mod=` deep
-links keep working):
-
-| Param | Effect |
-|---|---|
-| `?view=<modId>/<viewName>` | which view the harness shows |
-| `?res=fill\|off` | stage mode: the game-true 900-row frame widened to the pane (default), or no stage at all |
-| `?fixtures=1` | load the richer demo dataset (also the "Sample views" tool) |
-| `?locale=<code>` | switch locale; `pseudo` expands strings to catch tight layouts and hardcoded text |
-| `?schema=<url>` | load a settings schema from a URL instead of the fixtures |
-| `?health=<name>` | select the local System Health snapshot (also the "Health" cycle tool) |
-
-You can also drag-and-drop a settings schema JSON or a `<modId>_<locale>.json`
-catalog onto the page.
-
-### System Health scenarios
-
-System Health renders the `osfui/diagnostics` state snapshot, so it needs no broken game to exercise. The harness scenarios in `devmock/fixtures/health.ts` are `clean`, `warnings`, `errors`, `mixed`, `resolved`, and the full copy catalog. They exercise only the local display and recovery surface; the mock exposes no report upload, submission, log-folder, or external issue-opening endpoint.
-
-### The stage
-
-Views declare an initial 1600×900 size (`manifest.json`); the OSF UI runtime resizes
-them to the game output aspect once the swapchain is known. The toolbar button
-cycles two ways of modelling that, also settable with `?res=`:
-
-| Mode | What it renders |
-|---|---|
-| `fill` | 900 reference rows tall, widened to the pane's aspect and scaled by `paneHeight/900`, so the stage fills the pane at the in-game text size |
-| `off` | no stage: the view reflows to the raw pane, unscaled |
-
-`fill` does not cap the scale at 1:1 — filling a 1080p window at 1.2× *is* the
-in-game text size.
-
-**Develop in `fill`**: it is what the OSF UI runtime actually does to a view, so a
-layout that holds up as you resize the window holds up at any game output
-aspect. Switch to `off` to inspect raw overflow or measure in DevTools without
-the scale transform in the way — it is a debugging mode, not a preview.
-
-A third mode used to letterbox the literal 1600×900 box (`?res=fixed`). It was
-removed: at a 16:9 window it is `fill` with bars, and at any other aspect it
-shows a composition the game never produces.
 
 ## Native bridge architecture
 

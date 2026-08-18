@@ -261,8 +261,6 @@ The number is the record's plugin-local FormID, not its load-order-dependent Sta
 
 The gameplay/menu/rebind suppression rules still apply, and the key is still delivered to ordinary subscribers, so a script that also registers the same callback gets a second delivery. Malformed or unavailable targets leave the ordinary hotkey working and appear in System Health with author details. Older OSF UI builds ignore `onPress`, so declare the `targetVersion` of the release where it ships.
 
-`npm create osfui@latest -- --surface settings` scaffolds exactly this: a schema with an `onPress` hotkey, the matching GLOBAL script, and a `build-deploy.ps1` that compiles and installs it — no `.esp`, no npm toolchain. Its README walks through first press, rebinding, save-load persistence, menu suppression and the resulting System Health issue when a target is unavailable.
-
 ---
 
 ## 8. Using your settings (consumption)
@@ -419,15 +417,13 @@ Settings cover pre-declared scalars. For **dynamic data** — pushing live lists
 
 ## 10. Testing your schema
 
-**Browser harness — no game launch.** `npm --prefix frontend run dev` (see [`frontend/README.md`](../frontend/README.md)), open `http://localhost:8080/?view=osfui/settings`, drag your JSON onto the page (or pass `?schema=<url>`). It renders the *real* Mod Settings view with a mock bridge that mirrors native clamping, persists to localStorage, and logs the exact bridge traffic. Widgets, conditions, presets, actions and rebinding all work.
-
 **Editor validation.** The `$schema` line catches most mistakes as you type. For CI:
 
 ```
 npx ajv-cli validate --spec=draft2020 -s docs/schema/settings-schema.schema.json -d yourname.mymod.json
 ```
 
-**In-game hot reload.** With developer mode enabled (persistently by `"devMode": true` or temporarily by the author-mode marker), saved changes to `settings\*.json` are picked up within ~1 s — values survive, the open menu repaints. An instantiated view's own HTML/JS/CSS reloads the same way.
+**In-game hot reload.** With developer mode enabled by `"devMode": true`, saved changes to `settings\*.json` are picked up within ~1 s — values survive, the open menu repaints. An instantiated view's own HTML/JS/CSS reloads the same way.
 
 **Broken files are loud.** A bad filename or unparseable JSON is skipped and reported (with line/column) in a fixed alert atop the Mod Settings rail; a corrupt values file is quarantined to `<id>.json.bad` and defaults served. If your card doesn't appear, look there first, then at `OSF UI.log`.
 

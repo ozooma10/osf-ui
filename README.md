@@ -6,31 +6,6 @@
 
 It also provides a Settings system for mods to interface with.
 
-## Developing a third-party view
-
-Create a complete project and open its browser harness:
-
-```bat
-npm create osfui@latest my-view
-cd my-view
-npm run doctor
-npm run dev
-```
-
-The generator offers menu and HUD view starters with Papyrus or native-plugin
-mod backends, plus a Papyrus settings-only starter that creates no view.
-
-Papyrus projects compile a recordless GLOBAL library into a loose PEX; JavaScript calls any of its GLOBAL functions with `osfui.papyrus.call(script, function, ...args)` without an ESM, quest, registration, or Spriggit. `doctor` checks the Creation Kit compiler before the first build.
-
-The harness opens automatically, hot-reloads edits, supplies the shared kit and mock bridge, and exposes bridge traffic and lifecycle controls.
-
-`npm run dev:game -- --deploy "path-to-MO2-mods"`
-also builds the mod backend, syncs changes into the game, and enables developer
-mode through a temporary author-mode marker, including automatic view reload
-and F12 DevTools. `npm run package` makes the loadable release zip.
-
-See [the view toolchain guide](docs/view-toolchain.md) for the complete workflow.
-
 ## Mod API
 
 The web bridge API has four verbs, chosen by desired behavior:
@@ -50,7 +25,7 @@ The typed reference is [`sdk/osfui.d.ts`](sdk/osfui.d.ts).
 ## Documentation
 
 - [Authoring settings](docs/authoring-settings.md) — **start here to add settings to your mod**: schemas, widgets, hotkeys, localization, and testing.
-- [View toolchain](docs/view-toolchain.md) and [view authoring reference](docs/authoring-views.md) — scaffold, develop, package, and integrate a browser view.
+- [View authoring reference](docs/authoring-views.md) — integrate a browser view with the runtime and bridge API.
 - [Dynamic data](docs/authoring-dynamic-data.md) and [native plugin API](docs/native-plugin-api.md) — state, events, requests, and the SFSE C ABI.
 - [Architecture](docs/architecture.md), [security model](docs/security-model.md), [logging](docs/logging.md), and [UI-pass rendering design](docs/ui-pass-draw-design.md) — OSF UI runtime implementation and invariants.
 - [Terminology](docs/terminology.md) — canonical component, version, identity,
@@ -103,12 +78,13 @@ The keys you might actually edit:
 | `view` | `"osfui/settings"` | the default menu the toggle key opens — a qualified `<modId>/<viewName>` id derived from the `views/<modId>/<viewName>/` path (shipped config uses the Mod Settings view) |
 | `devMode` | `false` | persistently enables developer mode: verbose logging, hot reload, and F12 DevTools |
 
-With developer mode enabled (`devMode` or the temporary author-mode marker), saved changes to an instantiated view's files auto-reload it in place within about half a second.
+With developer mode enabled, saved changes to an instantiated view's files auto-reload it in place within about half a second.
 Press **F12** while a menu is open to inspect that view in WebView2's native Edge DevTools.
 
 
 ## Requirements
 
+- Node.js 20.19+ (build-time only, for the built-in views)
 - [XMake](https://xmake.io) 3.0.0+
 - Microsoft Edge WebView2 Runtime (Evergreen)
 - Microsoft.Web.WebView2 SDK package unpacked to `external/webview2`, or `WEBVIEW2_SDK_DIR` set to its package root

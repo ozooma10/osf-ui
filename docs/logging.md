@@ -27,9 +27,9 @@ failures go to the page* below — it is a peer of these two, not an afterthough
 ## Levels
 
 The floor is **Info** in normal play, **Debug** in developer mode (enabled by
-`devMode` or the temporary author-mode marker and set once in
-`Log::SetDevMode`, called right after config load; boot runs at Debug so nothing
-pre-config is lost). `flush_on` tracks the floor, so everything kept survives a
+`devMode` and set once in `Log::SetDevMode`, called right after config load;
+boot runs at Debug so nothing pre-config is lost). `flush_on` tracks the floor,
+so everything kept survives a
 crash. Consequence: **a line's level decides whether it exists in a user's bug
 report.** Choose accordingly:
 

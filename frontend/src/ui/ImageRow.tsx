@@ -5,9 +5,8 @@
 // rejected path renders a warn note naming the rule rather than nothing, so an
 // author can tell why "../shared/banner.png" produced a blank space.
 //
-// The caller resolves the path (and, in the harness only, supplies the asset
-// roots); this component resolves nothing, which keeps
-// `window.OSFUI_MOD_ASSET_ROOTS` out of src/.
+// The caller resolves the path; this component resolves nothing, which keeps
+// test-only asset-root state out of production code.
 
 export interface ImageRowProps {
   /** Already through safeAssetSrc. Null means rejected — render the warning. */

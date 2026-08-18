@@ -8,11 +8,6 @@ sanctioned in-game pass, or a larger refactor window:
 - Decide whether the unused public shared-kit tokens and classes may be removed.
 - Revisit the two intentionally different key-conflict models only with a shared
   product definition for their behavior.
-- Consider unifying the browser mock layers only if their ownership model changes;
-  the current runtime mock and built-in-view mock serve different harnesses. Note
-  that `frontend/devmock/mockbridge.ts` is now the largest remaining protocol
-  drift surface — a third hand-maintained implementation of the bridge semantics
-  beside the native encoder and the page helper.
 - Treat marketing SVG/PNG generation as a separate asset-pipeline project.
 - God-object decomposition: `src/Runtime/Runtime.cpp` (input coordination, view
   presentation, and bridge publishing are candidates for extraction alongside

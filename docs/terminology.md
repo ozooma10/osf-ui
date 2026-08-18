@@ -175,7 +175,4 @@ The public state key remains `osfui/diagnostics`, and public types retain names 
 ## Developer mode
 
 **Developer mode** is the effective capability: verbose logging, hot reload,
-and authoring DevTools. It can be enabled persistently by `devMode` in
-`config.json`, or temporarily by the expiring **author-mode marker** written by
-the view toolchain. *Author mode* names that temporary activation mechanism,
-not a second permission level.
+and authoring DevTools. It is enabled by `devMode` in `config.json`.

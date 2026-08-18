@@ -333,10 +333,9 @@ boot, so either the key arrives (view bug) or it doesn't (publisher bug).
 
 ### F12 reach
 
-Today F12 targets only the focused menu. HUDs and background views are
-debugged through the dev harness (`osfui dev --game`), which can request
-DevTools for any instantiated view — the `openDevTools` pipe command already takes
-a view id. 2.0 keeps that split: F12 = focused menu, harness = any view.
+F12 targets only the focused menu. The private `openDevTools` pipe command can
+address any instantiated view, but no shipped authoring tool currently exposes
+that path for HUDs or background views.
 
 ## Relationship to the 1.x API
 

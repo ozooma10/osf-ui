@@ -36,7 +36,7 @@ describe('versionLess', () => {
   });
 
   it('ignores trailing junk in a component (parseInt)', () => {
-    // Keeps the dev harness's "1.0.0-mock" comparing sanely.
+    // Trailing prerelease-like text does not alter the numeric component.
     expect(versionLess('1.0.0-mock', '1.0.0')).toBe(false);
     expect(versionLess('1.0.0-mock', '1.0.1')).toBe(true);
     expect(versionLess('1.0.0', '1.1.0-beta')).toBe(true);

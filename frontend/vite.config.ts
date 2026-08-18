@@ -4,8 +4,7 @@ import { aliases } from './aliases.mjs';
 
 // Production build config, consumed by scripts/build.mjs as its `configFile`
 // (which overrides `build.rollupOptions` per view - Rollup cannot emit IIFE
-// for a multi-input build). The dev loop does not run through this file:
-// `osfui dev` assembles its own server config from osfui.config.ts.
+// for a multi-input build).
 export default defineConfig({
   plugins: [preact()],
   resolve: {

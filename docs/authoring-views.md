@@ -514,50 +514,10 @@ Separate SFSE plugins subscribe over the native bridge with no core edit: `Subsc
 
 ## 5. Testing locally
 
-For a new view, use the one-command npm workflow in [view-toolchain.md](view-toolchain.md):
-
-```bat
-npm create osfui@latest my-view
-cd my-view
-npm run dev
-```
-
-It provides the browser harness below plus source presets, Vite HMR, generated manifests, in-game sync, a temporary author-mode marker, validation and packaging.
-
-### Browser harness
-
-`npm run dev` serves the view at the same `/<modId>/<viewName>/<entry>` URL shape used in game, generates and validates `manifest.json` from `osfui.config.ts|js`, supplies OSF UI's public `shared/osfui.js` and `shared/osfui.css`, and installs a mock mod backend speaking the real 2.0 protocol — page-initiated handshake included, so a harness reload exercises the same boot path the game does.
-
-The toolbar provides:
-
-- manifest and custom resolutions, scaled down without changing page layout;
-- visible/hidden lifecycle edges, locale changes, page reload, a transparency checkerboard;
-- a bridge traffic inspector — one scannable row per envelope (`send · close`, `request · settings.set`, `state · osfui/settings`, `hotkey · F9`, `error · unknown-endpoint`) that expands to the raw envelope on click, pairs each request with its reply and round-trip time, folds repeats into a `×N` counter, and can be filtered or paused.
-
-Saving view source updates the page through Vite HMR. Development responses use `Cache-Control: no-store`. A document CSP blocks remote resources, and the bootstrap removes WebRTC, WebTransport and worker constructors to catch unsupported dependencies. WebSocket stays available only for Vite's loopback HMR connection; `osfui check` rejects authored uses of unsupported transports.
-
-For repeatable mod-backend data, describe what your mod backend would do in the project's mock (`osfui.mock.ts` with `defineMock`, or a plain `osfui.mock.json`, beside `osfui.config.ts`); the browser reloads when it changes:
-
-```json
-{
-  "locale": "en",
-  "locales": {
-    "de": { "views.myhud.heading": "Schiffsstatus" }
-  },
-  "state": {
-    "credits": 12500,
-    "slots": ["Med Pack", "Frag Grenade"]
-  },
-  "requests": {
-    "yourname.mymod.inventory.get": {
-      "items": [{ "name": "Med Pack", "count": 4 }]
-    },
-    "papyrus.calculatePrice": 125
-  }
-}
-```
-
-Each `state` entry publishes under **your own mod id** — `credits` arrives as `yourname.mymod/credits` — and is replayed right after `ready`, exactly as the OSF UI runtime replays it. A `requests` entry answers that request endpoint (values may be plain JSON or, in a `.ts`/`.js` mock, a function of the payload); prefix a key with `papyrus.` to answer `osfui.papyrus.request("…")`. Unconfigured endpoints aren't faked: a request rejects `mock-unhandled`, and a send to an unknown name surfaces `unknown-endpoint`. A mock answering a name your view *sent* one-way is flagged as a mock authoring mistake, because a send has nothing to settle. Named `scenarios` shallow-overlay these fields (`?scenario=<name>`); see [view-toolchain.md](view-toolchain.md). The mock lives at the project root, so it can never ship with the views.
+OSF UI currently ships no JavaScript/TypeScript authoring CLI, project generator,
+or browser harness. Use your preferred local web stack and provide mock data at
+your own application boundary; the runtime contract in this guide remains the
+source of truth for the installed view.
 
 For a minimal standalone fallback, a view can detect a missing bridge:
 
@@ -570,16 +530,6 @@ if (!osfui.available) {
 (`shared/osfui.js` installs itself even without a bridge, so `osfui.available`, `osfui.on()` and `osfui.state.on()` are always safe to touch; `osfui.ready` and `osfui.request()` reject with `"no-bridge"`, and the shared bridge helper logs one `[osfui]` notice — a plain-browser preview is not an authoring mistake.)
 
 Serve that fallback over `http://` rather than `file://`, so local testing uses a normal origin like the in-game `https://osfui.local` mapping.
-
-### Built-in OSF UI views
-
-The built-in views (`osfui/settings`, `osfui/keybinds`) aren't openable this way — their shipped `index.html` is generated output. They're developed through the **same `osfui dev` harness this guide describes**: the frontend directory is itself an `@osfui/cli` project whose mock module (`frontend/osfui.mock.ts`) speaks the real protocol.
-
-```bat
-npm --prefix frontend run dev
-```
-
-See [`frontend/README.md`](../frontend/README.md) for deep-link URLs and locale/fixture/stage switches.
 
 In-game, watch `Documents\My Games\Starfield\SFSE\Logs\OSF UI.log`:
 

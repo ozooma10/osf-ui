@@ -76,7 +76,7 @@
     "debugOnly": {
       "type": "boolean",
       "default": false,
-      "description": "When true, this view is kept out of the catalog unless developer mode is enabled by devMode or the temporary author-mode marker. It is still discovered and can be opened by qualified view id. Intended for built-in developer tools."
+      "description": "When true, this view is kept out of the catalog unless developer mode is enabled by devMode. It is still discovered and can be opened by qualified view id. Intended for built-in developer tools."
     },
     "targetVersion": {
       "type": "string",

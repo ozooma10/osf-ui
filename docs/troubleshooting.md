@@ -94,11 +94,9 @@ Your view is a real Chromium document, so the debugger is the one you know. OSF 
 For precise component, lifecycle, bridge, and input names, see the
 [terminology glossary](terminology.md).
 
-- **F12 opens DevTools** while your view is the active menu. It needs developer
-  mode — either persistent `"devMode": true` in `config.json`, or (preferably)
-  `osfui dev --game`, which enables the same capability through an expiring
-  author-mode marker. Debug a background HUD from the browser harness
-  ([view-toolchain.md](view-toolchain.md)).
+- **F12 opens DevTools** while your view is the active menu. It needs persistent
+  `"devMode": true` in `config.json`. OSF UI currently ships no browser harness
+  for inspecting a background HUD.
 - **Read the `[osfui]` errors.** A rejected request prints `[osfui] request "<name>" failed: <code> — <message>` with the rejecting payload attached, before any `Uncaught (in promise)` noise. Same prefix covers a missing bridge, a client timeout, and an exception your own event or state handler threw.
 - **Faults the page couldn't otherwise hear about come back to it.** Sending to a request endpoint, naming a nonexistent endpoint, or a malformed envelope arrives as a developer-mode `osfui.debug.error` event and prints `[osfui] OSF UI runtime rejected <code>: <message>`. A mod backend or OSF UI runtime handler that never answers is reported to the waiting page as `no-response`, but never counts against that view. Repeated view-caused protocol faults also raise a local System Health issue.
 - **Trace the traffic** when the question is what actually crossed the bridge: `localStorage["osfui:trace"] = "1"` in the view's console, then reload. Every envelope both directions is logged via `console.debug` — kind, name, id, payload, reply latency. It answers the blank-HUD question directly: either your state key arrives at boot (your view's bug) or it doesn't (your mod backend's).

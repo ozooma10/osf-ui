@@ -13,9 +13,6 @@ vs*/
 dist/
 out/
 node_modules/
-packages/cli/assets/
-packages/cli/types/
-packages/create-osfui/templates/
 tests/papyrus/OSFUITest.pex
 
 # local SDK/package drops (use WEBVIEW2_SDK_DIR for an external location)
@@ -29,8 +26,6 @@ compile_commands.json
 # MSVC compiler droppings from host-test builds run outside .build
 tests/native/vc140.pdb
 
-# Local scratch mods. `npm create osfui@latest` generates the starters that
-# used to be committed here. Anchored and directory-scoped on purpose: a bare
-# `examples` also swallows any nested examples/ directory, which is how a
-# deleted-but-still-on-disk file can leave `git status` clean while CI fails.
+# Local scratch mods. Anchored and directory-scoped on purpose: a bare
+# `examples` would also swallow any nested examples/ directory.
 /examples/

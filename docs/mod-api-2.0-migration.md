@@ -315,7 +315,7 @@ Repository note: built-in views are generated from `frontend/src/` into ignored 
 
 ## 9. Test matrix
 
-Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run verify` (CLI, scaffolder, frontend typecheck/build/tests).
+Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run verify` (terminology checks plus frontend typecheck/build/tests).
 
 | Guarantee | Suite |
 |---|---|
@@ -345,12 +345,8 @@ Run `bash tests/native/run.sh` (exit code = failing checks) and root `npm run ve
 | ABI 1.9 constants, strict send/request routing, and additive feature gates | `tests/native/bridge_api_tests.cpp` |
 | Exact ABI 1.8 prefix layout, frozen command auto-ack, typed requests, settings/hotkeys, local health publication, and retained state | `tests/native/v1_native_bridge_tests.cpp`, `tests/native/bridge_api_tests.cpp` |
 | Compatibility-health lifecycle and the `osfui/diagnostics` greeting replay | `tests/native/runtime_health_tests.cpp`, `tests/native/health_registry_tests.cpp` |
-| Harness mock speaks the same protocol as the shipped shared bridge helper, end to end | `frontend/test/devmock.mockbridge.test.ts` |
 | Built views load the shipped shared bridge helper and pass the output gates | `frontend/test/build.output.test.ts` |
 | `targetVersion` comparison feeding the "needs update" badge | `frontend/test/version.test.ts` |
-| The dev harness's traffic inspector reads 2.0 envelopes by endpoint rather than by envelope | `packages/cli/test/traffic-model.test.mjs` |
-| Scaffolding refuses malformed input and yields legal ids; the CLI suite separately checks, builds, and packages a generated-shaped project | `packages/create-osfui/test/scaffold.test.mjs`, `packages/cli/test/toolchain.test.mjs` |
-| The scenario engine and built-in mock enforce the 2.0 `(kind, name, payload, io)` contract | `packages/cli/test/mock-runtime.test.mjs` |
 
 ---
 

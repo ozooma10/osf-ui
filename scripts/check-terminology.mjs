@@ -103,8 +103,6 @@ const retiredInternalPaths = [
   'src/Views/ViewStateStore.cpp',
 	'src/Render/RendererHostRecovery.h',
   'frontend/src/lib/settings/inputContext.ts',
-  'frontend/devmock/fixtures/vanillaKeys.ts',
-  'packages/create-osfui/src/backend-templates.mjs',
 	'tests/native/renderer_host_recovery_tests.cpp',
 	'tools/webview2_host/HostCommands.inl',
 ];
@@ -167,16 +165,6 @@ checkText('frontend/test/protocol.envelope.test.ts', [
 checkText('frontend/test/settings.handshake.test.tsx', [
   [/out-of-process WebView2 backend/, 'use browser-host rendering path'],
   [/\bthe host that carries it\b/i, 'qualify the browser host'],
-]);
-checkText('frontend/osfui.config.ts', [
-  [/\bsurface `osfui dev`/, 'use view'],
-]);
-checkText('frontend/osfui.mock.ts', [
-  [/\bsimulated backend\b/, 'use simulated mod backend'],
-]);
-checkText('frontend/devmock/mockbridge.ts', [
-  [/\bkPluginVersion\b/, 'parse kOsfuiReleaseVersion from Version.h'],
-  [/\bpluginVersion\b/, 'use osfuiReleaseVersion for the bridge ready payload'],
 ]);
 for (const file of [
   'frontend/test/keybinds.conflicts.test.ts',
@@ -244,33 +232,6 @@ for (const file of [
     [/\binputContext\b/, 'use engineInputContext for the live ControlMap state'],
   ]);
 }
-checkText('packages/create-osfui/src/prompts.mjs', [
-  [/Choose a surface/, 'ask for a starter type'],
-  [/View ID/, 'ask for the local view name'],
-]);
-checkText('packages/create-osfui/src/mod-backend-templates.mjs', [
-  [/\bloaded views?\b/i, 'use instantiated views for live browser objects'],
-  [/\bcommands\b/i, 'generated capability copy should distinguish sends from requests'],
-  [/RegisterView loads/i, 'RegisterView validates a discovered view; openOnStart instantiates it'],
-  [/\bBackend (?:actions|greeting)\b/, 'qualify generated copy as mod backend'],
-]);
-for (const file of [
-  'packages/cli/src/harness-plugin.mjs',
-  'packages/create-osfui/src/mod-backend-templates.mjs',
-  'packages/create-osfui/src/cli.mjs',
-  'packages/create-osfui/test/scaffold.test.mjs',
-]) {
-  checkText(file, [
-    [/\bHOST_VERSION\b/, 'use OSFUI_RELEASE_VERSION internally; HOST_VERSION is a compatibility export'],
-  ]);
-}
-checkText('packages/create-osfui/src/cli.mjs', [
-  [/\bcommands\b/i, 'generated copy should distinguish one-way sends from requests'],
-  [/Send command/i, 'label the generated example as a one-way send'],
-  [/fire-and-forget command/i, 'call this a fire-and-forget send endpoint'],
-  [/ctx\.onCommand\s*\(\s*\(/, 'use the canonical onEndpoint mock API in generated projects'],
-  [/\bBackend (?:events|actions|enabled)\b/, 'qualify generated copy as mod backend'],
-]);
 checkText('frontend/src/lib/bridge.ts', [
   [/named mod-backend value/i, 'use named state value because platform state shares this API'],
 ]);
@@ -284,9 +245,6 @@ for (const file of [
     [/\bcontextNumericId\b/, 'use engineInputContextId on game-binding rows'],
   ]);
 }
-checkText('docs/view-toolchain.md', [
-  [/\bonCommand\b/, 'use the canonical onEndpoint mock API'],
-]);
 for (const file of [
   'frontend/src/views/osfui/settings/App.tsx',
   'frontend/src/views/osfui/settings/Detail.tsx',
@@ -297,32 +255,6 @@ for (const file of [
     [/\(\s*command\s*:/, 'name internal parameters endpoint, sendEndpoint, or requestEndpoint'],
   ]);
 }
-checkText('packages/cli/src/cli.mjs', [
-  [/\bloaded views?\b/i, 'use instantiated views for live browser objects'],
-  [/--view id\b/i, 'the CLI flag selects a local view name'],
-]);
-checkText('packages/cli/src/config.mjs', [
-  [/\bview id\b/i, 'config `id` is the local view name; qualify full view ids'],
-]);
-checkText('packages/cli/src/index.d.ts', [
-  [/<modId>\/<id>/, 'use <modId>/<viewName> for a qualified view id'],
-]);
-for (const file of [
-  'packages/cli/src/browser/mock-loader.js',
-  'packages/cli/src/browser/mock-runtime.js',
-]) {
-  checkText(file, [
-    [/\bharness\.ready\b/, 'use previewInitialized for the private CLI preview milestone'],
-  ]);
-}
-checkText('packages/cli/src/browser/bootstrap.js', [
-  [/\bready\s*\(\)\s*\{/, 'use previewInitialized for the private CLI preview milestone'],
-  [/kind\s*:\s*['"]ready['"]/, 'reserve kind:"ready" for the web bridge handshake'],
-]);
-checkText('packages/cli/src/browser/shell.js', [
-  [/event\.data\.kind\s*===\s*['"]ready['"]/, 'listen for the qualified preview-initialized event'],
-  [/Bridge ready/, 'describe the CLI milestone as preview initialized'],
-]);
 checkText('frontend/src/views/osfui/settings/manifest.json', [
   [/"title"\s*:\s*"Mods"/, 'call the built-in view Mod Settings'],
 ]);

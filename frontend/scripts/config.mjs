@@ -37,8 +37,8 @@ export const VIEWS = readdirSync(VIEWS_ROOT, { withFileTypes: true })
   })
   .sort((a, b) => `${a.mod}/${a.name}`.localeCompare(`${b.mod}/${b.name}`));
 
-// Debug-only tools stay available to `osfui dev` but are not built into the
-// install tree. Release packaging consumes this same generated artifact.
+// Debug-only views are not built into the install tree. Release packaging
+// consumes this same generated artifact.
 export const BUILD_VIEWS = VIEWS.filter((view) => view.manifest.debugOnly !== true);
 
 // Every file this build owns. verify-output asserts the emitted set matches

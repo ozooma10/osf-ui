@@ -32,10 +32,6 @@ const validate = ajv.compile(schema);
 const files = [
   // The platform's own settings card uses the one reserved mod id.
   join(REPO, 'data', 'OSFUI', 'settings', 'osfui.json'),
-  // The two `examples/` starters that used to be listed here are gone —
-  // `npm create osfui@latest -- --surface settings` generates them now, and
-  // examples/ is untracked. Scaffolder output is covered by its own suite
-  // (packages/create-osfui/test/scaffold.test.mjs).
   // Papyrus native-API test fixture: not shipped, but the runtime loads it
   // during testing, and a non-conforming fixture fails two layers away.
   join(REPO, 'tests', 'papyrus', 'osfui.paptest.json'),

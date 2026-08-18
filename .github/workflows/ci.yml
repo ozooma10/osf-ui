@@ -119,7 +119,7 @@ jobs:
       - name: Install dependencies (locked)
         run: npm ci
 
-      - name: Verify toolchain and frontend
+      - name: Verify frontend
         run: npm run verify
 
       - name: Audit (production dependencies)

@@ -11,8 +11,8 @@
  * Load-bearing quirks:
  *  - Exactly three components are compared. A fourth ("1.0.0.5") is invisible,
  *    so it can never make one version newer than another.
- *  - `parseInt` ignores trailing junk, which is how the dev harness's
- *    "1.0.0-mock" still compares sanely against a real "1.0.0".
+ *  - `parseInt` ignores trailing junk, so prerelease-like suffixes compare by
+ *    their numeric release components.
  *  - `parseInt(...) || 0` maps NaN and 0 to 0, so a non-numeric component
  *    ("1.x.0") reads as zero rather than poisoning the comparison.
  *  - Equal versions return false: strict "less than", not "<=".

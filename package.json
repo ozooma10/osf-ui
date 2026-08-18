@@ -2,22 +2,18 @@
   "name": "osfui",
   "version": "0.0.0",
   "private": true,
-  "description": "OSF UI runtime, built-in views, and view-authoring toolchain.",
+  "description": "OSF UI runtime and built-in views.",
   "license": "GPL-3.0-or-later",
   "engines": {
     "node": ">=20.19"
   },
   "workspaces": [
-    "packages/*",
     "frontend"
   ],
   "scripts": {
-    "dev": "node scripts/dev.mjs",
     "build": "npm run build --workspace osfui-frontend",
     "check:terminology": "node scripts/check-terminology.mjs",
-    "test:toolchain": "npm test --workspace @osfui/cli",
-    "test:scaffolder": "npm test --workspace create-osfui",
-    "test": "npm run test:toolchain && npm run test:scaffolder && npm test --workspace osfui-frontend",
-    "verify": "npm run check:terminology && npm run test:toolchain && npm run test:scaffolder && npm run verify --workspace osfui-frontend"
+    "test": "npm test --workspace osfui-frontend",
+    "verify": "npm run check:terminology && npm run verify --workspace osfui-frontend"
   }
 }

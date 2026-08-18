@@ -8,9 +8,7 @@ import { join } from 'node:path';
 import { BUILD_VIEWS, OUT, FRONTEND, expectedOutputs, walk } from './config.mjs';
 import { composeHelper } from './compose-helper.mjs';
 
-// Identifiers that exist only in the dev mock (frontend/devmock/). Any of
-// them in a shipped bundle means the DEV-branch dead-code elimination
-// silently stopped working.
+// Test-only identifiers that must never leak into a shipped bundle.
 const DEV_SENTINELS = [
   'OSFUI_MOD_ASSET_ROOTS',
   'acme.shipworks',

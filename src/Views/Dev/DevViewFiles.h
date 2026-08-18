@@ -13,7 +13,7 @@ namespace OSFUI::DevViewFiles
 	// views/<modId>/<viewName>: the bundler emits hashed chunks to a mod-level
 	// sibling (views/<modId>/assets/) that the entry HTML reaches through
 	// "../assets/...", built-ins keep shared scripts there too (osfui/padnav.js),
-	// and `osfui dev` deploys views/<modId> as one unit. Fingerprint and mirror
+	// and a mod deploys views/<modId> as one unit. Fingerprint and mirror
 	// at this scope — watching only the view folder sees the rewritten
 	// index.html but copies none of the bundles it now points at, so the reload
 	// lands on ERR_FILE_NOT_FOUND for a hashed chunk that was never mirrored.
