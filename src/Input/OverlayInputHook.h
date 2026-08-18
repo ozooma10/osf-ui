@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace OSFUI
 {
 	// Subclasses the game's main window procedure (SetWindowLongPtr on the
@@ -41,5 +43,13 @@ namespace OSFUI
 		// For platform facts keyed to the window's thread — notably the
 		// keyboard layout the label pipeline reads (Platform::MakeKeyLabelSource).
 		[[nodiscard]] void* GameWindowHandle();
+
+		namespace detail
+		{
+			[[nodiscard]] constexpr bool OriginalMovedAboveUs(const std::uintptr_t a_current, const std::uintptr_t a_ours, const std::uintptr_t a_original)
+			{
+				return a_current != a_ours && a_current == a_original;
+			}
+		}
 	}
 }

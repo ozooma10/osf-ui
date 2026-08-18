@@ -52,25 +52,6 @@ namespace OSFUI
 	public:
 		static constexpr std::string_view MENU_NAME = "OSFUI_FocusMenu";
 
-		// Not set: on an admitted menu this summons the engine's Scaleform cursor
-		// arrow, which freezes at screen center (the WndProc swallow starves it of
-		// mouse input). The hardware cursor is the pointer.
-		static constexpr std::uint32_t kFlagShowCursor = 1u << 3;
-		// Top-of-stack modal selector, not set: once the menu is admitted kModal
-		// makes the engine treat us as a full application menu and stop rendering
-		// the 3D world behind the overlay (opaque black). World-visible engine
-		// menus have it clear, full-screen ones have it set. Not needed for input
-		// either — that gate is bit 4. Named constant for reference only.
-		static constexpr std::uint32_t kFlagModal      = 1u << 8;
-		// Cosmetic freeze-frame/letterbox latch only; the real pause flag is bit 1,
-		// and OSF UI pauses via UI::ModifyMenuPauseCounter in Input/SimPause rather
-		// than menu flags. Only consulted when the menu is the top kModal menu (we
-		// are not). Letterbox, if ever wanted: menu->Unk0E(&menuName, bool) with
-		// this bit (CLSF ID::IMenu::Unk0E{130622}, live-proven — but
-		// latch-on-non-modal is an unnatural state; soak before shipping). Named
-		// constant for reference only.
-		static constexpr std::uint32_t kFlagFreezeFrameLatch = 1u << 27;
-
 		// Platform-facing API; call from the game main thread.
 
 		// Register the menu name + creator with RE::UI. Idempotent; call on the
@@ -94,6 +75,10 @@ namespace OSFUI
 		// in a live run). Main thread.
 		[[nodiscard]] static bool IsOpenInEngine();
 
+		// Worker-safe capture policy for the BSInputEventUser receiver installed
+		// on this menu. Captured gamepad events are marked kStop so Starfield does
+		// not act on the same buttons or thumbsticks routed through XInput.
+		static void SetGamepadCapture(bool a_capture);
 
 		// Creator handed to RE::UI::RegisterMenu (UIMenuEntry::Create_t).
 		static RE::Scaleform::Ptr<RE::IMenu>* Creator(RE::Scaleform::Ptr<RE::IMenu>* a_out);

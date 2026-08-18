@@ -11,8 +11,6 @@ namespace OSFUI
 	// Runtime::OnGameWindowMouse* with a button index (0=left, 1=right, 2=middle).
 	using KeyCode = std::uint32_t;
 
-	inline constexpr KeyCode kInvalidKeyCode = 0;
-
 	// Canonical BINDING identity: the physical key, as a set-1 make code in
 	// the DirectInput convention (0x80 | base for 0xE0-prefixed extended keys)
 	// — the same space the engine's controlmap hex tokens use. VKs are what

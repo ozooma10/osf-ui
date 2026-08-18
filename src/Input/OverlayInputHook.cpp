@@ -3,11 +3,7 @@
 #include "Core/Log.h"
 #include "Input/HardwareCursor.h"
 #include "Input/ScanCode.h"
-#include "Input/WndProcChain.h"
 #include "Platform/WindowsPlatform.h"
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-#	include "Input/WorldSurfaceActivateSink.h"
-#endif
 #include "Runtime/Runtime.h"
 
 // Keep <Windows.h> confined to this file. NOGDI stops wingdi's ERROR macro
@@ -201,9 +197,6 @@ namespace OSFUI::OverlayInputHook
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
 				const bool repeat = (a_lparam & 0x40000000) != 0;
-#if defined(OSFUI_WITH_WORLD_SURFACES)
-				WorldSurfaceActivateSink::OnKeyDown(vk, repeat);
-#endif
 				// Drive toggle/web-routing on the initial press only so key
 				// auto-repeat can't re-toggle the overlay.
 				const bool consume = repeat ? runtime.IsInputCaptured() :

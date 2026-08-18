@@ -7,7 +7,6 @@
 #include "Bindings/InputModes.h"
 #include "Core/Log.h"
 #include "Input/ControlLayer.h"
-#include "Input/EngineInput.h"
 #include "Input/FocusMenu.h"
 #include "Input/KeyNames.h"
 #include "Input/MenuMode.h"
@@ -233,7 +232,7 @@ namespace OSFUI
 	void Runtime::ReconcileControlLayer()
 	{
 		ControlLayer::Apply(_presentation.DesiredCapture());
-		EngineInput::SetGamepadCapture(IsInputCaptured());
+		FocusMenu::SetGamepadCapture(IsInputCaptured());
 	}
 
 	void Runtime::DrainKeyCapture()

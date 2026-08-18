@@ -1,8 +1,7 @@
 #include "Input/FocusMenu.h"
 
-#include "Input/EngineInput.h"
-
 #include "RE/B/BSFixedString.h"
+#include "RE/B/BSInputEventUser.h"
 #include "RE/IDs_VTABLE.h"
 #include "RE/I/IMenu.h"
 #include "RE/S/ScaleformPtr.h"
@@ -20,14 +19,90 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Set on the load thread (Register), read on the main thread (Open/Close
-		// from Runtime::Tick).
+		// Set on the load thread (Register), read on the main thread (Open/Close from Runtime::Tick).
 		std::atomic_bool g_registered{ false };
 
-		// One interned BSFixedString for the menu name (AddMessage takes a ref).
+		// focus menu's +0x10 BSInputEventUser receiver is also engine-side gamepad capture gate.
+		constexpr std::size_t kReceiverSlots = 10;
+		std::atomic_bool      g_receiverBuilt{ false };
+		void*                 g_receiverStore[kReceiverSlots + 1]{};
+		void** const          g_receiverVtable = &g_receiverStore[1];
+		std::atomic_bool      g_gamepadCapture{ false };
+
+		bool Receiver_ShouldHandleEvent(void*, const RE::InputEvent*)
+		{
+			return true;
+		}
+
+		void ConsumeGamepadEvent(const void* a_event)
+		{
+			const_cast<RE::InputEvent*>(static_cast<const RE::InputEvent*>(a_event))->status = RE::InputEvent::Status::kStop;
+		}
+
+		void Receiver_OnThumbstick(void*, const void* a_event)
+		{
+			if (a_event && g_gamepadCapture.load(std::memory_order_relaxed)) {
+				ConsumeGamepadEvent(a_event);
+			}
+		}
+
+		void Receiver_OnCursorMove(void*, const void*) {}
+		void Receiver_OnMouseMove(void*, const void*) {}
+
+		void Receiver_OnCharacter(void*, const void* a_event)
+		{
+			if (a_event && Log::DebugEnabled()) {
+				REX::DEBUG("FocusMenu: input char U+{:04X}", *reinterpret_cast<const std::uint32_t*>(reinterpret_cast<const std::uint8_t*>(a_event) + 0x28));
+			}
+		}
+
+		void Receiver_OnButton(void*, const RE::ButtonEvent* a_event)
+		{
+			if (!a_event) {
+				return;
+			}
+			if (a_event->deviceType == RE::InputEvent::DeviceType::kGamepad &&
+				g_gamepadCapture.load(std::memory_order_relaxed)) {
+				ConsumeGamepadEvent(a_event);
+			}
+			if (Log::DebugEnabled()) {
+				REX::DEBUG("FocusMenu: input button dev={} id={:#x} value={:.2f} held={:.2f}", static_cast<std::uint32_t>(a_event->deviceType), a_event->idCode, a_event->value, a_event->heldDownSecs);
+			}
+		}
+
+		void BuildReceiverVtable()
+		{
+			if (g_receiverBuilt.load(std::memory_order_acquire)) {
+				return;
+			}
+			// RE::VTABLE::IMenu = { 475515 primary, 475519 (+0x50 event sink), 475517 (+0x10 BSInputEventUser) }. Preserve the RTTI COL at [-1].
+			static REL::Relocation<std::uintptr_t> engineVtbl{ RE::VTABLE::IMenu[2] };
+			const auto* src = reinterpret_cast<void* const*>(engineVtbl.address());
+			g_receiverStore[0] = src[-1];
+			for (std::size_t i = 0; i < kReceiverSlots; ++i) {
+				g_receiverVtable[i] = src[i];
+			}
+			g_receiverVtable[1] = reinterpret_cast<void*>(&Receiver_ShouldHandleEvent);
+			g_receiverVtable[4] = reinterpret_cast<void*>(&Receiver_OnThumbstick);
+			g_receiverVtable[5] = reinterpret_cast<void*>(&Receiver_OnCursorMove);
+			g_receiverVtable[6] = reinterpret_cast<void*>(&Receiver_OnMouseMove);
+			g_receiverVtable[7] = reinterpret_cast<void*>(&Receiver_OnCharacter);
+			g_receiverVtable[8] = reinterpret_cast<void*>(&Receiver_OnButton);
+			g_receiverBuilt.store(true, std::memory_order_release);
+		}
+
+		void InstallInputReceiver(void* a_menuObj)
+		{
+			if (!a_menuObj) {
+				return;
+			}
+			BuildReceiverVtable();
+			*reinterpret_cast<void**>(static_cast<std::uint8_t*>(a_menuObj) + 0x10) = &g_receiverVtable[0];
+			REX::DEBUG("FocusMenu: gamepad capture gate installed on menu obj=0x{:016X} (+0x10 vtable copy)", reinterpret_cast<std::uintptr_t>(a_menuObj));
+		}
+
 		const RE::BSFixedString& MenuName()
 		{
-			// The engine string table may already be tearing down at DLL detach.
 			static auto* const name = new RE::BSFixedString(FocusMenu::MENU_NAME.data());
 			return *name;
 		}
@@ -199,7 +274,7 @@ namespace OSFUI
 		// visible to us. Additive — base-init already
 		// installed the real receiver vtable and the enabled byte (+0x38=1); we only
 		// redirect the six observed slots.
-		EngineInput::InstallReceiver(obj);
+		InstallInputReceiver(obj);
 
 		// Store the raw object into the out-Ptr without going through Ptr(Y*), which
 		// would AddRef via our vtable. Scaleform::Ptr is { T* }.
@@ -262,6 +337,13 @@ namespace OSFUI
 			}
 		}
 		return false;
+	}
+
+	void FocusMenu::SetGamepadCapture(bool a_capture)
+	{
+		if (g_gamepadCapture.exchange(a_capture, std::memory_order_relaxed) != a_capture) {
+			REX::DEBUG("FocusMenu: gamepad capture gate {} (Starfield {} controller input)", a_capture ? "ON" : "off", a_capture ? "no longer receives" : "receives");
+		}
 	}
 
 	void FocusMenu::Open()
