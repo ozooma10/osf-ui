@@ -5,7 +5,7 @@
 #include "Core/Log.h"
 #include "REL/Utility.h"
 
-#include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
+#include "Composite/D3D12Prologue.h" 
 
 #include <d3dcompiler.h>
 
@@ -25,8 +25,7 @@ namespace OSFUI
 
 		using osfui::win32::SafeRelease;
 
-		// Fullscreen triangle from SV_VertexID (no vertex buffer). UV (0,0) is
-		// the top-left so the texture's row 0 lands at the top of the screen.
+		// Fullscreen triangle from SV_VertexID (no vertex buffer). UV (0,0) is the top-left so the texture's row 0 lands at the top of the screen.
 		constexpr const char* kVertexShader = R"(
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
 VSOut main(uint id : SV_VertexID) {
@@ -37,8 +36,7 @@ VSOut main(uint id : SV_VertexID) {
 }
 )";
 
-		// The overlay texture is BGRA8 premultiplied alpha. Sample straight
-		// through; the premultiplied-over blend is configured in the PSO.
+		// The overlay texture is BGRA8 premultiplied alpha. Sample straight through; the premultiplied-over blend is configured in the PSO.
 		constexpr const char* kPixelShader = R"(
 Texture2D    gTex : register(t0);
 SamplerState gSmp : register(s0);
@@ -47,30 +45,19 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 }
 )";
 
-
 		std::atomic<void*> g_overlay{ nullptr };  // D3D12Compositor::Impl*
 
-		// Bridge for the UI-pass draw hook: Impl is private to the class, so the
-		// free function RecordOverlayIntoUIBuffer goes through a pointer that only
-		// Impl (which can name itself) installs at setup.
 		using OverlayDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool, bool);
 		std::atomic<OverlayDrawFn> g_overlayDrawFn{ nullptr };
 
-		using ExecuteCommandListsFn = void (STDMETHODCALLTYPE*)(
-			ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
-		using QueueExecutedFn = void (*)(
-			ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
+		using ExecuteCommandListsFn = void (STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
+		using QueueExecutedFn = void (*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
 		std::atomic<ExecuteCommandListsFn> g_origExecuteCommandLists{ nullptr };
 		std::atomic<QueueExecutedFn> g_queueExecutedFn{ nullptr };
 		constexpr std::size_t kExecuteCommandListsSlot = 10;
 
-		void STDMETHODCALLTYPE ExecuteCommandListsThunk(
-			ID3D12CommandQueue* a_queue,
-			const UINT a_count,
-			ID3D12CommandList* const* a_lists)
+		void STDMETHODCALLTYPE ExecuteCommandListsThunk(ID3D12CommandQueue* a_queue, const UINT a_count, ID3D12CommandList* const* a_lists)
 		{
-			// Forward first. Consume fences must be queued after the command
-			// lists that actually sampled their shared texture.
 			if (const auto original = g_origExecuteCommandLists.load(std::memory_order_acquire)) {
 				original(a_queue, a_count, a_lists);
 			}
@@ -83,12 +70,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		{
 			ID3DBlob* code = nullptr;
 			ID3DBlob* errors = nullptr;
-			const auto hr = ::D3DCompile(a_src, std::strlen(a_src), nullptr, nullptr, nullptr,
-				a_entry, a_target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
+			const auto hr = ::D3DCompile(a_src, std::strlen(a_src), nullptr, nullptr, nullptr, a_entry, a_target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
 			if (FAILED(hr)) {
-				REX::ERROR("D3D12Compositor: shader '{}' compile failed (hr=0x{:08X}): {}",
-					a_target, static_cast<std::uint32_t>(hr),
-					errors ? static_cast<const char*>(errors->GetBufferPointer()) : "no message");
+				REX::ERROR("D3D12Compositor: shader '{}' compile failed (hr=0x{:08X}): {}", a_target, static_cast<std::uint32_t>(hr), errors ? static_cast<const char*>(errors->GetBufferPointer()) : "no message");
 			}
 			SafeRelease(errors);
 			return code;
@@ -100,7 +84,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		EngineD3D12   engine{};
 		std::atomic_bool visible{ false };
 
-		// The engine's UI target is the authoritative output size.
 		OutputResizeCallback onOutputResize;
 		std::uint32_t        notifiedOutputW{ 0 };
 		std::uint32_t        notifiedOutputH{ 0 };
@@ -110,25 +93,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool setupAttempted{ false };
 		bool setupOk{ false };
 
-		// GPU shared-ring transport (out-of-process browser host). SetSharedRing
-		// (game thread) parks the announced ring here; Submit adopts it once the
-		// engine device has been located. The compositor owns the handles from
-		// SetSharedRing on.
-		//
-		// All GPU work happens inside the engine's UI pass. ringMutex guards the
-		// opened ring between Submit (adoption) and the render workers (sampling).
-		std::mutex        ringMutex;
-		// One descriptor is enough: the whole create-and-bind sequence runs
-		// under ringMutex, and OMSetRenderTargets snapshots the CPU descriptor
-		// at record time, so it is free for reuse the moment the call returns.
+		std::mutex ringMutex;
+
 		ID3D12DescriptorHeap* rtvHeap{ nullptr };  // typed RTV onto the engine's (typeless) UI buffers
 		struct PendingConsume
 		{
 			ID3D12Fence* fence{ nullptr };
 			std::uint64_t serial{ 0 };
 		};
-		// A consume is acknowledged only by the queue hook, after the engine
-		// submits the command list containing our draw.
+
 		std::mutex pendingConsumeMutex;
 		std::unordered_map<ID3D12CommandList*, PendingConsume> pendingConsumes;
 		std::atomic_bool consumeSignalFailureLogged{ false };
@@ -136,16 +109,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::atomic_bool overlayDrawLogged{ false };
 		std::atomic_bool overlayDrawFgTargetLogged{ false };
 		bool          noSharedFrameLogged{ false };  // ringMutex
-		// Newest slot whose produce fence is CPU-verified complete. The draw
-		// cannot queue-wait on the browser host's fence (not our queue), and skipping
-		// incomplete frames flickers under rapid production (mouse-move
-		// repaints, 2026-07-21) — so an incomplete newest frame falls back to
-		// this one instead: one frame stale, never absent.
+
 		std::uint32_t readySlot{ 0 };    // ringMutex
 		std::uint64_t readySerial{ 0 };  // ringMutex
-		// The previous ring generation is retired, not released, on adoption:
-		// overlay draws live inside ENGINE command lists that our idle fence
-		// cannot cover, so the old textures must outlive one more adoption.
+
 		ID3D12Resource* retiredSlots[SharedRingDesc::kMaxSlots]{};
 		ID3D12Fence*    retiredProduce{ nullptr };
 		ID3D12Fence*    retiredConsume{ nullptr };
@@ -153,27 +120,23 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::mutex     sharedMutex;
 		SharedRingDesc sharedPending{};
 		bool           sharedDirty{ false };
+		
 		// Opened on the engine device and guarded by ringMutex:
 		ID3D12Resource* sharedSlots[SharedRingDesc::kMaxSlots]{};
 		std::uint32_t   sharedSlotCount{ 0 };
 		ID3D12Fence*    sharedProduce{ nullptr };
 		ID3D12Fence*    sharedConsume{ nullptr };
-		// Latest published ring frame (guarded by frameMutex). sharedFrameReady
-		// stays false until the browser host has submitted its first shared-slot frame.
+		// Latest published ring frame (guarded by frameMutex). sharedFrameReady stays false until the browser host has submitted its first shared-slot frame.
 		std::mutex    frameMutex;
 		std::uint64_t lastSubmittedIndex{ 0 };
 		bool          sharedFrameReady{ false };
 		std::uint32_t gpuSlot{ 0 };
 		std::uint64_t gpuSerial{ 0 };
 
-		// Shared GPU objects, created once.
 		ID3D12Fence*          fence{ nullptr };
 		HANDLE                fenceEvent{ nullptr };
 		std::uint64_t         nextFenceValue{ 1 };
 		ID3D12RootSignature*  rootSig{ nullptr };
-		// Starfield uses RGBA8; Luma upgrades the same UI target to RGBA16F. PSO
-		// RTV formats are immutable, so keep one lazy pipeline for each supported
-		// target rather than attempting an invalid cross-format bind.
 		struct OverlayPipeline
 		{
 			DXGI_FORMAT format{ DXGI_FORMAT_UNKNOWN };
@@ -190,9 +153,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		ID3DBlob*             vsBlob{ nullptr };
 		ID3DBlob*             psBlob{ nullptr };
 
-		// The UI pass reports whether this render region contains the transparent
-		// RT->COPY_SOURCE hand-off used by Frame Generation. The previous region's
-		// observation selects the safe target at the start of the next region.
 		std::atomic_bool frameGenActiveSignal{ false };
 		std::atomic_bool regionSawFgTarget{ false };
 		std::atomic_bool fgClassificationKnown{ false };
@@ -208,8 +168,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (gpuIdle && !hasUnsubmittedDraws) {
 				ReleaseSharedRing();
 			} else {
-				REX::ERROR("D3D12Compositor: retaining GPU objects during shutdown because "
-						   "recorded overlay work could not be proven idle");
+				REX::ERROR("D3D12Compositor: retaining GPU objects during shutdown because recorded overlay work could not be proven idle");
 			}
 			ReleasePendingConsumes();
 			{
@@ -244,9 +203,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			};
 		}
 
-		// Drain the engine's DIRECT queue up to this point. We submit no work of
-		// our own any more, but overlay draws ride ENGINE command lists on this
-		// queue, so this is what makes retiring a ring generation safe.
 		[[nodiscard]] bool WaitForGpuIdle()
 		{
 			if (!fence || !fenceEvent || !engine.directQueue) {
