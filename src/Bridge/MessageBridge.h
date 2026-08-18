@@ -71,6 +71,8 @@ namespace OSFUI
 		// those faults count toward the local `view.protocol-misuse` health issue.
 		using ProtocolFaultSink = std::function<void(std::string_view a_viewId, std::string_view a_code,
 			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)>;
+		// Adapter cleanup invoked only when the bridge drops a deferred request before RespondTo/RejectTo can settle it (deadline or view teardown).
+		using DeferredDropHandler = std::function<void()>;
 
 		explicit MessageBridge(SendFn a_send);
 
@@ -89,9 +91,6 @@ namespace OSFUI
 		void UnregisterSend(std::string_view a_name);
 		void UnregisterRequest(std::string_view a_name);
 		void UnregisterCommand(std::string_view a_name);
-
-		[[nodiscard]] bool HasSend(std::string_view a_name) const;
-		[[nodiscard]] bool HasRequest(std::string_view a_name) const;
 
 		// ---- inbound ------------------------------------------------------
 		// Entry point for web -> native messages (raw JSON text) from a given
@@ -118,7 +117,7 @@ namespace OSFUI
 		// promise. The page id survives on the Pending entry as the wire echo.
 		// Returns "" when called outside an unsettled request (nothing to
 		// settle later).
-		[[nodiscard]] std::string Defer();
+		[[nodiscard]] std::string Defer(DeferredDropHandler a_onDropped = {});
 
 		// Settle a deferred request by the token Defer() returned. A stale
 		// token (already settled, expired or reaped with its view) is ignored —
@@ -162,8 +161,6 @@ namespace OSFUI
 		// Drop the gate, its queued events, and every deferred request the view
 		// still owns.
 		void OnViewDestroyed(std::string_view a_viewId);
-		// True once the view's document has greeted the bridge.
-		[[nodiscard]] bool HasGreeted(std::string_view a_viewId) const;
 		[[nodiscard]] bool IsLegacyApiView(std::string_view a_viewId) const;
 
 		void SetHelloHook(HelloHook a_hook) { _onHello = std::move(a_hook); }
@@ -178,11 +175,6 @@ namespace OSFUI
 		// endpoint default to its caller, e.g. a view hiding itself without
 		// knowing its own id.
 		[[nodiscard]] std::string_view CurrentSource() const { return _currentSource; }
-		// Correlation id of the in-flight request ("" when a send is in flight
-		// or nothing is).
-		[[nodiscard]] std::string_view CurrentRequestId() const { return _currentRequestId; }
-		// Endpoint name of the in-flight message.
-		[[nodiscard]] std::string_view CurrentName() const { return _currentName; }
 
 		// Report an OSF UI runtime-detected fault to a view (errors the page would
 		// otherwise never hear about). Public so the API layer can route
@@ -199,6 +191,7 @@ namespace OSFUI
 			std::string                           requestId;  // the PAGE's id, echoed on the wire
 			std::string                           name;
 			std::chrono::steady_clock::time_point deadline;
+			DeferredDropHandler                   onDropped;
 		};
 		struct Gate
 		{

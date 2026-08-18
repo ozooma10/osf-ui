@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <condition_variable>
 #include <thread>
 #include <unordered_set>
@@ -142,7 +141,7 @@ namespace OSFUI::API
 		void SetBridgeAvailability(MessageBridge* a_bridge);
 		// Main thread; call each tick. (Re)applies the endpoint registry to the available
 		// bridge, flushes queued sends, fires the compatibility availability callback once.
-		void PumpMainThread(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
+		void PumpMainThread();
 
 	private:
 		BridgeApi() = default;
@@ -173,7 +172,6 @@ namespace OSFUI::API
 			std::string view;
 			std::string deferToken;  // MessageBridge::Defer()'s token, not the page's request id
 			std::string name;
-			std::chrono::steady_clock::time_point deadline;
 			bool answered{ false };
 			bool rejected{ false };
 			bool legacyReply{ false };
@@ -199,6 +197,7 @@ namespace OSFUI::API
 		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
 		void RespondRequest(std::uint64_t, const char*, const char*) noexcept;
 		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
+		void DropInflightRequest(std::uint64_t) noexcept;
 		void DispatchRequest(const std::string&, const RequestRegistration&,
 			const nlohmann::json&, MessageBridge&);
 		std::mutex                                    _mutex;

@@ -21,7 +21,7 @@ namespace OSFUI
 		// are dumped by the encoders, and dump() throws type_error.316 on a
 		// split UTF-8 sequence — the caller here is the web-message callback,
 		// which runs with no handler between it and std::terminate.
-		constexpr std::size_t kMaxEchoedNameLength = 128;
+		constexpr std::size_t kMaxEndpointNameLength = 128;
 
 		// Events emitted before a document greets the bridge are held per view.
 		// This is what preserves the native ABI's message-before-first-paint
@@ -45,8 +45,21 @@ namespace OSFUI
 
 		[[nodiscard]] std::string BoundedEcho(std::string_view a_s)
 		{
-			return std::string{ a_s.substr(0, StringUtil::Utf8TruncateLen(a_s, kMaxEchoedNameLength)) };
+			return std::string{ a_s.substr(0, StringUtil::Utf8TruncateLen(a_s, kMaxEndpointNameLength)) };
 		}
+
+		class ScopeExit
+		{
+		public:
+			explicit ScopeExit(std::function<void()> a_fn) : _fn(std::move(a_fn)) {}
+			~ScopeExit() { _fn(); }
+
+			ScopeExit(const ScopeExit&) = delete;
+			ScopeExit& operator=(const ScopeExit&) = delete;
+
+		private:
+			std::function<void()> _fn;
+		};
 
 		// JSON string literal for a value we control the bounds of.
 		[[nodiscard]] std::string Quote(std::string_view a_s)
@@ -120,16 +133,6 @@ namespace OSFUI
 		_commands.erase(std::string(a_name));
 	}
 
-	bool MessageBridge::HasSend(std::string_view a_name) const
-	{
-		return _sends.contains(std::string(a_name));
-	}
-
-	bool MessageBridge::HasRequest(std::string_view a_name) const
-	{
-		return _requests.contains(std::string(a_name));
-	}
-
 	// -----------------------------------------------------------------------
 	// inbound
 	// -----------------------------------------------------------------------
@@ -144,16 +147,16 @@ namespace OSFUI
 		_inMessage = true;
 		_trace.clear();
 
-		// Every early return below lands on the same exit path, so the trace
-		// line and the in-flight context are cleaned up exactly once.
-		const auto finish = [this] {
+		// The transport catches handler exceptions above us. This guard still restores the in-flight context while the exception unwinds, so a later Respond/Reject cannot accidentally settle the abandoned request.
+		const ScopeExit cleanup([this] {
 			_inMessage = false;
-			REX::DEBUG("MessageBridge: '{}' from view '{}' -> {}", _currentName, _currentSource,
-				_trace.empty() ? std::string_view{ "(nothing)" } : std::string_view{ _trace });
+			REX::DEBUG("MessageBridge: '{}' from view '{}' -> {}", _currentName, _currentSource, _trace.empty() ? std::string_view{ "(nothing)" } : std::string_view{ _trace });
+			_currentSource.clear();
 			_currentRequestId.clear();
 			_currentName.clear();
 			_settled = false;
-		};
+			_trace.clear();
+		});
 
 		const auto msg = Json::Parse(a_json);
 		if (!msg || !msg->is_object()) {
@@ -161,68 +164,67 @@ namespace OSFUI
 			// honest channel is the log plus the offending view's own console.
 			ReportProtocolFault(a_viewId, "invalid-request", "malformed message", {});
 			NoteTracedReply("invalid-request");
-			finish();
 			return;
 		}
 
-		const auto kind = Json::Get(*msg, "kind", "");
-		const auto name = BoundedEcho(Json::Get(*msg, "name", ""));
+		const auto kindIt = msg->find("kind");
+		if (kindIt == msg->end() || !kindIt->is_string()) {
+			ReportProtocolFault(a_viewId, "invalid-request", "kind is required and must be a string", {});
+			NoteTracedReply("invalid-request");
+			return;
+		}
+		const auto& kind = kindIt->get_ref<const std::string&>();
+		const auto nameIt = msg->find("name");
+		if (nameIt == msg->end() || !nameIt->is_string()) {
+			ReportProtocolFault(a_viewId, "invalid-request", "name is required and must be a string", { { "kind", BoundedEcho(kind) } });
+			NoteTracedReply("invalid-request");
+			return;
+		}
+		const auto& rawName = nameIt->get_ref<const std::string&>();
+		const auto name = BoundedEcho(rawName);
 		_currentName = name;
 
 		if (kind != "send" && kind != "request") {
-			ReportProtocolFault(a_viewId, "invalid-request", "kind must be \"send\" or \"request\"",
-				{ { "kind", BoundedEcho(kind) }, { "name", name } });
+			ReportProtocolFault(a_viewId, "invalid-request", "kind must be \"send\" or \"request\"", { { "kind", BoundedEcho(kind) }, { "name", name } });
 			NoteTracedReply("invalid-request");
-			finish();
 			return;
 		}
-		if (name.empty()) {
-			ReportProtocolFault(a_viewId, "invalid-request", "a message needs a non-empty endpoint name",
-				{ { "kind", kind } });
+		if (rawName.empty() || rawName.size() > kMaxEndpointNameLength) {
+			ReportProtocolFault(a_viewId, "invalid-request",
+				std::format("name is required and must be at most {} bytes", kMaxEndpointNameLength), { { "kind", kind } });
 			NoteTracedReply("invalid-request");
-			finish();
 			return;
 		}
 
-		// Routing metadata sits beside the payload, so a payload field can
-		// never override it. A present-but-non-object payload is a client bug,
-		// not something to coerce.
-		nlohmann::json payload = nlohmann::json::object();
-		if (const auto it = msg->find("payload"); it != msg->end() && !it->is_null()) {
-			if (!it->is_object()) {
-				ReportProtocolFault(a_viewId, "invalid-request", "payload must be an object",
-					{ { "kind", kind }, { "name", name } });
-				NoteTracedReply("invalid-request");
-				finish();
-				return;
-			}
-			payload = *it;
+		// Routing metadata sits beside the payload, so a payload field can never override it. The wire contract requires an object even when it is empty;
+		const auto payloadIt = msg->find("payload");
+		if (payloadIt == msg->end() || !payloadIt->is_object()) {
+			ReportProtocolFault(a_viewId, "invalid-request", "payload is required and must be an object", { { "kind", kind }, { "name", name } });
+			NoteTracedReply("invalid-request");
+			return;
 		}
+		const auto& payload = *payloadIt;
 
 		const auto idIt = msg->find("id");
-		const bool hasId = idIt != msg->end() && !idIt->is_null();
 
 		if (kind == "send") {
 			// `id` is forbidden on a send: a caller that supplied one expects a
 			// settlement it will never get, and answering one would resurrect
 			// the 1.x auto-ack.
-			if (hasId) {
+			if (idIt != msg->end()) {
 				ReportProtocolFault(a_viewId, "invalid-request", "send messages carry no id — use a request",
 					{ { "name", name } });
 				NoteTracedReply("invalid-request");
-				finish();
 				return;
 			}
 			DispatchSend(name, payload);
-			finish();
 			return;
 		}
 
-		if (!hasId || !idIt->is_string()) {
+		if (idIt == msg->end() || !idIt->is_string()) {
 			ReportProtocolFault(a_viewId, "invalid-request", "requests carry a string id",
 				{ { "name", name } });
 			NoteTracedReply("invalid-request");
-			finish();
 			return;
 		}
 		const auto& id = idIt->get_ref<const std::string&>();
@@ -231,11 +233,9 @@ namespace OSFUI
 				std::format("request id must be 1-{} characters", kMaxRequestIdLength),
 				{ { "name", name } });
 			NoteTracedReply("invalid-request");
-			finish();
 			return;
 		}
 		DispatchRequest(name, id, payload);
-		finish();
 	}
 
 	void MessageBridge::DispatchSend(const std::string& a_name, const nlohmann::json& a_payload)
@@ -425,7 +425,7 @@ namespace OSFUI
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
 
-	std::string MessageBridge::Defer()
+	std::string MessageBridge::Defer(DeferredDropHandler a_onDropped)
 	{
 		if (_currentRequestId.empty() || _settled) {
 			REX::WARN("MessageBridge: Defer() outside an unsettled request ('{}')", _currentName);
@@ -440,6 +440,7 @@ namespace OSFUI
 			.requestId = _currentRequestId,
 			.name = _currentName,
 			.deadline = std::chrono::steady_clock::now() + kRequestDeadline,
+			.onDropped = std::move(a_onDropped),
 		};
 		NoteTracedReply("deferred");
 		return token;
@@ -661,21 +662,18 @@ namespace OSFUI
 		// Reap the view's deferred requests: nothing can be delivered to a page
 		// that is gone, and leaving them pending would hold the view's capacity
 		// for the process lifetime.
+		std::vector<DeferredDropHandler> dropped;
 		for (auto it = _pending.begin(); it != _pending.end();) {
 			if (it->second.view == a_viewId) {
 				REX::DEBUG("MessageBridge: reaped in-flight request '{}' — view '{}' went away",
 					it->second.name, a_viewId);
+				if (it->second.onDropped) dropped.push_back(std::move(it->second.onDropped));
 				it = _pending.erase(it);
 			} else {
 				++it;
 			}
 		}
-	}
-
-	bool MessageBridge::HasGreeted(std::string_view a_viewId) const
-	{
-		const auto it = _gates.find(std::string(a_viewId));
-		return it != _gates.end() && it->second.greeted;
+		for (auto& cleanup : dropped) cleanup();
 	}
 
 	bool MessageBridge::IsLegacyApiView(std::string_view a_viewId) const
@@ -699,6 +697,7 @@ namespace OSFUI
 			}
 		}
 		for (const auto& req : expired) {
+			if (req.onDropped) req.onDropped();
 			REX::WARN("MessageBridge: '{}' from view '{}' missed the {}s OSF UI runtime deadline",
 				req.name, req.view, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count());
 			// The PAGE's id, not the map key: a token the page never saw would

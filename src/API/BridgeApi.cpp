@@ -47,7 +47,6 @@ namespace OSFUI::API
 		constexpr std::size_t kMaxPendingHealthIssueOps = 256;
 
 		constexpr std::size_t kMaxInflightRequestsPerView = 64;
-		constexpr auto kRequestTimeout = std::chrono::seconds(30);
 
 		bool ValidateHealthReporter(std::string_view a_fn, const char* a_modId)
 		{
@@ -542,6 +541,12 @@ namespace OSFUI::API
 		it->second.message = message ? message : "";
 	}
 
+	void BridgeApi::DropInflightRequest(std::uint64_t a_token) noexcept
+	{
+		std::lock_guard lock(_mutex);
+		_inflightRequests.erase(a_token);
+	}
+
 	void BridgeApi::DispatchRequest(const std::string& name, const RequestRegistration& reg,
 		const nlohmann::json& payload, MessageBridge& bridge)
 	{
@@ -550,7 +555,8 @@ namespace OSFUI::API
 		// does not before dispatch ever happens — so there is no
 		// "request-id-required" case left to answer.
 		Request request;
-		std::string payloadJson;
+		const std::string payloadJson = Json::Dump(payload);
+		std::uint64_t token = 0;
 		{
 			std::lock_guard lock(_mutex);
 			const auto count = static_cast<std::size_t>(std::ranges::count_if(
@@ -558,27 +564,21 @@ namespace OSFUI::API
 			if (count >= kMaxInflightRequestsPerView) {
 				bridge.Reject("request-capacity", "too many requests are already in flight"); return;
 			}
+			token = _nextRequestToken++;
 		}
-		// Take ownership of the correlation id before the plugin can answer:
-		// it replies through Request::Respond/Reject, whenever it gets there,
-		// and PumpMainThread settles it (or expires it at the OSF UI runtime deadline).
-		// The bridge's token — not the page's request id, which collides
-		// across documents — is what settles it.
-		const std::string deferToken = bridge.Defer();
+
+		const std::string deferToken = bridge.Defer([this, token] { DropInflightRequest(token); });
 		{
 			std::lock_guard lock(_mutex);
 			// The payload is the caller's own object, verbatim: routing metadata
 			// lives beside it on the envelope now, so there is no `command` field
 			// to strip out of it first.
-			payloadJson = Json::Dump(payload);
-			const auto token = _nextRequestToken++;
 			InflightRequest inflight;
 			inflight.token = token;
 			inflight.view = view;
 			inflight.deferToken = deferToken;
 			inflight.name = name;
 			inflight.legacyReply = bridge.IsLegacyApiView(view);
-			inflight.deadline = std::chrono::steady_clock::now() + kRequestTimeout;
 			_inflightRequests.emplace(token, std::move(inflight));
 			request.command = name.c_str(); request.payloadJson = payloadJson.c_str(); request.sourceViewId = view.c_str();
 			request._token = token; request._respond = &RespondThunk; request._reject = &RejectThunk;
@@ -592,7 +592,7 @@ namespace OSFUI::API
 		if (!a_bridge) _inflightRequests.clear();
 	}
 
-	void BridgeApi::PumpMainThread(std::chrono::steady_clock::time_point now)
+	void BridgeApi::PumpMainThread()
 	{
 		MessageBridge* bridge = nullptr;
 		std::vector<std::string> commandRemovals, sendRemovals, requestRemovals;
@@ -643,15 +643,14 @@ namespace OSFUI::API
 				}
 				for (auto it = _inflightRequests.begin(); it != _inflightRequests.end();) {
 					auto& req = it->second;
-					if (!req.answered && now < req.deadline) { ++it; continue; }
+					if (!req.answered) { ++it; continue; }
 					PendingReply reply;
 					reply.view = req.view;
 					reply.deferToken = req.deferToken;
 					reply.name = req.name;
 					reply.type = req.type;
 					reply.legacyReply = req.legacyReply;
-					if (!req.answered) { reply.rejected = true; reply.code = "no-response"; reply.message = "the plugin never answered"; }
-					else if (req.rejected) { reply.rejected = true; reply.code = req.code; reply.message = req.message; }
+					if (req.rejected) { reply.rejected = true; reply.code = req.code; reply.message = req.message; }
 					else { reply.payloadJson = req.payloadJson; }
 					replies.push_back(std::move(reply)); it = _inflightRequests.erase(it);
 				}
