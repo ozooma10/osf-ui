@@ -276,8 +276,8 @@ namespace osfui::wv2
 				// Warn-once latch for scripted (non-gesture) window.open attempts;
 				// they are dropped, and one log line per view is enough evidence.
 				bool nonGestureOpenWarned{ false };
-				// Page -> browser-host traffic is untrusted even when nativeBridge=false:
-				// every document can call chrome.webview.postMessage directly.
+				// Page -> browser-host traffic is untrusted: every document can call
+				// chrome.webview.postMessage directly.
 				// Bound both individual messages and accepted rate before they
 				// allocate pipe/game-side queue entries.
 				std::uint64_t pageMessageWindowStarted{ 0 };
@@ -287,11 +287,6 @@ namespace osfui::wv2
 				// Manifest (authoring) height, set by `navigate`: the page lays out at
 				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
-				// Manifest nativeBridge permission, set by `navigate`. False skips
-				// the window.osfui shim injection entirely. The game side independently
-				// drops any message from a bridge-less view, so this is defence in
-				// depth, not the only gate.
-				bool bridge{ true };
 				// Deferred visibility: a reveal waits for the page's first painted
 				// frame after Chromium resume, and hides wait for pending reveals.
 				bool          revealPending{ false };
@@ -914,12 +909,7 @@ namespace osfui::wv2
 				if (quit.load() || a_view.securityReady || !a_view.webView) return;
 				a_view.securityReady = true;
 				InstallEvents(a_view);
-				if (a_view.bridge) {
-					InstallBridgeShim(a_view);
-				} else {
-					log.Info(std::format(
-						"view '{}': nativeBridge=false — window.osfui not injected", a_view.id));
-				}
+				InstallBridgeShim(a_view);
 				// HUD-only mode leaves the widget OS-unfocused, and an unfocused renderer stops matching
 				// :focus/:focus-visible/:focus-within and reports
 				// document.hasFocus()=false — so focus styling (padnav's ring,
@@ -1255,7 +1245,6 @@ namespace osfui::wv2
 								if (inputTarget == view) ApplyMouseCapture();
 								return S_OK;
 							}
-							if (!view->bridge) return S_OK;
 							Send(msg::ToJson(msg::WebMessage{ .view = view->id,
 								.json = std::move(text) }));
 							return S_OK;

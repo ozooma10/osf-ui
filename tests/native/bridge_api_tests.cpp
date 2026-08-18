@@ -721,8 +721,8 @@ int main()
 	api.SetViewCatalog({ "acme.mymod/dash", "osfui/settings" });
 	CHECK(!api.RequestMenu("acme.mymod/missing", true));  // typo: synchronous fallback signal
 
-	// Model a boot with no nativeBridge view: sends stay queued while the API has
-	// no bridge availability. Instantiating the discovered bridge-enabled view on demand
+	// Model a boot with no instantiated view: sends stay queued while the API has
+	// no bridge availability. Instantiating the first discovered view on demand
 	// flushes them, and web messages from that first view are handled.
 	api.SetBridgeAvailability(nullptr);
 	api.PumpMainThread();

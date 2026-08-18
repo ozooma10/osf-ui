@@ -144,7 +144,6 @@ namespace osfui::wv2::msg
 		// that view, so it is not a reference to an existing one.
 		std::string id;
 		std::string entry{ "index.html" };
-		bool        bridge{ true };
 		bool        legacyApi{ false };
 		// The manifest's authoring height; drives rasterizationScale =
 		// outputHeight/logicalHeight so the page lays out at logical size.
@@ -153,7 +152,6 @@ namespace osfui::wv2::msg
 		static constexpr auto kFields = std::tuple{
 			F("id", &Navigate::id),
 			F("entry", &Navigate::entry),
-			F("bridge", &Navigate::bridge),
 			F("legacyApi", &Navigate::legacyApi),
 			F("logicalHeight", &Navigate::logicalHeight),
 		};

@@ -87,7 +87,7 @@ namespace OSFUI
 			return;
 		}
 		for (const auto& manifest : _views.All()) {
-			if (manifest.permissions.nativeBridge && _presentation.IsInstantiated(manifest.id)) {
+			if (_presentation.IsInstantiated(manifest.id)) {
 				deliver(manifest.id);
 			}
 		}

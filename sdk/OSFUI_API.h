@@ -110,7 +110,7 @@ namespace OSFUI::API
 	// from any thread. Its const char* fields are valid only during this call.
 	using RequestFn = void (*)(const Request& a_request, void* a_user) noexcept;
 	static_assert(std::is_standard_layout_v<Request> && std::is_trivially_copyable_v<Request>);
-	// Fired when the native bridge becomes available (a nativeBridge view is instantiated), and again after any re-creation. Main thread.
+	// Fired when the native bridge becomes available (a view is instantiated), and again after any re-creation. Main thread.
 	using ReadyFn = void (*)(void* a_user) noexcept;
 
 	// Fired for every committed value of a mod subscribed via SubscribeSettings.

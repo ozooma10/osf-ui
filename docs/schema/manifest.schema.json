@@ -82,28 +82,6 @@
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
       "description": "The OSF UI release version this view was authored against (e.g. \"2.0.0\"). A target NEWER than the running OSF UI release is advisory and badges 'needs update' in Mod Settings. A declared target BELOW 2.0 selects the frozen 1.x facade. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
-    },
-    "permissions": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Capability grants. Everything defaults to deny.",
-      "properties": {
-        "nativeBridge": {
-          "type": "boolean",
-          "default": false,
-          "description": "Inject window.osfui — the four verbs (send / request / on / state) and the page-initiated handshake. If false, no bridge is injected at all and the page runs purely client-side; osfui.available is then false and osfui.request() rejects with \"no-bridge\" rather than hanging."
-        },
-        "filesystem": {
-          "type": "boolean",
-          "default": false,
-          "description": "Reserved; no implementation enforces this yet."
-        },
-        "network": {
-          "type": "boolean",
-          "default": false,
-          "description": "Reserved; forced off with a warning if set true."
-        }
-      }
     }
   }
 }

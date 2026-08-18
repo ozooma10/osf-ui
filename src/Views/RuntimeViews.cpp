@@ -42,7 +42,7 @@ namespace OSFUI
 		API::BridgeApi::Get().SetViewInstantiated(id, true);
 
 		REX::INFO("Runtime: view '{}' instantiated {} ({}, capturesInput={}, pausesGame={})", id, a_reason, a_manifest.kind == ViewKind::Hud ? "hud" : "menu", a_manifest.capturesInput, a_manifest.pausesGame);
-		if (a_manifest.permissions.nativeBridge && _bridge) {
+		if (_bridge) {
 			API::BridgeApi::Get().SetBridgeAvailability(_bridge.get());
 			_bridge->OnViewCreated(id, IsPre2Target(a_manifest.targetVersion));
 		}
@@ -91,7 +91,7 @@ namespace OSFUI
 	{
 		m_viewLoads.BeginLoad(a_id);
 		_renderer->CreateOrNavigateView(a_manifest);
-		if (a_manifest.permissions.nativeBridge && _bridge) {
+		if (_bridge) {
 			_bridge->OnViewCreated(a_id, IsPre2Target(a_manifest.targetVersion));
 		}
 		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
@@ -125,14 +125,14 @@ namespace OSFUI
 			ApplyViewPresentationPolicy();  // crash teardown may need to release input/pause now
 		}
 		API::BridgeApi::Get().SetViewInstantiated(a_id, false);
-		bool bridgeViewRemains = false;
+		bool instantiatedViewRemains = false;
 		for (const auto& manifest : _views.All()) {
-			if (manifest.permissions.nativeBridge && _presentation.IsInstantiated(manifest.id)) {
-				bridgeViewRemains = true;
+			if (_presentation.IsInstantiated(manifest.id)) {
+				instantiatedViewRemains = true;
 				break;
 			}
 		}
-		if (!bridgeViewRemains) {
+		if (!instantiatedViewRemains) {
 			API::BridgeApi::Get().SetBridgeAvailability(nullptr);
 		}
 		if (_bridge) {

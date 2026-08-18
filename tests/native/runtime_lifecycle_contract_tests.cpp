@@ -149,6 +149,8 @@ int main()
 	const auto runtimeHeader = ReadSource("../../src/Runtime/Runtime.h");
 	const auto runtimeHealthSource = ReadSource("../../src/Runtime/RuntimeHealthCoordinator.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
+	const auto manifestSource = ReadSource("../../src/Views/ViewManifest.h") +
+		ReadSource("../../src/Views/ViewManifest.cpp");
 	const auto hostSource = ReadSource("../../tools/webview2_host/HostApp.cpp") +
 		ReadSource("../../tools/webview2_host/GameMessages.inl");
 	const auto hostMessages = ReadSource("../../tools/webview2_shared/Wv2Messages.h");
@@ -212,6 +214,15 @@ int main()
 	Check(instantiateView.find("if (_developerMode)") != std::string::npos &&
 		instantiateView.find("SetConsoleHandler") != std::string::npos,
 		"browser console forwarding must be installed only in effective developer mode");
+	Check(ContainsInOrder(instantiateView, {
+		"SetBridgeAvailability(_bridge.get())",
+		"_bridge->OnViewCreated" }) &&
+		instantiateView.find("permissions") == std::string::npos,
+		"every instantiated view must receive the native bridge without a manifest permission gate");
+	Check(manifestSource.find("ViewPermissions") == std::string::npos &&
+		manifestSource.find("\"permissions\"") == std::string::npos &&
+		hostMessages.find("F(\"bridge\"") == std::string::npos,
+		"the removed permissions model and per-view bridge wire flag must not return");
 
 	const auto hudEligible = FunctionBody(runtimeSource,
 		"bool Runtime::HudAutoStartEligible(const ViewManifest& a_manifest) const");
@@ -426,6 +437,13 @@ int main()
 		hostMessages.find("prewarm") == std::string::npos &&
 		hostSource.find("Prewarm") == std::string::npos,
 		"unused menus must not be instantiated or painted through a prewarm path");
+	const auto finishControllerSetup = FunctionBody(hostSource,
+		"void FinishControllerSetup(View& a_view)");
+	Check(ContainsInOrder(finishControllerSetup, {
+		"InstallEvents(a_view)",
+		"InstallBridgeShim(a_view)" }) &&
+		finishControllerSetup.find("a_view.bridge") == std::string::npos,
+		"the browser host must inject the bridge shim for every view");
 
 	const auto onViewLoad = FunctionBody(runtimeSource,
 		"void Runtime::OnViewLoad(std::string_view a_viewId");

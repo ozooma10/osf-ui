@@ -26,7 +26,7 @@ namespace OSFUI
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "mod", "title", "description", "hub", "debugOnly", "entry",
 					"width", "height", "transparent", "kind",
-					"capturesInput", "pausesGame", "openOnStart", "order", "permissions",
+					"capturesInput", "pausesGame", "openOnStart", "order",
 					"targetVersion" },
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
@@ -94,11 +94,6 @@ namespace OSFUI
 			}
 		}
 
-		if (const auto* permissions = Json::GetObject(*json, "permissions")) {
-			manifest.permissions.nativeBridge = Json::Get(*permissions, "nativeBridge", false);
-			manifest.permissions.filesystem = Json::Get(*permissions, "filesystem", false);
-			manifest.permissions.network = Json::Get(*permissions, "network", false);
-		}
 		// Views may only reference their own local assets; reject entries that
 		// escape the view folder.
 		const auto entryPath = std::filesystem::path(manifest.entry);
@@ -107,11 +102,6 @@ namespace OSFUI
 			REX::ERROR("ViewManifest: [content] {} entry '{}' must be a relative path inside the view folder",
 				a_path.string(), manifest.entry);
 			return std::nullopt;
-		}
-
-		if (manifest.permissions.network) {
-			REX::WARN("ViewManifest: [content] view '{}' requests network permission; not supported, forcing off", manifest.id);
-			manifest.permissions.network = false;
 		}
 
 		// A HUD is passive: it draws over live gameplay but never captures input,

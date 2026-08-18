@@ -10,7 +10,6 @@
 #include "Core/Log.h"
 #include "Core/Version.h"
 #include "Input/ControlLayer.h"
-#include "Input/EngineInput.h"
 #include "Input/FocusMenu.h"
 #include "Input/FreeCursor.h"
 #include "Input/HardwareCursor.h"
@@ -797,9 +796,7 @@ namespace OSFUI
 			}
 			m_viewLoads.BeginLoad(manifest.id);
 			_renderer->CreateOrNavigateView(manifest);
-			if (manifest.permissions.nativeBridge) {
-				_bridge->OnViewCreated(manifest.id, IsPre2Target(manifest.targetVersion));
-			}
+			_bridge->OnViewCreated(manifest.id, IsPre2Target(manifest.targetVersion));
 			++reloaded;
 		}
 

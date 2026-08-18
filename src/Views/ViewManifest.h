@@ -8,15 +8,6 @@ namespace OSFUI
 	inline constexpr std::uint32_t kDefaultViewWidth{ 1600 };
 	inline constexpr std::uint32_t kDefaultViewHeight{ 900 };
 
-	// Per-view permission grants; default denied, manifests opt in. Enforced at
-	// the bridge/renderer boundary; filesystem and network grants are reserved.
-	struct ViewPermissions
-	{
-		bool nativeBridge{ false };
-		bool filesystem{ false };
-		bool network{ false };
-	};
-
 	// menu = view eligible for the active-menu slot and input/pause policy.
 	// hud = view presented over gameplay; never captures input.
 	enum class ViewKind : std::uint8_t
@@ -45,7 +36,6 @@ namespace OSFUI
 		std::uint32_t         height{ kDefaultViewHeight };
 		bool                  transparent{ true };
 		bool                  menuInputEligible{ true };  // menu-kind capability summary; derived from kind and serialized as compatibility field `interactive`
-		ViewPermissions       permissions;
 		std::filesystem::path rootDir;  // directory containing the manifest
 
 		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud"

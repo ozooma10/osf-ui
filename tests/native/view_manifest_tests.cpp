@@ -41,8 +41,7 @@ int main()
 
 	// No "id" field: identity comes from the folder path alone.
 	Write(path, R"({
-		"title": "Cargo terminal",
-		"permissions": { "nativeBridge": true }
+		"title": "Cargo terminal"
 	})");
 	auto manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);
@@ -52,8 +51,7 @@ int main()
 	// The legacy "id" field — even a stale one from a copied manifest — is
 	// ignored, not rejected.
 	Write(path, R"({
-		"id": "some-old-name",
-		"permissions": { "nativeBridge": false }
+		"id": "some-old-name"
 	})");
 	manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);
@@ -63,8 +61,7 @@ int main()
 	// its exact target so navigation and diagnostics can select the v1 adapter.
 	Write(path, R"({
 		"entry": "index.html?mode=compact#inventory",
-		"targetVersion": "1.8.0",
-		"permissions": { "nativeBridge": true }
+		"targetVersion": "1.8.0"
 	})");
 	manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);

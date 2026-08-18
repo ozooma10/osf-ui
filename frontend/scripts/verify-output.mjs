@@ -66,9 +66,8 @@ export function verifyOutput() {
       if (kit >= 0 && main >= 0 && kit > main) fail(`${v.name}/index.html loads main.js before the shared kit`);
     }
 
-    // Network-free and self-contained: permissions.network is force-disabled
-    // natively (ViewManifest.cpp) and all three --osf-font-* stacks resolve to
-    // Windows system faces.
+    // Network-free and self-contained: the browser host default-denies network
+    // egress and all three --osf-font-* stacks resolve to Windows system faces.
     if (existsSync(css)) {
       const c = readFileSync(css, 'utf8');
       if (/@font-face/.test(c)) fail(`${v.name}/style.css contains @font-face (views must ship zero webfont binaries)`);

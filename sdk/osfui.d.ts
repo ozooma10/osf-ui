@@ -604,7 +604,7 @@ export interface SettingsSchema {
 }
 
 // ---------------------------------------------------------------------------
-// The injected bridge object (present only when manifest grants nativeBridge).
+// The bridge object injected into every instantiated OSF UI view.
 // ---------------------------------------------------------------------------
 
 export interface OSFUIBridge {
@@ -696,9 +696,9 @@ export interface OSFUIHelper {
 declare global {
   interface Window {
     /**
-     * The native-injected bridge is undefined in a document unless that
-     * document's owning view grants permissions.nativeBridge. Loading
-     * shared/osfui.js can still create a no-bridge helper stub.
+     * The native-injected bridge is present in every instantiated OSF UI view.
+     * It may be undefined in standalone browser/tooling environments; loading
+     * shared/osfui.js can still create a no-bridge helper stub there.
      */
     osfui?: OSFUIBridge & Partial<OSFUIHelper>;
   }

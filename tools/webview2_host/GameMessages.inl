@@ -47,7 +47,6 @@
 				}
 				auto* view = FindView(a_msg.id);
 				if (!view) view = &CreateView(a_msg.id);
-				view->bridge = a_msg.bridge;
 				view->logicalHeight = (std::max)(1u, a_msg.logicalHeight);
 				ApplyScale(*view);
 				std::string entry = a_msg.entry;

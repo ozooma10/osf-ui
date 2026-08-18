@@ -219,7 +219,6 @@ namespace OSFUI
 		{
 			std::string id;
 			std::string entry;
-			bool        bridge{ false };
 			bool        legacyApi{ false };
 			bool        hidden{ true };
 			int         order{ 0 };
@@ -915,7 +914,7 @@ namespace OSFUI
 				accSent = true;
 				for (const auto& view : views) {
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
-						.bridge = view.bridge, .legacyApi = view.legacyApi,
+						.legacyApi = view.legacyApi,
 						.logicalHeight = view.logicalHeight }));
 					addBootstrap(ToJson(msg::SetHidden{ .view = view.id,
 						.hidden = view.hidden, .presentationEpoch = presentationEpoch }));
@@ -1147,10 +1146,10 @@ namespace OSFUI
 				switch (value.kind) {
 				case Notify::Kind::Web:
 					{
-						bool bridge = false;
+						bool knownView = false;
 						{
 							std::scoped_lock lock(stateMutex);
-							if (const auto* view = FindView(value.view)) bridge = view->bridge;
+							knownView = FindView(value.view) != nullptr;
 						}
 						// Guarded for the same reason the ReadLoop below is: this
 						// runs on the game thread's drain with no handler above it,
@@ -1158,7 +1157,7 @@ namespace OSFUI
 						// view-supplied text, a handler bug — is a std::terminate.
 						// One bad message must not take the process with it.
 						try {
-							if (onWebMessage && bridge) onWebMessage(value.view, value.text);
+							if (onWebMessage && knownView) onWebMessage(value.view, value.text);
 						} catch (const std::exception& e) {
 							REX::ERROR("WebView2HostWebRenderer: web message from '{}' threw: {}",
 								value.view, e.what());
@@ -1467,7 +1466,6 @@ namespace OSFUI
 				view->id = a_manifest.id;
 			}
 			view->entry = a_manifest.entry;
-			view->bridge = a_manifest.permissions.nativeBridge;
 			view->legacyApi = IsPre2Target(a_manifest.targetVersion);
 			view->logicalHeight = logicalHeight;
 			// The first instantiated view receives input until the runtime says
@@ -1479,7 +1477,6 @@ namespace OSFUI
 		// A repeat call for an instantiated view id re-navigates it (developer reload / crash
 		// recovery).
 		_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
-			.bridge = a_manifest.permissions.nativeBridge,
 			.legacyApi = IsPre2Target(a_manifest.targetVersion),
 			.logicalHeight = logicalHeight }));
 	}
@@ -1622,7 +1619,7 @@ namespace OSFUI
 		{
 			std::scoped_lock lock(_impl->stateMutex);
 			const auto* view = _impl->FindView(a_viewId);
-			if (!view || !view->bridge) return;
+			if (!view) return;
 		}
 		_impl->SendOrQueue(ToJson(msg::PostWeb{ .view = std::string(a_viewId),
 			.json = std::string(a_json) }));
