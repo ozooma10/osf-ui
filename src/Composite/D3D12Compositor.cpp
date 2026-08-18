@@ -10,7 +10,6 @@
 #include <d3dcompiler.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cstring>
 #include <iterator>
 #include <mutex>
@@ -118,7 +117,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		//
 		// All GPU work happens inside the engine's UI pass. ringMutex guards the
 		// opened ring between Submit (adoption) and the render workers (sampling).
-		std::atomic<bool> uiPassDrawActive{ false };
 		std::mutex        ringMutex;
 		// One descriptor is enough: the whole create-and-bind sequence runs
 		// under ringMutex, and OMSetRenderTargets snapshots the CPU descriptor
@@ -135,8 +133,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::unordered_map<ID3D12CommandList*, PendingConsume> pendingConsumes;
 		std::atomic_bool consumeSignalFailureLogged{ false };
 		bool gpuIdleFailureLogged{ false };
-		std::atomic<std::uint64_t> overlayDraws{ 0 };
-		std::atomic<std::uint64_t> overlayDrawsFgTarget{ 0 };  // diagnostics
+		std::atomic_bool overlayDrawLogged{ false };
+		std::atomic_bool overlayDrawFgTargetLogged{ false };
 		bool          noSharedFrameLogged{ false };  // ringMutex
 		// Newest slot whose produce fence is CPU-verified complete. The draw
 		// cannot queue-wait on the browser host's fence (not our queue), and skipping
@@ -160,8 +158,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::uint32_t   sharedSlotCount{ 0 };
 		ID3D12Fence*    sharedProduce{ nullptr };
 		ID3D12Fence*    sharedConsume{ nullptr };
-		std::uint64_t   sharedGeneration{ 0 };
-		bool            sharedOpenFailed{ false };
 		// Latest published ring frame (guarded by frameMutex). sharedFrameReady
 		// stays false until the browser host has submitted its first shared-slot frame.
 		std::mutex    frameMutex;
@@ -188,7 +184,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			{ DXGI_FORMAT_R8G8B8A8_UNORM },
 			{ DXGI_FORMAT_R16G16B16A16_FLOAT },
 		};
-		// shader-visible: slot 0 unused, 1..kMaxSlots = shared ring
+		// shader-visible: one descriptor per shared-ring slot
 		ID3D12DescriptorHeap* srvHeap{ nullptr };
 		std::uint32_t         srvStride{ 0 };
 		ID3DBlob*             vsBlob{ nullptr };
@@ -244,7 +240,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		[[nodiscard]] CompositorStatus GetStatus() const
 		{
 			return {
-				.uiPassDrawActive = uiPassDrawActive.load(std::memory_order_relaxed),
 				.frameGeneration = frameGenActiveSignal.load(std::memory_order_relaxed),
 			};
 		}
@@ -341,7 +336,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			sharedPending = a_desc;
 			sharedDirty = true;
-			sharedOpenFailed = false;
 		}
 
 		void TrackConsume(
@@ -464,7 +458,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				std::scoped_lock lk(sharedMutex);
 				if (!sharedDirty) {
 					std::scoped_lock ring(ringMutex);
-					return sharedSlots[0] != nullptr && !sharedOpenFailed;
+					return sharedSlots[0] != nullptr;
 				}
 				pending = sharedPending;
 				sharedPending = {};
@@ -483,7 +477,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					pending = {};
 					sharedDirty = true;
 				}
-				return sharedSlots[0] != nullptr && !sharedOpenFailed;
+				return sharedSlots[0] != nullptr;
 			};
 			if (HasPendingConsumes()) {
 				return deferAdoption();
@@ -537,11 +531,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					static_cast<std::uint32_t>(gameLuid.HighPart), gameLuid.LowPart,
 					pending.adapterLuidHigh, pending.adapterLuidLow);
 				ReleaseSharedRing();
-				sharedOpenFailed = true;
 				return false;
 			}
-			sharedOpenFailed = false;
-			sharedGeneration = pending.generation;
 			sharedSlotCount = pending.slotCount;
 			for (std::uint32_t i = 0; i < sharedSlotCount; ++i) {
 				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -551,7 +542,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				srv.Texture2D.MipLevels = 1;
 				const D3D12_CPU_DESCRIPTOR_HANDLE handle{
 					srvHeap->GetCPUDescriptorHandleForHeapStart().ptr +
-					static_cast<SIZE_T>(1 + i) * srvStride
+					static_cast<SIZE_T>(i) * srvStride
 				};
 				dev->CreateShaderResourceView(sharedSlots[i], &srv, handle);
 			}
@@ -682,12 +673,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 
-			// Descriptor heaps. SRV slot 0 is left unused (it held the retired
-			// CPU-upload overlay texture); slots 1..kMaxSlots hold the
-			// shared-ring textures.
+			// One shader-visible SRV descriptor per shared-ring texture.
 			D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
 			srvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-			srvDesc.NumDescriptors = 1 + SharedRingDesc::kMaxSlots;
+			srvDesc.NumDescriptors = SharedRingDesc::kMaxSlots;
 			srvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 			if (FAILED(dev->CreateDescriptorHeap(&srvDesc, __uuidof(ID3D12DescriptorHeap), reinterpret_cast<void**>(&srvHeap)))) {
 				REX::ERROR("D3D12Compositor: CreateDescriptorHeap(SRV) failed");
@@ -820,7 +809,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_list->SetGraphicsRootSignature(rootSig);
 			const D3D12_GPU_DESCRIPTOR_HANDLE srv{
 				srvHeap->GetGPUDescriptorHandleForHeapStart().ptr +
-				static_cast<UINT64>(1 + ringSlot) * srvStride
+				static_cast<UINT64>(ringSlot) * srvStride
 			};
 			a_list->SetGraphicsRootDescriptorTable(0, srv);
 
@@ -834,13 +823,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_list->DrawInstanced(3, 1, 0, 0);
 
 			TrackConsume(a_list, sharedConsume, serial);
-			const auto drawIndex = overlayDraws.fetch_add(1, std::memory_order_relaxed) + 1;
-			const auto fgIndex = a_fgTarget
-				? overlayDrawsFgTarget.fetch_add(1, std::memory_order_relaxed) + 1
-				: 0;
+			const bool firstDraw = !overlayDrawLogged.exchange(true, std::memory_order_relaxed);
+			const bool firstFgDraw = a_fgTarget &&
+				!overlayDrawFgTargetLogged.exchange(true, std::memory_order_relaxed);
 			// One-time log per target kind: if the FG line never appears, its
 			// hand-off is not being matched.
-			if (drawIndex == 1 || fgIndex == 1) {
+			if (firstDraw || firstFgDraw) {
 				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW [{}] (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})",
 					a_fgTarget ? "premultiplied / FG UI input" : "premultiplied / composite input",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height,

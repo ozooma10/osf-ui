@@ -9,7 +9,6 @@ namespace OSFUI
 {
 	struct CompositorStatus
 	{
-		bool uiPassDrawActive{ false };
 		bool frameGeneration{ false };
 	};
 
