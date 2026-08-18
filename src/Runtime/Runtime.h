@@ -185,9 +185,7 @@ namespace OSFUI
 		SettingsModule*                         _settings{ nullptr };  // owned by _modules; core reads schema facts through it
 		HealthRegistry*                         _healthRegistry{ nullptr };  // owned by _modules
 		RuntimeHealthCoordinator                _runtimeHealth{ *this };
-		// Live key-typed bindings -> owner dispatch. Fed by OnGameWindowKey (window
-		// thread), rebuilt from the store's listeners and drained in Tick (main
-		// thread); wired in InitializeFeatureModules.
+
 		HotkeyService                           _hotkeys;
 		LiveControlMap                          _controlMap;
 		DeferredMainThreadWork                  _controlMapInit;
@@ -197,46 +195,24 @@ namespace OSFUI
 
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;
 
-		// Instantiated views (menus/HUDs) + open state. Mutated only on the main
-		// thread (Tick / bridge handlers).
 		ViewPresentationController    _presentation;
 		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
 
 		std::optional<std::string> _pendingViewOpen;
 
-		// Last value pushed to WebView2HostWebRenderer::SetNativeFocus; the false
-		// side posts a game-focus restore, so sends are edge-only. Main thread.
 		bool _nativeFocusGranted{ false };
 
 		ViewRequestQueue m_viewRequests;
 		ViewLoadTracker m_viewLoads;
 		ViewInputGrants m_viewInputGrants;
 
-		// Virtual cursor in view-pixel space (the OS cursor is hidden during
-		// gameplay, so raw deltas are accumulated instead). Position is written
-		// by the WndProc (input) thread (plus the main-thread recenter on the
-		// overlay-open edge); the view dims + cursor scale are written by the
-		// render thread on resize and read by input, hence atomic.
 		std::atomic<float>            _cursorX{ 0.0f };
 		std::atomic<float>            _cursorY{ 0.0f };
 		std::atomic<std::uint32_t>    _viewWidth{ kDefaultViewWidth };
 		std::atomic<std::uint32_t>    _viewHeight{ kDefaultViewHeight };
-		// Coalesced mouse-move handoff (QueueMouseMove -> Tick). OnGameWindowMouse*
-		// fire per raw-input packet on the window thread; a pipe write per
-		// packet made a 500-1000 Hz mouse cost hundreds of JSON encode/parse/
-		// SendMouseInput round-trips per second while the page only samples at
-		// display refresh. Instead the latest position is packed here (two
-		// non-negative ints, so the all-bits-set sentinel can never collide)
-		// and Tick injects at most one move per frame. Buttons/wheel stay
-		// immediate — they carry their own coordinates, so a click between
-		// ticks still lands at the right spot.
+		
 		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
 		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove };
-		// Coalescing telemetry: packets recorded (any thread) vs. moves sent
-		// (main thread); logged and reset every few seconds in developer mode.
-		std::atomic<std::uint32_t>     _mouseMovePackets{ 0 };
-		std::uint32_t                  _mouseMoveSends{ 0 };
-		double                         _nextMouseStatsLog{ 0.0 };
 
 		// Derived from the active menu's manifest. A HUD or display-only menu
 		// draws while leaving game input alone.

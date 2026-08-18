@@ -138,17 +138,8 @@ namespace OSFUI
 		if (const auto packed = _pendingMouseMove.exchange(kNoPendingMouseMove);
 			packed != kNoPendingMouseMove) {
 			_renderer->InjectMouseMove(static_cast<int>(packed >> 32), static_cast<int>(packed & 0xFFFF'FFFFull));
-			++_mouseMoveSends;
 		}
-		//@TODO: DEVMODE
-		// if (_config.devMode && _uptime >= _nextMouseStatsLog) {
-			// _nextMouseStatsLog = _uptime + 5.0;
-			// const auto packets = _mouseMovePackets.exchange(0, std::memory_order_relaxed);
-			// if (packets != 0 || _mouseMoveSends != 0) {
-			// 	REX::DEBUG("Runtime: coalesced {} mouse-move packets into {} sends over ~5s", packets, _mouseMoveSends);
-			// 	_mouseMoveSends = 0;
-			// }
-		// }
+
 		{
 			_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire), IsInputCaptured(), _captureArmed.load(), _captureUpScan.load());
 			_renderer->Update(a_deltaSeconds);

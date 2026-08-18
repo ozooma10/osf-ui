@@ -111,7 +111,6 @@ namespace OSFUI
 		const auto x = static_cast<std::uint32_t>(static_cast<int>(_cursorX.load(std::memory_order_relaxed)));
 		const auto y = static_cast<std::uint32_t>(static_cast<int>(_cursorY.load(std::memory_order_relaxed)));
 		_pendingMouseMove.store((static_cast<std::uint64_t>(x) << 32) | y);
-		_mouseMovePackets.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	void Runtime::OnGameWindowMouseButton(int a_button, bool a_down)
