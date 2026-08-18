@@ -28,21 +28,16 @@ jobs:
           CXX: clang++
 
       - name: Check protocol version lockstep
-        # kBridgeProtocolVersion (src/Core/Version.h) is claimed as a literal in the SDK README's headline,
-        # the authoring guide's status blurb + versioning section, and the .d.ts header
-        # the "docs say 0.1, code says 0.4" drift class must not recur. Each headline site must name the CURRENT version. ("protocol 0.4"-style historical annotations elsewhere are fine and not checked.)
+        # Keep the public type contract and machine-readable schemas aligned with
+        # kBridgeProtocolVersion in src/Core/Version.h.
         run: |
           set -e
           V=$(sed -n 's/.*kBridgeProtocolVersion = "\([0-9.]*\)".*/\1/p' src/Core/Version.h)
           test -n "$V" || { echo "::error::could not extract kBridgeProtocolVersion"; exit 1; }
           echo "kBridgeProtocolVersion = $V"
           fail=0
-          check() { grep -qE "$2" "$1" || { echo "::error file=$1::headline does not claim bridge protocol $V ($2)"; fail=1; }; }
-          check sdk/README.md            "^\*\*$V — stable\.\*\*"
-          check docs/authoring-views.md  "protocol is at version \*\*$V — stable\*\*"
-          check docs/authoring-views.md  "protocol version is \*\*$V\*\*"
+          check() { grep -qE "$2" "$1" || { echo "::error file=$1::contract does not claim bridge protocol $V ($2)"; fail=1; }; }
           check sdk/osfui.d.ts           "Bridge protocol version: $V"
-          check docs/troubleshooting.md  "bridge protocol is \*\*$V\*\*"
           check docs/schema/manifest.schema.json        "Bridge protocol $V\."
           check docs/schema/settings-schema.schema.json "Bridge protocol $V\."
           exit $fail

@@ -1,5 +1,5 @@
-// Native desktop integration tests for the settings web path (protocol 2.0,
-// docs/mod-api-2.0-design.md): the REAL SettingsModule + MessageBridge +
+// Native desktop integration tests for the settings web path (protocol 2.0):
+// the REAL SettingsModule + MessageBridge +
 // SettingsStore driven through actual 2.0 envelopes, with a capturing SendFn
 // standing in for the renderer.
 //

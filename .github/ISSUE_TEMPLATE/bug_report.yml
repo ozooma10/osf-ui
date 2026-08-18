@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before filing, check `docs/troubleshooting.md` — most "F10 does nothing"
-        cases are covered there. The log almost always states what happened.
+        Include the OSF UI log from the affected session. It usually records why
+        the overlay did not open or stopped responding.
 
   - type: textarea
     id: what-happened

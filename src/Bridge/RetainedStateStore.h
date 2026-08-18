@@ -3,7 +3,7 @@
 #include <nlohmann/json.hpp>
 
 // Retained mod state: mod-backend-owned values replayed to each current and
-// future document owned by the publishing mod (docs/terminology.md).
+// future document owned by the publishing mod.
 //
 // This is the systemic fix for the blank-after-F5 bug class. A mod backend that
 // knows when a value changes PUBLISHES it here once; the OSF UI runtime replays every

@@ -7,7 +7,7 @@
 
 namespace OSFUI
 {
-	// Schema-driven settings registry (docs/authoring-settings.md). Each mod ships a
+	// Schema-driven settings registry. Each mod ships a
 	// read-only JSON schema — a `settings/<id>.json` drop-in file or the same
 	// document registered at runtime over the native bridge. The runtime renders
 	// all of them via the built-in `settings` view, persists each mod's user
@@ -33,8 +33,7 @@ namespace OSFUI
 	// Security: writes only ever touch a setting declared by some loaded schema,
 	// with the value validated/clamped to that setting's declared type/range and
 	// persisted to that mod's own values file. Untrusted JS cannot write
-	// arbitrary keys, out-of-range values, or other paths
-	// (docs/security-model.md).
+	// arbitrary keys, out-of-range values, or other paths.
 	//
 	// Threading: main thread only. Any-thread consumers (C ABI getters,
 	// Papyrus) read a mirror maintained by a change listener, never the store.

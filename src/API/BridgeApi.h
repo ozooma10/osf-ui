@@ -22,7 +22,7 @@ namespace OSFUI::API
 	// SFSE plugin talks to via OSFUI_RequestBridge (src/API/Exports.cpp).
 	//
 	// All ABI methods are callable from any thread;
-	// Send/request/bridge-availability callbacks fire on the main thread. See docs/native-plugin-api.md.
+	// Send/request/bridge-availability callbacks fire on the main thread.
 	class BridgeApi final : public IOSFUIBridge
 	{
 	public:

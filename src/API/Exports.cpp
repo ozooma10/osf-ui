@@ -5,8 +5,8 @@
 #include "Platform/WindowsPlatform.h"
 
 // The single undecorated C export a sibling SFSE plugin fetches once, after SFSE
-// kPostLoad, via GetModuleHandleW("OSFUI.dll") + GetProcAddress (see
-// OSFUI::API::RequestBridge in sdk/OSFUI_API.h and docs/native-plugin-api.md).
+// kPostLoad, via GetModuleHandleW("OSFUI.dll") + GetProcAddress. Consumers use
+// OSFUI::API::RequestBridge in sdk/OSFUI_API.h.
 //
 // ABI 1.x is append-only: old binaries use their known vtable prefix and newer
 // callers feature-gate appended tail methods by the returned minor version.

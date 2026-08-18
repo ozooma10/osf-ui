@@ -45,7 +45,7 @@ namespace OSFUI::Platform
 	// it cannot be resolved. Used to attribute an ABI-mismatched
 	// OSFUI_RequestBridge call to the plugin that made it, so the refusal names
 	// a DLL the player can go update. Never the full path — that identifies the
-	// player's machine (docs/security-model.md).
+	// player's machine.
 	[[nodiscard]] std::string ModuleNameForAddress(const void* a_address);
 
 	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);

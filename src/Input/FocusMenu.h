@@ -10,7 +10,7 @@ namespace OSFUI
 	// the engine enters menu mode (cursor + modal input ownership + optional
 	// pause) instead of relying on the WndProc message-swallow: the world is then
 	// gated/paused by the engine and gamepad input no longer leaks past the window
-	// hook. See docs/reverse-engineering-notes.md.
+	// hook.
 	//
 	// Registration works: UI::RegisterMenu (130463) interns the name; on
 	// AddMessage(kShow) the engine invokes the creator (flags=0x108 =

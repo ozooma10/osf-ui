@@ -504,9 +504,9 @@ namespace OSFUI::API::Papyrus
 			return std::to_string(static_cast<std::uint32_t>(a_type));
 		}
 
-		// One element of the data.push `forms` array: the identity-only shape
-		// of docs/form-references-design.md, or JSON null (a None input, or a
-		// form that vanished between queue and drain) so a parallel values
+		// One element of the data.push `forms` array: an identity-only object,
+		// or JSON null when the input was None or the form vanished between queue
+		// and drain, so a parallel values
 		// push stays index-aligned. Main thread only — reads form fields.
 		nlohmann::json SerializeForm(std::uint32_t a_formId)
 		{
@@ -538,8 +538,7 @@ namespace OSFUI::API::Papyrus
 		// Accepts the two spellings a view echo can arrive in: decimal (the
 		// OSF UI runtime's number->string arg coercion) and "0x..." hex (authors quoting
 		// a formId for display). None on garbage or an id that resolves to
-		// nothing — the latter is the documented stale-reference case
-		// (runtime FormIDs are session-scoped; see form-references-design.md).
+		// nothing. Runtime FormIDs are session-scoped, so a stored ID may be stale.
 		RE::TESForm* ResolveFormId(std::string_view a_text)
 		{
 			const bool  hex = a_text.size() > 2 && a_text[0] == '0' && (a_text[1] == 'x' || a_text[1] == 'X');

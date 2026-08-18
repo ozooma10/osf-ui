@@ -1,7 +1,7 @@
 // Native desktop tests for the physical key identity core: ComposeScanCode's
 // message-quirk normalization (Input/ScanCode.h), the kNamedScans name table
 // (Input/KeyNames.cpp — full-table round-trip and the ≤16-char name
-// constraint from docs/authoring-views.md), the W3C KeyboardEvent.code alias
+// constraint), the W3C KeyboardEvent.code alias
 // vocabulary, and the frozen legacy VK resolver the values migration depends
 // on. Assert-style; process exit code is the failure count.
 
@@ -61,7 +61,7 @@ int main()
 	// KeyName returns the FIRST kNamedScans row per code (the canonical
 	// spelling); ResolveKeyName must turn that exact string back into the same
 	// code — the property every saved binding depends on. The 16-char bound is
-	// the documented key-value constraint (docs/authoring-views.md).
+	// the persisted key-value constraint.
 	{
 		int named = 0;
 		for (unsigned code = 1; code <= 0xFF; ++code) {

@@ -7,7 +7,7 @@ namespace OSFUI
 	// message boundary. This is the only point that can block gameplay input
 	// (movement + camera/mouse-look): those read the raw WM_INPUT stream
 	// directly, so blocking the engine's UI input sink is not enough (proven
-	// in-game 2026-06-12 — see docs/reverse-engineering-notes.md §3).
+	// in-game 2026-06-12).
 	//
 	// While the overlay owns input (Runtime::IsInputCaptured):
 	//   - keyboard messages are routed into the web view and consumed,

@@ -9,8 +9,6 @@
  * the strict 2.0 surface for new and migrated views. `bridgeVersion` is
  * informational, not something to gate on.
  * Keep in lockstep with:
- *   - docs/authoring-views.md          (prose reference)
- *   - docs/mod-api-2.0-migration.md    (what changed, and why)
  *   - docs/schema/*.schema.json        (manifest + settings-schema validation)
  *   - src/Core/Version.h               (kBridgeProtocolVersion)
  *   - src/Bridge/MessageBridge.cpp    (envelopes + dispatch)

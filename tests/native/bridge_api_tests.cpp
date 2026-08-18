@@ -1,5 +1,5 @@
-// Native desktop unit tests for BridgeApi ABI 1.9 + MessageBridge protocol 2.0
-// (docs/mod-api-2.0-design.md): the REAL src/API/BridgeApi.cpp and
+// Native desktop unit tests for BridgeApi ABI 1.9 + MessageBridge protocol 2.0:
+// the REAL src/API/BridgeApi.cpp and
 // src/Bridge/MessageBridge.cpp compiled against stubs/pch.h. Pins the endpoint
 // explicit platform endpoint reservation, first-wins duplicate
 // refusal, unregister-then-reregister replacement, qualified RegisterView ids

@@ -2,8 +2,8 @@
 // OSFUI_API.h - OSF UI native bridge API. Single copyable header; link nothing.
 //
 // Lets an SFSE plugin register bridge endpoints, publish data to a web view,
-// and receive messages back - without compiling into OSFUI.dll. Full docs:
-// docs/native-plugin-api.md.
+// and receive messages back - without compiling into OSFUI.dll. The public
+// contract is encoded directly in this header.
 //
 // USE OSFUI::API::Client: it fetches the bridge, caches the native ABI version once,
 // and turns a call the OSF UI runtime is too old for into a no-op.

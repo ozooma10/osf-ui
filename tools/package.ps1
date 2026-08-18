@@ -170,7 +170,7 @@ try {
     # LICENSE + EXCEPTIONS are load-bearing distribution terms.
     # CREDITS carries the attribution (incl. the "inspired by" credits).
     # They live INSIDE the plugin's own data folder -- the archive root maps
-    # onto the game's Data\, and loose LICENSE/README files there would
+    # onto the game's Data\, and loose license/attribution files there would
     # clutter every install.
     $docDest = Join-Path $Staging 'SFSE\Plugins\OSFUI'
     Step "Adding license docs (LICENSE, EXCEPTIONS, CREDITS.md -> SFSE\Plugins\OSFUI\)"
@@ -201,7 +201,7 @@ try {
         'SFSE\Plugins\OSFUI\views\shared\osfui.js',
         'SFSE\Plugins\OSFUI\views\shared\osfui.css',
         'SFSE\Plugins\OSFUI\views\osfui\padnav.js',
-        'Scripts\OSFUI.pex'   # Papyrus API (authoring-settings.md "From Papyrus")
+        'Scripts\OSFUI.pex'   # Papyrus API
     )
     $missing = $required | Where-Object { -not (Test-Path (Join-Path $Staging $_)) }
     if ($missing) {

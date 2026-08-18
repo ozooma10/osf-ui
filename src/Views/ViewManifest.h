@@ -9,8 +9,7 @@ namespace OSFUI
 	inline constexpr std::uint32_t kDefaultViewHeight{ 900 };
 
 	// Per-view permission grants; default denied, manifests opt in. Enforced at
-	// the bridge/renderer boundary — filesystem/network have nothing to enforce
-	// them yet (docs/security-model.md).
+	// the bridge/renderer boundary; filesystem and network grants are reserved.
 	struct ViewPermissions
 	{
 		bool nativeBridge{ false };

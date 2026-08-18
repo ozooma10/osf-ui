@@ -124,7 +124,7 @@ namespace OSFUI::Ids
 		return slash == std::string_view::npos ? a_id : a_id.substr(slash + 1);
 	}
 
-	// --- Settings-write authority (docs/security-model.md) -------------------
+	// --- Settings-write authority --------------------------------------------
 	//
 	// A settings write names its target mod in the payload. Left unchecked that
 	// lets ANY view with the native bridge rewrite ANY installed mod's values —

@@ -18,8 +18,7 @@
     no-op unless -Force is passed.
 
     What this does NOT do (intentionally): install xmake, the Edge WebView2
-    Evergreen runtime, or Node. Those are documented in the README; this script
-    only stages the repo-local SDK drop.
+    Evergreen runtime, or Node. This script only stages the repo-local SDK drop.
 
 .PARAMETER Version
     Microsoft.Web.WebView2 NuGet version to fetch. Defaults to the version CI

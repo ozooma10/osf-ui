@@ -42,7 +42,7 @@ describe('build output', () => {
   // Published public contract: shared/osfui.css is copied verbatim,
   // and third-party mods link `../../shared/osfui.js` by that exact path;
   // padnav.js is private-but-unfrozen, shipped as-is pending in-game controller
-  // verification (frontend/COMPATIBILITY.md). All three are copied, never
+  // verification. All three are copied, never
   // regenerated, so byte-identical is the whole spec — and the helper being
   // hand-written JavaScript with no compile step to fail loudly, this equality
   // is what keeps an edit to src/shared-kit/osfui.js from shipping beside a
@@ -76,8 +76,7 @@ describe('build output', () => {
       // Vite's HTML pipeline injects `crossorigin` alongside `type="module"`, so
       // its presence means index.html was processed rather than copied — which
       // also rewrites hrefs against `base` and hashes assets, breaking the
-      // `../../shared/osfui.css` relative depth docs/authoring-views.md promises
-      // third-party view authors.
+      // `../../shared/osfui.css` relative depth used by third-party views.
       expect(html()).not.toMatch(/\bcrossorigin\b/);
     });
   });

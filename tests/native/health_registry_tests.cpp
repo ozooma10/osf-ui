@@ -1,5 +1,5 @@
-// Native desktop unit tests for the session health registry (protocol 2.0,
-// docs/mod-api-2.0-design.md): the REAL HealthRegistry + MessageBridge
+// Native desktop unit tests for the session health registry (protocol 2.0):
+// the REAL HealthRegistry + MessageBridge
 // driven through actual 2.0 envelopes, with a capturing SendFn standing in for
 // the renderer. Covers dedupe/occurrence counting, resolve/reactivate history,
 // wire ordering, the payload sanitizer (no absolute paths, no shell targets,

@@ -3,7 +3,7 @@
 // This file is appended to the authored 2.0 helper at build/package time. It
 // replaces the page-visible object only when native navigation explicitly adds
 // `osfui-api=1`; modern pages keep the exact 2.0 helper surface. Its maintained
-// compatibility contract is documented in docs/v1-compatibility.md.
+// compatibility contract is the guarded surface implemented below.
 
 "use strict";
 

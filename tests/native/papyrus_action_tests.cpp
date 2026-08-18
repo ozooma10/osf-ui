@@ -1,5 +1,5 @@
-// Native desktop tests for the Papyrus dynamic-data API (protocol 2.0,
-// docs/mod-api-2.0-design.md): the REAL API/PapyrusApi.cpp and
+// Native desktop tests for the Papyrus dynamic-data API (protocol 2.0):
+// the REAL API/PapyrusApi.cpp and
 // Bridge/RetainedStateStore.cpp compiled against stubs/RE (a recording VM),
 // driven through the same natives the game binds.
 //

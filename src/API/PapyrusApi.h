@@ -102,7 +102,7 @@ namespace OSFUI::API::Papyrus
 	// case-insensitively. `value` is
 	// the COMPLETE current value for the key, never a delta — a forms value is
 	// serialized into it at drain time (identity objects with null slots
-	// preserved, docs/form-references-design.md), because form field reads are
+	// preserved), because form field reads are
 	// main-thread-only while the queue holds FormIDs.
 	struct ViewState
 	{

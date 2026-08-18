@@ -3,7 +3,7 @@
 // Runtime layout guard for the RE::UI singleton. Not a hook: it only reads the
 // live object's vptr and compares it against the Address Library.
 //
-// Exists because of the 2026-06-12 incident (docs/reverse-engineering-notes.md):
+// Exists because of a 2026-06-12 runtime failure:
 // a CommonLibSF snapshot from before upstream PR #26 had UI base offsets short by 0x10;
 // RegisterSink then corrupted engine UI state and the process died on save load
 // with no plugin frames on the stack. The guard turns that into a loud refusal.

@@ -1,5 +1,5 @@
-// Native desktop tests for form references across the bridge (protocol 2.0,
-// docs/form-references-design.md): the REAL API/PapyrusApi.cpp compiled
+// Native desktop tests for form references across the bridge (protocol 2.0):
+// the REAL API/PapyrusApi.cpp compiled
 // against stubs/RE (recording VM + a TESForm test registry), driven through
 // the same natives the game binds. Covers SetViewForms' capture-ids/
 // serialize-at-drain split (identity fields, null-slot preservation, empty

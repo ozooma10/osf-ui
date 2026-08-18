@@ -6,7 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
-// Narrow native <-> web bridge (protocol 2.0, docs/mod-api-2.0-design.md).
+// Narrow native <-> web bridge (protocol 2.0).
 //
 // Four verbs, chosen by semantics, with exactly one envelope shape each:
 //
@@ -31,7 +31,6 @@
 // infers success: sends have nothing to settle, while requests must respond,
 // reject, or defer exactly once. There is no generic "call native function"
 // escape hatch.
-// See docs/security-model.md.
 //
 // The handshake is PAGE-INITIATED and is the only boot path: a fresh document
 // sends `osfui.hello`, and the bridge answers `ready`, replays state through

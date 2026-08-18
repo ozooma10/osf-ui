@@ -1,4 +1,4 @@
-// security-model.md rule 2's single decision point: everything the host's
+// Default-deny egress policy's single decision point: everything the host's
 // WebResourceRequested filter does NOT 403 must be the view virtual host or a
 // path under it. A wrong "true" here is a network egress hole, so the lookalike
 // cases matter more than the happy paths.

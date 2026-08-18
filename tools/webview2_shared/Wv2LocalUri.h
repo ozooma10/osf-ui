@@ -4,7 +4,7 @@
 
 namespace osfui::wv2
 {
-	// security-model.md rule 2's single decision point: a URI is "local" iff
+	// Default-deny egress policy's single decision point: a URI is "local" iff
 	// it is the view virtual host itself or a path under it, over http or
 	// https. Everything else is answered locally with a synthesized 403 by
 	// the host's WebResourceRequested filter. ASCII-only case folding is

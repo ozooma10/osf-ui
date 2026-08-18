@@ -11,8 +11,7 @@
 // index.html is copied, never run through Vite: the HTML pipeline rewrites
 // script/link hrefs against `base`, injects `type="module"` + `crossorigin`, and
 // hashes assets. Views must keep the exact tag shape and relative depth
-// `../../shared/osfui.css` that docs/authoring-views.md promises to third-party
-// authors.
+// `../../shared/osfui.css` used by third-party views.
 
 import { build } from 'vite';
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -38,7 +37,7 @@ export async function runBuild({ quiet = false } = {}) {
   //      isolated in frontend/src/compat/v1.
   //    - padnav.js is private but unfrozen. It reads concrete DOM geometry and
   //      its in-game controller verification is still pending, so it ships
-  //      as-is. Exit criteria in frontend/COMPATIBILITY.md.
+  //      as-is until a dedicated in-game controller pass proves a replacement.
   mkdirSync(join(OUT, 'shared'), { recursive: true });
   writeFileSync(join(OUT, 'shared/osfui.js'), composeHelper(), 'utf8');
   copy(join(FRONTEND, 'src/shared-kit/osfui.css'), join(OUT, 'shared/osfui.css'));

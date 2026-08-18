@@ -676,8 +676,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			engine = LocateEngineD3D12();
 			if (!engine) {
-				REX::ERROR("D3D12Compositor: could not locate the engine device/queue; overlay disabled "
-					"(see reverse-engineering-notes.md §2)");
+				REX::ERROR("D3D12Compositor: could not locate the engine device/queue; overlay disabled");
 				return;
 			}
 

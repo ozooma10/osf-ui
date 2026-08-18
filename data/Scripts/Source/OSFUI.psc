@@ -4,7 +4,7 @@ ScriptName OSFUI Native Hidden
 ;
 ; Settings are declared in a drop-in schema file:
 ;   Data/SFSE/Plugins/OSFUI/settings/<modId>.json
-; (see docs/authoring-settings.md, or scaffold one with `npm create osfui@latest -- --surface settings`).
+; Scaffold one with `npm create osfui@latest -- --surface settings`.
 ; This script reads them back, writes them, and reacts to changes and hotkey presses.
 ;
 ; If OSF UI is absent, every call fails soft: Papyrus logs a missing-native error and the call yields the declared default 
@@ -67,7 +67,7 @@ int Function RegisterForHotkey(ScriptObject akReceiver, string asFn, string asMo
 int Function RegisterForHotkeyStatic(string asScript, string asFn, string asModId, string asKey = "") Global Native
 
 ; --- dynamic data <-> views ---------------------------------------------------
-; Move DYNAMIC state (live lists, tables, arbitrary strings) between your script and your mod's OSF UI views (see docs/authoring-dynamic-data.md for a worked example).
+; Move DYNAMIC state (live lists, tables, arbitrary strings) between your script and your mod's OSF UI views.
 ;
 ; Your script OWNS game state. It reaches the view through exactly two channels
 ;

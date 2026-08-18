@@ -288,9 +288,9 @@ namespace osfui::wv2
 				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
 				// Manifest nativeBridge permission, set by `navigate`. False skips
-				// the window.osfui shim injection entirely (security-model.md rule
-				// 6); the game side independently drops any message from a
-				// bridge-less view, so this is defence in depth, not the only gate.
+				// the window.osfui shim injection entirely. The game side independently
+				// drops any message from a bridge-less view, so this is defence in
+				// depth, not the only gate.
 				bool bridge{ true };
 				// Deferred visibility: a reveal waits for the page's first painted
 				// frame after Chromium resume, and hides wait for pending reveals.
@@ -326,7 +326,7 @@ namespace osfui::wv2
 			// are page-controlled (`fetch('https://' + Math.random() + '.x/')`),
 			// so the set AND the log lines it admits must both be bounded, or a
 			// hostile page grows the log, the pipe, and this process without
-			// limit (docs/logging.md: "Nothing may log unboundedly"). Past the
+			// limit. Past the
 			// cap one terminal line announces that further denials are silent.
 			// Entries are dropped with their view.
 			static constexpr std::size_t kMaxEgressWarnsPerView = 32;
@@ -991,7 +991,7 @@ namespace osfui::wv2
 				return osfui::wv2::IsLocalViewUri(std::move(a_uri), virtualHost);
 			}
 
-			// security-model.md rule 2 (default-deny egress): everything a view may
+			// Default-deny egress: everything a view may
 			// legitimately load lives under the virtual-host folder mapping, so any
 			// other destination is exfiltration surface. Two mechanisms, because no
 			// single one covers everything:
@@ -1272,8 +1272,8 @@ namespace osfui::wv2
 							// Only a real user gesture (a click on a link) may leave the
 							// game. A scripted window.open never issues a network request,
 							// so InstallNetworkGuard's default-deny cannot see it — without
-							// this gate it is an egress channel around security-model.md
-							// rule 2, carrying any payload in the query string.
+							// this gate it is an egress channel carrying any payload in the
+							// query string.
 							BOOL userInitiated = FALSE;
 							if (FAILED(a_args->get_IsUserInitiated(&userInitiated)) ||
 								!userInitiated) {

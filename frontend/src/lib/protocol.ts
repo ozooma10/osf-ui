@@ -2,7 +2,7 @@
 //
 // Re-exports `sdk/osfui.d.ts` rather than restating it: that file is the
 // published contract (bridge protocol 2.0), kept in lockstep with
-// MessageBridge.cpp, docs/authoring-views.md and docs/schema/*.schema.json.
+// MessageBridge.cpp and docs/schema/*.schema.json.
 // Importing it turns drift into a compile error.
 //
 // The declarations below add frontend narrowings the published SDK leaves loose.
