@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace osfui-frontend",
-    "test": "npm test --workspace osfui-frontend"
+    "test": "npm test --workspace osfui-frontend",
+    "verify": "npm run verify --workspace osfui-frontend"
   }
 }
