@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <vector>
 #include <string>
 #include <mutex>
@@ -16,10 +17,16 @@ namespace OSFUI
     class ViewRequestQueue
     {
     public:
+        struct OpenRequest
+        {
+            std::string                           view;
+            std::chrono::steady_clock::time_point requestedAt;
+        };
+
         struct Batch
         {
             std::vector<ViewPresentationRequest> presentation;
-            std::vector<std::string> openViews;
+            std::vector<OpenRequest> openViews;
         };
 
         void Enqueue(ViewPresentationRequest a_request);
@@ -29,6 +36,6 @@ namespace OSFUI
     private:
         std::mutex m_mutex;
         std::vector<ViewPresentationRequest> m_presentation;
-        std::vector<std::string> m_openViews;
+        std::vector<OpenRequest> m_openViews;
     };
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <thread>
 #include <unordered_set>
@@ -53,8 +54,9 @@ namespace OSFUI::API
 		bool          ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) override;
 		struct ViewPresentationRequest
 		{
-			std::string view;
-			bool        open{ true };
+			std::string                           view;
+			bool                                  open{ true };
+			std::chrono::steady_clock::time_point requestedAt;
 		};
 		std::vector<ViewPresentationRequest> TakeViewPresentationRequests();
 

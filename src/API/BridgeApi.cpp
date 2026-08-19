@@ -284,7 +284,11 @@ namespace OSFUI::API
 		if (!id) {
 			return false;
 		}
-		_pendingViewPresentationRequests.push_back({ *id, a_open });
+		_pendingViewPresentationRequests.push_back({
+			.view = *id,
+			.open = a_open,
+			.requestedAt = std::chrono::steady_clock::now(),
+		});
 		MarkPending(kPendingPresentation);
 		return true;
 	}

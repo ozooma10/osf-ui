@@ -99,7 +99,7 @@ namespace OSFUI
 		struct PendingPresentationWork
 		{
 			std::vector<ViewPresentationRequest>         local;
-			std::vector<std::string>                 openViews;  // EnqueueOpenView (internal native triggers)
+			std::vector<ViewRequestQueue::OpenRequest>    openViews;  // EnqueueOpenView (internal native triggers)
 			std::vector<API::BridgeApi::ViewPresentationRequest> plugin;
 		};
 		PendingPresentationWork TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin);
@@ -109,7 +109,7 @@ namespace OSFUI
 		bool BeginViewOpen(std::string_view a_id);
 		bool CancelPendingOpen();
 		void DrivePendingOpen();
-		void BeginColdOpenTiming(std::string_view a_viewId);
+		void BeginColdOpenTiming(std::string_view a_viewId, std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);
 		void CancelColdOpenTiming(std::string_view a_viewId);
 		void FinishColdOpenTiming(std::string_view a_viewId);
 		void BeginHiddenPrewarmTiming(std::string_view a_viewId);

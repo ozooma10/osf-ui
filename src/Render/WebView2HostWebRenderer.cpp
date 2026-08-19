@@ -1890,10 +1890,12 @@ namespace OSFUI
 			std::scoped_lock lock(_impl->frameMutex, _impl->stateMutex);
 			auto* view = _impl->FindView(a_viewId);
 			if (!view) return;
-			const bool wasAllHidden = _impl->allHidden;
+			if (view->hidden == a_hidden) return;
+			const bool wasHidden = view->hidden;
 			view->hidden = a_hidden;
 			_impl->RecomputeAllHidden();
-			if (wasAllHidden && !_impl->allHidden) {
+			if (wasHidden && !a_hidden) {
+				// Every newly shown view is a new presentation, including menu-to-menu switches where another view kept the overlay visible.
 				++_impl->presentationEpoch;
 				_impl->haveFrame = false;
 			} else if (_impl->allHidden) {

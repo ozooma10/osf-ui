@@ -148,6 +148,7 @@ int main()
 	const auto pluginSource = ReadSource("../../src/Core/Plugin.cpp");
 	const auto papyrusSource = ReadSource("../../src/API/PapyrusApi.cpp");
 	const auto bridgeApiSource = ReadSource("../../src/API/BridgeApi.cpp");
+	const auto viewRequestQueueSource = ReadSource("../../src/Views/ViewRequestQueue.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
 	const auto compositorSource = ReadSource("../../src/Composite/D3D12Compositor.cpp");
 	const auto uiPassSource = ReadSource("../../src/Composite/UiPass.cpp");
@@ -276,6 +277,15 @@ int main()
 		"_lastToggleRequestNanos.store",
 		"EnqueuePresentationRequest(ViewPresentationRequest::ToggleDefault)" }),
 		"the toggle input timestamp must be captured before its presentation request is queued");
+	Check(ContainsInOrder(viewRequestQueueSource, {
+		"void OSFUI::ViewRequestQueue::EnqueueOpen",
+		".view = std::move(a_viewId)",
+		".requestedAt = std::chrono::steady_clock::now()" }) &&
+		ContainsInOrder(FunctionBody(bridgeApiSource, "bool BridgeApi::RequestMenu("), {
+			".view = *id",
+			".open = a_open",
+			".requestedAt = std::chrono::steady_clock::now()" }),
+		"internal and native menu requests must capture their timestamps before the Runtime drain");
 
 	const auto instantiateView = FunctionBody(runtimeSource,
 		"bool Runtime::InstantiateView(const ViewManifest& a_manifest");
@@ -374,6 +384,15 @@ int main()
 
 	const auto applyRequests = FunctionBody(runtimeSource,
 		"void Runtime::ApplyPresentationRequests(const PendingPresentationWork& a_work)");
+	const auto prepareRequests = FunctionBody(runtimeSource,
+		"void Runtime::PreparePresentationRequests(const PendingPresentationWork& a_work)");
+	Check(ContainsInOrder(prepareRequests, {
+		"manifest->kind == ViewKind::Menu",
+		"m_viewLoads.GetState(a_id) != ViewLoadState::Finished",
+		"BeginColdOpenTiming(a_id, a_requestedAt)",
+		"InstantiateView(*manifest, a_reason)" }) &&
+		Count(prepareRequests, "request.requestedAt") == 2,
+		"every cold internal or native mod-menu request must begin timing before instantiation");
 	Check(ContainsInOrder(applyRequests, {
 		"case ViewPresentationRequest::ToggleDefault:",
 		"CancelPendingOpen()",
@@ -399,6 +418,11 @@ int main()
 		"return _presentation.Open(a_id)",
 		"_pendingViewOpen = std::string(a_id)" }),
 		"menus must stay closed while loading; only HUDs and load-complete menus open immediately");
+	Check(ContainsInOrder(beginOpen, {
+		"CancelPendingOpen()",
+		"BeginColdOpenTiming(a_id, ViewTimingClock::now())",
+		"_pendingViewOpen = std::string(a_id)" }),
+		"direct opens of an already-loading menu must still gain a cold-open timing record");
 
 	const auto cancelPending = FunctionBody(runtimeSource, "bool Runtime::CancelPendingOpen()");
 	Check(ContainsInOrder(cancelPending, {
@@ -456,6 +480,14 @@ int main()
 		"CancelPendingOpen()",
 		"_presentation.CloseActiveMenu()" }),
 		"central presentation policy must fail closed when capture integration is unavailable");
+	Check(ContainsInOrder(applyPolicy, {
+		"const auto layers = _presentation.DesiredLayers()",
+		"SetViewOrder(layer.id, layer.z)",
+		"if (!layer.hidden)",
+		"SetViewHidden(layer.id, false)",
+		"if (layer.hidden)",
+		"SetViewHidden(layer.id, true)" }),
+		"menu transitions must show the incoming layer before hiding the outgoing layer");
 	Check(ContainsInOrder(applyPolicy, {
 		"visible && !wasVisible",
 		"m_viewReveal.Arm()" }),
@@ -528,13 +560,14 @@ int main()
 	const auto setHidden = FunctionBody(rendererSource,
 		"void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden)");
 	Check(ContainsInOrder(setHidden, {
-		"wasAllHidden",
+		"view->hidden == a_hidden",
+		"wasHidden",
 		"RecomputeAllHidden()",
-		"wasAllHidden && !_impl->allHidden",
+		"wasHidden && !a_hidden",
 		"++_impl->presentationEpoch",
 		"_impl->haveFrame = false",
 		".presentationEpoch = presentation" }),
-		"closed-to-open must advance the host presentation epoch and invalidate the cached frame");
+		"every newly shown view must advance the presentation epoch and invalidate cached pixels");
 
 	const auto onFrame = FunctionBody(rendererSource, "void OnFrameMessage(const msg::Frame& a_msg)");
 	Check(ContainsInOrder(onFrame, {
@@ -570,9 +603,13 @@ int main()
 		"_compositor->SetVisible(true)" }),
 		"Runtime must submit the gate-approved frame before making the compositor visible");
 	Check(ContainsInOrder(submitFrame, {
-		"_compositor->SetVisible(true)",
-		"FinishColdOpenTiming(*active)" }),
-		"the cold-open summary must be emitted only after a presentable frame reveals");
+		"if (decision.submitFrame && frame)",
+		"_compositor->Submit(*frame)",
+		"observation->outputSizeKnown && observation->matchesExpectedSize",
+		"FinishColdOpenTiming(*active)",
+		"if (decision.reveal)",
+		"_compositor->SetVisible(true)" }),
+		"cold-open timing must finish on the first presentable submitted frame, including visible menu-to-menu transitions");
 	const auto finishColdOpen = FunctionBody(runtimeSource,
 		"void Runtime::FinishColdOpenTiming(std::string_view a_viewId)");
 	Check(ContainsInOrder(finishColdOpen, {
@@ -580,7 +617,8 @@ int main()
 		"timing.requestedAt, *timing.instantiatedAt",
 		"*timing.instantiatedAt, *timing.loadedAt",
 		"*timing.loadedAt, revealedAt" }) &&
-		finishColdOpen.find("cold-open timing") != std::string::npos,
+		finishColdOpen.find("cold-open timing") != std::string::npos &&
+		finishColdOpen.find("request->instantiate") != std::string::npos,
 		"cold-open diagnostics must summarize total, dispatch, load and presentable-frame timing in one line");
 	const auto finishHiddenPrewarm = FunctionBody(runtimeSource,
 		"void Runtime::FinishHiddenPrewarmTiming(std::string_view a_viewId");

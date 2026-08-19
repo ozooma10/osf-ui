@@ -436,29 +436,32 @@ namespace OSFUI
 
 	void Runtime::PreparePresentationRequests(const PendingPresentationWork& a_work)
 	{
-		const auto prepare = [this](std::string_view a_id, std::string_view a_reason) {
-			if (_presentation.IsInstantiated(a_id)) {
+		const auto prepare = [this](std::string_view a_id, std::string_view a_reason,
+			std::optional<ViewTimingClock::time_point> a_requestedAt) {
+			const auto* manifest = _views.Find(a_id);
+			if (!manifest) {
 				return;
 			}
-			if (const auto* manifest = _views.Find(a_id)) {
-				InstantiateView(*manifest, a_reason);
+			if (manifest->kind == ViewKind::Menu &&
+				m_viewLoads.GetState(a_id) != ViewLoadState::Finished) {
+				BeginColdOpenTiming(a_id, a_requestedAt);
+			}
+			if (!_presentation.IsInstantiated(a_id) && !InstantiateView(*manifest, a_reason)) {
+				CancelColdOpenTiming(a_id);
 			}
 		};
 
-		for (const auto& id : a_work.openViews) {
-			prepare(id, "on demand");
+		for (const auto& request : a_work.openViews) {
+			prepare(request.view, "on demand", request.requestedAt);
 		}
 		for (const auto& request : a_work.plugin) {
 			if (request.open) {
-				prepare(request.view, "on demand");
+				prepare(request.view, "on demand", request.requestedAt);
 			}
 		}
 		if (!_pendingViewOpen && !_presentation.ActiveMenu() &&
 			std::ranges::find(a_work.local, ViewPresentationRequest::ToggleDefault) != a_work.local.end()) {
-			if (m_viewLoads.GetState(Ids::kSettingsViewId) != ViewLoadState::Finished) {
-				BeginColdOpenTiming(Ids::kSettingsViewId);
-			}
-			prepare(Ids::kSettingsViewId, "for the default-menu toggle");
+			prepare(Ids::kSettingsViewId, "for the default-menu toggle", std::nullopt);
 		}
 	}
 
@@ -499,11 +502,11 @@ namespace OSFUI
 				break;
 			}
 		}
-		for (const auto& id : a_work.openViews) {
-			if (!_presentation.IsInstantiated(id)) {
-				REX::WARN("Runtime: EnqueueOpenView('{}') ignored — no discovered view could be instantiated", id);
+		for (const auto& request : a_work.openViews) {
+			if (!_presentation.IsInstantiated(request.view)) {
+				REX::WARN("Runtime: EnqueueOpenView('{}') ignored — no discovered view could be instantiated", request.view);
 			} else {
-				BeginViewOpen(id);
+				BeginViewOpen(request.view);
 			}
 		}
 		for (const auto& r : pluginReqs) {
@@ -577,6 +580,9 @@ namespace OSFUI
 		}
 
 		CancelPendingOpen();
+		if (!_coldOpenTiming || _coldOpenTiming->viewId != a_id) {
+			BeginColdOpenTiming(a_id, ViewTimingClock::now());
+		}
 		_pendingViewOpen = std::string(a_id);
 		REX::DEBUG("Runtime: holding first open of '{}' until its main-frame load succeeds", a_id);
 		return true;
@@ -594,15 +600,25 @@ namespace OSFUI
 		return true;
 	}
 
-	void Runtime::BeginColdOpenTiming(std::string_view a_viewId)
+	void Runtime::BeginColdOpenTiming(std::string_view a_viewId,
+		std::optional<ViewTimingClock::time_point> a_requestedAt)
 	{
+		if (_coldOpenTiming && _coldOpenTiming->viewId == a_viewId) {
+			return;  // Preserve the earliest request while the same cold open is pending.
+		}
 		const auto now = ViewTimingClock::now();
-		const auto requestedNanos = _lastToggleRequestNanos.exchange(0, std::memory_order_acq_rel);
 		auto requestedAt = now;
-		if (requestedNanos > 0) {
-			const auto candidate = ViewTimingClock::time_point(std::chrono::nanoseconds(requestedNanos));
-			if (candidate <= now) {
-				requestedAt = candidate;
+		if (a_requestedAt) {
+			if (*a_requestedAt != ViewTimingClock::time_point{} && *a_requestedAt <= now) {
+				requestedAt = *a_requestedAt;
+			}
+		} else {
+			const auto requestedNanos = _lastToggleRequestNanos.exchange(0, std::memory_order_acq_rel);
+			if (requestedNanos > 0) {
+				const auto candidate = ViewTimingClock::time_point(std::chrono::nanoseconds(requestedNanos));
+				if (candidate <= now) {
+					requestedAt = candidate;
+				}
 			}
 		}
 		_coldOpenTiming = ColdOpenTiming{
@@ -634,7 +650,7 @@ namespace OSFUI
 		const auto milliseconds = [](ViewTimingClock::time_point a_begin, ViewTimingClock::time_point a_end) {
 			return std::chrono::duration_cast<std::chrono::milliseconds>(a_end - a_begin).count();
 		};
-		REX::INFO("Runtime: cold-open timing '{}': {} ms total (input->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)", 
+		REX::INFO("Runtime: cold-open timing '{}': {} ms total (request->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)",
 			timing.viewId, milliseconds(timing.requestedAt, revealedAt), milliseconds(timing.requestedAt, *timing.instantiatedAt), milliseconds(*timing.instantiatedAt, *timing.loadedAt), milliseconds(*timing.loadedAt, revealedAt));
 	}
 
@@ -721,7 +737,11 @@ namespace OSFUI
 				continue;
 			}
 			if (m->openOnStart) {
+				if (m->kind == ViewKind::Menu) {
+					BeginColdOpenTiming(id, ViewTimingClock::now());
+				}
 				if (!InstantiateView(*m, "via plugin RegisterView openOnStart")) {
+					CancelColdOpenTiming(id);
 					continue;
 				}
 				BeginViewOpen(id);
@@ -1124,14 +1144,16 @@ namespace OSFUI
 		const auto decision = m_viewReveal.Observe(observation, _uptime);
 		if (decision.submitFrame && frame) {
 			_compositor->Submit(*frame);
+			if (observation && observation->outputSizeKnown && observation->matchesExpectedSize) {
+				if (const auto active = _presentation.ActiveMenu()) {
+					FinishColdOpenTiming(*active);
+				}
+			}
 		} else {
 			_compositor->PrepareSharedRing();
 		}
 		if (decision.reveal) {
 			_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
-			if (const auto active = _presentation.ActiveMenu()) {
-				FinishColdOpenTiming(*active);
-			}
 			return;
 		}
 		if (!decision.timedOut) {
