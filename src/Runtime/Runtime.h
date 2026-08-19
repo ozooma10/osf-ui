@@ -77,6 +77,8 @@ namespace OSFUI
 		void InitializeFeatureModules();
 		void InitializeBridge();
 		void InitializeStartupViews();
+		void StartBuiltInMenuPrewarm();
+		void PrewarmBuiltInKeybindings();
 		void ConfigureInputRouting();
 
 		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down);
@@ -232,6 +234,7 @@ namespace OSFUI
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
+		bool                          _builtInMenuPrewarmStarted{ false };
 		bool                          _developerMode{ false };  // startup-latched; setting changes apply next launch
 		bool                          _highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
 

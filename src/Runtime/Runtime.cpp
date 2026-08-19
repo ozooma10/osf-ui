@@ -401,7 +401,9 @@ namespace OSFUI
 		_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
 		if (!_captureIntegrationAvailable) {
 			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
+			return;
 		}
+		StartBuiltInMenuPrewarm();
 	}
 
 	void Runtime::EnqueuePresentationRequest(ViewPresentationRequest a_req)
