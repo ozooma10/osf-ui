@@ -1,28 +1,6 @@
-// System Health — the fixed rail destination.
-//
-// The promise this destination makes is that everything on it is true right now and
-// worth a player's attention. It is not a log viewer: nothing lands here that
-// a subsystem did not deliberately raise, and nothing stays here once that
-// subsystem withdraws it. That is why there is no dismiss button — a health
-// issue the player could dismiss would be an issue that could lie.
-//
-// Space follows severity. An error renders as a full card — title, what it means for
-// you, what to do, and its actions all visible. An active warning collapses to a
-// single row that expands in place, because a warning that is not worth acting
-// on should not cost the same vertical space as one that is. Both live in the
-// same #health-active list so paint order (errors first) is unchanged and a
-// deep link still finds its issue either way.
-//
-// Severity is carried three ways (word, colour, icon), never by colour alone.
-// Everything a native payload supplies is rendered as a text child; the only
-// prose in the destination comes from the code->copy table in @lib/settings/health,
-// so it is localizable and cannot be authored by a mod. Raw native text appears
-// only under an issue's collapsed technical disclosure, where it reads as
-// developer detail rather than as UI chrome.
 
 import { useEffect, useState } from 'preact/hooks';
 import type { Translator } from '@lib/i18n';
-import { NEXUS_PAGE_URL } from '@lib/links';
 import {
   activeIssues,
   canRetryView,
@@ -31,7 +9,6 @@ import {
   isResolved,
   overallSeverity,
   resolvedIssues,
-  serializeReport,
   severityOf,
   type ActionKind,
   type HealthModel,
@@ -47,8 +24,6 @@ export interface HealthProps {
   focusIssueId: string | null;
   /** menu.open on a view id — the only action that takes an argument. */
   onRetryView: (viewId: string) => void;
-  /** Call a payload-free shell request endpoint (osfui.openLogFolder, osfui.openModPage). */
-  onShellRequest: (requestEndpoint: string) => void;
   onToast: (message: string, kind?: 'warn' | 'danger') => void;
 }
 
@@ -57,7 +32,6 @@ export function Health({
   tr,
   focusIssueId,
   onRetryView,
-  onShellRequest,
   onToast,
 }: HealthProps) {
   const active = activeIssues(health);
@@ -69,37 +43,13 @@ export function Health({
   const overall = overallSeverity(counts);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  /**
-   * A deep-linked issue that now sits in the history block. The card's own
-   * `defaultOpen` is not enough on its own — it would expand inside a container
-   * that is still collapsed, leaving the link pointing at a pane with nothing
-   * visibly different about it.
-   *
-   * This is reachable while the pane is open, not only at mount: you follow a
-   * failed view's card here, the condition clears, and the next
-   * `osfui/diagnostics` state update moves that exact card from the active list into the
-   * history. Seeding the initial state would not have covered that, which is why
-   * it is an effect. Only the transition into `true` is forced, so closing the
-   * disclosure by hand afterwards sticks.
-   */
   const resolvedTarget = !!focusIssueId && resolved.some((i) => i.id === focusIssueId);
   useEffect(() => {
     if (resolvedTarget) setHistoryOpen(true);
   }, [resolvedTarget]);
 
-  // Bring a deep-linked issue on screen. Expanding it is not enough: the
-  // summary, the action bar, the error tier and the warning-tier header all sit
-  // above the list, so a linked warning routinely opens below the fold and the
-  // jump reads as "nothing happened". Same shape as the settings pane's
-  // search-jump scroll (App.tsx) — the card is found by walking
-  // `.health-card[data-issue]` and comparing the attribute rather than building
-  // a selector string, so an id carrying a quote or bracket needs no escaping,
-  // and `scrollIntoView` is guarded because jsdom omits it.
   useEffect(() => {
     if (!focusIssueId) return;
-    // `historyOpen` has no other use here; reading it is what re-runs the scroll
-    // once a resolved target is actually in the DOM. It is seeded open above, so
-    // this covers the toggle-it-open-afterwards case.
     void historyOpen;
     const cards = document.querySelectorAll('.health-card[data-issue]');
     for (let i = 0; i < cards.length; i++) {
@@ -111,9 +61,6 @@ export function Health({
     }
   }, [focusIssueId, historyOpen]);
 
-  // Clipboard failures must not look like nothing happened, and must not take
-  // the technical details away from someone who now has to transcribe them by
-  // hand — so the disclosure stays open and selectable and only a toast fires.
   const copyText = (text: string, okMessage: string) => {
     const clipboard = navigator.clipboard;
     if (!clipboard || !clipboard.writeText) {
@@ -143,33 +90,6 @@ export function Health({
       <div class="detail-body detail-body--health">
         <Summary counts={counts} overall={overall} tr={tr} />
 
-        <div class="health-actions">
-          <button
-            type="button"
-            class="osf-btn osf-btn--sm"
-            onClick={() =>
-              copyText(serializeReport(health), tr('reportCopied', 'Diagnostic report copied'))
-            }
-          >
-            {tr('copyReport', 'Copy diagnostic report')}
-          </button>
-          <button
-            type="button"
-            class="osf-btn osf-btn--sm osf-btn--ghost"
-            onClick={() => onShellRequest('osfui.openLogFolder')}
-          >
-            {tr('openLogFolder', 'Open log folder')}
-          </button>
-          <a
-            class="osf-btn osf-btn--sm osf-btn--ghost"
-            href={NEXUS_PAGE_URL}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {tr('troubleshooting', 'Troubleshooting')}
-          </a>
-        </div>
-
         {active.length ? (
           <div class="health-list" id="health-active">
             {activeErrors.map((issue) => (
@@ -179,7 +99,6 @@ export function Health({
                 tr={tr}
                 defaultOpen={issue.id === focusIssueId}
                 onRetryView={onRetryView}
-                onShellRequest={onShellRequest}
                 onCopyDetails={(text) =>
                   copyText(text, tr('detailsCopied', 'Details copied'))
                 }
@@ -205,7 +124,6 @@ export function Health({
                 compact
                 defaultOpen={issue.id === focusIssueId}
                 onRetryView={onRetryView}
-                onShellRequest={onShellRequest}
                 onCopyDetails={(text) =>
                   copyText(text, tr('detailsCopied', 'Details copied'))
                 }
@@ -238,7 +156,6 @@ export function Health({
                     tr={tr}
                     defaultOpen={issue.id === focusIssueId}
                     onRetryView={onRetryView}
-                    onShellRequest={onShellRequest}
                     onCopyDetails={(text) =>
                       copyText(text, tr('detailsCopied', 'Details copied'))
                     }
@@ -294,11 +211,6 @@ function Summary({
   );
 }
 
-/**
- * Icon + text severity marker. `aria-hidden` is on the glyph only: the word
- * beside it is the accessible name, so the severity survives both a screen
- * reader and a colour-blind reading.
- */
 function SeverityMark({
   severity,
   tr,
@@ -338,7 +250,6 @@ interface IssueCardProps {
   /** Render as a one-line row that expands in place (the warning tier). */
   compact?: boolean;
   onRetryView: (viewId: string) => void;
-  onShellRequest: (requestEndpoint: string) => void;
   onCopyDetails: (text: string) => void;
 }
 
@@ -348,17 +259,11 @@ function IssueCard({
   defaultOpen,
   compact,
   onRetryView,
-  onShellRequest,
   onCopyDetails,
 }: IssueCardProps) {
   const [open, setOpen] = useState(defaultOpen);
-  // A compact row carries a second state: whether the row itself is unfolded.
-  // A deep link opens both, so arriving at a warning shows it in full.
   const [rowOpen, setRowOpen] = useState(defaultOpen);
   const copy = copyForIssue(issue);
-  // Every line of copy goes through the same substitution: the mod-reported
-  // fallback names its mod via `{mod}`, and the fixed platform strings simply
-  // have nothing to substitute.
   const line = (pair: [string, string]) => tr(pair[0], pair[1], copy.params);
   const severity = severityOf(issue);
   const resolvedCard = isResolved(issue);
@@ -368,19 +273,9 @@ function IssueCard({
   const runAction = (kind: ActionKind) => {
     switch (kind) {
       case 'retry-view':
-        // The argument is the issue's own subject — a view id the runtime
-        // already knows. Nothing free-text ever reaches an endpoint.
         if (issue.subject) onRetryView(issue.subject);
         return;
-      case 'update-osfui':
-        onShellRequest('osfui.openModPage');
-        return;
-      case 'open-logs':
-        onShellRequest('osfui.openLogFolder');
-        return;
       case 'copy-details':
-        // Show what is about to be copied: if the clipboard refuses, the text
-        // is already on screen and selectable.
         setOpen(true);
         onCopyDetails(detailsText);
         return;
@@ -389,17 +284,15 @@ function IssueCard({
 
   const tag = resolvedCard ? (
     <span class="health-card-tag">{tr('resolved', 'Resolved')}</span>
-  ) : (issue.occurrences ?? 1) > 1 ? (
+  ) : issue.occurrences > 1 ? (
     <span
       class="health-card-tag"
       title={tr('occurrenceHint', 'How many times this happened this session')}
     >
-      {tr('timesCount', '{count}×', { count: issue.occurrences ?? 1 })}
+      {tr('timesCount', '{count}×', { count: issue.occurrences })}
     </span>
   ) : null;
 
-  // Everything below the heading. Identical in both forms — a compact row is a
-  // smaller door onto the same content, never a reduced version of it.
   const body = (
     <>
       <p class="health-card-impact">{line(copy.impact)}</p>
@@ -445,7 +338,7 @@ function IssueCard({
           rowOpen ? ' health-card--row-open' : ''
         }${resolvedCard ? ' health-card--resolved' : ''}`}
         data-issue={issue.id}
-        data-code={issue.code || ''}
+        data-code={issue.code}
       >
         {/* The whole row is the control: a one-line summary that is its own
             disclosure button, so there is no separate hit target to find. */}
@@ -472,7 +365,7 @@ function IssueCard({
     <article
       class={`health-card health-card--${severity}${resolvedCard ? ' health-card--resolved' : ''}`}
       data-issue={issue.id}
-      data-code={issue.code || ''}
+      data-code={issue.code}
     >
       <header class="health-card-head">
         <SeverityMark severity={resolvedCard ? null : severity} tr={tr} />
@@ -492,35 +385,26 @@ function actionLabel(kind: ActionKind, tr: Translator): string {
   switch (kind) {
     case 'retry-view':
       return tr('retryView', 'Retry view');
-    case 'update-osfui':
-      return tr('updateOsfui', 'Update OSF UI');
-    case 'open-logs':
-      return tr('openLogFolder', 'Open log folder');
     case 'copy-details':
       return tr('copyDetails', 'Copy details');
   }
 }
 
-/**
- * The card's collapsed disclosure: the stable code, raw native error text,
- * occurrence count and session timing. Deliberately not translated — this is
- * what gets pasted into a bug report, and it has to read the same everywhere.
- */
 export function technicalText(issue: IssueRecord): string {
   const lines = [
     `code: ${issue.code || '(none)'}`,
     `id: ${issue.id}`,
     `severity: ${severityOf(issue)}`,
-    `status: ${issue.status || 'active'}`,
+    `status: ${issue.status}`,
   ];
   if (issue.subject) lines.push(`subject: ${issue.subject}`);
   if (issue.source) lines.push(`source: ${issue.source}`);
-  lines.push(`occurrences: ${issue.occurrences ?? 1}`);
+  lines.push(`occurrences: ${issue.occurrences}`);
   lines.push(
-    `session: first ${issue.firstAt ?? 0}s, last ${issue.lastAt ?? 0}s` +
+    `session: first ${issue.firstAt}s, last ${issue.lastAt}s` +
       (isResolved(issue) ? `, resolved ${issue.resolvedAt ?? 0}s` : ''),
   );
-  const context = issue.context || {};
+  const context = issue.context;
   for (const key of Object.keys(context)) lines.push(`${key}: ${String(context[key])}`);
   return lines.join('\n');
 }

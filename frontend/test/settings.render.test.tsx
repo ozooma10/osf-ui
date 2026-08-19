@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-//
-// Pins the settings widget quirks. Each `it` names the exact behaviour it
-// guards; these read as arbitrary but a refactor that "cleans them up" breaks
-// a shipped view.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -28,10 +24,6 @@ async function mountKit() {
 
 describe('settings widget rendering', () => {
   it('bool renders as a button[role=switch] carrying BOTH state attributes', async () => {
-    // Neither is redundant, and they must agree. `aria-checked` is the attribute
-    // ARIA defines for role="switch" — without it a screen reader announces the
-    // control as a switch with no on/off state — while `aria-pressed` is what
-    // osfui.css selects on to paint the knob.
     const { el } = await mountKit();
     const sw = el.querySelector<HTMLButtonElement>('#ctl-acme\\.kit-boolOn');
     expect(sw).not.toBeNull();
@@ -52,9 +44,6 @@ describe('settings widget rendering', () => {
   });
 
   it("Home's HUD card is itself the switch, and carries both state attributes", async () => {
-    // The card is the control; the `.osf-switch` span inside it is decoration
-    // with no role of its own, so two nested switches never become two tab stops
-    // for one toggle.
     const bridge = makeBridge();
     const el = await mount(bridge);
     bridge.publish('osfui/settings', WIDGETS);
@@ -147,9 +136,6 @@ describe('settings widget rendering', () => {
   it('flags recommits the whole array in canonical declared order', async () => {
     const { bridge, el } = await mountKit();
     const group = el.querySelector('#ctl-acme\\.kit-flagSet')!;
-    // Declared order is [read, write, exec] and the stored value is
-    // [read, write], so checking exec must commit declared order, not
-    // insertion order.
     const boxes = group.querySelectorAll<HTMLInputElement>('.osf-flag-box');
     const exec = [...boxes].find((b) => b.value === 'exec')!;
     exec.checked = true;
@@ -189,8 +175,6 @@ describe('settings widget rendering', () => {
     const wrap = el.querySelector('#ctl-acme\\.kit-bindKey')!.closest('.osf-key-wrap');
     expect(wrap).not.toBeNull();
     expect(wrap!.querySelector('.osf-key-clear')).not.toBeNull();
-    // The framework toggleKey has no allowUnbound -> no wrap (unchecked here;
-    // needs the osfui mod selected).
   });
 
   it('note style is whitelisted and its body runs through micro-markdown', async () => {

@@ -21,48 +21,27 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run native suites
-        # Compiles the real store/module/bridge/api/hotkey sources on clang and runs them; 
-        # exit code = number of failing checks (see tests/native/run.sh).
+        # The suite returns its failing-check count as the process exit code.
         run: bash tests/native/run.sh
         env:
           CXX: clang++
 
       - name: Check protocol version lockstep
-        # kBridgeProtocolVersion (src/core/Version.h) is claimed as a literal in the SDK README's headline, 
-        # the authoring guide's status blurb + versioning section, and the .d.ts header
-        # the "docs say 0.1, code says 0.4" drift class must not recur. Each headline site must name the CURRENT version. ("protocol 0.4"-style historical annotations elsewhere are fine and not checked.)
+        # Keep public types and schemas aligned with kBridgeProtocolVersion.
         run: |
           set -e
-          V=$(sed -n 's/.*kBridgeProtocolVersion = "\([0-9.]*\)".*/\1/p' src/core/Version.h)
+          V=$(sed -n 's/.*kBridgeProtocolVersion = "\([0-9.]*\)".*/\1/p' src/Core/Version.h)
           test -n "$V" || { echo "::error::could not extract kBridgeProtocolVersion"; exit 1; }
           echo "kBridgeProtocolVersion = $V"
           fail=0
-          check() { grep -qE "$2" "$1" || { echo "::error file=$1::headline does not claim bridge protocol $V ($2)"; fail=1; }; }
-          check sdk/README.md            "^\*\*$V — stable\.\*\*"
-          check docs/authoring-views.md  "protocol is at version \*\*$V — stable\*\*"
-          check docs/authoring-views.md  "protocol version is \*\*$V\*\*"
+          check() { grep -qE "$2" "$1" || { echo "::error file=$1::contract does not claim bridge protocol $V ($2)"; fail=1; }; }
           check sdk/osfui.d.ts           "Bridge protocol version: $V"
-          check docs/troubleshooting.md  "bridge protocol is \*\*$V\*\*"
           check docs/schema/manifest.schema.json        "Bridge protocol $V\."
           check docs/schema/settings-schema.schema.json "Bridge protocol $V\."
           exit $fail
 
       - name: Check every JSON read and write goes through the wrapper
-        # src/runtime/Json.h is the only place nlohmann is touched directly, and
-        # each rule below was a real defect before it was a rule:
-        #   dump()   - defaults to error_handler_t::strict, which THROWS on
-        #              malformed UTF-8; most dump sites sit on the game tick or a
-        #              pipe writer with no handler above them, so that is a
-        #              std::terminate. Json::Dump substitutes U+FFFD.
-        #   parse()  - the raw call skips ignore_comments, so a settings schema
-        #              with // comments loaded from disk but was rejected over
-        #              the C ABI. Json::Parse passes it everywhere.
-        #   .value() - throws type_error.302 on a wrong-typed key and .306 on a
-        #              non-object receiver, on those same threads. Json::Get
-        #              falls back to the caller's default and cannot throw.
-        # sdk/ is exempt: the public plugin header is standalone by design and
-        # cannot include src/. Comments are stripped before matching so the
-        # explanations above can name the very calls they forbid.
+        # Raw nlohmann calls can throw or parse inconsistently; production code uses Core/Json.h.
         run: |
           set -e
           fail=0
@@ -81,12 +60,12 @@ jobs:
           check 'json::parse('  'use Json::Parse() — a raw parse() drops ignore_comments'
           check '\.value("'     'use Json::Get() — .value() throws on a wrong-typed key'
           [ "$fail" = 0 ] || exit 1
-          echo "all JSON access goes through src/runtime/Json.h"
+          echo "all JSON access goes through src/Core/Json.h"
 
       - name: Check plugin version lockstep
         run: |
           set -e
-          V=$(sed -n 's/.*kOsfuiReleaseVersion = "\([0-9.]*\)".*/\1/p' src/core/Version.h)
+          V=$(sed -n 's/.*kOsfuiReleaseVersion = "\([0-9.]*\)".*/\1/p' src/Core/Version.h)
           test -n "$V" || { echo "::error::could not extract kOsfuiReleaseVersion"; exit 1; }
           grep -qF "set_version(\"$V\")" xmake.lua || {
             echo "::error file=xmake.lua::project version does not match kOsfuiReleaseVersion $V"
@@ -96,8 +75,8 @@ jobs:
           for pair in Major:$MAJOR Minor:$MINOR Patch:$PATCH; do
             name=${pair%%:*}
             value=${pair#*:}
-            grep -qE "kOsfuiReleaseVersion${name} = ${value};" src/core/Version.h || {
-              echo "::error file=src/core/Version.h::numeric $name does not match kOsfuiReleaseVersion $V"
+            grep -qE "kOsfuiReleaseVersion${name} = ${value};" src/Core/Version.h || {
+              echo "::error file=src/Core/Version.h::numeric $name does not match kOsfuiReleaseVersion $V"
               exit 1
             }
           done
@@ -119,7 +98,7 @@ jobs:
       - name: Install dependencies (locked)
         run: npm ci
 
-      - name: Verify toolchain and frontend
+      - name: Verify frontend
         run: npm run verify
 
       - name: Audit (production dependencies)
@@ -205,8 +184,9 @@ jobs:
           $must = @(
             "$root/SFSE/Plugins/OSFUI.dll",
             "$root/SFSE/Plugins/OSFUI.pdb",
-            "$root/SFSE/Plugins/OSFUI/config.json",
-            "$root/SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe"
+            "$root/SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe",
+            "$root/SFSE/Plugins/OSFUI/settings/osfui.json",
+            "$root/SFSE/Plugins/OSFUI/views/osfui/settings/manifest.json"
           )
           $failed = $false
           foreach ($f in $must) {

@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-//
-// Covers the author-facing API of the shipped helper by loading the real
-// src/shared-kit/osfui.js: third-party views get this exact object, so the
-// spellings below are the published mod API 2.0 contract, not an internal.
 
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -46,10 +42,6 @@ function lastPosted(sent: Sent[]): Sent {
 
 describe('author-friendly bridge helpers', () => {
   it('greets the OSF UI runtime itself, so first open and F5 are one boot path', () => {
-    // Page-initiated handshake: the helper sends osfui.hello the moment it
-    // loads, and the OSF UI runtime answers `ready` + a full state replay. Nothing in a
-    // view has to "re-request my data on reload" — which is why every other
-    // test here reads the envelope AFTER this one.
     const { sent } = loadHelper();
     expect(sent).toEqual([{ kind: 'send', name: 'osfui.hello', payload: {} }]);
   });
@@ -58,8 +50,6 @@ describe('author-friendly bridge helpers', () => {
     const { helper, sent } = loadHelper();
     expect(helper.send('acme.mod.equip', { formId: 42 })).toBe(true);
 
-    // The author's payload travels VERBATIM: 1.x smuggled the endpoint name
-    // into it as a `command` field, which let a payload key override routing.
     expect(lastPosted(sent)).toEqual({
       kind: 'send',
       name: 'acme.mod.equip',
@@ -94,9 +84,6 @@ describe('author-friendly bridge helpers', () => {
     deliver(helper, { kind: 'reply', id, payload: { weight: 12.5 } });
     await expect(result).resolves.toEqual({ weight: 12.5 });
 
-    // A duplicate/late settlement must be dropped silently rather than
-    // reported: the pending entry is gone, so there is nothing to reject and
-    // nothing an author could have done about it.
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       deliver(helper, { kind: 'error', id, payload: { code: 'boom', message: 'late' } });
@@ -119,8 +106,6 @@ describe('author-friendly bridge helpers', () => {
       payload: { name: 'calculatePrice', args: [42, true] },
     });
 
-    // The wire carries { value } so a Papyrus None is representable; the sugar
-    // unwraps it, so the author sees the scalar the script returned.
     deliver(helper, { kind: 'reply', id: envelope.id, payload: { value: 125 } });
     await expect(result).resolves.toBe(125);
   });
@@ -147,8 +132,6 @@ describe('author-friendly bridge helpers', () => {
 
   it('state caches values and replays them by case-insensitive key', () => {
     const { helper } = loadHelper();
-    // Papyrus string interning means a key can arrive cased differently than
-    // the script authored it, so lookup folds case on both sides.
     deliver(helper, {
       kind: 'state',
       mod: 'acme.mod',
@@ -160,8 +143,6 @@ describe('author-friendly bridge helpers', () => {
 
     const listener = vi.fn();
     const off = helper.state.on<number[]>('ACME.MOD/INVENTORY.COUNTS', listener);
-    // Subscribing is a READ: the current value replays synchronously, so a view
-    // never has to ask "has it arrived yet?".
     expect(listener).toHaveBeenCalledOnce();
     // Exactly one argument — the value. No envelope tail for authors to poke at.
     expect(listener).toHaveBeenLastCalledWith([2, 5]);
@@ -178,9 +159,6 @@ describe('author-friendly bridge helpers', () => {
   });
 
   it('delivers a state value verbatim — no unwrapping, no per-shape rules', () => {
-    // 1.x inspected the push payload for `value` / `values` / `forms` and handed
-    // the author whichever it found. 2.0 carries one opaque value beside the
-    // routing, so a Papyrus forms list and a scalar travel the same path.
     const { helper } = loadHelper();
     const forms = vi.fn();
     helper.state.on('acme.mod/forms', forms);
@@ -198,8 +176,6 @@ describe('author-friendly bridge helpers', () => {
   });
 
   it('keeps mods separate: same key, two owners, two values', () => {
-    // The cache key is "<mod>/<key>", so one mod's state can never clobber
-    // another's — the reason state is addressed by owner at all.
     const { helper } = loadHelper();
     deliver(helper, { kind: 'state', mod: 'acme.mod', key: 'counts', value: [1] });
     deliver(helper, { kind: 'state', mod: 'other.mod', key: 'counts', value: [2] });

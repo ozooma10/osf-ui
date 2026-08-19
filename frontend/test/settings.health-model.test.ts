@@ -1,5 +1,3 @@
-// The System Health model: counting, severity precedence, sorting, per-mod
-// attribution, code->copy mapping, and diagnostic-report serialization.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -14,7 +12,6 @@ import {
   overallSeverity,
   readHealth,
   resolvedIssues,
-  serializeReport,
   severityForMod,
   sortIssues,
   type IssueRecord,
@@ -25,6 +22,7 @@ const issue = (o: Partial<IssueRecord> & { id: string }): IssueRecord => ({
   severity: 'warning',
   status: 'active',
   source: 'views',
+  sourceKind: 'platform',
   subject: '',
   context: {},
   occurrences: 1,
@@ -37,10 +35,23 @@ describe('readHealth', () => {
   it('normalizes an untrusted payload and drops idless issues', () => {
     const model = readHealth({
       system: { version: '1.4' },
-      issues: [issue({ id: 'a' }), { code: 'x' }, null, { id: '' }],
+      issues: [issue({ id: 'a' }), { id: 'defaults', context: { nested: {} } }, { code: 'x' }, null, { id: '' }],
     });
     expect(model.system).toEqual({ version: '1.4' });
-    expect(model.issues.map((i) => i.id)).toEqual(['a']);
+    expect(model.issues.map((i) => i.id)).toEqual(['a', 'defaults']);
+    expect(model.issues[1]).toEqual({
+      id: 'defaults',
+      code: '',
+      severity: 'warning',
+      status: 'active',
+      source: '',
+      sourceKind: 'platform',
+      subject: '',
+      context: {},
+      occurrences: 1,
+      firstAt: 0,
+      lastAt: 0,
+    });
   });
 
   it('survives a missing or malformed payload', () => {
@@ -121,8 +132,6 @@ describe('severityForMod — rail marker attribution', () => {
   });
 
   it("attributes a mod's OWN reports by source, whatever their subject", () => {
-    // A native report names the thing the mod cares about — a pack, a file —
-    // which is never the mod id, so source is the only link back to the rail.
     const own = [issue({ id: 'r', severity: 'error', source: 'acme.kit', subject: 'highlights' })];
     expect(severityForMod(own, 'acme.kit')).toBe('error');
     expect(severityForMod(own, 'other.mod')).toBeNull();
@@ -152,27 +161,15 @@ describe('copyForIssue', () => {
     expect(copy.title[1]).toMatch(/could not be loaded/i);
 
     const target = copyForIssue(issue({ id: 'b', code: 'settings.hotkey-target' }));
-    expect(target.actions).toContain('open-logs');
+    expect(target.actions).toEqual(['copy-details']);
     expect(target.title[1]).toMatch(/hotkey action/i);
 
     const protocol = copyForIssue(issue({ id: 'protocol', code: 'view.protocol-misuse' }));
     expect(protocol.title[1]).toMatch(/view.*invalid OSF UI messages/i);
-    expect(protocol.actions).toEqual(['copy-details', 'open-logs']);
-
-    const pre2 = copyForIssue(issue({ id: 'c', code: 'compat.pre-2-view' }));
-    expect(pre2.impact[1]).toMatch(/kept it running.*removed.*2\.1\.0/i);
-    expect(pre2.actions).toEqual(['copy-details', 'open-logs']);
-
-    const abi1 = copyForIssue(issue({ id: 'd', code: 'compat.legacy-api' }));
-    expect(abi1.impact[1]).toMatch(/kept it connected.*removed.*2\.1\.0/i);
-    expect(abi1.next[1]).toMatch(/native ABI 2\.0/i);
-    expect(abi1.actions).toEqual(['copy-details', 'open-logs']);
-
-    const papyrus = copyForIssue(issue({ id: 'e', code: 'compat.legacy-papyrus' }));
-    expect(papyrus.impact[1]).toMatch(/kept its calls working.*removed.*2\.1\.0/i);
+    expect(protocol.actions).toEqual(['copy-details']);
 
     const unsupported = copyForIssue(issue({ id: 'f', code: 'compat.unsupported-api' }));
-    expect(unsupported.impact[1]).toMatch(/neither 1\.x nor 2\.x/i);
+    expect(unsupported.impact[1]).toMatch(/different ABI major/i);
   });
 
   it('falls back to generic copy for an unknown or absent code', () => {
@@ -187,10 +184,8 @@ describe('copyForIssue', () => {
     expect(copyForIssue(issue({ id: 'a', code: 'future.unknown', source: 'host' }))).toBe(
       GENERIC_COPY,
     );
-    // Mod source: updating OSF UI would change nothing, so the card names the
-    // mod and points at its author instead.
     const mod = copyForIssue(
-      issue({ id: 'b', code: 'osf.animation:catalog.parse-failed', source: 'osf.animation' }),
+      issue({ id: 'b', code: 'osf.animation:catalog.parse-failed', source: 'osf.animation', sourceKind: 'mod' }),
     );
     expect(mod.title).toEqual(MOD_COPY.title);
     expect(mod.params).toEqual({ mod: 'osf.animation' });
@@ -201,11 +196,11 @@ describe('copyForIssue', () => {
     );
   });
 
-  it('tells a mod source from a platform one by the mod-id dot', () => {
-    expect(modIdOf(issue({ id: 'a', source: 'osf.animation' }))).toBe('osf.animation');
-    for (const platform of ['input', 'settings', 'views', 'host', 'render', 'compat', '']) {
-      expect(modIdOf(issue({ id: 'a', source: platform }))).toBeNull();
-    }
+  it('uses explicit source kind for opaque mod ids', () => {
+    expect(modIdOf(issue({ id: 'a', source: 'Plain Mod', sourceKind: 'mod' }))).toBe('Plain Mod');
+    expect(modIdOf(issue({ id: 'a', source: 'host', sourceKind: 'mod' }))).toBe('host');
+    expect(modIdOf(issue({ id: 'a', source: 'osf.animation', sourceKind: 'platform' }))).toBeNull();
+    expect(modIdOf(issue({ id: 'a', source: '', sourceKind: 'mod' }))).toBeNull();
   });
 
   it('offers Retry view only when a subject is present', () => {
@@ -213,31 +208,5 @@ describe('copyForIssue', () => {
     expect(canRetryView(issue({ id: 'a', code: 'view.load-failed', subject: '' }))).toBe(false);
     // A warning family that never offers retry stays false regardless of subject.
     expect(canRetryView(issue({ id: 'a', code: 'host.ring-truncated', subject: 'x' }))).toBe(false);
-  });
-});
-
-describe('serializeReport', () => {
-  it('renders system, active and resolved sections as readable text', () => {
-    const model = readHealth({
-      system: { version: '1.4.0', renderer: 'webview2' },
-      issues: [
-        issue({ id: 'e', severity: 'error', subject: 'x/y', code: 'view.load-failed', occurrences: 3 }),
-        issue({ id: 'r', status: 'resolved', subject: 'a', code: 'settings.values-parse', resolvedAt: 9 }),
-      ],
-    });
-    const text = serializeReport(model);
-    expect(text).toContain('OSF UI diagnostic report');
-    expect(text).toContain('version: 1.4.0');
-    expect(text).toContain('Active issues (1)');
-    expect(text).toContain('[error] view.load-failed — x/y');
-    expect(text).toContain('occurrences=3');
-    expect(text).toContain('Resolved this session (1)');
-    expect(text).toContain('resolved=9s');
-  });
-
-  it('says so when there is nothing to report', () => {
-    const text = serializeReport({ system: {}, issues: [] });
-    expect(text).toContain('Active issues (0)');
-    expect(text).toContain('none');
   });
 });

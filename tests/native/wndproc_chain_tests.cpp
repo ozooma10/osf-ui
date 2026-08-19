@@ -1,4 +1,4 @@
-#include "input/WndProcChain.h"
+#include "Input/OverlayInputHook.h"
 
 #include <cassert>
 #include <iostream>

@@ -1,13 +1,3 @@
-// The launcher, and the page every fresh visit lands on.
-//
-// A card grid rather than settings rows: a discovered view is something a mod
-// ships, not a preference. Settings stay per-mod on the rail; anything you
-// launch lives here, across every mod.
-//
-// Cards derive a monogram and an accent from the view id (marks.tsx), so an
-// unbranded third-party view still looks intentional. All untrusted text
-// (titles, descriptions) renders as a text child; the only markup is the static
-// patch SVG below.
 
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
@@ -28,7 +18,7 @@ export interface HomeProps {
   hudOn: (view: ViewRecord) => boolean;
   onOpen: (viewId: string) => void;
   onHud: (viewId: string, next: boolean) => void;
-  /** Jump to System Health with this issue expanded (failed card). */
+  /** Jump to System Health with this issue expanded. */
   onOpenIssue: (issueId: string) => void;
 }
 
@@ -44,14 +34,10 @@ export function Home({
   onOpenIssue,
 }: HomeProps) {
   const menus = views.filter((v) => v.kind === 'menu');
-  // Anything that is not a menu is treated as a HUD, so an unknown future
-  // `kind` lands here rather than vanishing.
   const huds = views.filter((v) => v.kind !== 'menu');
 
   const ownerIcon = (modId: string | undefined): string | null => {
     if (!modId) return null;
-    // Cast: the SDK `SettingsSchema` omits the advisory `icon` field that
-    // modIconSrc reads as `unknown`; bridges it without loosening the lib.
     const owner = (mods.find((m) => m.id === modId) || null) as Parameters<typeof modIconSrc>[0];
     return modIconSrc(owner, assetRoots);
   };
@@ -130,11 +116,6 @@ export function Home({
   );
 }
 
-/**
- * Owning-mod caption for a card: the settings mod's title when one is loaded,
- * else the manifest `mod` string verbatim (a view-only mod has no schema title
- * to borrow).
- */
 export function homeModCaption(v: ViewRecord, mods: ModRecord[]): string {
   if (!v.mod) return '';
   const owner = mods.find((m) => m.id === v.mod);
@@ -153,14 +134,6 @@ function SectionHead({ title, count, note }: { title: string; count: number; not
   );
 }
 
-/**
- * The card's ring. Static SVG nodes only; no `dangerouslySetInnerHTML` here or
- * anywhere in this view.
- *
- * Tinted through `currentColor`, so the whole ring recolours from one inline
- * `color` on the wrapper — a failed view overrides that to the kit's stop
- * signal instead of needing a second copy of the markup.
- */
 function Patch({
   accent,
   failed,
@@ -186,8 +159,6 @@ function Patch({
         <polygon points="22,100 27,94 32,100 27,106" fill="currentColor" opacity="0.8" />
         <polygon points="178,100 173,94 168,100 173,106" fill="currentColor" opacity="0.8" />
         {failed ? (
-          // Exclamation mark as two strokes: a glyph would need a font the
-          // shipped bundle cannot rely on.
           <g stroke="currentColor" stroke-width="6" stroke-linecap="round" fill="none">
             <path d="M100 78 v26" />
             <path d="M100 118 v.5" />
@@ -204,7 +175,6 @@ interface MenuCardProps {
   tr: Translator;
   iconSrc: string | null;
   caption: string;
-  /** Health issue naming this view, when one is active. */
   issueId: string | null;
   onOpen: (viewId: string) => void;
   onOpenIssue: (issueId: string) => void;
@@ -213,16 +183,9 @@ interface MenuCardProps {
 function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue }: MenuCardProps) {
   const failed = v.loadState === 'failed';
   const accent = homeAccentFor(v.id);
-  // Single-menu policy: the opened menu replaces this view, so there is no
-  // local state to reconcile afterwards. The cooldown only swallows a dead
-  // double-click when the open never happens.
   const [cooling, setCooling] = useState(false);
   const [iconFailed, setIconFailed] = useState(false);
   const showIcon = !!iconSrc && !iconFailed;
-
-  // A failed card is a live link to its issue, not a dead tile: the issue
-  // explains the failure in words and owns the retry. Without an issue (an
-  // older OSF UI runtime, or a failure nothing reported) it stays disabled as before.
   const reviewable = failed && !!issueId;
 
   return (
@@ -277,16 +240,6 @@ interface HudCardProps {
   onToggle: (viewId: string, next: boolean) => void;
 }
 
-/**
- * The card itself is the switch: `role="switch"` on the button, with the
- * `.osf-switch` span as decoration keyed off the card's `aria-pressed` in CSS.
- * The span carries no role of its own — two nested switches would be two tab
- * stops for one control.
- *
- * Both state attributes ship, for the reason spelled out in @ui/Switch:
- * `aria-checked` is the one role="switch" is defined in terms of, `aria-pressed`
- * is the one style.css selects on.
- */
 function HudCard({ view: v, on, iconSrc, caption, onToggle }: HudCardProps) {
   return (
     <button

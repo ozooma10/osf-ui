@@ -1,10 +1,5 @@
-// ViewPresentationController: instantiated views, one active-menu slot, HUD shown
-// set, and the derived policy/layers Runtime applies after every change.
-// Web-renderer-independent state machine; previously the largest untested runtime
-// module. The tests assert the active-menu invariant so a future multi-menu
-// change trips a test, not a policy bug.
 
-#include "runtime/ViewPresentationController.h"
+#include "Views/ViewPresentationController.h"
 
 #include <cassert>
 #include <iostream>
@@ -48,8 +43,6 @@ int main()
 		assert(!controller.ActiveMenu());
 	}
 
-	// Single-menu policy: a second menu REPLACES the first, and reopening the
-	// sole open menu reports no change.
 	{
 		ViewPresentationController controller;
 		controller.AddInstantiated(Menu("a/one"));
@@ -60,8 +53,6 @@ int main()
 		assert(controller.Open("a/two"));
 		assert(controller.ActiveMenu() == std::optional<std::string>("a/two"));
 		assert(!controller.IsOpen("a/one"));  // replaced, not stacked
-		// The active-menu invariant guarantees there is no hidden menu stack whose
-		// stale depth could affect replacement.
 		assert(controller.DesiredLayers().size() == 2);
 		int visibleMenus = 0;
 		for (const auto& layer : controller.DesiredLayers()) {
@@ -84,8 +75,6 @@ int main()
 		assert(!controller.CloseActiveMenu());  // no active menu refuses
 	}
 
-	// HUDs: a shown set independent of the active-menu slot; the menu sits above every
-	// HUD in the composite z bands.
 	{
 		ViewPresentationController controller;
 		controller.AddInstantiated(Hud("a/hud", 5));
@@ -129,8 +118,6 @@ int main()
 		assert(controller.IsInstantiated("a/hud") && controller.IsInstantiated("a/menu"));
 	}
 
-	// Removing an instantiated view closes it first (true = policy must be re-applied) and makes the
-	// id unopenable — the crash-recovery teardown path.
 	{
 		ViewPresentationController controller;
 		controller.AddInstantiated(Menu("a/menu"));

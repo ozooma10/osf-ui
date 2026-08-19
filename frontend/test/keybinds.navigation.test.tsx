@@ -1,13 +1,4 @@
 // @vitest-environment jsdom
-//
-// Four shipped Keybindings behaviours that look like bugs from the outside:
-// selecting the selected key deselects it; search re-scopes the board and list
-// but not the detail panel; a click inside a row's button is not a click on the
-// row; goBack opens Mod Settings and only closes the overlay if that fails.
-//
-// The board's data is the `osfui/settings` STATE key, so the fake seeds it the
-// way the OSF UI runtime replays it to a fresh document: there is no read to issue, and
-// the very first paint is populated.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { render } from 'preact';
@@ -64,8 +55,6 @@ function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
   const bridge: FakeBridge = {
     ...nullBridge,
     available: () => true,
-    // A fake that reports itself available must complete the handshake too:
-    // nullBridge's `ready` rejects "no-bridge", which is the standalone case.
     ready: () => Promise.resolve(RUNTIME),
     sent: [],
     requests: [],
@@ -115,22 +104,12 @@ function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
   return bridge;
 }
 
-/**
- * Let Preact settle. Preact schedules useEffect callbacks with
- * requestAnimationFrame, so outside `act` the bridge subscriptions and the
- * document-level keydown listener are never installed and every push is
- * dropped. The inner timeout drains promise callbacks (bridge request chains).
- */
 const flush = async () => {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0));
   });
 };
 
-/**
- * Two mods. `demo.panelKey` (F5) collides with the live game
- * Quicksave, so the fixture covers the conflict paths as well as the plain ones.
- */
 const DATA: SettingsData = {
   mods: [
     {
@@ -184,10 +163,6 @@ let host: HTMLElement | null = null;
 async function mount(bridge: Bridge) {
   host = document.createElement('div');
   document.body.appendChild(host);
-  // The initial render must be inside `act`, not merely followed by it: Preact
-  // queues useEffect callbacks through `afterPaint`, and a render outside an act
-  // scope leaves that queue unflushed, so the view mounts with none of its
-  // bridge subscriptions installed.
   await act(async () => {
     render(<App bridge={bridge} />, host as HTMLElement);
   });
@@ -249,8 +224,6 @@ describe('Keybindings — selection', () => {
     expect(title()).toBe('Select a key');
     expect(cell(el, 'F10').classList.contains('is-selected')).toBe(false);
 
-    // A different key selects rather than toggling: the toggle is an equality
-    // test, not a "click clears" rule.
     cell(el, 'F10').click();
     await flush();
     cell(el, 'F5').click();
@@ -263,8 +236,6 @@ describe('Keybindings — selection', () => {
 
 describe('Keybindings — search scope', () => {
   it('repaints the board and the list but NOT the detail panel', async () => {
-    // Re-scoping the detail panel on every keystroke would make the inspected
-    // key vanish while you type its name.
     const el = await mount(seeded());
 
     // Select F5 — a mod binding plus Starfield's Quicksave binding, i.e. a conflict.
@@ -295,8 +266,6 @@ describe('Keybindings — search scope', () => {
   });
 
   it('dims a key only when neither its holders nor its own name match', async () => {
-    // Matching the key's own name is why searching "f10" keeps F10 lit even
-    // though nothing is bound to it.
     const el = await mount(seeded());
 
     await typeSearch(el, 'f11'); // nothing is bound to F11
@@ -339,8 +308,6 @@ describe('Keybindings — list priority on the keyboard map', () => {
 
 describe('Keybindings — list row activation', () => {
   it('IGNORES a row click that landed inside a button', async () => {
-    // A Rebind click must stay a rebind; otherwise arming a capture would also
-    // change the selection out from under the user.
     const bridge = seeded();
     const el = await mount(bridge);
 
@@ -366,10 +333,6 @@ describe('Keybindings — list row activation', () => {
 
 describe('Keybindings — capture settles in two steps', () => {
   it('arms with a request and commits from the settings.captured EVENT', async () => {
-    // The request answers "am I armed?" in machine time; the key the player
-    // presses arrives later, as an event, however long they take. 1.x carried
-    // both on one open-ended request, which leaked a pending entry for the
-    // session whenever a player armed a rebind and wandered off.
     const bridge = seeded();
     const el = await mount(bridge);
 
@@ -406,17 +369,12 @@ describe('Keybindings — capture settles in two steps', () => {
 
 describe('Keybindings — goBack', () => {
   it('opens Mod Settings, and falls back to a bare close when that rejects', async () => {
-    // Single-menu policy: opening Mod Settings replaces this menu, so the happy path
-    // needs no close. The fallback stops an unregistered Mod Settings view from stranding
-    // the user in a menu they cannot leave.
     const bridge = seeded();
     const el = await mount(bridge);
 
     el.querySelector<HTMLButtonElement>('#back')!.click();
     await flush();
 
-    // `menu.open` is a REQUEST: the fallback exists precisely because it can
-    // reject, which a send could never tell us.
     const open = bridge.requests.find((r) => r.name === 'menu.open');
     expect(open).toEqual({ name: 'menu.open', payload: { view: 'osfui/settings' } });
     // Nothing closed yet — Mod Settings is expected to take over.

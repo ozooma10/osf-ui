@@ -1,6 +1,3 @@
-// Hand-written `osfui/settings` and `osfui/views` payloads for the Mod Settings suites.
-// Cast through `unknown`: wire fixtures, not SDK-constructed values, so optional
-// fields are omitted.
 
 import type { SettingsData, ViewsData } from '@sdk';
 
@@ -146,7 +143,6 @@ export const VIEWS: ViewsData = {
       targetVersion: '',
       autoStart: false,
       autoStartMutable: true,
-      pinned: false,
     },
     {
       id: 'acme.viewonly/browser',
@@ -182,11 +178,6 @@ export const MANY_GROUPS: SettingsData = {
   ],
 } as unknown as SettingsData;
 
-/**
- * A paged mod: two declared pages, one untagged group (implicit General tab),
- * one group naming an unknown page (also General), and one declared page no
- * group references (renders no tab).
- */
 export const PAGED: SettingsData = {
   mods: [
     {

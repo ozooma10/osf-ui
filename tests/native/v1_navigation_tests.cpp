@@ -1,4 +1,4 @@
-#include "../../src/compat/v1/Navigation.h"
+#include "../../src/Compat/V1/Navigation.h"
 
 #include <cassert>
 #include <iostream>

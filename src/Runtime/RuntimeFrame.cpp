@@ -1,0 +1,188 @@
+#include "Runtime/Runtime.h"
+
+#include "API/PapyrusApi.h"
+#include "Compat/V1/Papyrus.h"
+#include "Core/Ids.h"
+#include "Input/FreeCursor.h"
+#include "Input/PauseMenuEntry.h"
+
+#include "RE/B/BSFixedString.h"
+#include "RE/U/UIMessageQueue.h"
+
+namespace OSFUI
+{
+    void Runtime::ProcessLifecycleWork()
+    {
+		if(_controlMapInit.Take()) {
+			InitializeDataLoadedState();
+		}
+
+		if(_uiIntegrationInit.Take()) {
+			InitializePostDataLoadIntegration();
+		}
+
+		DriveBrowserHostRecovery();
+    }
+
+    void Runtime::ProcessControlMapUpdates()
+    {
+		if(_keyboardLayoutChanged.exchange(false)) {
+			RefreshKeyboardLabels("input language change");
+
+			if(_controlMap.RefreshLabels(false)) {
+				SyncLiveControlMapBindings();
+				PublishPlatformState("keybindings");
+			} else if(_controlMap.Initialized() && !_controlMap.Available()) {
+				SyncLiveControlMapBindings();
+				_runtimeHealth.SyncControlMap();
+				PublishPlatformState("keybindings");
+				PublishPlatformState("input-context");
+			}
+		}
+
+		const auto changes = _controlMap.Pump();
+
+		if(changes.keybindings) {
+			SyncLiveControlMapBindings();
+			_runtimeHealth.SyncControlMap();
+			PublishPlatformState("keybindings");
+		}
+
+		if(changes.engineInputContext) {
+			_runtimeHealth.SyncControlMap();
+			PublishPlatformState("input-context");
+		}
+	}
+
+    void Runtime::ProcessBackendQueues()
+    {
+		DrainKeyCapture();
+		DrainHotkeys();
+
+		if(_settings) {
+			API::Papyrus::DrainSettingsOps(_settings->Store());
+		}
+		if(_bridge) {
+			if(API::Papyrus::TakeSessionReset()) {
+				_retainedState.ClearSessionScoped();
+				Compat::V1::Papyrus::ClearPendingPushes();
+			}
+
+			API::Papyrus::DrainViewState([this](const API::Papyrus::ViewState& a_state) {
+				_retainedState.Set(a_state.mod, a_state.key, a_state.value, /*sessionScoped*/ true);
+				PublishModState(a_state.mod, a_state.key, a_state.value);
+			});
+
+			Compat::V1::Papyrus::DrainPushes([this](const Compat::V1::Papyrus::Push& a_push) {
+				const auto targets = InstantiatedViewsOfMod(a_push.mod);
+				if (!targets.empty()) _bridge->Emit(targets, "data.push", a_push.payload);
+			});
+
+			for(auto& op : API::BridgeApi::Get().TakeViewStateOps()) {
+				_retainedState.Set(op.mod, op.key, op.value, /*sessionScoped*/ false);
+				PublishModState(op.mod, op.key, op.value);
+			}
+
+			API::Papyrus::DrainViewEvents([this](const API::Papyrus::ViewEvent& a_event) {
+				const auto targets = InstantiatedViewsOfMod(a_event.mod);
+				if (!targets.empty()) {
+					_bridge->Emit(targets, std::format("{}.{}", a_event.mod, a_event.name), nlohmann::json{ { "args", a_event.args } });
+				}
+			});
+			API::Papyrus::DrainViewReplies([this](const API::Papyrus::ViewReply& reply) {
+				if(reply.rejected) {
+					_bridge->RejectTo(reply.deferToken, reply.code, reply.message);
+				} else {
+					_bridge->RespondTo(reply.deferToken, nlohmann::json{ { "value", reply.value } });
+				}
+			});
+
+			_bridge->Tick();
+		}
+		API::BridgeApi::Get().PumpMainThread();
+    }
+
+    void Runtime::ProcessSettingsMaintenance()
+    {
+		if (_settings) {
+			_settings->Store().PumpPersistence(_uptime);
+			if (_developerMode) {
+				_settings->PumpSchemaHotReload(_uptime);
+			}
+		}
+    }
+
+    void Runtime::ProcessPauseMenuEntry()
+    {
+		if (!PauseMenuEntry::TakeOpenRequest()) {
+			return;
+		}
+
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(RE::BSFixedString("PauseMenu"), RE::UI_MESSAGE_TYPE::kHide);
+		} else {
+			REX::WARN("PauseMenuEntry: UIMessageQueue singleton is unavailable; PauseMenu was not hidden");
+		}
+		EnqueueOpenView(std::string(Ids::kSettingsViewId));
+	}
+
+    void Runtime::ReconcileFrameState(double a_deltaSeconds)
+    {
+		ReconcileFocusMenu();
+		ReconcileControlLayer();
+		ReconcileSimPause();
+		FreeCursor::Apply(_presentation.DesiredCapture());
+		RouteGamepadInput(a_deltaSeconds);
+    }
+
+    void Runtime::ProcessRendererFrame(double a_deltaSeconds)
+    {
+		if (!_renderer) {
+			return;
+		}
+
+		DriveRecovery();
+		DriveDevTools();
+		PumpDevViewReload();
+		if (_compositor) {
+			if (const auto outputSize = _compositor->GetObservedOutputSize()) {
+				OnOutputResized(outputSize->width, outputSize->height);
+			}
+		}
+
+		if (const auto packed = _pendingMouseMove.exchange(kNoPendingMouseMove);
+			packed != kNoPendingMouseMove) {
+			_renderer->InjectMouseMove(static_cast<int>(packed >> 32), static_cast<int>(packed & 0xFFFF'FFFFull));
+		}
+
+		{
+			_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire), IsInputCaptured(), _captureArmed.load(), _captureUpScan.load());
+			_renderer->Update(a_deltaSeconds);
+			DrivePendingOpen();
+			SubmitFrameIfVisible();
+		}
+		_runtimeHealth.Pump();
+    }
+
+    void Runtime::Tick(double a_deltaSeconds)
+	{
+		if (!_initialized) {
+			return;
+		}
+		_uptime += a_deltaSeconds;
+
+		ProcessLifecycleWork();
+		ProcessPauseMenuEntry();
+		DrainViewRegistrations();
+		const auto presentationWork = TakePresentationRequests();
+		PreparePresentationRequests(presentationWork);
+
+		ProcessControlMapUpdates();
+		ProcessBackendQueues();
+		ApplyPresentationRequests(presentationWork);
+
+		ProcessSettingsMaintenance();
+		ReconcileFrameState(a_deltaSeconds);
+		ProcessRendererFrame(a_deltaSeconds);
+	}
+}

@@ -1,4 +1,4 @@
-#include "runtime/ViewPolicyStore.h"
+#include "Views/ViewPolicyStore.h"
 
 #include <cassert>
 #include <filesystem>
@@ -33,8 +33,6 @@ int main()
 		assert(!store.HasHudOverride("acme.mod/hud"));
 	}
 
-	// Set persists and wins over the manifest default in both directions;
-	// a reload reads the same choice back.
 	{
 		ViewPolicyStore store;
 		store.Load(kPath);
@@ -49,8 +47,6 @@ int main()
 		assert(reloaded.HudAutoStart("acme.mod/hud", false));
 	}
 
-	// Overrides for views that are not currently installed survive other
-	// writes: a temporarily disabled mod keeps its choice.
 	{
 		ViewPolicyStore store;
 		store.Load(kPath);
@@ -63,7 +59,7 @@ int main()
 		assert(reloaded.HudAutoStart("gone.mod/compass", false));
 	}
 
-	// Invalid keys and non-boolean values are skipped; valid entries load.
+	// Invalid keys and non-boolean values are skipped; opaque mixed-case mod ids load.
 	WriteFile(kPath, R"({
 		"formatVersion": 1,
 		"hudOverrides": {
@@ -78,12 +74,11 @@ int main()
 		store.Load(kPath);
 		assert(store.HasHudOverride("acme.mod/hud"));
 		assert(!store.HasHudOverride("../evil"));
-		assert(!store.HasHudOverride("UPPER.Case/hud"));
+		assert(store.HasHudOverride("UPPER.Case/hud"));
+		assert(!store.HudAutoStart("UPPER.Case/hud", true));
 		assert(!store.HasHudOverride("acme.mod/other"));
 	}
 
-	// A newer formatVersion parses leniently (unknown fields ignored) so a
-	// downgraded install keeps serving the overrides it understands.
 	WriteFile(kPath, R"({
 		"formatVersion": 99,
 		"someFutureField": { "x": 1 },
@@ -95,8 +90,6 @@ int main()
 		assert(!store.HudAutoStart("acme.mod/hud", true));
 	}
 
-	// Corrupt file: quarantined to .bad, defaults served, next write starts a
-	// fresh valid file.
 	WriteFile(kPath, "{ not json !!!");
 	{
 		ViewPolicyStore store;
@@ -117,9 +110,6 @@ int main()
 		assert(std::filesystem::exists(kDir / "view-policy.json.bad"));
 	}
 
-	// Failed write: the in-memory state rolls back, so the UI never shows a
-	// choice the next launch won't read. A directory squatting on the file path
-	// makes the temp-file rename fail deterministically.
 	std::filesystem::remove_all(kDir);
 	{
 		ViewPolicyStore store;

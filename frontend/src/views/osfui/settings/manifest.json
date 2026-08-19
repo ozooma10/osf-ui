@@ -7,10 +7,5 @@
   "hub": false,
   "width": 1600,
   "height": 900,
-  "transparent": true,
-  "permissions": {
-    "nativeBridge": true,
-    "filesystem": false,
-    "network": false
-  }
+  "transparent": true
 }

@@ -1,14 +1,3 @@
-// TextField.tsx — the plain `type:"string"` control, single-line or textarea.
-//
-// Commits on `change`, not `input`: the value crosses the bridge into native
-// validation and a write-behind disk flush, so per-keystroke commits would be one
-// round trip per character. `change` fires on blur (and on Enter for a single-line
-// input). padnav depends on this — its Enter handling on a text entry does
-// `blur(); focus();` to fire the event.
-//
-// maxLength comes from MAX_STRING_LEN in @lib/settings/normalize. The store
-// hard-caps strings at 256, so a larger cap here would show text the store
-// silently truncates. Raising it is a native change first — bump both in lockstep.
 
 import { MAX_STRING_LEN } from '@lib/settings/normalize';
 import { useCommittedText } from './useCommittedText';
@@ -16,10 +5,6 @@ import type { Setting } from '@sdk';
 
 export type TextSource = Pick<Setting, 'widget' | 'maxLength'>;
 
-/**
- * The effective cap. `||` means `maxLength: 0` reads as "unset" and gets the
- * full MAX_STRING_LEN.
- */
 export function textCap(setting: TextSource): number {
   return Math.min(MAX_STRING_LEN, setting.maxLength || MAX_STRING_LEN);
 }
@@ -46,8 +31,6 @@ export function TextField({ id, setting, value, disabled, onCommit }: TextFieldP
         value={text}
         disabled={disabled}
         onInput={(e) => setText((e.currentTarget as HTMLTextAreaElement).value)}
-        // Capture spelling binds native `change`; Preact compat otherwise
-        // rewrites `onChange` on text controls to a per-keystroke input event.
         onChangeCapture={(e) => onCommit((e.currentTarget as HTMLTextAreaElement).value)}
       />
     );
@@ -62,8 +45,6 @@ export function TextField({ id, setting, value, disabled, onCommit }: TextFieldP
       value={text}
       disabled={disabled}
       onInput={(e) => setText((e.currentTarget as HTMLInputElement).value)}
-      // Capture spelling binds native `change`; Preact compat otherwise
-      // rewrites `onChange` on text controls to a per-keystroke input event.
       onChangeCapture={(e) => onCommit((e.currentTarget as HTMLInputElement).value)}
     />
   );

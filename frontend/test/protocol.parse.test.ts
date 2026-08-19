@@ -1,26 +1,9 @@
 // @vitest-environment jsdom
-//
-// Inbound frame parsing and dispatch (bridge protocol 2.0). The helper routes
-// on `kind` alone, into four separate channels that never cross:
-//
-//   ready  -> the `ready` promise          (the answer to the page's hello)
-//   state  -> state.on / state.get         (latest-wins, replayed on subscribe)
-//   event  -> on()                         (one-shot, never replayed, never cached)
-//   reply/error -> the request that owns the id  (see protocol.pluginack)
-//
-// 1.x fanned a reply out to on() subscribers as well, which is what made
-// "settings.data" both a reply type and a push type. That is gone: this file
-// pins the separation, the state cache's synchronous replay (the reason a
-// correct 2.0 view needs no lifecycle code), and the two console channels —
-// OSF UI runtime-detected misuse (`osfui.debug.error`) and the opt-in traffic trace.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// Read from disk rather than imported: osfui.js is a classic script, not a
-// module. Resolved against the vitest root (frontend/) because under jsdom
-// `import.meta.url` is an http: URL, not a file: one.
 const HELPER_SRC = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
 
 interface Frame {
@@ -85,8 +68,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  // jsdom shares one document across the file: the i18n cases write
-  // <html lang> and translate nodes, so both are reset between cases.
   document.documentElement.lang = '';
   document.body.innerHTML = '';
   window.localStorage.clear();
@@ -113,9 +94,6 @@ describe('frame parsing', () => {
     helper.on('ui.result', (p) => seen.push(p));
     helper.on('settings.data', (p) => seen.push(p));
 
-    // A 1.x OSF UI runtime (or a stale cached page talking to a 2.0 runtime) speaks `type` /
-    // `requestId`, not `kind`. Nothing routes off those, so a version mismatch
-    // is inert rather than half-working.
     deliver(helper, { type: 'runtime.ready', payload: { version: '1.5.0' } });
     deliver(helper, { type: 'settings.data', payload: { mods: [] } });
     deliver(helper, { type: 'ui.result', requestId: 'q1', payload: { ok: true } });
@@ -152,8 +130,6 @@ describe('kind:"ready" — the answer to the page hello', () => {
   it('resolves with {} when the ready frame carries no payload', async () => {
     const { helper } = loadHelper();
     deliver(helper, { kind: 'ready' });
-    // `resolveReady(message.payload || {})` — callers read `payload.version`
-    // and would throw on undefined, so the coercion is load-bearing.
     await expect(helper.ready).resolves.toEqual({});
   });
 
@@ -163,19 +139,12 @@ describe('kind:"ready" — the answer to the page hello', () => {
     deliver(helper, { kind: 'ready', payload: { version: '2.0.0' } });
     await helper.ready;
 
-    // 1.x answered runtime.ready with an unconditional `i18n.get`, and every
-    // view added its own "on ready, re-request my data" block. In 2.0 the OSF UI runtime
-    // replays every state key after `ready` on its own, so the page's entire
-    // outbound boot traffic is the greeting.
     expect(sent).toEqual([{ kind: 'send', name: 'osfui.hello', payload: {} }]);
   });
 
   it('keeps the first value when a second ready arrives', async () => {
     const { helper } = loadHelper();
 
-    // A re-attached document can receive `ready` twice. A promise resolves once, so the
-    // duplicate is harmless — covered because the alternative (throwing, or
-    // swapping the value under an already-awaited view) would not be.
     deliver(helper, { kind: 'ready', payload: { version: '2.0.0' } });
     deliver(helper, { kind: 'ready', payload: { version: '9.9.9' } });
 
@@ -204,10 +173,6 @@ describe('kind:"state" — latest-wins values with replay', () => {
       seen = v;
     });
 
-    // No await, no tick: subscribing is a read. A view that has to ask "has it
-    // arrived yet?" is the bug this verb exists to remove — and after F5 the
-    // OSF UI runtime replays every key into the fresh document, so the same code path
-    // covers first paint and reload.
     expect(seen).toEqual({ mods: [] });
   });
 
@@ -229,8 +194,6 @@ describe('kind:"state" — latest-wins values with replay', () => {
     const seen: unknown[] = [];
     helper.state.on('ACME.MyMod/Ship', (v) => seen.push(v));
 
-    // Papyrus interns strings, so a key can arrive cased differently than the
-    // script authored it.
     deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'ship', value: 'Frontier' });
 
     expect(seen).toEqual(['Frontier']);
@@ -242,8 +205,6 @@ describe('kind:"state" — latest-wins values with replay', () => {
     const seen: unknown[] = [];
     helper.state.on('acme.mymod/target', (v) => seen.push(v));
 
-    // "the mod backend cleared it" is information; the encoder writes `null` for an
-    // empty value (MessageBridge::EncodeState), so null must not be swallowed.
     deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'target', value: null });
 
     expect(seen).toEqual([null]);
@@ -290,8 +251,6 @@ describe('kind:"state" — latest-wins values with replay', () => {
     deliver(helper, { kind: 'state', mod: 'osfui', key: 'views', value: 2 });
     expect(calls).toBe(1);
 
-    // The synchronous replay runs inside state.on, so an author's throw would
-    // otherwise take out the caller's setup code.
     expect(() =>
       helper.state.on('osfui/views', () => {
         throw new Error('boom');
@@ -345,9 +304,6 @@ describe('kind:"event" — one-shot happenings', () => {
     const seen: unknown[] = [];
     helper.on('ui.hotkey', (p) => seen.push(p));
 
-    // The opposite of state, deliberately: replaying a happening on every fresh
-	// document would re-fire its effects on F5. Mod-backend data that must survive
-    // a reload is state.
     expect(seen).toEqual([]);
   });
 
@@ -390,8 +346,6 @@ describe('kind:"event" — one-shot happenings', () => {
 
     deliver(helper, { kind: 'event', name: 'ui.visibility', payload: { visible: true } });
 
-    // `for (const fn of Array.from(set))` iterates a copy, so a handler removed
-    // during this dispatch still runs this time.
     expect(seen).toEqual(['first', 'second']);
 
     seen.length = 0;
@@ -439,9 +393,6 @@ describe('OSF UI runtime-detected protocol faults arrive as osfui.debug.error an
   it('prints a wrong-endpoint-kind protocol fault with its detail object', () => {
     const { helper } = loadHelper();
 
-    // The page sent to a request endpoint; the OSF UI runtime dropped the message (see
-    // MessageBridge::DispatchSend) and told this view why. In 1.x the drop was
-    // silent and the only record was the SFSE log.
     deliver(helper, {
       kind: 'event',
       name: 'osfui.debug.error',
@@ -469,8 +420,6 @@ describe('OSF UI runtime-detected protocol faults arrive as osfui.debug.error an
     });
 
     expect(String(logged[0]![0])).toBe('[osfui] OSF UI runtime rejected unknown-endpoint: no such endpoint');
-    // `p.detail || p`: with no detail, the payload itself is the inspectable
-    // object, so the code is never printed without context.
     expect(logged[0]![1]).toEqual({ code: 'unknown-endpoint', message: 'no such endpoint' });
   });
 
@@ -491,8 +440,6 @@ describe('OSF UI runtime-detected protocol faults arrive as osfui.debug.error an
       payload: { code: 'invalid-request', message: 'malformed message' },
     });
 
-    // One sink, the page console. A view that "handled" these would swallow
-    // exactly the mistakes the channel exists to make visible.
     expect(seen).toEqual([]);
     expect(logged).toHaveLength(1);
   });
@@ -521,8 +468,6 @@ describe('i18n rides the osfui/i18n state key', () => {
     expect(helper.i18n.t('settings.hi', 'Hello, {name}', { name: 'Sam' })).toBe('Olá, Sam');
     // Unknown address falls back to the authored English, still interpolated.
     expect(helper.i18n.t('nope', 'Bye, {name}', { name: 'Sam' })).toBe('Bye, Sam');
-    // Static markup is translated in place when the catalog lands, so a view
-    // that never calls localize() itself is still localized.
     expect(document.body.textContent).toBe('Configurações');
   });
 
@@ -549,9 +494,6 @@ describe('i18n rides the osfui/i18n state key', () => {
     const { helper } = loadHelper();
     deliver(helper, { kind: 'state', mod: 'osfui', key: 'i18n', value: null });
 
-    // Views await this before rendering. There is no failure mode left that can
-    // leave it pending when the bridge is available: the catalog is state, and state
-    // cannot fail — it either arrives or the key is absent.
     await expect(helper.i18n.ready).resolves.toMatchObject({ locale: 'en' });
   });
 
@@ -616,9 +558,6 @@ describe('the osfui:trace flag', () => {
     deliver(helper, { kind: 'reply', id: sent[1]!.id!, payload: { pong: true } });
     await expect(promise).resolves.toEqual({ pong: true });
 
-    // The outbound request, then exactly one inbound line for its reply: the
-    // generic inbound trace skips reply/error so the settlement can carry the
-    // round-trip time instead of being logged twice.
     expect(debugged).toHaveLength(2);
     expect(debugged[0]![0]).toBe('[osfui] ->');
     expect(debugged[1]![0]).toBe('[osfui] <-');
@@ -642,9 +581,6 @@ describe('the osfui:trace flag', () => {
       },
     });
     try {
-      // A privacy setting or a file: origin can make localStorage throw on
-      // access. The helper must still load — tracing is a debug affordance, not
-      // a precondition.
       const { helper, sent } = loadHelper();
       expect(sent[0]).toEqual({ kind: 'send', name: 'osfui.hello', payload: {} });
       helper.send('close');

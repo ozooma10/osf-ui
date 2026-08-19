@@ -16,9 +16,6 @@
 					log.Error("init without userDataDir");
 					return;
 				}
-				// PRESENCE, not value: an absent LUID means "pick any adapter",
-				// which a zeroed msg::Init field cannot express. That is the one
-				// reason this reads off the raw document.
 				std::optional<LUID> requestedAdapter;
 				if (a_raw.contains("adapterLuidLow") && a_raw.contains("adapterLuidHigh")) {
 					LUID luid{};
@@ -47,8 +44,6 @@
 				}
 				auto* view = FindView(a_msg.id);
 				if (!view) view = &CreateView(a_msg.id);
-				NoteViewActivity(*view, /*a_clearSuspendRequest=*/true);
-				view->bridge = a_msg.bridge;
 				view->logicalHeight = (std::max)(1u, a_msg.logicalHeight);
 				ApplyScale(*view);
 				std::string entry = a_msg.entry;
@@ -66,22 +61,6 @@
 			{
 				const auto a_msg = msg::FromJson<msg::Resize>(a_raw);
 				ApplyResize(a_msg.width, a_msg.height);
-			}
-
-			void HandlePrewarm(const json& a_msg)
-			{
-				if (auto* view = ResolveView(a_msg)) {
-					view->prewarm = true;
-					BeginPrewarm(*view);
-				}
-			}
-
-			void HandleSuspendView(const json& a_msg)
-			{
-				if (auto* view = ResolveView(a_msg); view && view->hidden) {
-					view->suspendRequested = true;
-					view->nextSuspendAttemptMs = ::GetTickCount64();
-				}
 			}
 
 			void HandleSetHidden(const json& a_raw)
@@ -171,7 +150,6 @@
 				}
 				handledKeys.erase(VK_F12);
 				if (auto* view = ResolveView(a_msg); view && view->webView) {
-					NoteViewActivity(*view, /*a_clearSuspendRequest=*/false);
 					const auto hr = view->webView->OpenDevToolsWindow();
 					if (FAILED(hr)) {
 						log.Warn(std::format(
@@ -219,14 +197,10 @@
 			void HandleGameMessage(const json& a_msg)
 			{
 				using Handler = void (App::*)(const json&);
-				// Type strings come from the shared message structs, so the game
-				// side cannot rename one without breaking this build too.
 				static constexpr std::pair<std::string_view, Handler> handlers[]{
 					{ msg::Init::kType, &App::HandleInit },
 					{ msg::Navigate::kType, &App::HandleNavigate },
 					{ msg::Resize::kType, &App::HandleResize },
-					{ msg::Prewarm::kType, &App::HandlePrewarm },
-					{ msg::SuspendView::kType, &App::HandleSuspendView },
 					{ msg::SetHidden::kType, &App::HandleSetHidden },
 					{ msg::SetOrder::kType, &App::HandleSetOrder },
 					// SetInputTarget's kType is the `setActive` compatibility spelling.

@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before filing, check `docs/troubleshooting.md` — most "F10 does nothing"
-        cases are covered there. The log almost always states what happened.
+        Include the OSF UI log from the affected session. It usually records why
+        the overlay did not open or stopped responding.
 
   - type: textarea
     id: what-happened
@@ -66,10 +66,3 @@ body:
         - label: DLSS Frame Generation / FSR Frame Gen
         - label: Other injector/overlay (name it in the description)
         - label: None of the above
-
-  - type: textarea
-    id: config
-    attributes:
-      label: config.json (if modified)
-      description: Only needed if you changed `SFSE/Plugins/OSFUI/config.json` from the shipped defaults.
-      render: json

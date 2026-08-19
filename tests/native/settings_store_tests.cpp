@@ -1,20 +1,12 @@
-// Native desktop unit tests for SettingsStore: the REAL
-// src/runtime/SettingsStore.cpp + Json.cpp compiled against stubs/pch.h, run
-// on the developer's desktop toolchain — the native mirror of the web
-// devtools/harness. Assert-style; process exit code is the failure count.
 
-#include "runtime/SettingsStore.h"
+#include "Settings/SettingsStore.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace
 {
 
-	// Does a STRICT dump of this value succeed? nlohmann's default handler throws
-	// type_error.316 on an incomplete UTF-8 sequence, and the store's own paths
-	// (settings.ack, the subscriber push, Persist) dump where nothing catches, so
-	// "strictly serializable" is the real invariant a stored value must hold.
 	[[nodiscard]] bool StrictDumpOk(const nlohmann::json& a_value)
 	{
 		try {
@@ -50,19 +42,17 @@ namespace
 	};
 }
 
-// core/Log.h declarations (real impl lives in src/core/Log.cpp, which pulls
-// game deps — stub it here instead).
 namespace OSFUI::Log
 {
-	static bool g_devMode = true;
+	static bool g_debugEnabled = true;
 
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message)
 	{
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
 
-	bool DevMode() { return g_devMode; }
-	void SetDevMode(bool a_enabled) { g_devMode = a_enabled; }
+	bool DebugEnabled() { return g_debugEnabled; }
+	void SetDebugLogging(bool a_enabled) { g_debugEnabled = a_enabled; }
 }
 
 int main()
@@ -92,36 +82,27 @@ int main()
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "count", "type": "int", "default": 3, "min": 0, "max": 10 }
 		] } ] })json");
-	// A drop-in claiming another mod's id: the id MUST equal the filename stem,
-	// so it registers as "zeta" (warned) and cannot hijack "beta".
 	WriteFile(schemaDir / "t.zeta.json", R"json({
 		"id": "t.beta", "title": "Impostor Beta",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "evil", "type": "bool", "default": true }
 		] } ] })json");
-	// A drop-in whose stem is unsafe as a filename/path segment: rejected.
+	// Opaque ids may contain spaces and need no dot.
 	WriteFile(schemaDir / "bad id.json", R"json({
 		"id": "bad id", "title": "Space Id",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "x", "type": "bool", "default": true }
 		] } ] })json");
-	// A dotless third-party stem: platform-reserved by construction (item 1),
-	// hard-rejected at LoadAll before the file is even parsed.
 	WriteFile(schemaDir / "plainmod.json", R"json({
 		"id": "plainmod", "title": "Dotless",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "x", "type": "bool", "default": true }
 		] } ] })json");
+	WriteFile(schemaDir / "OSFUI.json", R"json({ "id": "OSFUI", "title": "Impostor" })json");
 	// Persisted values: clamped on load, unknown keys ignored.
 	WriteFile(valuesDir / "t.alpha.json", R"json({ "scale": 9.0, "mode": "full", "junk": 5 })json");
-	// Persisted values for a mod that registers at runtime only.
+	// Persisted values for a mod whose drop-in appears after startup.
 	WriteFile(valuesDir / "t.gamma.json", R"json({ "level": 7 })json");
-
-	// --- RegisterSchema before LoadAll is rejected ---------------------------
-	{
-		SettingsStore fresh;
-		CHECK(!fresh.RegisterSchema(nlohmann::json{ { "id", "t.early" } }, SettingsStore::Source::kNative));
-	}
 
 	// --- LoadAll: overlay, clamp, duplicate handling -------------------------
 	SettingsStore store;
@@ -129,11 +110,10 @@ int main()
 	const auto genAfterLoad = store.Generation();
 
 	auto data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 3);  // alpha + beta + zeta (renamed); "bad id" + "plainmod" rejected
+	CHECK(data["mods"].size() == 5);  // alpha + beta + zeta + two opaque ids; OSFUI alias rejected
 	CHECK(LoggedContaining("WARN", "must equal the filename stem"));
-	// Grammar-violating stems are skipped with an ERROR naming the file (item 1).
-	CHECK(LoggedContaining("ERROR", "bad id.json"));
-	CHECK(LoggedContaining("ERROR", "plainmod.json"));
+	// A reserved alias is skipped with an ERROR naming the file.
+	CHECK(LoggedContaining("ERROR", "OSFUI.json"));
 
 	CHECK(store.GetValue("t.alpha", "enabled") && *store.GetValue("t.alpha", "enabled") == true);
 	CHECK(store.GetValue("t.alpha", "scale") && store.GetValue("t.alpha", "scale")->get<double>() == 2.0);  // 9.0 clamped
@@ -141,12 +121,10 @@ int main()
 	CHECK(store.GetValue("t.alpha", "junk") == nullptr);                                                  // unknown key: preserved on disk, never served
 	CHECK(store.GetValue("t.beta", "evil") == nullptr);   // the impostor could not take beta's id...
 	CHECK(store.GetValue("t.zeta", "evil") != nullptr);   // ...it registered under its own stem
-	CHECK(store.GetValue("bad id", "x") == nullptr);
-	CHECK(store.GetValue("plainmod", "x") == nullptr);
+	CHECK(store.GetValue("bad id", "x") != nullptr);
+	CHECK(store.GetValue("plainmod", "x") != nullptr);
 	CHECK(store.GetValue("nope", "x") == nullptr);
 
-	// Localization is applied only to the emitted schema copy. Authors write
-	// English; stable structural addresses drive community overrides.
 	store.SetTextResolver([](std::string_view mod, std::string_view address, std::string_view english) {
 		if (mod == "t.alpha" && address == "settings.title") return std::string("Alpha übersetzt");
 		if (mod == "t.alpha" && address == "groups.0.label") return std::string("Allgemein");
@@ -215,18 +193,16 @@ int main()
 	CHECK(store.Set("t.alpha", "bind", "\"F9\""));
 	CHECK(*store.GetValue("t.alpha", "bind") == "F9");
 	{
-		auto unboundSchema = nlohmann::json::parse(R"json({
+		WriteFile(schemaDir / "t.unbindy.json", R"json({
 			"id": "t.unbindy", "title": "Unbindy",
 			"groups": [ { "label": "G", "settings": [
 				{ "key": "hot", "type": "key", "default": "", "allowUnbound": true }
 			] } ] })json");
-		CHECK(store.RegisterSchema(unboundSchema, SettingsStore::Source::kNative));
+		CHECK(store.ReloadDropInFile(schemaDir / "t.unbindy.json"));
 		CHECK(*store.GetValue("t.unbindy", "hot") == "");     // empty default is legal
 		CHECK(store.Set("t.unbindy", "hot", "\"F7\""));       // bind
 		CHECK(store.Set("t.unbindy", "hot", "\"\""));         // deliberate unbind
 		CHECK(*store.GetValue("t.unbindy", "hot") == "");
-		// The unbound value enumerates as "" (HotkeyService/conflicts skip it
-		// downstream via ResolveKeyName("") == invalid).
 		for (const auto& ks : store.KeySettings()) {
 			if (ks.modId == "t.unbindy") {
 				CHECK(ks.name.empty());
@@ -254,7 +230,8 @@ int main()
 			{ "key", "tooLong" }, { "type", "key" }, { "default", "F9" },
 			{ "onPress", { { "script", std::string(129, 'A') }, { "function", "Fire" } } }
 		});
-		CHECK(store.RegisterSchema(targetSchema, SettingsStore::Source::kNative));
+		WriteFile(schemaDir / "t.targets.json", targetSchema.dump());
+		CHECK(store.ReloadDropInFile(schemaDir / "t.targets.json"));
 		const auto target = store.GetHotkeyTarget("t.targets", "good");
 		CHECK(target && target->script == "Target_Lib" && target->function == "Fire");
 		CHECK(!store.GetHotkeyTarget("t.targets", "shape"));
@@ -273,7 +250,8 @@ int main()
 				{ "onPress", { { "script", "Target_Lib2" }, { "function", "Fire2" } } }
 			}
 		});
-		CHECK(store.RegisterSchema(targetSchema, SettingsStore::Source::kNative));
+		WriteFile(schemaDir / "t.targets.json", targetSchema.dump());
+		CHECK(store.ReloadDropInFile(schemaDir / "t.targets.json"));
 		CHECK(store.HotkeyTargetIssues().empty());
 		const auto replacement = store.GetHotkeyTarget("t.targets", "good");
 		CHECK(replacement && replacement->script == "Target_Lib2" && replacement->function == "Fire2");
@@ -294,43 +272,23 @@ int main()
 	store.NotifyMod("ghost");   // unknown: no fire, no crash
 	CHECK(heard1.size() == 6);
 
-	// --- incremental RegisterSchema: new mod, persisted overlay, replay -------
+	// --- new drop-in after startup: persisted overlay and value replay --------
 	heard1.clear();
-	auto gammaSchema = nlohmann::json::parse(R"json({
-		"id": "t.gamma", "title": "Gamma (runtime)",
+	WriteFile(schemaDir / "t.gamma.json", R"json({
+		"id": "t.gamma", "title": "Gamma",
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "level", "type": "int", "default": 1, "min": 0, "max": 10 },
 			{ "key": "fancy", "type": "bool", "default": false }
 		] } ] })json");
-	CHECK(store.RegisterSchema(gammaSchema, SettingsStore::Source::kNative));
+	CHECK(store.ReloadDropInFile(schemaDir / "t.gamma.json"));
 	CHECK(store.Generation() > genAfterLoad);
 	CHECK(store.GetValue("t.gamma", "level")->get<std::int64_t>() == 7);  // pre-existing values file adopted
 	CHECK(*store.GetValue("t.gamma", "fancy") == false);
 	CHECK(heard1.size() == 2);  // per-mod replay fired for both values
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 4);
+	CHECK(data["mods"].size() == 6);
 
-	// Rejected shapes.
-	CHECK(!store.RegisterSchema(nlohmann::json::array(), SettingsStore::Source::kNative));
-	CHECK(!store.RegisterSchema(nlohmann::json{ { "title", "No Id" } }, SettingsStore::Source::kNative));
-
-	// Rejected ids (item 1 grammar: "<author>.<modname>", lowercase [a-z0-9-]
-	// segments, exactly one dot). Traversal/unsafe charsets fail the grammar;
-	// every dotless id is platform-reserved by construction — the old reserved
-	// framework namespaces (menu/settings/...) fall out for free.
-	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "a\\b", "has space",
-	                         ".hidden", "..", "menu", "settings", "ui", "hud", "views", "game", "runtime",
-	                         "plainmod", "Upper.Case", "two.dots.here", "under_score.mod",
-	                         "trailing.", ".leading", "a..b" }) {
-		CHECK(!store.RegisterSchema(nlohmann::json{ { "id", bad }, { "title", "Evil" } }, SettingsStore::Source::kNative));
-	}
-
-	// Duplicate drop-in ids resolve first-wins (MO2's VFS is the arbiter of the
-	// FILE; a second registration for the same id never displaces the first).
-	CHECK(!store.RegisterSchema(nlohmann::json{ { "id", "t.zeta" }, { "title", "Zeta Again" } }, SettingsStore::Source::kDropIn));
-	CHECK(LoggedContaining("ERROR", "duplicate schema id 't.zeta'"));
-
-	// Native-registered mods persist through the same per-mod file.
+	// Newly discovered drop-ins persist through the same per-mod file.
 	CHECK(store.Set("t.gamma", "level", "9"));
 	store.FlushPersistence();
 	{
@@ -338,8 +296,8 @@ int main()
 		CHECK(saved.is_object() && saved["level"] == 9);
 	}
 
-	// --- precedence: native replaces drop-in; drop-in never replaces ----------
-	CHECK(store.Set("t.alpha", "scale", "0.75"));  // user value that must survive the tier upgrade
+	// --- file hot reload replaces schema while preserving user values ---------
+	CHECK(store.Set("t.alpha", "scale", "0.75"));
 	auto alphaV2 = nlohmann::json::parse(R"json({
 		"id": "t.alpha", "title": "Alpha Mod v2",
 		"groups": [ { "label": "General", "settings": [
@@ -347,31 +305,23 @@ int main()
 			{ "key": "shiny",  "type": "bool",  "default": true }
 		] } ] })json");
 	const auto genBeforeReplace = store.Generation();
-	CHECK(store.RegisterSchema(alphaV2, SettingsStore::Source::kNative));
-	CHECK(LoggedContaining("WARN", "native registration replaces drop-in"));
+	WriteFile(schemaDir / "t.alpha.json", alphaV2.dump());
+	CHECK(store.ReloadDropInFile(schemaDir / "t.alpha.json"));
 	CHECK(store.Generation() > genBeforeReplace);
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 4);  // replaced, not duplicated
+	CHECK(data["mods"].size() == 6);  // replaced, not duplicated
 	CHECK(store.GetValue("t.alpha", "scale")->get<double>() == 0.75);  // persisted user value survived
 	CHECK(*store.GetValue("t.alpha", "shiny") == true);                // new key gets default
 	CHECK(store.GetValue("t.alpha", "enabled") == nullptr);            // removed key gone
 	CHECK(store.GetSettingType("t.alpha", "bind").empty());
 
-	// A drop-in may not displace the native registration.
-	CHECK(!store.RegisterSchema(nlohmann::json{ { "id", "t.alpha" }, { "title", "Stale File" } }, SettingsStore::Source::kDropIn));
-	data = nlohmann::json::parse(store.DataJson());
-	for (const auto& mod : data["mods"]) {
-		if (mod["id"] == "t.alpha") {
-			CHECK(mod["title"] == "Alpha Mod v2");
-		}
-	}
-
-	// Native re-registration (dev iteration) replaces its own earlier one.
+	// A later edit replaces the same file-backed schema again.
 	auto alphaV3 = alphaV2;
 	alphaV3["title"] = "Alpha Mod v3";
-	CHECK(store.RegisterSchema(alphaV3, SettingsStore::Source::kNative));
+	WriteFile(schemaDir / "t.alpha.json", alphaV3.dump());
+	CHECK(store.ReloadDropInFile(schemaDir / "t.alpha.json"));
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 4);
+	CHECK(data["mods"].size() == 6);
 
 	// --- RemoveMod: registry drops, values file kept ----------------------------
 	CHECK(store.Set("t.beta", "count", "8"));
@@ -382,28 +332,7 @@ int main()
 	CHECK(store.GetValue("t.beta", "count") == nullptr);
 	CHECK(fs::exists(valuesDir / "t.beta.json"));  // uninstalled does not mean deleted
 	data = nlohmann::json::parse(store.DataJson());
-	CHECK(data["mods"].size() == 3);
-
-	// --- ValidateSchemaShape: the ABI's synchronous any-thread shape gate --------
-	// Must reject exactly what registration would reject on shape/id grounds
-	// (BridgeApi::RegisterSettingsSchema reports these synchronously, then
-	// queues the main-thread merge).
-	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "ok-mod-1.x" } }));
-	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "osfui" } }));  // the dotless built-in
-	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json::array()));               // not an object
-	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "title", "No Id" } }));
-	for (const auto* bad : { "..\\..\\Starfield", "../evil", "a/b", "has space",
-	                         ".hidden", "..", "menu", "settings", "ui",
-	                         "plainmod", "Upper.Case", "two.dots.here", "under_score.mod" }) {
-		CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", bad } }));
-	}
-
-	// --- GetSource: who owns an id (the ABI unregister gate) ---------------------
-	CHECK(store.GetSource("t.alpha") == SettingsStore::Source::kNative);  // tier-upgraded above
-	CHECK(store.GetSource("t.gamma") == SettingsStore::Source::kNative);
-	CHECK(store.GetSource("t.zeta") == SettingsStore::Source::kDropIn);
-	CHECK(!store.GetSource("t.beta").has_value());  // removed above
-	CHECK(!store.GetSource("ghost").has_value());
+	CHECK(data["mods"].size() == 5);
 
 	// --- write-behind debounce: coalesced, due after window -----------------
 	store.PumpPersistence(100.0);  // settle pending windows; store clock -> 100
@@ -433,8 +362,6 @@ int main()
 			"id": "t.retry", "groups": [ { "settings": [
 				{ "key": "n", "type": "int", "default": 1 }
 			] } ] })json");
-		// A regular file where the values directory belongs makes the first
-		// atomic write fail without relying on platform permissions.
 		WriteFile(blockedValues, "not a directory");
 
 		SettingsStore retry;
@@ -456,6 +383,109 @@ int main()
 		auto saved = nlohmann::json::parse(
 			std::ifstream(blockedValues / "t.retry.json"), nullptr, false);
 		CHECK(saved["n"] == 2);
+	}
+
+	// --- failed prerequisite flush cannot discard a dirty schema -----------------
+	{
+		const auto sd = root / "settings-replace-guard";
+		const auto blockedValues = root / "values-replace-guard";
+		const auto schemaPath = sd / "t.replace-guard.json";
+		WriteFile(schemaPath, R"json({
+			"id": "t.replace-guard", "title": "Replace Guard v1",
+			"groups": [ { "settings": [
+				{ "key": "speed", "type": "int", "default": 5, "min": 0, "max": 10 }
+			] } ] })json");
+		WriteFile(blockedValues, "not a directory");
+
+		SettingsStore guarded;
+		std::size_t registryFires = 0;
+		std::size_t persisted = 0;
+		guarded.AddRegistryListener([&] { ++registryFires; });
+		guarded.AddPersistListener([&](std::string_view) { ++persisted; });
+		guarded.LoadAll(sd, blockedValues);
+		CHECK(guarded.Set("t.replace-guard", "speed", "8"));
+		const auto generationBefore = guarded.Generation();
+
+		WriteFile(schemaPath, R"json({
+			"id": "t.replace-guard", "title": "Replace Guard v2",
+			"groups": [ { "settings": [
+				{ "key": "velocity", "type": "int", "default": 5, "min": 0, "max": 10,
+				  "aliases": ["speed"] },
+				{ "key": "added", "type": "bool", "default": true }
+			] } ] })json");
+		CHECK(!guarded.ReloadDropInFile(schemaPath));
+		CHECK(guarded.Generation() == generationBefore);
+		CHECK(registryFires == 0);
+		CHECK(persisted == 0);
+		CHECK(guarded.GetValue("t.replace-guard", "speed") &&
+		      *guarded.GetValue("t.replace-guard", "speed") == 8);
+		CHECK(guarded.GetValue("t.replace-guard", "velocity") == nullptr);
+		CHECK(guarded.GetValue("t.replace-guard", "added") == nullptr);
+		CHECK(guarded.DataView()["mods"][0]["title"] == "Replace Guard v1");
+
+		std::error_code ec;
+		fs::remove(blockedValues, ec);
+		CHECK(!ec);
+		fs::create_directories(blockedValues, ec);
+		CHECK(!ec);
+		guarded.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+		CHECK(persisted == 1);
+		{
+			auto saved = nlohmann::json::parse(
+				std::ifstream(blockedValues / "t.replace-guard.json"), nullptr, false);
+			CHECK(saved["speed"] == 8);
+		}
+		CHECK(guarded.ReloadDropInFile(schemaPath));
+		CHECK(registryFires == 1);
+		CHECK(guarded.GetValue("t.replace-guard", "speed") == nullptr);
+		CHECK(guarded.GetValue("t.replace-guard", "velocity") &&
+		      *guarded.GetValue("t.replace-guard", "velocity") == 8);
+		CHECK(guarded.GetValue("t.replace-guard", "added") &&
+		      *guarded.GetValue("t.replace-guard", "added") == true);
+	}
+
+	// --- failed prerequisite flush cannot discard a dirty removed mod ------------
+	{
+		const auto sd = root / "settings-remove-guard";
+		const auto blockedValues = root / "values-remove-guard";
+		WriteFile(sd / "t.remove-guard.json", R"json({
+			"id": "t.remove-guard", "groups": [ { "settings": [
+				{ "key": "n", "type": "int", "default": 1 }
+			] } ] })json");
+		WriteFile(blockedValues, "not a directory");
+
+		SettingsStore guarded;
+		std::size_t registryFires = 0;
+		std::size_t persisted = 0;
+		guarded.AddRegistryListener([&] { ++registryFires; });
+		guarded.AddPersistListener([&](std::string_view) { ++persisted; });
+		guarded.LoadAll(sd, blockedValues);
+		CHECK(guarded.Set("t.remove-guard", "n", "2"));
+		const auto generationBefore = guarded.Generation();
+
+		CHECK(!guarded.RemoveMod("t.remove-guard"));
+		CHECK(guarded.Generation() == generationBefore);
+		CHECK(registryFires == 0);
+		CHECK(persisted == 0);
+		CHECK(guarded.GetValue("t.remove-guard", "n") &&
+		      *guarded.GetValue("t.remove-guard", "n") == 2);
+
+		std::error_code ec;
+		fs::remove(blockedValues, ec);
+		CHECK(!ec);
+		fs::create_directories(blockedValues, ec);
+		CHECK(!ec);
+		guarded.PumpPersistence(SettingsStore::kPersistDelaySeconds);
+		CHECK(persisted == 1);
+		{
+			auto saved = nlohmann::json::parse(
+				std::ifstream(blockedValues / "t.remove-guard.json"), nullptr, false);
+			CHECK(saved["n"] == 2);
+		}
+		CHECK(guarded.RemoveMod("t.remove-guard"));
+		CHECK(guarded.GetValue("t.remove-guard", "n") == nullptr);
+		CHECK(guarded.Generation() > generationBefore);
+		CHECK(registryFires == 1);
 	}
 
 	// --- sparse persistence: only ≠ default on disk; reset = key removal ----------
@@ -484,9 +514,6 @@ int main()
 				{ "key": "n", "type": "int",  "default": 3 },
 				{ "key": "b", "type": "bool", "default": false }
 			] } ] })json");
-		// Legacy FULL file: "n" frozen at the (still-current) default, plus an
-		// unknown key — pruned to sparse, but the unknown key is PRESERVED
-		// (api-freeze-plan item 2), not wiped like it used to be.
 		WriteFile(valuesDir2 / "t.delta.json", R"json({ "n": 3, "b": true, "junk": 1 })json");
 
 		{
@@ -515,8 +542,6 @@ int main()
 				{ "key": "size",    "type": "int", "default": 10, "aliases": ["scale"] },
 				{ "key": "plain",   "type": "int", "default": 1 }
 			] } ] })json");
-		// Old file uses the FIRST alias for opacity, a LATER alias for size,
-		// and an alias whose value won't validate should never be adopted.
 		WriteFile(vd / "t.ren.json", R"json({ "alpha": 80, "scale": 25 })json");
 
 		SettingsStore s;
@@ -533,8 +558,6 @@ int main()
 			CHECK((saved == nlohmann::json{ { "opacity", 80 }, { "size", 25 }, { "$formatVersion", 1 } }));  // no "alpha"/"scale" left
 		}
 
-		// The current key present wins over any alias; an alias that fails
-		// validation (wrong type) falls through to default, not adopted.
 		WriteFile(vd / "t.ren.json", R"json({ "opacity": 30, "alpha": 99, "scale": "nope" })json");
 		SettingsStore s2;
 		s2.LoadAll(sd, vd);
@@ -568,30 +591,20 @@ int main()
 			CHECK((ver == nlohmann::json{ { "$schemaVersion", 3 }, { "n", 5 }, { "$formatVersion", 1 } }));  // stamp advanced, value kept
 		}
 
-		// v0 mod: fresh install, all-default -> no file churn beyond none, and
-		// crucially NO $schemaVersion key.
 		SettingsStore su;
 		su.LoadAll(sd, vd);
 		su.FlushPersistence();
 		{
 			std::error_code ec;
-			// unver never diverged from sparse-empty, so no file need exist;
-			// if one does (defensive), it must not carry a version stamp.
 			if (fs::exists(vd / "t.unver.json", ec)) {
 				auto un = nlohmann::json::parse(std::ifstream(vd / "t.unver.json"), nullptr, false);
 				CHECK(!un.contains("$schemaVersion"));
 			}
 		}
 
-		// No perpetual re-dirty: a versioned file already at the current
-		// version + sparse form must load CLEAN (no rewrite scheduled). Prove
-		// it by loading, immediately flushing, and checking the byte content
-		// is unchanged even though we never pumped a rewrite window.
 		WriteFile(vd / "t.ver.json", R"json({"$schemaVersion":3,"n":5})json");
 		SettingsStore sc;
 		sc.LoadAll(sd, vd);
-		// A clean load leaves the mod not-dirty; FlushPersistence is then a
-		// no-op and the (compact, hand-written) file keeps its exact bytes.
 		sc.FlushPersistence();
 		{
 			std::ifstream f(vd / "t.ver.json");
@@ -621,10 +634,6 @@ int main()
 		std::size_t registryFires = 0;
 		s.AddRegistryListener([&] { ++registryFires; });
 
-		// Reload with a retitled schema + an added setting + a key RENAME via
-		// §11 aliases. The dirty value must survive: the reload flushes the
-		// write-behind window first, then overlays from the file it just wrote
-		// — and the alias carries it across the rename.
 		WriteFile(sd / "t.hot.json", R"json({
 			"id": "t.hot", "title": "Hot v2",
 			"groups": [ { "settings": [
@@ -658,16 +667,6 @@ int main()
 		CHECK(s.ReloadDropInFile(sd / "t.newcomer.json"));
 		CHECK(s.GetValue("t.newcomer", "x") != nullptr);
 
-		// A runtime (native) registration outranks the file: refused.
-		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({
-			"id": "t.owned", "title": "Native",
-			"groups": [ { "settings": [ { "key": "k", "type": "int", "default": 1 } ] } ] })json"),
-			SettingsStore::Source::kNative));
-		WriteFile(sd / "t.owned.json", R"json({
-			"id": "t.owned", "title": "File",
-			"groups": [ { "settings": [ { "key": "k", "type": "int", "default": 2 } ] } ] })json");
-		CHECK(!s.ReloadDropInFile(sd / "t.owned.json"));
-		CHECK(s.GetValue("t.owned", "k") && *s.GetValue("t.owned", "k") == 1);
 	}
 
 	// --- item 2: flags type ---------------------------------------------------------
@@ -679,8 +678,6 @@ int main()
 			"groups": [ { "settings": [
 				{ "key": "widgets", "type": "flags", "options": ["clock", "compass", "o2"], "default": ["clock"] }
 			] } ] })json");
-		// Saved value: out of declared order, with a removed option and a dupe —
-		// resolved (filtered + deduped + canonical declared order), like clamping.
 		WriteFile(vd / "t.flaggy.json", R"json({ "widgets": ["o2", "zzz", "clock", "o2"] })json");
 
 		SettingsStore s;
@@ -699,16 +696,12 @@ int main()
 	{
 		const auto sd = root / "settings-fwd";
 		const auto vd = root / "values-fwd";
-		// A NEWER mod's schema on this OSF UI runtime: one setting of an unknown type
-		// (with an alias carrying a rename), one known setting.
 		WriteFile(sd / "t.future.json", R"json({
 			"id": "t.future", "title": "Future",
 			"groups": [ { "settings": [
 				{ "key": "vec", "type": "vector3", "default": [0,0,0], "aliases": ["oldvec"] },
 				{ "key": "n",   "type": "int", "default": 1 }
 			] } ] })json");
-		// Saved: an unknown-typed value, a value under the unknown setting's old
-		// alias, a plain unknown key, and a sparse known value.
 		WriteFile(vd / "t.future.json", R"json({ "vec": [1,2,3], "oldvec": [9,9,9], "mystery": {"a":1}, "n": 5 })json");
 
 		SettingsStore s;
@@ -719,18 +712,12 @@ int main()
 		CHECK(s.GetValue("t.future", "mystery") == nullptr);  // never served
 		// Writing an unknown-typed setting is refused (read-only until upgrade).
 		CHECK(!s.Set("t.future", "vec", "[4,5,6]"));
-		// The file is already in sparse+preserved form: the load must be CLEAN —
-		// no rewrite window, byte content untouched (no churn on every boot).
 		s.FlushPersistence();
 		{
 			std::ifstream f(vd / "t.future.json");
 			std::string   contents((std::istreambuf_iterator<char>(f)), {});
 			CHECK(contents == R"json({ "vec": [1,2,3], "oldvec": [9,9,9], "mystery": {"a":1}, "n": 5 })json");
 		}
-		// A real user change rewrites the file — every opaque rides along verbatim
-		// (this is the round-trip that used to WIPE them), and the rewrite now
-		// carries the values-format stamp (item 8; it was NOT the thing that
-		// dirtied the file — the byte-identical clean load above proved that).
 		CHECK(s.Set("t.future", "n", "9"));
 		s.FlushPersistence();
 		{
@@ -755,8 +742,6 @@ int main()
 	{
 		const auto sd = root / "settings-target";
 		const auto vd = root / "values-target";
-		// Newer than the installed OSF UI release: loads best-effort anyway, values served; the
-		// declared target rides in Data() for the "needs update" badge.
 		WriteFile(sd / "t.future2.json", R"json({
 			"id": "t.future2", "title": "Future", "targetVersion": "99.0.0",
 			"groups": [ { "settings": [ { "key": "y", "type": "bool", "default": false } ] } ] })json");
@@ -812,8 +797,6 @@ int main()
 		// Clamp is SUCCESS (the ack carries the post-clamp value, not a code).
 		CHECK(s.SetWithResult("t.coded", "n", "99").ok);
 		CHECK(*s.GetValue("t.coded", "n") == 10);
-		// A caller that already parsed a containing message commits directly,
-		// and invalidates the cached settings document.
 		CHECK(s.DataView()["mods"][0]["values"]["n"] == 10);
 		CHECK(s.SetValueWithResult("t.coded", "n", nlohmann::json(4)).ok);
 		CHECK(*s.GetValue("t.coded", "n") == 4);
@@ -838,8 +821,6 @@ int main()
 			std::string   contents((std::istreambuf_iterator<char>(f)), {});
 			CHECK(contents == R"json({"$formatVersion":1,"n":5})json");
 		}
-		// A NEWER OSF UI release's stamp round-trips (never downgraded by our rewrite),
-		// and a foreign $-meta key is preserved like any unknown.
 		WriteFile(vd / "t.fmt.json", R"json({ "$formatVersion": 7, "$futureMeta": "x", "n": 5 })json");
 		{
 			SettingsStore s;
@@ -854,13 +835,6 @@ int main()
 		}
 	}
 
-	// --- values format v1 -> v2: one-time legacy key re-anchor ---------------------
-	// Pre-2.x key names were VK-anchored; v2 names denote physical keys. With a
-	// LegacyKeyMigrator wired (Runtime does: legacy VK resolve -> VK->scan ->
-	// KeyName), a v1 file's key-typed values are rewritten under the layout
-	// active at first load, stamped v2, and flushed EAGERLY — an unflushed
-	// migration re-running under a different layout would move keys twice.
-	// Without the migrator (this suite's default), v1 files defer untouched.
 	{
 		const auto sd = root / "settings-keymig";
 		const auto vd = root / "values-keymig";
@@ -872,19 +846,12 @@ int main()
 				{ "key": "n", "type": "int", "default": 3 }
 			] } ] })json");
 
-		// A fake German-flavoured migrator: the stored VK-era spellings move to
-		// the physical keys they sat on under that layout. Unknown = unchanged
-		// (mirrors the real chain, where any failed step keeps the spelling).
 		const auto qwertz = [](const std::string& a_name) -> std::string {
 			if (a_name == "Z") return "Y";
 			if (a_name == "Semicolon") return "Grave";
 			return a_name;
 		};
 
-		// v1 file (unstamped = v1; stamping and versioning are coeval): key
-		// values re-anchor — including one living under a declared alias — the
-		// unbound "" and the int stay untouched, and the rewrite lands eagerly
-		// (no Set, no explicit flush trigger beyond the pump).
 		WriteFile(vd / "t.mig.json", R"json({ "hot": "Z", "alt": "", "oldname": "Semicolon", "n": 5 })json");
 		{
 			SettingsStore s;
@@ -901,8 +868,6 @@ int main()
 			CHECK(saved["renamed"] == "Grave");  // adopted under the NEW key
 			CHECK(saved["n"] == 5);
 		}
-		// Idempotency: the stamp is the guard. A second load under a DIFFERENT
-		// layout (a migrator that would move "Y" again) must not touch a v2 file.
 		{
 			SettingsStore s;
 			s.SetLegacyKeyMigrator([](const std::string& a_name) -> std::string {
@@ -911,8 +876,6 @@ int main()
 			s.LoadAll(sd, vd);
 			CHECK(s.GetValue("t.mig", "hot") && *s.GetValue("t.mig", "hot") == "Y");
 		}
-		// Eager stamp even when no key value changes: a v1 file holding only
-		// non-key values still moves to v2 so the migration never re-arms.
 		WriteFile(vd / "t.mig.json", R"json({ "n": 5 })json");
 		{
 			SettingsStore s;
@@ -923,8 +886,6 @@ int main()
 			CHECK(saved["$formatVersion"] == 2);
 			CHECK(saved["n"] == 5);
 		}
-		// No migrator: DEFERRED. The value loads untouched and even a real user
-		// change rewrites under the OLD stamp, so a later session still migrates.
 		WriteFile(vd / "t.mig.json", R"json({ "hot": "Z" })json");
 		{
 			SettingsStore s;
@@ -936,8 +897,6 @@ int main()
 			CHECK(saved["$formatVersion"] == 1);
 			CHECK(saved["hot"] == "Z");
 		}
-		// US identity: a migrator that maps everything to itself stamps v2 and
-		// leaves every value byte-identical.
 		WriteFile(vd / "t.mig.json", R"json({ "hot": "F6" })json");
 		{
 			SettingsStore s;
@@ -947,8 +906,6 @@ int main()
 			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.mig.json"), nullptr, false);
 			CHECK((saved == nlohmann::json{ { "hot", "F6" }, { "$formatVersion", 2 } }));
 		}
-		// A fresh mod with NO values file gets no migration churn: nothing on
-		// disk until a real change, which then lands already stamped v2.
 		{
 			const auto vdFresh = root / "values-keymig-fresh";
 			SettingsStore s;
@@ -964,10 +921,6 @@ int main()
 		}
 	}
 
-	// --- keycap labels: the additive `keyboard` block ------------------------------
-	// SetKeyboardLabels publishes { layout, labels } at the document top level;
-	// empty = omitted (older OSF UI releases / preview fall back to raw names). Display
-	// only — nothing else in the store consumes it.
 	{
 		SettingsStore s;
 		CHECK(!s.DataView().contains("keyboard"));
@@ -1022,14 +975,14 @@ int main()
 		CHECK(s.ConflictsForSetting("t.keya", "nope").empty());
 	}
 
-	// --- §14.2 load-error surfacing: skipped schemas + corrupt values ----------
+	// --- Load-error surfacing: skipped schemas + corrupt values ----------------
 	{
 		const auto sd = root / "loaderr" / "settings";
 		const auto vd = root / "loaderr" / "values";
 		WriteFile(sd / "t.good.json", R"json({ "id": "t.good",
 			"groups": [ { "settings": [ { "key": "on", "type": "bool", "default": true } ] } ] })json");
 		WriteFile(sd / "t.broken.json", R"json({ "id": "t.broken", )json");  // torn/unparseable
-		WriteFile(sd / "badname.json", "{}");                                // dotless stem
+		WriteFile(sd / "bad%name.json", "{}");                               // unsafe filename stem
 		WriteFile(vd / "t.good.json", R"json({ "on": fa)json");              // corrupt values
 
 		SettingsStore s;
@@ -1042,62 +995,58 @@ int main()
 		CHECK(!fs::exists(vd / "t.good.json"));
 		CHECK(fs::exists(vd / "t.good.json.bad"));
 
-		// One record per failure, emitted additively in the data document.
 		CHECK(s.LoadErrors().size() == 3);
 		const auto& data = s.DataView();
 		const auto errs = data.contains("loadErrors") ? data["loadErrors"] : nlohmann::json::array();
 		CHECK(errs.size() == 3);
 		const auto findKind = [&](const char* a_kind) {
 			for (const auto& e : errs) {
-				if (e["kind"] == a_kind) {
-					return e;
-				}
+				if (e["kind"] == a_kind) return e;
 			}
 			return nlohmann::json{};
 		};
 		const auto parseErr = findKind("schema-parse");
 		CHECK(!parseErr.is_null() && parseErr["file"] == "t.broken.json");
 		CHECK(!parseErr.is_null() && parseErr["message"].get<std::string>().find("parse error") != std::string::npos);
-		CHECK(!parseErr.is_null() && !parseErr.contains("mod"));  // no mod loaded from it
+		CHECK(!parseErr.is_null() && !parseErr.contains("mod"));
 		const auto nameErr = findKind("schema-name");
-		CHECK(!nameErr.is_null() && nameErr["file"] == "badname.json");
+		CHECK(!nameErr.is_null() && nameErr["file"] == "bad%name.json");
 		const auto valuesErr = findKind("values-parse");
 		CHECK(!valuesErr.is_null() && valuesErr["file"] == "t.good.json" && valuesErr["mod"] == "t.good");
 
-		// Hot-reload lifecycle: a fixed file registers AND clears its entry...
+		// A fixed file clears its issue; repeated failures replace rather than stack.
 		WriteFile(sd / "t.broken.json", R"json({ "id": "t.broken",
 			"groups": [ { "settings": [ { "key": "x", "type": "int", "default": 1 } ] } ] })json");
+		const auto generationBeforeRecovery = s.Generation();
 		CHECK(s.ReloadDropInFile(sd / "t.broken.json"));
+		CHECK(s.Generation() > generationBeforeRecovery);
 		CHECK(s.LoadErrors().size() == 2);
 		CHECK(s.DataView()["mods"].size() == 2);
-		// ...a re-broken file records again (replace-or-add: retries must not
-		// stack) and re-broadcasts so an open Mod Settings view shows it live.
 		int registryPings = 0;
 		s.AddRegistryListener([&] { ++registryPings; });
 		WriteFile(sd / "t.broken.json", R"json({ "id": )json");
+		const auto generationBeforeFailure = s.Generation();
 		CHECK(!s.ReloadDropInFile(sd / "t.broken.json"));
+		CHECK(s.Generation() > generationBeforeFailure);
+		const auto recordedErrorGeneration = s.Generation();
 		CHECK(!s.ReloadDropInFile(sd / "t.broken.json"));
+		CHECK(s.Generation() == recordedErrorGeneration);  // identical error is not a new state
 		CHECK(s.LoadErrors().size() == 3);
 		CHECK(registryPings >= 1);
 		CHECK(s.DataView()["mods"].size() == 2);  // the last good parse stays registered
 
-		// A removed mod takes its values record with it; file-keyed schema
-		// records stay (they name files, not registered mods).
 		CHECK(s.RemoveMod("t.good"));
 		CHECK(s.LoadErrors().size() == 2);
 	}
 
-	// --- CanonicalEnumValue: the Papyrus write path's casing tolerance -------
-	// (BSFixedString interning mangles script string casing; the drain
-	// canonicalizes enum values to the authored option spelling before Set.)
 	{
 		OSFUI::SettingsStore s;
-		s.LoadAll(root / "ce-schemas", root / "ce-values");  // empty: just arms RegisterSchema
-		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({ "id": "t.enum",
+		const auto sd = root / "ce-schemas";
+		WriteFile(sd / "t.enum.json", R"json({ "id": "t.enum",
 			"groups": [ { "settings": [
 				{ "key": "mode", "type": "enum", "options": ["fast", "balanced"], "default": "balanced" },
-				{ "key": "flag", "type": "bool", "default": true } ] } ] })json"),
-			OSFUI::SettingsStore::Source::kNative));
+				{ "key": "flag", "type": "bool", "default": true } ] } ] })json");
+		s.LoadAll(sd, root / "ce-values");
 		CHECK(s.CanonicalEnumValue("t.enum", "mode", "FAST") == "fast");
 		CHECK(s.CanonicalEnumValue("t.enum", "mode", "Fast") == "fast");
 		CHECK(s.CanonicalEnumValue("t.enum", "mode", "fast") == "fast");
@@ -1106,21 +1055,16 @@ int main()
 		CHECK(!s.CanonicalEnumValue("t.nope", "mode", "fast").has_value());  // unknown mod
 	}
 
-	// --- UTF-8 boundary safety on every byte-counted cap --------------------
-	// The caps count BYTES but the values are arbitrary player text (IME/CJK/
-	// emoji). A raw resize() at the cap left an incomplete UTF-8 sequence, and
-	// every later dump() of that value threw type_error.316 on a path with no
-	// handler — a std::terminate from typing CJK into any mod's text setting.
 	{
 		OSFUI::SettingsStore s;
-		s.LoadAll(root / "u8-schemas", root / "u8-values");
-		CHECK(s.RegisterSchema(nlohmann::json::parse(R"json({ "id": "t.utf8",
+		const auto sd = root / "u8-schemas";
+		WriteFile(sd / "t.utf8.json", R"json({ "id": "t.utf8",
 			"groups": [ { "settings": [
 				{ "key": "name", "type": "string", "maxLength": 8, "default": "" },
 				{ "key": "long", "type": "string", "default": "" },
 				{ "key": "emoji", "type": "string", "maxLength": 6, "default": "" },
-				{ "key": "bind", "type": "key", "default": "F10" } ] } ] })json"),
-			OSFUI::SettingsStore::Source::kNative));
+				{ "key": "bind", "type": "key", "default": "F10" } ] } ] })json");
+		s.LoadAll(sd, root / "u8-values");
 
 		// Per-setting maxLength: 3 CJK chars = 9 bytes, cap 8 cuts inside the 3rd.
 		const std::string cjk = "\xE4\xB8\xAD\xE6\x96\x87\xE5\xAD\x97";
@@ -1144,8 +1088,6 @@ int main()
 			CHECK(false);
 		}
 
-		// The store-wide 256-byte hard cap, with no maxLength at all: 86 CJK
-		// chars = 258 bytes, so byte 256 falls inside the 86th.
 		std::string wide;
 		for (int i = 0; i < 86; ++i) wide += "\xE4\xB8\xAD";
 		CHECK(wide.size() == 258);
@@ -1171,6 +1113,35 @@ int main()
 		// The aggregate projections the bridge and the persist path serialize.
 		CHECK(StrictDumpOk(s.DataView()));
 		CHECK(!s.DataJson().empty());
+	}
+
+	{
+		const auto bootRoot = root / "developer-mode-bootstrap";
+		const auto bootSchemas = bootRoot / "settings";
+		const auto bootValues = bootRoot / "values";
+		WriteFile(bootSchemas / "osfui.json", R"json({
+			"id": "osfui",
+			"groups": [{ "settings": [
+				{ "key": "developerMode", "type": "bool", "default": false, "requires": "restart" }
+			] }]
+		})json");
+
+		SettingsStore missing;
+		missing.LoadAll(bootSchemas, bootValues);
+		CHECK(missing.GetValue("osfui", "developerMode") &&
+			*missing.GetValue("osfui", "developerMode") == false);
+
+		WriteFile(bootValues / "osfui.json", R"json({ "developerMode": true })json");
+		SettingsStore enabled;
+		enabled.LoadAll(bootSchemas, bootValues);
+		CHECK(enabled.GetValue("osfui", "developerMode") &&
+			*enabled.GetValue("osfui", "developerMode") == true);
+
+		WriteFile(bootValues / "osfui.json", R"json({ "developerMode": "yes" })json");
+		SettingsStore malformed;
+		malformed.LoadAll(bootSchemas, bootValues);
+		CHECK(malformed.GetValue("osfui", "developerMode") &&
+			*malformed.GetValue("osfui", "developerMode") == false);
 	}
 
 	// ---------------------------------------------------------------------------

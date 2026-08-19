@@ -245,26 +245,6 @@ namespace OSFUI::API
 			}
 		}
 
-		template <class T>
-		[[nodiscard]] bool SetViewState(const char* a_modId, const char* a_key, const T& a_value) const noexcept
-		{
-			try {
-				return SetViewState(a_modId, a_key, Json(a_value));
-			} catch (...) {
-				return false;
-			}
-		}
-
-		[[nodiscard]] bool RegisterSettingsSchema(const Json& a_schema) const noexcept
-		{
-			try {
-				const auto text = a_schema.dump(-1, ' ', false, Json::error_handler_t::replace);
-				return _client.RegisterSettingsSchema(text.c_str());
-			} catch (...) {
-				return false;
-			}
-		}
-
 		[[nodiscard]] bool ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
 			IssueSeverity a_severity, const char* a_subject = "", const Json& a_context = Json::object()) const noexcept
 		{
@@ -281,6 +261,16 @@ namespace OSFUI::API
 			try {
 				const auto text = Json(a_keepIds).dump(-1, ' ', false, Json::error_handler_t::replace);
 				return _client.ClearIssuesExcept(a_modId, text.c_str());
+			} catch (...) {
+				return false;
+			}
+		}
+
+		template <class T>
+		[[nodiscard]] bool SetViewState(const char* a_modId, const char* a_key, const T& a_value) const noexcept
+		{
+			try {
+				return SetViewState(a_modId, a_key, Json(a_value));
 			} catch (...) {
 				return false;
 			}

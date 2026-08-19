@@ -1,6 +1,3 @@
-// One runtime key grab may be armed per view. This hook owns correlation,
-// cancellation, and the standalone DOM fallback; consumers own the model update
-// and user-facing copy.
 
 import { useEffect, useRef } from 'preact/hooks';
 import type { Bridge } from '@lib/bridge';
@@ -51,10 +48,6 @@ export function useKeyCapture<T>(options: KeyCaptureOptions<T>): KeyCaptureApi<T
     domCleanupRef.current = null;
   };
 
-  // Whoever settles first releases the per-capture subscription. Unsubscribing
-  // only inside the handler leaked one listener per armed rebind: both views
-  // also register their own `settings.captured` backstop, and that one settles
-  // first, so this hook's handler never ran to reach its own `off()`.
   const clearCapturedSub = () => {
     offCapturedRef.current?.();
     offCapturedRef.current = null;
@@ -88,14 +81,6 @@ export function useKeyCapture<T>(options: KeyCaptureOptions<T>): KeyCaptureApi<T
 
     const opts = optionsRef.current;
     if (opts.bridge.available()) {
-      // Two steps, because they answer two different questions. The REQUEST
-      // settles in machine time — armed, or a typed refusal — and the captured
-      // key arrives whenever the player presses one, as an EVENT.
-      //
-      // 1.x made this one request with `timeoutMs: 0`, which meant the promise
-      // (and its entry in the helper's pending map) lived until a key was
-      // pressed or the page went away. A player who armed a rebind and wandered
-      // off leaked it for the session.
       offCapturedRef.current = opts.bridge.on('settings.captured', (payload) => {
         if (capturingRef.current !== target) return;
         settle(target, payload);

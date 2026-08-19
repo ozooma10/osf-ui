@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
   "title": "OSF UI View Manifest",
-  "description": "Schema for views/<modId>/<viewName>/manifest.json. Mirrors src/runtime/ViewManifest.cpp. Unknown keys are allowed. Bridge protocol 2.0.",
+  "description": "Schema for views/<modId>/<viewName>/manifest.json. Mirrors src/Views/ViewManifest.cpp. Unknown keys are allowed. Bridge protocol 2.0.",
   "type": "object",
   "additionalProperties": true,
   "properties": {
@@ -17,11 +17,6 @@
     "description": {
       "type": "string",
       "description": "One-line blurb shown in catalogs. Defaults to empty."
-    },
-    "accent": {
-      "type": "string",
-      "pattern": "^#[0-9a-fA-F]{6}$",
-      "description": "Optional accent used by platform chrome such as the first-load handoff."
     },
     "entry": {
       "type": "string",
@@ -81,39 +76,12 @@
     "debugOnly": {
       "type": "boolean",
       "default": false,
-      "description": "When true, this view is kept out of the catalog unless developer mode is enabled by devMode or the temporary author-mode marker. It is still discovered and can be opened by qualified view id. Intended for built-in developer tools."
-    },
-    "readySignal": {
-      "type": "boolean",
-      "default": false,
-      "description": "When true, first reveal waits for the page to declare content readiness by calling osfui.markReady() (which sends the `view.ready` send endpoint), rather than using main-frame load completion as the reveal gate. Requires permissions.nativeBridge. A 15-second post-load timeout offers retry instead of trapping the player. (2.0 views use markReady; the temporary 1.x facade retains viewReady through 2.0.x.)"
+      "description": "When true, this view is kept out of the catalog unless the restart-latched osfui.developerMode setting is effective. It is still discovered and can be opened by qualified view id. Intended for local developer tools."
     },
     "targetVersion": {
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI release version this view was authored against (e.g. \"2.0.0\"). A target NEWER than the running OSF UI release is advisory and badges 'needs update' in Mod Settings. During 2.0.x, a declared target BELOW 2.0 selects the temporary 1.x facade and raises a persistent 2.1.0 removal warning. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
-    },
-    "permissions": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Capability grants. Everything defaults to deny.",
-      "properties": {
-        "nativeBridge": {
-          "type": "boolean",
-          "default": false,
-          "description": "Inject window.osfui — the four verbs (send / request / on / state) and the page-initiated handshake. If false, no bridge is injected at all and the page runs purely client-side; osfui.available is then false and osfui.request() rejects with \"no-bridge\" rather than hanging."
-        },
-        "filesystem": {
-          "type": "boolean",
-          "default": false,
-          "description": "Reserved; no implementation enforces this yet."
-        },
-        "network": {
-          "type": "boolean",
-          "default": false,
-          "description": "Reserved; forced off with a warning if set true."
-        }
-      }
+      "description": "The OSF UI release version this view was authored against (e.g. \"2.0.0\"). A target NEWER than the running OSF UI release is advisory and badges 'needs update' in Mod Settings. A declared target BELOW 2.0 selects the frozen 1.x facade. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
     }
   }
 }

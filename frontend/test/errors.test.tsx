@@ -1,13 +1,4 @@
 // @vitest-environment jsdom
-//
-// Mod Settings failure paths: rejected writes, action timeout, capture-busy,
-// and Escape peeling the undo overlay before it closes the view.
-//
-// Every one of these is now a REJECTED request. Protocol 2.0 deleted the
-// `ui.result` document with its `ok:false` field, so a refusal can no longer be
-// mistaken for a success by a caller that forgot to inspect the reply — the
-// promise rejects with a machine `code` and the view's `.catch` is the only
-// path that can render it.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -49,9 +40,6 @@ describe('settings.set rejection', () => {
 
     expect(el.querySelector('#save-state')!.classList.contains('visible')).toBe(false);
 
-    // What used to follow — a `settings.get` to pull authoritative state back —
-    // is gone from the contract: the OSF UI runtime republishes `osfui/settings` itself,
-    // and every open document gets it. Modelled here as that republish.
     bridge.publish('osfui/settings', WIDGETS);
     await flush();
     expect(
@@ -96,8 +84,6 @@ describe('capture-busy', () => {
     // `.listening` is the class padnav suspends navigation on.
     expect(el.querySelector('.listening')).not.toBeNull();
 
-    // `settings.captureKey` settles in MACHINE time: it either arms, or refuses
-    // like this. The captured key would arrive separately, as an event.
     const idx = bridge.indexOf('settings.captureKey');
     bridge.reject(idx, { code: 'capture-busy' });
     await flush();

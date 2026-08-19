@@ -89,19 +89,12 @@
 				compositor = winrt::Windows::UI::Composition::Compositor();
 				rootVisual = compositor.CreateContainerVisual();
 				rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
-				// The root stays visible for the lifetime of the capture; per-view
-				// visibility lives on each view's child visual.
 				rootVisual.IsVisible(true);
 				return true;
 			}
 
 			bool CreateWindows()
 			{
-				// A visible 1x1 child beneath a visible (offscreen) top-level owned
-				// by this STA; the child is reparented beneath the game window once
-				// Chromium is up. The bootstrap must never activate: creating a
-				// visible top-level popup in the freshly launched browser host can otherwise
-				// make Windows foreground the browser host and background Starfield.
 				bootstrapWindow = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC",
 					L"OSFUI WebView2 Browser Host Bootstrap", WS_POPUP,
 					-32000, -32000, 1, 1, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr);
@@ -193,8 +186,6 @@
 				desc.SampleDesc.Count = 1;
 				desc.Usage = D3D11_USAGE_DEFAULT;
 				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-				// Preferred: NT-handle shared without a keyed mutex — the D3D12 side
-				// has no IDXGIKeyedMutex; the shared fences do the synchronizing.
 				desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
 				ringKeyedMutex = false;
 				auto hr = device->CreateTexture2D(&desc, nullptr, &ring[0].texture);
@@ -286,10 +277,6 @@
 				if (!EnsureRing(a_width, a_height)) return;
 
 				auto& slot = ring[ringWrite];
-				// Slot reuse guard: the game GPU-signals `consume` with each serial it
-				// finished reading and pipe-acks frames it skipped, so this wait is
-				// normally already satisfied. Bounded, so a wedged consumer costs
-				// 50 ms rather than a deadlock.
 				const auto consumed = [this] {
 					return (std::max)(consumeFence->GetCompletedValue(), ackedSerial.load());
 				};
@@ -344,8 +331,6 @@
 				lastSlot = ringWrite;
 				ringWrite = (ringWrite + 1) % kRingSlots;
 				context4->Signal(produceFence.Get(), serial);
-				// Flush so the copy + signal reach the GPU now: the consumer's wait
-				// must not depend on this context's next natural flush.
 				context->Flush();
 				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
 					.width = a_width, .height = a_height,
@@ -355,11 +340,6 @@
 				}
 			}
 
-			// Publish the requested epoch only after the STA has made its visual
-			// visible. The next real WGC capture then proves that the frame belongs
-			// to this open rather than to the transparent closed presentation.
-			// Returns whether a new epoch was actually promoted (a redundant show
-			// of an already-current epoch is not a promotion).
 			bool PromotePresentation(View& a_view)
 			{
 				const auto requested = std::exchange(a_view.pendingPresentationEpoch, 0ull);
@@ -371,9 +351,6 @@
 				return true;
 			}
 
-			// A composition-changing reveal must discard every capture queued
-			// before visibility changed. The mutex also makes the frame callback
-			// acquire a frame and its epoch as one snapshot.
 			bool PromoteChangedPresentation(View& a_view)
 			{
 				std::scoped_lock epochLock(captureEpochMutex);
@@ -394,20 +371,9 @@
 				return PromotePresentation(a_view);
 			}
 
-			// STA thread, for shows where the composition does not change (the
-			// visual never left the screen): WGC only captures on damage, so a
-			// static page would never emit a frame carrying the just-promoted
-			// epoch and the game's reveal gate would starve into its timeout.
-			// Re-send the newest ring pixels under a fresh serial stamped with the
-			// current epoch. Only safe on those no-change paths — after a real
-			// closed->open the last capture is the transparent closed state and
-			// must never be re-stamped (the bug epochs exist to prevent).
 			void RepublishLatest()
 			{
 				std::scoped_lock lock(ringMutex);
-				// The last slot must actually hold pixels: after a resize recreated
-				// the ring, nothing is republishable until the first capture lands
-				// in the new ring.
 				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) {
 					return;
 				}
@@ -429,8 +395,6 @@
 				return nullptr;
 			}
 
-			// View-scoped messages carry `view`; absent or unknown falls back to the
-			// input-target view for compatibility with the single-view POC client.
 			View* ResolveView(const json& a_msg)
 			{
 				if (const auto it = a_msg.find("view"); it != a_msg.end() && it->is_string()) {
@@ -458,6 +422,3 @@
 				return view;
 			}
 
-			// View order maps to child order under the captured root: lower `order`
-			// composites beneath, ties keep creation order. Rebuilt wholesale;
-			// reorders are rare and the child count tiny.

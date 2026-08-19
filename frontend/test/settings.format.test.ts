@@ -12,8 +12,6 @@ describe('formatNumber — decimals clamp to [0,20]', () => {
   });
 
   it('CLAMPS above 20 instead of throwing RangeError', () => {
-    // Keep schema mistakes bounded; an uncaught formatter error would abort
-    // renderDetail and blank the entire mod page.
     expect(() => formatNumber(num({ format: { decimals: 21 } }), 1)).not.toThrow();
     expect(formatNumber(num({ format: { decimals: 21 } }), 1)).toBe((1).toFixed(20));
     expect(formatNumber(num({ format: { decimals: 1000 } }), 1)).toBe((1).toFixed(20));

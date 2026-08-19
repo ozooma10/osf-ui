@@ -1,12 +1,6 @@
-// Native desktop tests for the localized keycap-label pipeline (input/KeyLabels):
-// fixed short forms for non-printing keys (localizable via chrome.keys.*),
-// layout glyphs for printable keys, the fallback chain, and layout fixtures
-// modelled on US ANSI and German QWERTZ (Z/Y swap, umlaut OEM row, dead keys,
-// the ISO <> key). Fakes stand in for the one platform source
-// (Platform::MakeKeyLabelSource). Assert-style; exit code = failure count.
 
-#include "input/KeyLabels.h"
-#include "input/KeyNames.h"
+#include "Input/KeyLabels.h"
+#include "Input/KeyNames.h"
 
 #include <map>
 #include "check.h"
@@ -29,8 +23,6 @@ namespace
 		return "<absent>";
 	}
 
-	// US ANSI: letters/digits label as themselves, punctuation as the US
-	// glyphs; the ISO extra key has no glyph on this layout.
 	KeyLabelSource UsSource()
 	{
 		static const std::map<ScanCode, std::string> kGlyphs = {
@@ -54,8 +46,6 @@ namespace
 		return source;
 	}
 
-	// German QWERTZ: Z/Y swapped, umlauts on the US punctuation row, dead keys
-	// ^ and ´, ß on the minus position, <> present next to LShift.
 	KeyLabelSource GermanSource()
 	{
 		static const std::map<ScanCode, std::string> kGlyphs = {
@@ -96,8 +86,8 @@ namespace OSFUI::Log
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
 
-	bool DevMode() { return false; }
-	void SetDevMode(bool) {}
+	bool DebugEnabled() { return false; }
+	void SetDebugLogging(bool) {}
 }
 
 int main()

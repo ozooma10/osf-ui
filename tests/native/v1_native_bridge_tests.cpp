@@ -1,11 +1,41 @@
-#include "compat/v1/NativeBridge.h"
-
-#include "api/BridgeApi.h"
+#include "API/BridgeApi.h"
+#include "OSFUI_API.h"
 #include "check.h"
-#include "runtime/MessageBridge.h"
+#include "Bridge/MessageBridge.h"
 
 namespace
 {
+	struct FrozenAbi18Bridge
+	{
+		virtual std::uint32_t GetInterfaceVersion() = 0;
+		virtual void GetPluginVersion(std::uint32_t&, std::uint32_t&, std::uint32_t&) = 0;
+		virtual const char* GetBridgeProtocolVersion() = 0;
+		virtual bool IsBridgeReady() = 0;
+		virtual void RegisterCommand(const char*, OSFUI::API::CommandFn, void*) = 0;
+		virtual void UnregisterCommand(const char*) = 0;
+		virtual bool SendToWeb(const char*, const char*, const char*) = 0;
+		virtual void SetReadyCallback(OSFUI::API::ReadyFn, void*) = 0;
+		virtual bool RequestMenu(const char*, bool) = 0;
+		virtual std::uint32_t SubscribeSettings(const char*, OSFUI::API::SettingChangedFn, void*) = 0;
+		virtual void UnsubscribeSettings(std::uint32_t) = 0;
+		virtual bool GetSettingBool(const char*, const char*, bool*) = 0;
+		virtual bool GetSettingInt(const char*, const char*, std::int64_t*) = 0;
+		virtual bool GetSettingFloat(const char*, const char*, double*) = 0;
+		virtual std::uint32_t GetSettingString(const char*, const char*, char*, std::uint32_t) = 0;
+		virtual bool RegisterSettingsSchema(const char*) = 0;
+		virtual void UnregisterSettingsSchema(const char*) = 0;
+		virtual std::uint32_t SubscribeHotkey(const char*, const char*, OSFUI::API::HotkeyFn, void*) = 0;
+		virtual void UnsubscribeHotkey(std::uint32_t) = 0;
+		virtual bool RegisterView(const char*) = 0;
+		virtual bool ReportIssue(const char*, const char*, const char*, std::uint32_t,
+			const char*, const char*) = 0;
+		virtual bool ClearIssue(const char*, const char*) = 0;
+		virtual bool ClearIssuesExcept(const char*, const char*) = 0;
+		virtual void RegisterRequest(const char*, OSFUI::API::RequestFn, void*) = 0;
+		virtual void UnregisterRequest(const char*) = 0;
+		virtual bool SetViewState(const char*, const char*, const char*) = 0;
+	};
+
 	struct Fire
 	{
 		std::string name;
@@ -18,17 +48,15 @@ namespace
 		fires.push_back({ a_name, nlohmann::json::parse(a_json), a_source });
 	}
 
-	std::optional<OSFUI::Compat::V1::Request> request;
+	std::optional<OSFUI::API::Request> request;
 	std::string requestCommand;
 	nlohmann::json requestPayload;
 	std::string requestSource;
-	void Request(const OSFUI::Compat::V1::Request& a_request, void*) noexcept
+	void Request(const OSFUI::API::Request& a_request, void*) noexcept
 	{
 		requestCommand = a_request.command ? a_request.command : "";
 		requestPayload = nlohmann::json::parse(a_request.payloadJson ? a_request.payloadJson : "{}");
 		requestSource = a_request.sourceViewId ? a_request.sourceViewId : "";
-		// The pointer fields are callback-scoped in the frozen ABI; the copied
-		// token/thunks remain valid for a later asynchronous response.
 		request = a_request;
 	}
 
@@ -56,25 +84,16 @@ namespace OSFUI::Log
 	{
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
-	bool DevMode() { return true; }
-	void SetDevMode(bool) {}
+	bool DebugEnabled() { return true; }
+	void SetDebugLogging(bool) {}
 }
 
 int main()
 {
 	using namespace OSFUI;
-	using Compat::V1::SupportsRequestedAbi;
-	for (std::uint32_t minor = 0; minor <= 8; ++minor) {
-		CHECK(SupportsRequestedAbi((1u << 16) | minor));
-	}
-	CHECK(!SupportsRequestedAbi(0));
-	CHECK(!SupportsRequestedAbi((2u << 16) | 0u));
-	CHECK(!SupportsRequestedAbi((3u << 16) | 4u));
-
 	auto& api = API::BridgeApi::Get();
-	auto& legacy = Compat::V1::NativeBridge::Get();
-	Compat::V1::IOSFUIBridge* bridgeVtable = &legacy;
-	CHECK(bridgeVtable->GetInterfaceVersion() == ((1u << 16) | 8u));
+	auto* bridgeVtable = reinterpret_cast<FrozenAbi18Bridge*>(&api);
+	CHECK(bridgeVtable->GetInterfaceVersion() == ((1u << 16) | 9u));
 	std::uint32_t major = 0, minor = 0, patch = 0;
 	bridgeVtable->GetPluginVersion(major, minor, patch);
 	CHECK(major == 2 && minor == 0 && patch == 0);
@@ -101,9 +120,6 @@ int main()
 	api.PumpMainThread();
 	CHECK(outbox.back()["kind"] == "event" && outbox.back()["name"] == "acme.widgets.notice");
 
-	// In 1.x request() could correlate any ui.command. A strict send endpoint
-	// therefore still executes and auto-acks for a legacy document, while the
-	// same wrong-kind request from a 2.0 document remains rejected.
 	std::size_t strictSendCalls = 0;
 	web.RegisterSend("acme.widgets.strict-send", [&](const nlohmann::json& payload, MessageBridge&) {
 		++strictSendCalls;
@@ -151,11 +167,8 @@ int main()
 	CHECK(outbox.back()["payload"]["__osfuiV1Reply"]["type"] == "legacy.result");
 	CHECK(outbox.back()["payload"]["__osfuiV1Reply"]["payload"]["accepted"] == true);
 
-	// Suit Protocol's 1.7 path: runtime schema registration, mirrored typed
-	// setting reads, and two hotkey subscriptions through the frozen slots.
-	CHECK(bridgeVtable->RegisterSettingsSchema(
+	CHECK(!bridgeVtable->RegisterSettingsSchema(
 		R"({"id":"acme.widgets","groups":[{"settings":[{"key":"enabled","type":"bool","default":true}]}]})"));
-	CHECK(api.TakeSchemaOps().size() == 1);
 	api.Mirror().Update("acme.widgets", "enabled", true);
 	api.Mirror().Update("acme.widgets", "count", std::int64_t{ 7 });
 	api.Mirror().Update("acme.widgets", "scale", 1.5);
@@ -193,13 +206,10 @@ int main()
 	CHECK(bridgeVtable->SetViewState("acme.widgets", "status", R"({"ready":true})"));
 	CHECK(api.TakeViewStateOps().size() == 1);
 	bridgeVtable->UnregisterSettingsSchema("acme.widgets");
-	const auto schemaRemovals = api.TakeSchemaOps();
-	CHECK(schemaRemovals.size() == 1 && schemaRemovals[0].modId == "acme.widgets" &&
-		schemaRemovals[0].schema.is_null());
 	bridgeVtable->UnregisterCommand("acme.widgets.legacy");
 	bridgeVtable->UnregisterRequest("acme.widgets.request");
 	api.PumpMainThread();
 
-	std::printf("v1 native bridge tests: %s\n", g_failures ? "FAILED" : "passed");
+	std::printf("native ABI compatibility tests: %s\n", g_failures ? "FAILED" : "passed");
 	return g_failures;
 }

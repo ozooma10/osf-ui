@@ -62,14 +62,6 @@ describe('canonicalName', () => {
   });
 
   it('QUIRK: inherits Object.prototype members through the alias table', () => {
-    // Pins a known bug: the alias lookup is a bare index into an object
-    // literal, so a name lowercasing to a prototype member returns the
-    // inherited function — truthy, despite the declared `string` return type.
-    // Reachable, since the input is a mod-authored stored value. See the note
-    // in canonical.ts. A failure here means the quirk was fixed; that is fine
-    // if intended, not if it fell out of a refactor.
-    // Only all-lowercase prototype members are reachable (lookup is on
-    // s.toLowerCase()): "constructor" and "__proto__".
     expect(typeof (canonicalName('constructor') as unknown)).toBe('function');
     expect(canonicalName('Constructor') as unknown).toBe(Object.prototype.constructor);
     expect(canonicalName('__proto__') as unknown).toBe(Object.prototype);

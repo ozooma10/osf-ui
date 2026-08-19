@@ -12,10 +12,6 @@ namespace osfui::wv2
 {
 	namespace
 	{
-		// Security descriptor granting full pipe access to the OWNER only.
-		// "D:P(A;;GA;;;OW)" — DACL, protected, allow generic-all to owner
-		// rights. Blocks other users (and lower-integrity squatters) from
-		// connecting to the frame/input channel.
 		constexpr wchar_t kOwnerOnlySddl[] = L"D:P(A;;GA;;;OW)";
 	}
 
@@ -354,8 +350,6 @@ namespace osfui::wv2
 			DWORD got = 0;
 			DWORD error = ERROR_SUCCESS;
 			{
-				// Close takes this same lock before cancellation, so every I/O is
-				// either already pending and cancellable or observes _closing.
 				std::scoped_lock lock(_stateMutex);
 				if (_closing || _pipe == INVALID_HANDLE_VALUE) return false;
 				pipe = _pipe;
@@ -478,13 +472,8 @@ namespace osfui::wv2
 			std::unique_lock stateLock(_stateMutex);
 			_closing = true;
 			if (_pipe != INVALID_HANDLE_VALUE) {
-				// I/O is issued under _stateMutex, so cancellation cannot miss an
-				// operation that passed its close check but has not started yet.
 				::CancelIoEx(_pipe, nullptr);
 			}
-			// A timeout cannot safely free OVERLAPPED handles that a live call still
-			// references. Process teardown never enters this path: its owners have
-			// process lifetime, while normal recovery keeps the I/O threads alive.
 			_idle.wait(stateLock, [this] { return _activeCalls == 0; });
 			pipe = std::exchange(_pipe, INVALID_HANDLE_VALUE);
 			readEvent = std::exchange(_readEvent, nullptr);

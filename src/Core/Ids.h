@@ -1,0 +1,129 @@
+#pragma once
+
+#include <optional>
+
+#include "Core/StringUtil.h"
+
+namespace OSFUI::Ids
+{
+	// Mod ids are opaque, bounded Windows filename and URL path components.
+
+	inline constexpr std::size_t kMaxModIdLen = 64;
+	inline constexpr std::size_t kMaxViewNameLen = 64;
+
+	constexpr std::string_view kBuiltInModId = "osfui";
+	constexpr std::string_view kSettingsViewId = "osfui/settings";
+	constexpr std::string_view kKeybindingsViewId = "osfui/keybinds";
+
+	constexpr std::string_view kToggleKey = "F10";  // default overlay toggle
+
+	using StringUtil::EqualsCaseInsensitiveAscii;
+
+	// One lowercase grammar segment: [a-z0-9-]+.
+	inline bool IsValidSegment(std::string_view a_s)
+	{
+		if (a_s.empty()) {
+			return false;
+		}
+		for (const char c : a_s) {
+			const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+			if (!ok) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	inline bool IsBuiltInModId(std::string_view a_id)
+	{
+		return a_id == kBuiltInModId;
+	}
+
+	// Reserve the platform id case-insensitively to prevent casing aliases.
+	inline bool IsReservedModId(std::string_view a_id)
+	{
+		return EqualsCaseInsensitiveAscii(a_id, kBuiltInModId);
+	}
+
+	// These exclusions are filesystem, qualified-id, and virtual-host safety boundaries.
+	inline bool IsValidModId(std::string_view a_id)
+	{
+		if (a_id.empty() || a_id.size() > kMaxModIdLen || IsReservedModId(a_id) ||
+			a_id == "." || a_id == ".." || a_id.back() == '.' || a_id.back() == ' ') {
+			return false;
+		}
+		for (const unsigned char c : a_id) {
+			if (c < 0x20 || c == '<' || c == '>' || c == ':' || c == '"' || c == '/' ||
+				c == '\\' || c == '|' || c == '?' || c == '*' || c == '#' || c == '%') {
+				return false;
+			}
+		}
+
+		// Win32 device names remain reserved even with an extension ("NUL.json").
+		const auto base = a_id.substr(0, a_id.find('.'));
+		if (EqualsCaseInsensitiveAscii(base, "con") || EqualsCaseInsensitiveAscii(base, "prn") ||
+			EqualsCaseInsensitiveAscii(base, "aux") || EqualsCaseInsensitiveAscii(base, "nul")) {
+			return false;
+		}
+		if (base.size() == 4 && (EqualsCaseInsensitiveAscii(base.substr(0, 3), "com") ||
+			EqualsCaseInsensitiveAscii(base.substr(0, 3), "lpt")) &&
+			base[3] >= '1' && base[3] <= '9') {
+			return false;
+		}
+		return true;
+	}
+
+	// Only load-time validation accepts the canonical built-in id.
+	inline bool IsAcceptedModId(std::string_view a_id)
+	{
+		return IsValidModId(a_id) || IsBuiltInModId(a_id);
+	}
+
+	inline bool IsValidViewName(std::string_view a_name)
+	{
+		return a_name.size() <= kMaxViewNameLen && IsValidSegment(a_name);
+	}
+
+	// "<modId>/<viewName>" — the only shape RegisterView / menu targets accept.
+	inline bool IsValidQualifiedViewId(std::string_view a_id)
+	{
+		const auto slash = a_id.find('/');
+		if (slash == std::string_view::npos || a_id.find('/', slash + 1) != std::string_view::npos) {
+			return false;
+		}
+		return IsAcceptedModId(a_id.substr(0, slash)) && IsValidViewName(a_id.substr(slash + 1));
+	}
+
+	// Returned views alias a_id and must not outlive it.
+	[[nodiscard]] inline std::string_view ModOf(std::string_view a_id) noexcept
+	{
+		const auto slash = a_id.find('/');
+		return slash == std::string_view::npos ? a_id : a_id.substr(0, slash);
+	}
+
+	[[nodiscard]] inline std::string_view ViewNameOf(std::string_view a_id) noexcept
+	{
+		const auto slash = a_id.find('/');
+		return slash == std::string_view::npos ? a_id : a_id.substr(slash + 1);
+	}
+
+	// Only the two built-in settings editors may target another mod's settings.
+	[[nodiscard]] inline bool IsSettingsEditorView(std::string_view a_viewId)
+	{
+		return a_viewId == kSettingsViewId || a_viewId == kKeybindingsViewId;
+	}
+
+	// Non-editor views may target only their own mod; an empty target resolves to it.
+	[[nodiscard]] inline std::optional<std::string_view> ResolveWritableMod(
+		std::string_view a_sourceView, std::string_view a_requestedMod)
+	{
+		if (IsSettingsEditorView(a_sourceView)) {
+			return a_requestedMod;
+		}
+		const auto own = ModOf(a_sourceView);
+		if (a_requestedMod.empty() || EqualsCaseInsensitiveAscii(a_requestedMod, own)) {
+			return own;
+		}
+		return std::nullopt;
+	}
+}

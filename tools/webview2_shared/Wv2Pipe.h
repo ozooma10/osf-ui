@@ -1,12 +1,5 @@
 #pragma once
 
-// Message-framed named-pipe transport for the OSF UI <-> webview2 host IPC.
-// Logging-free (shared between the SFSE plugin and standalone tools); failures
-// surface through return values + LastErrorText().
-//
-// Threading: WriteMessage is serialized by an internal mutex and safe from any
-// thread. ReadMessage blocks and must run on a single reader thread only.
-// Close() cancels pending I/O and unblocks the reader.
 
 #include <condition_variable>
 #include <cstdint>
@@ -33,13 +26,8 @@ namespace osfui::wv2
 		Pipe(const Pipe&) = delete;
 		Pipe& operator=(const Pipe&) = delete;
 
-		// Starts a fresh connection lifetime. Call on the owner thread before
-		// CreateServer/Connect; a concurrent Close remains sticky so a
-		// worker that has not reached its open call yet cannot resurrect the pipe.
 		void PrepareForOpen();
 
-		// Server creation is separate from acceptance so the first pipe instance
-		// exists before an out-of-process client is launched.
 		bool CreateServer(const std::wstring& a_name);
 		bool WaitForClient(std::uint32_t a_timeoutMs);
 		bool CreateServerAndWait(const std::wstring& a_name, std::uint32_t a_timeoutMs);
@@ -47,9 +35,6 @@ namespace osfui::wv2
 		// Client: connect to \\.\pipe\<a_name>, retrying until a_timeoutMs.
 		bool Connect(const std::wstring& a_name, std::uint32_t a_timeoutMs);
 
-		// Framed read with a total deadline. INFINITE preserves the ordinary
-		// blocking reader behavior. A timeout cancels the partial frame and makes
-		// the connection terminal; callers must close/reconnect rather than resume.
 		bool ReadMessage(std::string& a_payload, std::uint32_t a_timeoutMs = INFINITE);
 
 		// Framed write (thread-safe). Returns false on error.

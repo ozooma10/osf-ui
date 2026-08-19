@@ -28,8 +28,6 @@ export interface BindListProps {
 export function BindList(props: BindListProps) {
   const { bindings, query, loaded, tr, capturingId, onRebind, onSelect, filter, onFilter, engineInputContext } = props;
 
-  // filter already returns a fresh array, so the in-place sort can't disturb
-  // the model.
   const rows = bindings
     .filter(matchesQuery(query))
     .filter((row) => matchesBindingFilter(row, filter, engineInputContext))
@@ -70,9 +68,6 @@ export function BindList(props: BindListProps) {
           ? null
           : rows.length
             ? rows.map((b) => {
-                // holderState compares by identity, so `b` must be a row from
-                // the array being queried — `filter` copies references, it
-                // does not clone rows.
                 const state = holderState(bindings, b);
                 const stateClass = state.conflict
                   ? 'kb-holder--conflict'
@@ -95,8 +90,6 @@ export function BindList(props: BindListProps) {
                 );
               })
             : (
-              // Two empty states: a filter that matched nothing vs. a registry
-              // with no key settings at all.
               <p class="kb-hint">
                 {query
                   ? tr('noMatches', 'No bindings match.')

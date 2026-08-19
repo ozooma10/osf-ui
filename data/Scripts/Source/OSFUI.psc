@@ -3,15 +3,15 @@ ScriptName OSFUI Native Hidden
 ; OSF UI - Papyrus API for the shared Mod Settings platform.
 ;
 ; Settings are declared in a drop-in schema file:
-;   Data/SFSE/Plugins/OSFUI/settings/<author>.<modname>.json
-; (see docs/authoring-settings.md, or scaffold one with `npm create osfui@latest -- --surface settings`).
+;   Data/SFSE/Plugins/OSFUI/settings/<modId>.json
+; Scaffold one with `npm create osfui@latest -- --surface settings`.
 ; This script reads them back, writes them, and reacts to changes and hotkey presses.
 ;
 ; If OSF UI is absent, every call fails soft: Papyrus logs a missing-native error and the call yields the declared default 
 ; (GetVersion() yields 0 - the feature-detect gate).
 ;
 ; Ids, keys, and enum option values match the schema case-insensitively;
-; write them as authored - mod ids are lowercase "<author>.<modname>" by grammar.
+; write them as authored - mod ids are opaque path-safe names, and dots have no special meaning.
 ; The same interning means strings delivered to your callbacks may arrive cased differently than authored; 
 
 ; Packed OSF UI release version: major*10000 + minor*100 + patch (1.0.0 -> 10000).
@@ -67,7 +67,7 @@ int Function RegisterForHotkey(ScriptObject akReceiver, string asFn, string asMo
 int Function RegisterForHotkeyStatic(string asScript, string asFn, string asModId, string asKey = "") Global Native
 
 ; --- dynamic data <-> views ---------------------------------------------------
-; Move DYNAMIC state (live lists, tables, arbitrary strings) between your script and your mod's OSF UI views (see docs/authoring-dynamic-data.md for a worked example).
+; Move DYNAMIC state (live lists, tables, arbitrary strings) between your script and your mod's OSF UI views.
 ;
 ; Your script OWNS game state. It reaches the view through exactly two channels
 ;
@@ -84,7 +84,7 @@ Form Function GetFormById(string asFormId) Global Native
 Form[] Function GetFormsById(string[] asFormIds) Global Native
 
 ; --- state --------------------------------------------------------------------
-; DEPRECATED 1.x compatibility (removed in OSF UI 2.1.0): transient pushes.
+; FROZEN 1.x compatibility: transient pushes. Prefer SetView* or SendViewEvent.
 ; Prefer SetViewStrings/SetViewForms, which are retained and replayed.
 Function PushToView(string asModId, string asKey, string[] asValues) Global Native
 Function PushFormsToView(string asModId, string asKey, Form[] akForms) Global Native
@@ -110,7 +110,7 @@ Function SetViewForms(string asModId, string asKey, Form[] akForms) Global Nativ
 Function SendViewEvent(string asModId, string asName, string[] asArgs) Global Native
 
 ; --- one-way messages FROM a view ---------------------------------------------
-; DEPRECATED 1.x compatibility (removed in OSF UI 2.1.0). Prefer the fixed
+; FROZEN 1.x compatibility. Prefer the fixed
 ; ListenForViewActions / ListenForViewActionsStatic callback below.
 int Function RegisterForViewActions(ScriptObject akReceiver, string asFn, string asModId) Global Native
 int Function RegisterForViewActionsStatic(string asScript, string asFn, string asModId) Global Native

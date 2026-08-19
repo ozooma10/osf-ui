@@ -1,11 +1,4 @@
 // @vitest-environment jsdom
-//
-// Per-HUD "Start automatically": rendered only for views the OSF UI runtime marks
-// autoStartMutable, saved through the `osfui.setViewAutoStart` REQUEST, applied
-// at the next launch — the row never touches the immediate show/hide path.
-//
-// The catalog is the `osfui/views` state key, so a change of eligibility or of
-// the saved policy arrives as a whole republished value, never a delta.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -48,8 +41,6 @@ describe('start automatically row', () => {
     // Exactly one: the menu row and the ineligible views get none.
     expect(el.querySelectorAll('.autostart-row').length).toBe(1);
 
-    // The OSF UI runtime withdrawing eligibility (e.g. a devMode boot flag no longer set
-    // for a debugOnly HUD) removes the row on the next catalog publish.
     bridge.publish('osfui/views', viewsWith({ autoStartMutable: false }));
     await flush();
     expect(el.querySelector('.autostart-row')).toBeNull();
@@ -68,14 +59,10 @@ describe('start automatically row', () => {
     const after = bridge.outbound.slice(outboundBefore).map((m) => m.name);
     for (const endpoint of VISIBILITY_ENDPOINTS) expect(after).not.toContain(endpoint);
 
-    // While the save is in flight the switch shows the requested position but
-    // cannot be flipped again.
     const toggle = autoStartSwitch(el)!;
     expect(toggle.getAttribute('aria-checked')).toBe('true');
     expect(toggle.disabled).toBe(true);
 
-    // The reply says only "it happened"; the republished catalog is what is
-    // authoritative, and it re-enables the switch.
     bridge.settle(idx, {});
     bridge.publish('osfui/views', viewsWith({ autoStart: true }));
     await flush();

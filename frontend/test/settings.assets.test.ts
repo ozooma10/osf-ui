@@ -12,6 +12,10 @@ describe('safeAssetSrc — accepted paths', () => {
     expect(safeAssetSrc(MOD, 'a/b/c.d.png')).toBe(`${DEFAULT_ASSET_ROOT}/${MOD}/a/b/c.d.png`);
     expect(safeAssetSrc(MOD, './icon.png')).toBe(`${DEFAULT_ASSET_ROOT}/${MOD}/./icon.png`);
   });
+
+  it('accepts opaque mod-id punctuation that is safe in a path component', () => {
+    expect(safeAssetSrc('Acme Mod..v2!', 'icon.png')).toBe('../../Acme Mod..v2!/icon.png');
+  });
 });
 
 describe('safeAssetSrc — every rejection', () => {
@@ -30,8 +34,6 @@ describe('safeAssetSrc — every rejection', () => {
   });
 
   it('rejects ".." after DECODING', () => {
-    // WebKit resolves the URL again after this check, turning these back into
-    // "../". The bare "%" rule below also catches them.
     expect(safeAssetSrc(MOD, '%2e%2e%2fsecret.png')).toBeNull();
     expect(safeAssetSrc(MOD, '%2E%2E/secret.png')).toBeNull();
   });
@@ -69,6 +71,10 @@ describe('safeAssetSrc — every rejection', () => {
     expect(safeAssetSrc('\\abs', 'a.png')).toBeNull();
     expect(safeAssetSrc('http:', 'a.png')).toBeNull();
     expect(safeAssetSrc('acme%2e', 'a.png')).toBeNull();
+    expect(safeAssetSrc('bad#fragment', 'a.png')).toBeNull();
+    expect(safeAssetSrc('NUL', 'a.png')).toBeNull();
+    expect(safeAssetSrc('OSFUI', 'a.png')).toBeNull();
+    expect(safeAssetSrc('★'.repeat(22), 'a.png')).toBeNull();
   });
 
   it('checks the src decode BEFORE the mod id', () => {

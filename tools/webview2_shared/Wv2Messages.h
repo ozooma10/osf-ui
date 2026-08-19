@@ -1,27 +1,5 @@
 #pragma once
 
-// The message shapes carried by the game <-> browser-host pipe. Wv2Protocol.h
-// owns the framing and the version; this header owns what is INSIDE a frame.
-//
-// Both binaries compile these structs, so the wire is checked by the compiler
-// rather than by a comment: rename a member and both sides fail to build,
-// rename only a key here and both sides move together. Before this existed the
-// shapes lived in 55 lines of prose in Wv2Protocol.h, were hand-built with
-// json{{...}} on one side and hand-read with .value("key", default) on the
-// other, and the only machine-checked invariant across the two processes was
-// kBrowserHostProtocolVersion. That prose had already drifted — it omitted
-// `navigate.legacyApi` and `init.hidden`, both of which the code has been
-// sending for releases.
-//
-// Kept OUT of Wv2Protocol.h deliberately: that header is dependency-free
-// (<cstdint> only) because Wv2Pipe.cpp and the wv2-pipe-tests target include
-// it, and that target has no nlohmann package.
-//
-// Reading is lenient, per Wv2Protocol.h's forward-compatibility rule ("unknown
-// types and unknown fields must be ignored"): FromJson takes each field it
-// recognizes and leaves the struct's in-class initializer in place for anything
-// missing or of the wrong type. It cannot throw, which is what the reader
-// threads need — an escaping exception there is a std::terminate.
 
 #include <cstdint>
 #include <string>
@@ -33,7 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "Wv2Protocol.h"  // kDefaultLogicalHeight
-#include "runtime/Json.h"
+#include "Core/Json.h"
 
 namespace osfui::wv2::msg
 {
@@ -57,10 +35,6 @@ namespace osfui::wv2::msg
 		void ReadInto(T& a_out, const nlohmann::json& a_msg, std::string_view a_key)
 		{
 			if constexpr (std::is_same_v<T, std::vector<std::uint64_t>>) {
-				// Only `textures.slots`. Non-integer elements are skipped rather
-				// than defaulted to 0: a short ring is a safe degradation, a null
-				// handle in an occupied slot is not. The producer always writes
-				// u64 handles, so this is unreachable in practice.
 				a_out.clear();
 				if (const auto* array = OSFUI::Json::GetArray(a_msg, a_key)) {
 					a_out.reserve(array->size());
@@ -88,8 +62,6 @@ namespace osfui::wv2::msg
 		return out;
 	}
 
-	// Deserialize a message. Never fails: absent and wrong-typed fields keep
-	// their declared defaults. The caller has already matched `type`.
 	template <class S>
 	[[nodiscard]] S FromJson(const nlohmann::json& a_msg)
 	{
@@ -101,10 +73,6 @@ namespace osfui::wv2::msg
 		return out;
 	}
 
-	// Defaults below are the RECEIVER's defaults — the value that applies when a
-	// peer omits the field. Senders set every field they mean.
-
-	// ---------------------------------------------------------------- game -> host
 
 	struct Init
 	{
@@ -117,9 +85,6 @@ namespace osfui::wv2::msg
 		std::string   userDataDir;
 		bool          devMode{ false };
 		bool          hidden{ true };
-		// The game's D3D12 adapter; the host creates its D3D11 capture device on
-		// the same physical adapter. PRESENCE is meaningful (absent = "pick any"),
-		// so the reader tests for the keys rather than for a zero LUID.
 		std::uint32_t adapterLuidLow{ 0 };
 		std::uint32_t adapterLuidHigh{ 0 };
 
@@ -140,20 +105,14 @@ namespace osfui::wv2::msg
 	struct Navigate
 	{
 		static constexpr std::string_view kType = "navigate";
-		// Keyed `id`, not `view`: the first navigate for an unknown id CREATES
-		// that view, so it is not a reference to an existing one.
 		std::string id;
 		std::string entry{ "index.html" };
-		bool        bridge{ true };
 		bool        legacyApi{ false };
-		// The manifest's authoring height; drives rasterizationScale =
-		// outputHeight/logicalHeight so the page lays out at logical size.
 		std::uint32_t logicalHeight{ kDefaultLogicalHeight };
 
 		static constexpr auto kFields = std::tuple{
 			F("id", &Navigate::id),
 			F("entry", &Navigate::entry),
-			F("bridge", &Navigate::bridge),
 			F("legacyApi", &Navigate::legacyApi),
 			F("logicalHeight", &Navigate::logicalHeight),
 		};
@@ -171,10 +130,6 @@ namespace osfui::wv2::msg
 		};
 	};
 
-	// The view-scoped messages that carry nothing but their target. Written out
-	// rather than sharing a base: a base member cannot be reached by a
-	// designated initializer, and `msg::Prewarm{ .view = id }` at the call site
-	// is worth more than the handful of lines a base would save.
 #define OSFUI_WV2_VIEW_ONLY_MESSAGE(Name, TypeString)                        \
 	struct Name                                                              \
 	{                                                                        \
@@ -183,10 +138,6 @@ namespace osfui::wv2::msg
 		static constexpr auto kFields = std::tuple{ F("view", &Name::view) }; \
 	}
 
-	OSFUI_WV2_VIEW_ONLY_MESSAGE(Prewarm, "prewarm");
-	OSFUI_WV2_VIEW_ONLY_MESSAGE(SuspendView, "suspendView");
-	// `setActive` is the compatibility wire spelling; it selects only the
-	// mouse/focus/synthetic-key target.
 	OSFUI_WV2_VIEW_ONLY_MESSAGE(SetInputTarget, "setActive");
 	OSFUI_WV2_VIEW_ONLY_MESSAGE(OpenDevTools, "openDevTools");
 	OSFUI_WV2_VIEW_ONLY_MESSAGE(DestroyView, "destroyView");
@@ -276,8 +227,6 @@ namespace osfui::wv2::msg
 	struct AccelState
 	{
 		static constexpr std::string_view kType = "accelState";
-		// Physical SCAN codes (DIK convention, input/ScanCode.h) since protocol
-		// 6 — the host matches framework-owned keys on them.
 		std::uint32_t toggleScan{ 0 };
 		bool          captured{ false };
 		bool          captureArmed{ false };
@@ -305,14 +254,9 @@ namespace osfui::wv2::msg
 		static constexpr auto kFields = std::tuple{ F("serial", &FrameAck::serial) };
 	};
 
-	// ---------------------------------------------------------------- host -> game
-
 	struct Hello
 	{
 		static constexpr std::string_view kType = "hello";
-		// Compatibility wire names: protocolVersion is the browser-host IPC
-		// version, hostVersion the host build's OSF UI release, runtimeVersion
-		// the installed Microsoft WebView2 Runtime version.
 		std::uint32_t protocolVersion{ 0 };
 		std::string   hostVersion;
 		std::string   runtimeVersion;
@@ -345,8 +289,6 @@ namespace osfui::wv2::msg
 		static constexpr std::string_view kType = "textures";
 		std::uint32_t              width{ 0 };
 		std::uint32_t              height{ 0 };
-		// Handles already duplicated into the game process. Every textures
-		// message invalidates all prior slots.
 		std::vector<std::uint64_t> slots;
 		std::uint64_t              produceFence{ 0 };
 		std::uint64_t              consumeFence{ 0 };
@@ -455,8 +397,6 @@ namespace osfui::wv2::msg
 	struct Accelerator
 	{
 		static constexpr std::string_view kType = "accelerator";
-		// Framework-owned key hit inside Chromium; scan is the physical
-		// DIK-convention code.
 		std::uint32_t vk{ 0 };
 		std::uint32_t scan{ 0 };
 		bool          down{ false };

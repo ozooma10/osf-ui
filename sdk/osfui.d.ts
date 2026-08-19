@@ -9,11 +9,9 @@
  * the strict 2.0 surface for new and migrated views. `bridgeVersion` is
  * informational, not something to gate on.
  * Keep in lockstep with:
- *   - docs/authoring-views.md          (prose reference)
- *   - docs/mod-api-2.0-migration.md    (what changed, and why)
  *   - docs/schema/*.schema.json        (manifest + settings-schema validation)
- *   - src/core/Version.h               (kBridgeProtocolVersion)
- *   - src/runtime/MessageBridge.cpp    (envelopes + dispatch)
+ *   - src/Core/Version.h               (kBridgeProtocolVersion)
+ *   - src/Bridge/MessageBridge.cpp    (envelopes + dispatch)
  *   - SFSE/Plugins/OSFUI/views/shared/osfui.js (the shipped JS helper)
  *
  * Usage: this is an ambient declaration file — drop it into your view project
@@ -89,9 +87,9 @@ export interface RuntimeInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Platform endpoints. Mod endpoints are "<author>.<modname>.<name>" and are
-// yours; everything here is undotted or single-dot, which is what makes the
-// two namespaces collision-proof without a registry.
+// Platform endpoints. Mod endpoint names are opaque; "<modId>.<name>" is the
+// recommended convention. The native bridge explicitly reserves this surface
+// and the case-insensitive osfui.* namespace.
 // ---------------------------------------------------------------------------
 
 /** `osfui.send(name, payload)` targets. */
@@ -102,9 +100,6 @@ export type PlatformSend =
   | { name: "close"; payload?: Record<string, never> }
   /** Open/close the calling view. */
   | { name: "setVisible"; payload: { visible: boolean } }
-  /** Declare meaningful first paint. Only for a manifest with readySignal:true; helper sugar: markReady(). */
-  | { name: "view.ready"; payload?: Record<string, never> }
-  | { name: "log"; payload: { text: string } }
   /**
    * EXPERIMENTAL. Take over gamepad handling: suppress the default nav/scroll
    * mapping and consume raw `ui.gamepad` events. Cleared when your document
@@ -133,7 +128,6 @@ export type PlatformRequest =
   /** Show/hide one instantiated view, independent of the overlay toggle; `view` omitted = self. */
   | { name: "setViewHidden"; payload: { view?: string; hidden: boolean }; reply: Record<string, never> }
   | { name: "ping"; payload?: Record<string, never>; reply: Record<string, never> }
-  | { name: "game.get"; payload?: Record<string, never>; reply: GameData }
   /**
    * Write one setting. Resolves with the post-clamp COMMITTED value, so you can
    * tell clamped from accepted without a re-fetch. REJECTS on failure
@@ -153,10 +147,6 @@ export type PlatformRequest =
    */
   | { name: "settings.captureKey"; payload: { mod: string; key: string };
       reply: { armed: true; mod: string; key: string } }
-  /** Open OSF UI's own Nexus page in the SYSTEM browser. Fixed target: the payload carries nothing, so page content cannot steer the shell. */
-  | { name: "osfui.openModPage"; payload?: Record<string, never>; reply: Record<string, never> }
-  /** Open the SFSE log folder. Fixed target, derived natively. Rejects "no-log-folder" | "shell-failed". */
-  | { name: "osfui.openLogFolder"; payload?: Record<string, never>; reply: Record<string, never> }
   /** (platform-private) Set a HUD's auto-start for the NEXT launch. */
   | { name: "osfui.setViewAutoStart"; payload: { view: string; enabled: boolean }; reply: Record<string, never> }
   /** Correlated request to the owning mod's Papyrus listener. Sugar: osfui.papyrus.request(). */
@@ -174,7 +164,7 @@ export interface PlatformState {
   "osfui/settings": SettingsData;
   /** One entry per discovered view, with current open/active-menu/main-frame-load state. */
   "osfui/views": ViewsData;
-  /** The session health snapshot behind Mod Settings. */
+  /** Session-local conditions shown by Mod Settings. No report submission or upload surface is attached. */
   "osfui/diagnostics": DiagnosticsData;
   /** Starfield's complete read-only keyboard map, copied from the live engine ControlMap. */
   "osfui/keybindings": KeybindingsData;
@@ -182,8 +172,6 @@ export interface PlatformState {
   "osfui/input-context": EngineInputContextState;
   /** Active-locale overrides for THIS document's owning mod. Consumed by the i18n namespace for you. */
   "osfui/i18n": I18nCatalog;
-  /** (platform-private) The first-load handoff view's current state. */
-  "osfui/handoff": HandoffState;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,8 +236,7 @@ export interface PlatformEvents {
    * — a send that named a request endpoint, an unknown endpoint, an endpoint handler that
    * missed its deadline. The helper prints these to the console for you, so
    * they show up in F12 DevTools with full object inspection. Not emitted in
-   * release builds; repeated misuse raises a `view.protocol-misuse` health issue
-   * there instead.
+   * release builds.
    */
   "osfui.debug.error": { code: string; message: string; detail?: unknown };
 }
@@ -336,7 +323,7 @@ export interface I18nCatalog {
 /** Value of the `osfui/settings` state key. Re-render from it wholesale. */
 export interface SettingsData {
   mods: Array<{
-    /** Mod id: "<author>.<modname>". */
+    /** Opaque filesystem-safe mod id; dots have no special meaning. */
     id: string;
     title: string;
     schema: SettingsSchema;
@@ -360,11 +347,7 @@ export interface SettingsData {
     layout: string;
     labels: Record<string, string>;
   };
-  /**
-   * Settings artifacts that FAILED to load, so Mod Settings can say so instead of
-   * a mod silently vanishing. `kind`: "schema-name" | "schema-parse" |
-   * "values-parse". `file` is a bare filename.
-   */
+  /** Settings artifacts that failed to load; filenames only, never absolute paths. */
   loadErrors?: Array<{ kind: string; file: string; mod?: string; message: string }>;
 }
 
@@ -386,20 +369,7 @@ export interface ViewsData {
     loadState: "unloaded" | "loading" | "loaded" | "failed";
     autoStart: boolean;        // effective choice for the NEXT launch
     autoStartMutable: boolean; // catalog-visible HUDs the player may change
-    pinned: boolean;           // always-resident core view; distinct from one-time prewarming
   }>;
-}
-
-/** Reply to `game.get`. Each provider nests under its own object; future ones are SIBLINGS of `calendar`. */
-export interface GameData {
-  calendar: {
-    available: boolean;  // false before a save loads
-    day?: number;
-    month?: number;
-    year?: number;
-    hour?: number;       // 0..24 (fractional)
-    daysPassed?: number;
-  };
 }
 
 /**
@@ -418,70 +388,25 @@ export interface SerializedForm {
   editorId?: string; // best-effort: usually UNAVAILABLE at runtime in Starfield
 }
 
-/**
- * One durable condition in the session health registry. This is a CURATED
- * registry, not a log view: an entry appears only because a subsystem
- * explicitly raised it, and leaves `status:"active"` only because that
- * subsystem explicitly withdrew it.
- *
- * Player-facing copy is derived from `code` by built-in Mod Settings, so it
- * stays localizable and cannot be authored by a mod. `context` is bounded
- * technical detail — never absolute paths, URLs, or shell targets.
- */
 export interface DiagnosticIssue {
-  /** Stable identity, the dedupe key. Recurrence reuses it and bumps `occurrences`. */
   id: string;
-  /**
-   * Stable machine code. v2 families:
-   * `input.control-map-unavailable`
-   * | `settings.schema-name` | `settings.schema-parse` | `settings.values-parse`
-   * | `settings.hotkey-target`
-   * | `view.load-retrying` | `view.load-failed` | `view.protocol-misuse`
-   * | `host.ring-truncated`
-   * | `compat.needs-newer-osfui` | `compat.pre-2-view`
-   * | `compat.legacy-api` | `compat.legacy-papyrus` | `compat.unsupported-api`
-   * A report from another mod carries ITS code, prefixed with its mod id:
-   * `<author>.<modname>:<code>`. Treat an unknown code as generic.
-   */
   code: string;
   severity: "warning" | "error";
-  /** "resolved" = the condition cleared; the record stays for this session only. */
   status: "active" | "resolved";
-  /**
-   * Producing subsystem: "input" | "settings" | "views" | "host" | "render" | "compat".
-   * The compatibility value "host" identifies browser-host/web-renderer health —
-   * or, for a report another mod raised through the native ABI, that mod's
-   * "<author>.<modname>" id. The OSF UI runtime assigns this, never the payload, so the
-   * dot is a reliable tell for "came from a mod".
-   */
   source: string;
+  sourceKind?: "platform" | "mod";
   subject: string;
   context: Record<string, string | number | boolean>;
   occurrences: number;
-  /** Session-relative seconds since the OSF UI runtime started. */
   firstAt: number;
   lastAt: number;
   resolvedAt?: number;
 }
 
-/** Value of the `osfui/diagnostics` state key. */
 export interface DiagnosticsData {
-  /** Informational key/value block (versions, renderer path, browser-host state) — facts live here rather than as noisy "info" issues. */
   system: Record<string, string | number | boolean>;
   issues: DiagnosticIssue[];
 }
-
-/** Value of the `osfui/handoff` state key (platform-private). */
-export interface HandoffState {
-  target: string;
-  mod: string;
-  title: string;
-  accent: string;
-  phase: "linking" | "retrying" | "error";
-  retry: boolean;
-}
-
-
 
 // ---------------------------------------------------------------------------
 // Settings schema shapes (mirror docs/schema/settings-schema.schema.json)
@@ -679,7 +604,7 @@ export interface SettingsSchema {
 }
 
 // ---------------------------------------------------------------------------
-// The injected bridge object (present only when manifest grants nativeBridge).
+// The bridge object injected into every instantiated OSF UI view.
 // ---------------------------------------------------------------------------
 
 export interface OSFUIBridge {
@@ -741,9 +666,6 @@ export interface OSFUIHelper {
     on<T = unknown>(key: string, fn: (value: T) => void): () => void;
   };
 
-  /** Declare meaningful first paint; only for a manifest with readySignal:true. */
-  markReady(): boolean;
-
   /** Direct GLOBAL calls plus the owning-mod listener endpoints. */
   papyrus: {
     /** Force a whole-valued JavaScript number to marshal as Papyrus float rather than int. */
@@ -774,9 +696,9 @@ export interface OSFUIHelper {
 declare global {
   interface Window {
     /**
-     * The native-injected bridge is undefined in a document unless that
-     * document's owning view grants permissions.nativeBridge. Loading
-     * shared/osfui.js can still create a no-bridge helper stub.
+     * The native-injected bridge is present in every instantiated OSF UI view.
+     * It may be undefined in standalone browser/tooling environments; loading
+     * shared/osfui.js can still create a no-bridge helper stub there.
      */
     osfui?: OSFUIBridge & Partial<OSFUIHelper>;
   }

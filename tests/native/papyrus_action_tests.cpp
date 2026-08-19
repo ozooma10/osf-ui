@@ -1,29 +1,9 @@
-// Native desktop tests for the Papyrus dynamic-data API (protocol 2.0,
-// docs/mod-api-2.0-design.md): the REAL api/PapyrusApi.cpp and
-// runtime/RetainedStateStore.cpp compiled against stubs/RE (a recording VM),
-// driven through the same natives the game binds.
-//
-// 2.0 replaced the single transient `PushToView` channel with the state/event
-// pair; the temporary v1 adapter keeps that old channel through 2.0.x. SetView* is RETAINED
-// state: latest-wins, complete per key, held in the shared RetainedStateStore and
-// replayed to every document that greets the bridge — which is why a view
-// survives F5 with no handshake. SendViewEvent is a one-shot happening:
-// delivered at most once, never stored, never replayed. Encoding one as the
-// other is the blank-after-reload bug in one direction and the
-// event-refires-on-every-reload bug in the other, so both halves are asserted
-// against the same store the OSF UI runtime replays from.
-//
-// Also covers the action-dispatch registry (case-insensitive mod filter,
-// static/instance targets, token release, kind isolation), correlated view
-// requests, and the load-game teardown that drops both queues and raises the
-// one-shot session-reset flag.
-// Assert-style; process exit code is the failure count.
 
-#include "api/BridgeApi.h"
-#include "api/PapyrusApi.h"
-#include "compat/v1/Papyrus.h"
-#include "core/StringUtil.h"
-#include "runtime/RetainedStateStore.h"
+#include "API/BridgeApi.h"
+#include "API/PapyrusApi.h"
+#include "Compat/V1/Papyrus.h"
+#include "Core/StringUtil.h"
+#include "Bridge/RetainedStateStore.h"
 
 #include "RE/B/BSScriptUtil.h"
 #include "RE/E/Events.h"
@@ -45,8 +25,6 @@ namespace
 	}
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub, as in
-// settings_module_tests.cpp; SettingsStore references these).
 namespace OSFUI::Log
 {
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message)
@@ -54,8 +32,8 @@ namespace OSFUI::Log
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
 
-	bool DevMode() { return true; }
-	void SetDevMode(bool) {}
+	bool DebugEnabled() { return true; }
+	void SetDebugLogging(bool) {}
 }
 
 int main()
@@ -116,14 +94,10 @@ int main()
 	const auto pushToView =
 		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<Str>)>("PushToView");
 
-	// --- registration validation ------------------------------------------------
-	// The four RegisterForViewActions* shapes collapsed into one listener per
-	// target kind, so the callback name is fixed and only the target and the mod
-	// id are still script-supplied — those are what can still be wrong.
 	CHECK(listenStatic(*vm, 0, {}, "", "t.alpha") == 0);              // empty script
 	CHECK(listenStatic(*vm, 0, {}, "MyLib", "") == 0);                // empty mod id
-	CHECK(listenStatic(*vm, 0, {}, "MyLib", "notdotted") == 0);       // dotless non-built-in
-	CHECK(listenStatic(*vm, 0, {}, "MyLib", "two..dots") == 0);       // grammar violation
+	CHECK(listenStatic(*vm, 0, {}, "MyLib", "../evil") == 0);         // path separator
+	CHECK(listenStatic(*vm, 0, {}, "MyLib", "osfui") == 0);          // platform-reserved
 	CHECK(listenInstance(*vm, 0, {}, ObjPtr{}, "t.alpha") == 0);      // null receiver
 	const auto legacyScalar = registerLegacyStatic(*vm, 0, {}, "LegacyLib", "OnLegacy", "T.Legacy");
 	const auto legacyArgs = registerLegacyArgsStatic(*vm, 0, {}, "LegacyLib", "OnLegacyArgs", "T.Legacy");
@@ -152,11 +126,7 @@ int main()
 	pushes.clear();
 	Compat::V1::Papyrus::DrainPushes([&](const auto& push) { pushes.push_back(push); });
 	CHECK(pushes.empty());
-	const auto legacyCallers = Compat::V1::Papyrus::TakeCallers();
-	CHECK(legacyCallers.size() == 1);
-	if (!legacyCallers.empty()) CHECK(legacyCallers[0] == "t.legacy");
-
-	// Interned casing folds to the grammar's lowercase and is accepted.
+	// Interned ASCII casing folds to a stable comparison form and is accepted.
 	const auto tokenStatic = listenStatic(*vm, 0, {}, "MyLib", "T.Alpha");
 	CHECK(tokenStatic != 0);
 
@@ -180,10 +150,6 @@ int main()
 		CHECK(requests.size() == 1 && requests[0].view == "mixed.case/view" && !requests[0].open);
 	}
 
-	// --- static dispatch + case-insensitive mod filter ---------------------------
-	// The one action callback shape: OnOSFUIViewAction(string, string[]). The
-	// stub VM flattens the packed string[] inline after the leading action name,
-	// so a whole call reads as one flat vector.
 	vm->calls.clear();
 	API::Papyrus::OnViewAction("t.alpha", "sort", { "5" });
 	CHECK(vm->calls.size() == 1);
@@ -208,8 +174,6 @@ int main()
 		CHECK((vm->calls[0].args == std::vector<std::string>{ "ready" }));
 	}
 
-	// Schema-owned hotkey callbacks queue directly and never enter the
-	// session-scoped registration table.
 	vm->calls.clear();
 	CHECK(API::Papyrus::DispatchStaticHotkey("MyMod_Hotkeys", "OnHotkey", "t.alpha", "startScene") ==
 		API::Papyrus::StaticDispatchResult::kQueued);
@@ -226,8 +190,6 @@ int main()
 	CHECK(vm->calls.empty());
 	vm->staticDispatchSucceeds = true;
 
-	// A view can call any GLOBAL function on a loose PEX without a quest record
-	// or session registration. Scalar types remain native Papyrus types.
 	vm->calls.clear();
 	CHECK(API::Papyrus::DispatchStaticFunction("RecordlessBackend", "Equip",
 		{ std::string("ff012345"), std::int32_t(2), 1.5f, true }) ==
@@ -266,9 +228,6 @@ int main()
 	}
 	CHECK(unregister(*vm, 0, {}, settingsToken));
 
-	// --- instance receiver dispatch ----------------------------------------------
-	// Two listeners on one mod (one global target, one instance) both fire, each
-	// through its own dispatch path, with identical arguments.
 	const auto receiverObj = std::make_shared<RE::BSScript::Object>();
 	const auto tokenInstance = listenInstance(*vm, 0, {}, ObjPtr{ receiverObj }, "t.alpha");
 	CHECK(tokenInstance != 0);
@@ -336,13 +295,6 @@ int main()
 	CHECK(replies.size() == 1 && replies[0].rejected && replies[0].code == "papyrus-timeout");
 	CHECK(!API::Papyrus::OnViewRequest("other.mod", "x", {}, "other.mod/view", "q4"));
 
-	// --- the runtime's tick, in miniature ------------------------------------------
-	// Runtime::Tick drains both queues into the SAME shared RetainedStateStore
-	// decision: state is retained there and delivered; an event is only
-	// delivered. Every "will a fresh document see it?" assertion below reads the
-	// store, because the store is the only thing a greeting document is replayed
-	// from. TakeSessionReset is deliberately NOT consumed here — the load-game
-	// section asserts on it directly.
 	RetainedStateStore                   store;
 	std::vector<API::Papyrus::ViewState> states;
 	std::vector<API::Papyrus::ViewEvent> events;
@@ -372,8 +324,6 @@ int main()
 	tick();
 	CHECK(states.empty());
 
-	// An empty array still delivers — it is the complete value, and it means
-	// "the list is now empty" rather than "nothing changed".
 	setViewStrings(*vm, 0, {}, "t.alpha", "slots", {});
 	tick();
 	CHECK(states.size() == 1);
@@ -381,8 +331,6 @@ int main()
 		CHECK(states[0].value.is_array() && states[0].value.empty());
 	}
 
-	// Each typed setter delivers ONE complete JSON value for its key, never a
-	// delta, which is what makes a replay and a live update the same message.
 	setViewInt(*vm, 0, {}, "T.Alpha", "Count", 42);
 	setViewStrings(*vm, 0, {}, "t.alpha", "Names", { Str{ "ore" }, Str{ "aid" } });
 	tick();
@@ -396,8 +344,6 @@ int main()
 	{
 		const auto* replay = store.Find("t.alpha");
 		CHECK(replay != nullptr);
-		// slots, Count, Names — in insertion order, so a replay reads like the
-		// publisher's own sequence.
 		CHECK(replay && replay->size() == 3);
 		if (replay && replay->size() == 3) {
 			CHECK((*replay)[0].key == "slots");
@@ -405,10 +351,6 @@ int main()
 			CHECK((*replay)[2].key == "Names");
 		}
 	}
-	// Publishing the same key again REPLACES the retained value rather than
-	// forking it, even spelled differently: a Papyrus key arrives through
-	// BSFixedString interning, which hands back the first-seen casing
-	// process-wide, so the script's literal spelling is not a reliable identity.
 	setViewInt(*vm, 0, {}, "t.alpha", "COUNT", 99);
 	tick();
 	CHECK(states.size() == 1);
@@ -426,16 +368,12 @@ int main()
 		CHECK(saw99);
 	}
 
-	// Invalid mod id / empty key are refused with a WARN naming the native the
-	// script actually called; nothing is queued.
-	setViewStrings(*vm, 0, {}, "notdotted", "slots", { Str{ "x" } });
+	setViewStrings(*vm, 0, {}, "../evil", "slots", { Str{ "x" } });
 	setViewStrings(*vm, 0, {}, "t.alpha", "", { Str{ "x" } });
 	tick();
 	CHECK(states.empty());
 	CHECK(LogCount("SetViewStrings") >= 2);  // both refusals logged
 
-	// Drop-newest cap: with the runtime disabled via config the drain never
-	// runs, so a scripted Set loop must not grow the process forever.
 	for (int i = 0; i < 1100; ++i) {
 		setViewStrings(*vm, 0, {}, "t.alpha", "k", { Str{ "v" } });
 	}
@@ -453,9 +391,6 @@ int main()
 		CHECK((events[0].args == std::vector<std::string>{ "3", "ore" }));
 	}
 	CHECK(states.empty());  // an event is not state and never becomes one
-	// ...and nothing about it entered the retained store, so no document that
-	// opens later can be replayed it. THIS is the whole distinction between the
-	// two verbs: replaying a happening re-fires its effect.
 	{
 		const auto* replay = store.Find("t.alpha");
 		CHECK(replay != nullptr);
@@ -468,14 +403,12 @@ int main()
 	tick();
 	CHECK(events.empty());  // delivered at most once
 
-	// An event with no args carries an empty list, never a one-element list
-	// holding "" — the view reads payload.args and must not see a phantom entry.
 	sendViewEvent(*vm, 0, {}, "t.alpha", "pulse", {});
 	tick();
 	CHECK(events.size() == 1 && events[0].args.empty());
 
 	// Same target validation as state, and the refusal names SendViewEvent.
-	sendViewEvent(*vm, 0, {}, "notdotted", "x", { Str{ "1" } });
+	sendViewEvent(*vm, 0, {}, "../evil", "x", { Str{ "1" } });
 	sendViewEvent(*vm, 0, {}, "t.alpha", "", { Str{ "1" } });
 	tick();
 	CHECK(events.empty());
@@ -489,11 +422,6 @@ int main()
 	tick();
 	CHECK(events.size() == 1024);
 
-	// --- load-game teardown ----------------------------------------------------------
-	// The TESLoadGameEvent sink clears every registration (session scope),
-	// re-binds the natives on the (rebuilt) VM, DROPS both queues — their values
-	// can hold form identities belonging to the session that just ended — and
-	// raises the one-shot flag the next tick consumes.
 	setViewInt(*vm, 0, {}, "t.alpha", "count", 5);
 	sendViewEvent(*vm, 0, {}, "t.alpha", "boom", {});
 	CHECK(!API::Papyrus::TakeSessionReset());  // nothing to report before a load
@@ -524,10 +452,6 @@ int main()
 	CHECK(vm->calls.size() == 1);
 	CHECK(unregister(*vm, 0, {}, tokenAfterLoad));
 
-	// --- RetainedStateStore, directly -------------------------------------------------
-	// The store both mod backend types share (Papyrus SetView* and the native ABI's
-	// SetViewState land here and replay by the same rule), tested apart from the
-	// queues that feed it.
 	{
 		RetainedStateStore s;
 		CHECK(!s.Set("", "k", 1));         // an empty mod id is not a target
@@ -536,9 +460,6 @@ int main()
 
 		CHECK(s.Set("t.store", "Alpha", 1, /*sessionScoped*/ true));
 		CHECK(s.Set("t.store", "beta", "x"));
-		// Latest-wins on a case-insensitively equal key, and the publisher's
-		// spelling is refreshed with the value: a script that changed only the
-		// casing should not keep delivering the first spelling forever.
 		CHECK(s.Set("T.STORE", "ALPHA", 2, /*sessionScoped*/ true));
 		{
 			const auto* entries = s.Find("t.store");
@@ -555,10 +476,6 @@ int main()
 			CHECK(s.Find("t.missing") == nullptr);
 		}
 
-		// Per-mod key cap: a mod looping on SetView* with generated keys hits
-		// this instead of growing the process without bound, and a mod with a
-		// fixed key set is never affected — an ALREADY-retained key still
-		// updates at capacity.
 		for (std::size_t i = 0; i < RetainedStateStore::kMaxKeysPerMod; ++i) {
 			CHECK(s.Set("t.capped", "k" + std::to_string(i), static_cast<int>(i), true));
 		}
@@ -572,9 +489,6 @@ int main()
 			CHECK(capped && (*capped)[0].value == 999);
 		}
 
-		// A game load drops only the session-scoped half. Wiping a native
-		// plugin's HUD config on every load would be the bug, so the scope
-		// travels with the entry rather than being one policy for the store.
 		s.ClearSessionScoped();
 		{
 			const auto* entries = s.Find("t.store");
@@ -582,8 +496,6 @@ int main()
 			if (entries && entries->size() == 1) {
 				CHECK((*entries)[0].key == "beta");
 			}
-			// A mod left with nothing drops out entirely rather than lingering
-			// as an empty bucket.
 			CHECK(s.Find("t.capped") == nullptr);
 			CHECK(s.ModCount() == 1);
 		}

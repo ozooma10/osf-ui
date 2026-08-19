@@ -1,14 +1,4 @@
 // @vitest-environment jsdom
-//
-// The System Health destination end to end through the settings App: the fixed rail
-// entry, the summary states, card rendering, contextual actions, technical
-// disclosure, copy-report, deep links from failed cards, and clipboard-failure
-// degradation.
-//
-// The snapshot is the `osfui/diagnostics` STATE key: replayed to every fresh
-// document and republished whole whenever a condition is raised, recurs or
-// clears. There is no `diagnostics.get`, and nothing here waits for a reply
-// before it can paint.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -48,9 +38,6 @@ function openHealth(el: HTMLElement) {
 
 describe('subscription + rail', () => {
   it('subscribes rather than reading, and keeps the fixed rail entry before any snapshot', async () => {
-    // No System Health state at all: the destination remains fixed, because
-    // it is where load failures are explained and a player must be able to reach
-    // it even when the subsystem that would report them never spoke.
     const bridge = makeBridge({ state: { 'osfui/settings': WIDGETS } });
     const el = await mount(bridge);
     await flush();
@@ -65,6 +52,27 @@ describe('subscription + rail', () => {
     await flush();
     expect(el.querySelector('.rail-item--health')!.classList.contains('rail-item--health-error'))
       .toBe(true);
+  });
+
+  it('shows developer mode from effective System Health state, not from desired settings', async () => {
+    const { bridge, el } = await mountHealth([], { devMode: false });
+    const tag = el.querySelector<HTMLElement>('#devmode-tag')!;
+    expect(tag.hidden).toBe(true);
+
+    bridge.publish('osfui/diagnostics', {
+      system: { devMode: true },
+      issues: [],
+    });
+    await flush();
+    expect(tag.hidden).toBe(false);
+    expect(tag.textContent).toBe('DEVELOPER MODE');
+
+    bridge.publish('osfui/diagnostics', {
+      system: { devMode: false },
+      issues: [],
+    });
+    await flush();
+    expect(tag.hidden).toBe(true);
   });
 });
 
@@ -137,8 +145,6 @@ describe('cards', () => {
     expect(rows.map((r) => r.getAttribute('data-issue'))).toEqual(['w1', 'w2']);
     expect(rows.every((r) => r.querySelector('.health-card-impact') === null)).toBe(true);
 
-    // Opening one row reveals the same body an error card shows, and leaves
-    // the other row shut — the tier is not an all-or-nothing disclosure.
     rows[0]!.querySelector<HTMLButtonElement>('.health-row-head')!.click();
     await flush();
     expect(rows[0]!.querySelector('.health-card-impact')).not.toBeNull();
@@ -156,26 +162,8 @@ describe('cards', () => {
     )!;
     retry.click();
     await flush();
-    // The payload is the issue's own subject — a view id the runtime already
-    // knows. Nothing free-text ever reaches an endpoint.
     const open = bridge.outbound.find((m) => m.name === 'menu.open');
     expect(open?.payload).toEqual({ view: 'broken/panel' });
-  });
-
-  it('fires osfui.openLogFolder from the global action and per-card action', async () => {
-    const { bridge, el } = await mountHealth([
-      ISSUE({ id: 'e', severity: 'error', code: 'view.load-failed', subject: 'x/y' }),
-    ]);
-    openHealth(el);
-    await flush();
-    [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
-      .find((b) => b.textContent === 'Open log folder')!
-      .click();
-    // Payload-free and fixed-target: the shell destination is derived natively,
-    // so the page cannot steer it.
-    const opened = bridge.outbound.find((m) => m.name === 'osfui.openLogFolder');
-    expect(opened).toBeDefined();
-    expect(opened!.payload).toBeUndefined();
   });
 
   it('discloses technical details on demand', async () => {
@@ -202,43 +190,30 @@ describe('cards', () => {
   });
 });
 
-describe('copy diagnostic report', () => {
-  it('offers local-only health actions and never probes an upload service', async () => {
+describe('reporting boundary', () => {
+  it('keeps System Health without report export or external actions', async () => {
     const { bridge, el } = await mountHealth([]);
     openHealth(el);
     await flush();
 
-    const actions = [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
-      .map((button) => button.textContent);
-    expect(actions).toContain('Copy diagnostic report');
-    expect(actions).toContain('Open log folder');
-    expect(actions).not.toContain('Report a bug');
-    expect(bridge.outbound.map((message) => message.name)).not.toContain('diagnostics.reportStatus');
-    expect(bridge.outbound.map((message) => message.name)).not.toContain('diagnostics.submitReport');
-  });
+    const text = el.textContent ?? '';
+    expect(text).toContain('System Health');
+    expect(text).not.toContain('Copy diagnostic report');
+    expect(text).not.toContain('Open log folder');
+    expect(text).not.toContain('Report a bug');
+    expect(text).not.toContain('Troubleshooting');
 
-  it('writes a report to the clipboard and toasts success', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('navigator', { clipboard: { writeText } });
-    const { el } = await mountHealth([ISSUE({ id: 'e', severity: 'error' })], { version: '2.0.0' });
-    openHealth(el);
-    await flush();
-    [...el.querySelectorAll<HTMLButtonElement>('.health-actions .osf-btn')]
-      .find((b) => b.textContent === 'Copy diagnostic report')!
-      .click();
-    await flush();
-    expect(writeText).toHaveBeenCalledOnce();
-    expect(String(writeText.mock.calls[0]![0])).toContain('OSF UI diagnostic report');
-    expect(el.querySelector('.toast')!.textContent).toContain('Diagnostic report copied');
-    vi.unstubAllGlobals();
+    const outbound = bridge.outbound.map((message) => message.name);
+    expect(outbound).not.toContain('diagnostics.reportStatus');
+    expect(outbound).not.toContain('diagnostics.submitReport');
+    expect(outbound).not.toContain('osfui.openLogFolder');
+    expect(outbound).not.toContain('osfui.openModPage');
   });
 
   it('degrades visibly when the clipboard rejects, leaving details selectable', async () => {
     const writeText = vi.fn().mockRejectedValue(new Error('denied'));
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     const { el } = await mountHealth([
-      // An error, so this stays a full card and the test is about the
-      // clipboard degrading rather than about the warning tier.
       ISSUE({
         id: 'e',
         severity: 'error',
@@ -278,10 +253,6 @@ describe('deep links', () => {
   });
 
   it('scrolls the linked card into view', async () => {
-    // The summary, the action bar and the warning-tier header all sit above the
-    // list, so expanding alone routinely leaves the target below the fold and
-    // the jump reads as "nothing happened". jsdom omits scrollIntoView (which is
-    // why the pane guards the call), so stub it to observe.
     const scrolled: string[] = [];
     const proto = window.HTMLElement.prototype as unknown as {
       scrollIntoView?: (this: HTMLElement) => void;
@@ -307,19 +278,12 @@ describe('deep links', () => {
   });
 
   it('opens the history block when the linked issue RESOLVES while you are on it', async () => {
-    // Deep links only ever name an ACTIVE issue (issueForSubject skips resolved
-    // ones), so the reachable case is this one: you follow a failed view's card
-    // here and the condition then clears underneath you. The card moves into the
-    // history disclosure, which is collapsed — without opening it, the issue the
-    // link was pointing at simply vanishes off the pane.
     const { bridge, el } = await mountFailedPanel();
 
     failedTile(el).click();
     await flush();
     expect(el.querySelector('#health-resolved')).toBeNull(); // history still shut
 
-    // A withdrawal republishes the whole snapshot with the record marked
-    // resolved; the record survives for the rest of the session.
     bridge.publish('osfui/diagnostics', {
       system: {},
       issues: [

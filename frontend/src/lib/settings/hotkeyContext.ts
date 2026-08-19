@@ -1,20 +1,6 @@
-// Resolves a `type:"key"` setting's hotkey context.
-//
-// A key setting may declare that it is only live inside a mod-local hotkey
-// context. This is distinct from the engine input-context stack.
-// `gameplay` is the implicit default and is reserved: it can never be
-// redeclared, so a schema cannot relabel or re-flag it. Everything here is
-// a display projection for badges and conflict explanations. Runtime dispatch
-// independently resolves the same authored context and gameplay modes in the
-// native settings/hotkey path.
 
 import type { GameplayMode, HotkeyContext, Setting, SettingsSchema } from '@sdk';
 
-/**
- * Id grammar, mirrored from SettingsStore.cpp (`kMaxHotkeyContextIdLength` = 64):
- * alphanumeric first character, then up to 63 more of [A-Za-z0-9._-]. Anchored,
- * so a newline-bearing id cannot slip past.
- */
 export const HOTKEY_CONTEXT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 /** Reserved id of the implicit default context. */
@@ -28,10 +14,6 @@ export interface ResolvedHotkeyContext {
   gameplayModes?: GameplayMode[];
 }
 
-/**
- * Build the implicit gameplay fallback. `label` is injected so this module
- * stays free of the localiser.
- */
 export function gameplayContext(label = 'Gameplay'): ResolvedHotkeyContext {
   return { id: GAMEPLAY_ID, label, blocksGameplay: false };
 }
@@ -48,17 +30,6 @@ function validModes(value: unknown): GameplayMode[] | null {
   return out.length ? out : null;
 }
 
-/**
- * The schema's declared contexts, filtered and deduped:
- *
- *  - non-object entries are dropped;
- *  - an entry redeclaring the reserved `gameplay` id is dropped;
- *  - an entry whose id fails the grammar is dropped;
- *  - on a duplicate id, the first declaration wins.
- *
- * The dedupe records an id as seen before the match test, so first-wins holds
- * even when a later duplicate is the one being searched for.
- */
 export function dedupeHotkeyContexts(contexts: unknown): ResolvedHotkeyContext[] {
   if (!Array.isArray(contexts)) return [];
   const seen = new Set<string>();
@@ -83,22 +54,6 @@ export function dedupeHotkeyContexts(contexts: unknown): ResolvedHotkeyContext[]
   return out;
 }
 
-/**
- * Resolve the context a key setting belongs to. Four paths fall back to the
- * implicit gameplay context:
- *  1. no `inputContext` on the setting (or a non-string one);
- *  2. an explicit `inputContext: "gameplay"` — the reserved id resolves to the
- *     implicit context without consulting the schema, so it can never pick up a
- *     rogue declaration's label or `blocksGameplay`;
- *  3. an `inputContext` that fails `HOTKEY_CONTEXT_ID_RE`;
- *  4. a valid id that no surviving `schema.inputContexts` entry declares (a
- *     context removed from the schema, or shadowed out by the dedupe above).
- *     The setting still works; it just loses its badge.
- *
- * Case 4 is why the badge is suppressed whenever `id === "gameplay"`: an
- * unresolvable reference must read as "no special context", not as a broken
- * badge.
- */
 export function resolveHotkeyContext(
   schema: SettingsSchema | undefined,
   setting: Pick<Setting, 'inputContext'> | undefined,

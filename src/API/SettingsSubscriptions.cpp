@@ -1,0 +1,121 @@
+#include "API/SettingsSubscriptions.h"
+
+#include <iterator>  // make_move_iterator — not in the pch umbrella
+
+#include "Core/Ids.h"
+#include "Core/Json.h"
+
+namespace OSFUI::API
+{
+	std::uint32_t SettingsSubscriptions::Subscribe(const char* a_modId, SettingChangedFn a_fn, void* a_user)
+	{
+		if (!a_modId || !a_modId[0] || !a_fn) {
+			return 0;
+		}
+		std::lock_guard lock(_mutex);
+		// 0 is the failure sentinel; on wraparound skip it and any live token.
+		while (_nextToken == 0 || _subs.contains(_nextToken)) {
+			++_nextToken;
+		}
+		const std::uint32_t token = _nextToken++;
+		_subs.emplace(token, Subscription{ std::string(a_modId), a_fn, a_user, /*needsReplay*/ true });
+		return token;
+	}
+
+	void SettingsSubscriptions::Unsubscribe(std::uint32_t a_token)
+	{
+		std::unique_lock lock(_mutex);
+		_subs.erase(a_token);
+		if (a_token != 0 && _invokingToken == a_token &&
+			_invokingThread != std::this_thread::get_id()) {
+			_invokeCv.wait(lock, [&] {
+				return _invokingToken != a_token;
+			});
+		}
+	}
+
+	void SettingsSubscriptions::OnChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
+	{
+		// Skip serialization and queueing when nobody listens.
+		{
+			std::lock_guard lock(_mutex);
+			const bool anySubscriber = std::any_of(_subs.begin(), _subs.end(),
+				[&](const auto& a_entry) { return Ids::EqualsCaseInsensitiveAscii(a_entry.second.modId, a_modId); });
+			if (!anySubscriber) {
+				return;
+			}
+		}
+		std::string dumped = Json::Dump(a_value);
+		std::lock_guard lock(_mutex);
+		_events.push_back({ std::string(a_modId), std::string(a_key), std::move(dumped) });
+	}
+
+	void SettingsSubscriptions::Pump(const SettingsMirror& a_mirror)
+	{
+		struct Call
+		{
+			std::uint32_t    token;
+			SettingChangedFn fn;
+			void*            user;
+			std::string      modId;
+			std::string      key;
+			std::string      valueJson;
+		};
+		struct Replay
+		{
+			std::uint32_t    token;
+			SettingChangedFn fn;
+			void*            user;
+			std::string      modId;
+		};
+
+		// Consume each replay once; unknown mods receive later values through the change feed.
+		std::vector<Replay> replays;
+		std::vector<Call>   eventCalls;
+		{
+			std::lock_guard lock(_mutex);
+			for (auto& [token, sub] : _subs) {
+				if (sub.needsReplay) {
+					sub.needsReplay = false;
+					replays.push_back({ token, sub.fn, sub.user, sub.modId });
+				}
+			}
+			for (auto& ev : _events) {
+				for (const auto& [token, sub] : _subs) {
+					if (Ids::EqualsCaseInsensitiveAscii(sub.modId, ev.modId)) {
+						eventCalls.push_back({ token, sub.fn, sub.user, ev.modId, ev.key, ev.valueJson });
+					}
+				}
+			}
+			_events.clear();
+		}
+
+		std::vector<Call> calls;
+		for (auto& r : replays) {
+			for (auto& [key, valueJson] : a_mirror.SnapshotMod(r.modId)) {
+				calls.push_back({ r.token, r.fn, r.user, r.modId, std::move(key), std::move(valueJson) });
+			}
+		}
+		calls.insert(calls.end(),
+			std::make_move_iterator(eventCalls.begin()), std::make_move_iterator(eventCalls.end()));
+
+		// Invoke unlocked and recheck liveness before every call.
+		for (const auto& c : calls) {
+			{
+				std::lock_guard lock(_mutex);
+				if (!_subs.contains(c.token)) {
+					continue;
+				}
+				_invokingToken = c.token;
+				_invokingThread = std::this_thread::get_id();
+			}
+			c.fn(c.modId.c_str(), c.key.c_str(), c.valueJson.c_str(), c.user);
+			{
+				std::lock_guard lock(_mutex);
+				_invokingToken = 0;
+				_invokingThread = {};
+			}
+			_invokeCv.notify_all();
+		}
+	}
+}

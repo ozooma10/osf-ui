@@ -1,0 +1,195 @@
+#pragma once
+
+#include <condition_variable>
+#include <thread>
+#include <unordered_set>
+
+#include "OSFUI_API.h"  // IOSFUIBridge, callback types, version constants (sdk/, on the include path)
+
+#include "API/HotkeySubscriptions.h"
+#include "API/SettingsMirror.h"
+#include "API/SettingsSubscriptions.h"
+
+namespace OSFUI
+{
+	class MessageBridge;
+}
+
+namespace OSFUI::API
+{
+	class BridgeApi final : public IOSFUIBridge
+	{
+	public:
+		[[nodiscard]] static BridgeApi& Get();
+
+		std::uint32_t GetInterfaceVersion() override;
+		void          GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch) override;
+		const char*   GetBridgeProtocolVersion() override;
+		bool          IsBridgeReady() override;
+		void          RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user) override;
+		void          UnregisterCommand(const char* a_name) override;
+		void          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) override;
+		void          UnregisterSend(const char* a_name) override;
+		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
+		void          UnregisterRequest(const char* a_name) override;
+		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
+		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) override;
+		void          SetReadyCallback(ReadyFn a_callback, void* a_user) override;
+		bool          RequestMenu(const char* a_viewId, bool a_open) override;
+		std::uint32_t SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user) override;
+		void          UnsubscribeSettings(std::uint32_t a_token) override;
+		bool          GetSettingBool(const char* a_modId, const char* a_key, bool* a_out) override;
+		bool          GetSettingInt(const char* a_modId, const char* a_key, std::int64_t* a_out) override;
+		bool          GetSettingFloat(const char* a_modId, const char* a_key, double* a_out) override;
+		std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) override;
+		bool          ReservedSettingsSlot1(const char*) override;
+		void          ReservedSettingsSlot2(const char*) override;
+		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
+		void          UnsubscribeHotkey(std::uint32_t a_token) override;
+		bool          RegisterView(const char* a_viewId) override;
+		bool          ReportIssue(const char* a_modId, const char* a_id, const char* a_code, std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) override;
+		bool          ClearIssue(const char* a_modId, const char* a_id) override;
+		bool          ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) override;
+		struct ViewPresentationRequest
+		{
+			std::string view;
+			bool        open{ true };
+		};
+		std::vector<ViewPresentationRequest> TakeViewPresentationRequests();
+
+		void SetViewCatalog(const std::vector<std::string>& a_viewIds);
+		void SetViewInstantiated(std::string_view a_viewId, bool a_instantiated);
+
+		struct HealthIssueOp
+		{
+			enum class Kind { kReport, kClear, kClearExcept };
+			Kind kind{ Kind::kReport };
+			std::string modId;
+			std::string id;
+			std::string code;
+			bool error{ false };
+			std::string subject;
+			nlohmann::json context;
+			std::vector<std::string> keep;
+		};
+		std::vector<HealthIssueOp> TakeHealthIssueOps();
+
+		struct ViewStateOp
+		{
+			std::string    mod;
+			std::string    key;
+			nlohmann::json value;
+		};
+		std::vector<ViewStateOp> TakeViewStateOps();
+
+		void NoteUnsupportedApiCaller(std::string a_moduleName, std::uint32_t a_major,
+			std::uint32_t a_minor);
+		struct UnsupportedCaller
+		{
+			std::string module;
+			std::uint32_t major{ 0 };
+			std::uint32_t minor{ 0 };
+		};
+		static constexpr std::size_t kMaxUnsupportedCallers = 32;
+		std::vector<UnsupportedCaller> TakeUnsupportedApiCallers();
+
+		std::vector<std::string> TakeViewRegistrations();
+
+		[[nodiscard]] SettingsMirror& Mirror() { return _mirror; }
+
+		[[nodiscard]] SettingsSubscriptions& Subscriptions() { return _subscriptions; }
+
+		[[nodiscard]] HotkeySubscriptions& Hotkeys() { return _hotkeys; }
+
+		void SetBridgeAvailability(MessageBridge* a_bridge);
+		void PumpMainThread();
+
+	private:
+		BridgeApi() = default;
+		~BridgeApi() = default;
+		BridgeApi(const BridgeApi&) = delete;
+		BridgeApi& operator=(const BridgeApi&) = delete;
+
+		struct Registration
+		{
+			SendFn fn{ nullptr };
+			void*     user{ nullptr };
+		};
+		struct PendingSend
+		{
+			std::string view;
+			std::string type;
+			std::string payloadJson;
+		};
+
+		struct RequestRegistration
+		{
+			RequestFn fn{ nullptr };
+			void*     user{ nullptr };
+		};
+		struct InflightRequest
+		{
+			std::uint64_t token{ 0 };
+			std::string view;
+			std::string deferToken;  // MessageBridge::Defer()'s token, not the page's request id
+			std::string name;
+			bool answered{ false };
+			bool rejected{ false };
+			bool legacyReply{ false };
+			std::string type;
+			std::string payloadJson;
+			std::string code;
+			std::string message;
+		};
+		struct PendingReply
+		{
+			std::string view;
+			std::string deferToken;
+			std::string name;
+			std::string payloadJson;
+			std::string type;
+			bool        rejected{ false };
+			bool        legacyReply{ false };
+			std::string code;
+			std::string message;
+		};
+
+		static void RespondThunk(std::uint64_t, const char*, const char*) noexcept;
+		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
+		void RespondRequest(std::uint64_t, const char*, const char*) noexcept;
+		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
+		void DropInflightRequest(std::uint64_t) noexcept;
+		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
+		std::mutex                                    _mutex;
+		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
+		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex
+		HotkeySubscriptions                           _hotkeys;           // own locking; never touched under _mutex
+		std::unordered_map<std::string, Registration>        _commands;          // frozen RegisterCommand set
+		std::unordered_map<std::string, Registration>        _sends;             // strict RegisterSend set
+		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
+		std::vector<std::string>                      _pendingCommandUnregister;
+		std::vector<std::string>                      _pendingSendUnregister;
+		std::vector<std::string>                      _pendingRequestUnregister;
+		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
+		std::uint64_t                                 _nextRequestToken{ 1 };
+		std::vector<PendingSend>                       _pendingSends;
+		std::vector<ViewPresentationRequest>          _pendingViewPresentationRequests;  // RequestMenu compatibility ops, drained by Runtime
+		std::unordered_set<std::string>               _knownViews;         // boot-discovered qualified view ids
+		std::unordered_set<std::string>               _instantiatedViews;  // views with an instantiated document
+		bool                                          _viewCatalogReady{ false };
+		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
+		std::vector<UnsupportedCaller>                _unsupportedCallers;
+		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
+		std::vector<HealthIssueOp>                    _pendingHealthIssueOps;
+		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
+		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
+		bool                                          _dirty{ false };            // endpoint set changed since apply
+		ReadyFn                                       _readyCb{ nullptr };
+		void*                                         _readyUser{ nullptr };
+		std::condition_variable                       _readyInvokeCv;
+		bool                                          _readyInvoking{ false };
+		std::thread::id                               _readyInvokingThread{};
+		bool                                          _readyFired{ false };
+		std::atomic_bool                              _bridgeAvailable{ false };  // IsBridgeReady() compatibility fast path
+	};
+}

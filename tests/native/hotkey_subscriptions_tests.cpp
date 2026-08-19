@@ -1,10 +1,5 @@
-// Native desktop unit tests for the SubscribeHotkey bookkeeping: the REAL
-// src/api/HotkeySubscriptions.cpp — per-(mod, key)
-// routing, queued fire dispatch, unsubscribe semantics (including from inside
-// a callback), and re-entrant subscribe — compiled against stubs/pch.h on the
-// desktop toolchain. Assert-style; process exit code is the failure count.
 
-#include "api/HotkeySubscriptions.h"
+#include "API/HotkeySubscriptions.h"
 #include "check.h"
 
 namespace

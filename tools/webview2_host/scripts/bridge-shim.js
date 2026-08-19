@@ -13,10 +13,6 @@
 							}
 						});
 						bridge.postMessage = (json) => chrome.webview.postMessage(String(json));
-						// Chromium implements standard form pickers as native popup
-						// UI outside the composition visual. Tell the host to release
-						// its session-wide Win32 mouse capture while one is open, or
-						// the visible popup can never become the physical click target.
 						const nativePopupControl = (event) => {
 							const path = typeof event.composedPath === 'function' ?
 								event.composedPath() : [event.target];
@@ -30,11 +26,6 @@
 							return null;
 						};
 						const nativePopupMessage = '__osfuiNativePopup:';
-						// WebView2's CoreWebView2.WebMessageReceived event only
-						// receives chrome.webview messages from the top document.
-						// AddScriptToExecuteOnDocumentCreated also runs in frames,
-						// so relay frame-owned controls (Starcade's games are one
-						// real-world example) through the top document first.
 						if (window === window.top) {
 							window.addEventListener('message', (event) => {
 								if (event.data !== nativePopupMessage + '0' &&
@@ -84,10 +75,6 @@
 						}, true);
 						document.addEventListener('blur', closeNativePopup, true);
 
-						// --- synthetic key delivery (__osfuiKey web messages) ---
-						// Gamepad navigation reaches the page here as scripted
-						// KeyboardEvents. padnav and the views key off keyCode / e.key,
-						// not isTrusted, by contract.
 						const VK_KEYS = {
 							0x08: ['Backspace', 'Backspace'], 0x09: ['Tab', 'Tab'],
 							0x0D: ['Enter', 'Enter'], 0x1B: ['Escape', 'Escape'],
@@ -128,13 +115,6 @@
 							} else {
 								return;  // unmapped VK: nothing sensible to synthesize
 							}
-							// Scripted dispatch does not cross frame boundaries the
-							// way real (OS-focus) key routing does. If the focused
-							// element is an <iframe> (e.g. a content mod embedding
-							// its game in a frame), descend into same-origin frames
-							// to the innermost focused document; hand cross-origin
-							// frames the key via postMessage to the shim instance
-							// injected there.
 							let doc = document;
 							let target = doc.activeElement || doc.body;
 							while (target && target.tagName === 'IFRAME') {
@@ -156,15 +136,9 @@
 								shiftKey: heldMods.shift, ctrlKey: heldMods.ctrl,
 								altKey: heldMods.alt
 							});
-							// The constructor ignores legacy fields; padnav keys off
-							// keyCode, so define them explicitly.
 							Object.defineProperty(ev, 'keyCode', { get: () => vk });
 							Object.defineProperty(ev, 'which', { get: () => vk });
 							target.dispatchEvent(ev);
-							// Scripted events run no native default actions. Emulate
-							// the one the views rely on: arrow keys adjusting a
-							// range slider (padnav deliberately leaves left/right
-							// on a focused slider to the browser).
 							if (down && !ev.defaultPrevented && target.tagName === 'INPUT' &&
 								target.type === 'range' && key.startsWith('Arrow')) {
 								const step = Number(target.step) || 1;
@@ -181,10 +155,6 @@
 							}
 						};
 
-						// Relay receiver: keys handed across a cross-origin frame
-						// boundary by the parent's shim instance (synthesizeKey
-						// above). Same-origin frames are reached by direct
-						// dispatch and never see a relay.
 						window.addEventListener('message', (event) => {
 							if (event.source !== window.parent) return;
 							const k = event.data && typeof event.data === 'object' ?
@@ -192,12 +162,8 @@
 							if (k) synthesizeKey(k.vk | 0, !!k.down);
 						});
 
-						// Child frames may lack chrome.webview entirely; their shim
-						// instance only serves the relay receiver above.
 						if (!window.chrome || !chrome.webview) return;
 						chrome.webview.addEventListener('message', (event) => {
-							// Key channel: object-typed (PostWebMessageAsJson), never
-							// forwarded to the page's onMessage.
 							if (event.data && typeof event.data === 'object' &&
 								event.data.__osfuiKey) {
 								const k = event.data.__osfuiKey;
@@ -206,10 +172,6 @@
 							}
 							const json = typeof event.data === 'string' ?
 								event.data : JSON.stringify(event.data);
-							// Session boundary: on hide, blur any editable so the
-							// runtime's cleared grant and the DOM agree — a field
-							// left DOM-focused would otherwise look focused on
-							// reopen but never re-grant (no new focusin).
 							try {
 								const m = JSON.parse(json);
 								if (m && m.type === 'ui.visibility' && m.payload &&

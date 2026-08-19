@@ -1,11 +1,7 @@
-#include "runtime/PapyrusCall.h"
+#include "API/PapyrusCall.h"
 
 #include <iostream>
 
-// `papyrus.call` is the one endpoint that lets untrusted view content name an
-// arbitrary Papyrus script and GLOBAL function. Everything that keeps it inside
-// its stated bounds is here: the platform-script refusal, the argument cap, the
-// int range, float finiteness, and the JS->Papyrus type mapping.
 
 namespace
 {
@@ -49,10 +45,6 @@ namespace
 
 int main()
 {
-	// --- the platform's own script is not a callable mod backend -------------
-	// Its natives take the target mod id as an argument and trust their caller,
-	// so reaching them from a page would bypass the write-authority check that
-	// settings.set / settings.reset enforce.
 	Check(Refused(Call("OSFUI", "SetString"), "forbidden"),
 		"OSFUI is refused as a papyrus.call target");
 	Check(Refused(Call("osfui", "Reset"), "forbidden"),
@@ -104,9 +96,6 @@ int main()
 		Check(ArgIs<float>(parsed.args, 5, 1.5f), "fractional numbers become floats");
 	}
 
-	// --- the tagged float ----------------------------------------------------
-	// JSON erases 3 vs 3.0, so a whole-valued float parameter needs the helper's
-	// explicit tag to marshal as a float rather than an int.
 	{
 		const auto tagged = nlohmann::json{ { "$papyrus", "float" }, { "value", 3 } };
 		const auto parsed = Parse(Call("S", "F", nlohmann::json::array({ tagged })));
@@ -134,19 +123,12 @@ int main()
 			"an out-of-range tagged float is refused as a float problem");
 	}
 
-	// --- numeric range -------------------------------------------------------
-	// Papyrus ints are 32-bit; a JS number that does not fit is a refusal, never
-	// a silent wrap.
 	Check(Parse(Call("S", "F", nlohmann::json::array({ 2147483647 }))).ok, "INT32_MAX fits");
 	Check(Parse(Call("S", "F", nlohmann::json::array({ -2147483648LL }))).ok, "INT32_MIN fits");
 	Check(Refused(Call("S", "F", nlohmann::json::array({ 2147483648LL })), "invalid-request"),
 		"INT32_MAX + 1 is refused");
 	Check(Refused(Call("S", "F", nlohmann::json::array({ -2147483649LL })), "invalid-request"),
 		"INT32_MIN - 1 is refused");
-	// nlohmann stores a value past INT64_MAX as number_unsigned, and
-	// is_number_integer() is true for those too. Testing signed first read it
-	// back as a modular cast, so 18446744073709551615 became -1 and passed the
-	// range check.
 	Check(Refused(Call("S", "F", nlohmann::json::array({ 18446744073709551615ULL })), "invalid-request"),
 		"a huge unsigned literal is refused rather than wrapping to a small negative");
 	Check(Refused(Call("S", "F", nlohmann::json::array({ 9223372036854775808ULL })), "invalid-request"),

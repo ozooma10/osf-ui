@@ -1,44 +1,11 @@
-/* ============================================================
-   OSF UI — shared design system  (osfui.css)
-   ------------------------------------------------------------
-   The look every OSF UI view shares, tuned to sit next to
-   Starfield's own menus: flat translucent blue-black panels,
-   hairline rules, hard rectangular edges, white-forward
-   monochrome type with a quiet ice-blue HUD accent.
-   Hover and selection invert to white, the way the game's own
-   menu entries do. Link it from any view to inherit the tokens
-   + a small component kit, then add only view-specific layout:
-
-       <link rel="stylesheet" href="../../shared/osfui.css">
-
-   THE KIT CONTRACT (2.0): every class and custom
-   property this sheet exports carries the `osf-` / `--osf-` prefix —
-   nothing un-prefixed is contract. Element-level base styles (body,
-   headings, a, kbd, ::selection, scrollbars, form elements) are global
-   on purpose: linking the sheet IS the opt-in; there is no partial
-   mode. Per-mod theming is the schema `accent` hex, applied via
-   osfui.applyAccent (shared/osfui.js) — there are no theme classes.
-
-   This lives in views/shared/ (a sibling of the view folders, NOT a
-   view — it has no manifest). WebKit normalizes the "../../shared/..."
-   reference to file:///shared/osfui.css before the sandbox sees it,
-   so no ".." reaches disk I/O and it stays inside the views root.
-
-   Fonts resolve to Windows system faces so NO webfont binaries ship
-   and the view stays network-free. Bahnschrift is a DIN — close kin
-   to the condensed grotesque Starfield sets its menus in; Segoe UI /
-   Cascadia are always present.
-   ============================================================ */
 
 :root {
-  /* ---- Void / blue-black (Starfield menu glass) ------------ */
   --osf-void-900: #05070a;
   --osf-void-800: #0a0d12;
   --osf-void-700: #10141b;
   --osf-void-600: #161b23;
   --osf-void-500: #1d232d;
 
-  /* ---- Neutral steel --------------------------------------- */
   --osf-steel-200: #c8ced5;
   --osf-steel-300: #9aa3ad;
   --osf-steel-400: #828a93;
@@ -48,23 +15,19 @@
 
   --osf-bone: #f2efe9;   /* Starfield's warm off-white */
 
-  /* ---- Constellation tricolor ------------------------------ */
   --osf-sf-red:  #cf5b3f;
   --osf-sf-gold: #dfa63d;
   --osf-sf-blue: #4b7ea3;
 
-  /* ---- Semantic status ------------------------------------ */
   --osf-signal-go:   #6fae6a;
   --osf-signal-warn: #dfa63d;
   --osf-signal-stop: #c8503a;
 
-  /* ---- Product accent (OSF UI = HUD ice blue) -------------- */
   --osf-accent:        #9fc7dc;
   --osf-accent-strong: #3f606f;
   --osf-accent-hover:  #c9e4f2;
   --osf-accent-quiet:  rgba(159, 199, 220, 0.12);
 
-  /* ---- Surfaces / text ------------------------------------ */
   --osf-surface-card:  var(--osf-void-600);
   --osf-surface-overlay: rgba(5, 7, 10, 0.78);
 
@@ -78,7 +41,6 @@
   --osf-line-bright: rgba(242, 239, 233, 0.85);
   --osf-line-hud:    rgba(159, 199, 220, 0.46);
 
-  /* ---- Type ----------------------------------------------- */
   --osf-font-display: 'Bahnschrift', 'DIN Next', 'Segoe UI Semibold', 'Saira Semi Condensed', sans-serif;
   --osf-font-sans:    'Segoe UI', system-ui, sans-serif;
   --osf-font-mono:    'Cascadia Mono', 'Consolas', ui-monospace, monospace;
@@ -91,7 +53,6 @@
 
   --osf-tracking-label: 0.14em;
 
-  /* ---- Spacing (8px technical grid) ----------------------- */
   --osf-space-2: 4px;  --osf-space-3: 8px;  --osf-space-4: 12px;
   --osf-space-6: 20px; --osf-space-7: 24px; --osf-space-8: 32px;
   --osf-space-10: 48px;
@@ -99,9 +60,6 @@
   --osf-control-h-sm: 32px;
   --osf-control-h:    40px;
 
-  /* ---- Effects ---------------------------------------------
-     Starfield look: hard edges everywhere. The radius tokens are
-     kept (all zeroed) so a view can re-round if it must. */
   --osf-radius-sm: 0;
   --osf-radius:    0;
   --osf-radius-md: 0;
@@ -116,15 +74,7 @@
   --osf-dur:      180ms;
 }
 
-/* Per-mod theming: NO theme classes (the old .osf-animation/.osf-seduce/...
-   enum is retired, item 9). The :root above IS the OSF UI default; a mod's
-   accent comes from its schema `accent` hex, applied per subtree with
-   osfui.applyAccent(el, hex) — one hex derives the whole linked set
-   (--osf-accent / -hover / -strong / -quiet). */
 
-/* ------------------------------------------------------------
-   Base / reset
-   ------------------------------------------------------------ */
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
@@ -158,7 +108,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 
 ::selection { background: var(--osf-accent-quiet); color: var(--osf-text-bright); }
 
-/* HUD scrollbars — square, hairline */
 * { scrollbar-width: thin; scrollbar-color: var(--osf-steel-600) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-track { background: transparent; }
@@ -173,9 +122,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
 
-/* ------------------------------------------------------------
-   Utilities
-   ------------------------------------------------------------ */
 .osf-eyebrow {
   font-family: var(--osf-font-mono);
   font-size: var(--osf-text-2xs);
@@ -184,21 +130,11 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   color: var(--osf-text-faint);
 }
 
-/* ------------------------------------------------------------
-   Card / panel — flat glass, hairline frame
-   ------------------------------------------------------------ */
 .osf-card {
   background: rgba(13, 17, 23, 0.82);
   border: 1px solid var(--osf-line);
 }
 
-/* ------------------------------------------------------------
-   Buttons — uppercase; hover inverts to white like the game menus,
-   and the press dims that inversion to steel so a click always
-   reads even when the pointer never moved (:hover is already on).
-   Interaction states are guarded with :not(:disabled) — a disabled
-   control must stay inert, not light up under the cursor.
-   ------------------------------------------------------------ */
 .osf-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   height: var(--osf-control-h); padding: 0 16px;
@@ -224,11 +160,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 .osf-btn--danger:active:not(:disabled) { color: var(--osf-bone); background: rgba(200, 80, 58, 0.45); border-color: var(--osf-signal-stop); }
 .osf-btn--sm { height: var(--osf-control-h-sm); padding: 0 12px; font-size: var(--osf-text-2xs); }
 
-/* ------------------------------------------------------------
-   Toggle switch  (<button class="osf-switch" aria-pressed="true|false">)
-   Also drives containers via .osf-switch.osf-on for non-button use.
-   Rectangular track, square knob.
-   ------------------------------------------------------------ */
 .osf-switch {
   position: relative; display: inline-block; width: 42px; height: 22px; flex: none;
   padding: 0;
@@ -255,9 +186,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   box-shadow: 0 0 0 2px var(--osf-void-900), 0 0 0 3px var(--osf-accent);
 }
 
-/* ------------------------------------------------------------
-   Text input / dropdown
-   ------------------------------------------------------------ */
 .osf-input, .osf-select {
   height: var(--osf-control-h); padding: 0 12px;
   font-family: var(--osf-font-sans); font-size: var(--osf-text-sm); color: var(--osf-text-bright);
@@ -277,8 +205,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 }
 .osf-select option { background: var(--osf-void-700); color: var(--osf-text-bright); }
 
-/* DOM dropdown. The menu is portalled to body and position:fixed so scrolling
-   setting/list panels cannot clip it; it remains part of the WebView texture. */
 .osf-dropdown { position: relative; display: inline-block; }
 .osf-dropdown__trigger {
   width: 100%; display: inline-flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -295,6 +221,7 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 .osf-dropdown__trigger[aria-expanded="true"] .osf-dropdown__chevron {
   margin-top: 3px; transform: rotate(225deg);
 }
+/* Fixed positioning lets the body portal escape scrolling containers. */
 .osf-dropdown__menu {
   position: fixed; z-index: 18; overflow-x: hidden; overflow-y: auto;
   padding: 1px; font-family: var(--osf-font-sans); font-size: var(--osf-text-sm);
@@ -315,9 +242,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 }
 .osf-dropdown__option[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
 
-/* ------------------------------------------------------------
-   Range slider — hairline track, white rectangular thumb
-   ------------------------------------------------------------ */
 .osf-range {
   -webkit-appearance: none; appearance: none;
   width: 100%; height: 2px; margin: 0; padding: 0;
@@ -333,13 +257,11 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 .osf-range:focus-visible { outline: none; }
 .osf-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--osf-void-900), 0 0 0 3px var(--osf-accent); }
 
-/* Monospace value badge that pairs with a slider. */
 .osf-value {
   font-family: var(--osf-font-mono); font-size: var(--osf-text-xs); color: var(--osf-accent-hover);
   min-width: 44px; text-align: right;
 }
 
-/* Key-rebind control: shows the bound key; `.listening` while capturing. */
 .osf-key {
   min-width: 104px; font-family: var(--osf-font-mono);
   letter-spacing: 0.08em; text-transform: none;
@@ -349,14 +271,9 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   animation: osf-key-pulse 1s var(--osf-ease-in-out) infinite;
 }
 @keyframes osf-key-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-/* allowUnbound keys render [key][×] as one unit; the × commits "". */
 .osf-key-wrap { display: inline-flex; align-items: center; gap: 4px; }
 .osf-key-clear { min-width: 0; padding-inline: 8px; }
 
-/* ------------------------------------------------------------
-   Segmented control (2-5 mutually-exclusive options)
-   <div class="osf-segmented"><button aria-pressed>…</button>…</div>
-   ------------------------------------------------------------ */
 .osf-segmented {
   display: inline-flex; align-items: stretch;
   background: rgba(5, 7, 10, 0.52); border: 1px solid var(--osf-line-strong);
@@ -376,12 +293,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 .osf-segment[aria-pressed="true"] { color: var(--osf-void-900); background: var(--osf-accent); }
 .osf-segment:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--osf-accent); }
 
-/* ------------------------------------------------------------
-   Flags checkbox group  (type:"flags" — multi-select over options)
-   <div class="osf-flags" role="group">
-     <label class="osf-flag"><input type="checkbox" class="osf-flag-box"><span class="osf-flag-label">…</span></label>…
-   </div>
-   ------------------------------------------------------------ */
 .osf-flags { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .osf-flag { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .osf-flag-box {
@@ -400,9 +311,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 .osf-flag:hover .osf-flag-label { color: var(--osf-text-bright); }
 .osf-flag-box:checked + .osf-flag-label { color: var(--osf-text-bright); }
 
-/* ------------------------------------------------------------
-   Stepper  (<div class="osf-stepper"><button>−</button><span>…</span><button>+</button>)
-   ------------------------------------------------------------ */
 .osf-stepper {
   display: inline-flex; align-items: stretch;
   border: 1px solid var(--osf-line-strong);
@@ -423,9 +331,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   border-left: 1px solid var(--osf-line-strong); border-right: 1px solid var(--osf-line-strong);
 }
 
-/* ------------------------------------------------------------
-   Colour control  (swatch + #hex input + preset row)
-   ------------------------------------------------------------ */
 .osf-color { display: flex; align-items: center; gap: 8px; }
 .osf-color-swatch {
   width: 24px; height: 24px; flex: none;
@@ -442,9 +347,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
 
 .osf-textarea { width: 260px; height: auto; min-height: 66px; padding: 8px 12px; resize: vertical; line-height: 1.45; }
 
-/* ------------------------------------------------------------
-   Badge (small status chip) + modified marker
-   ------------------------------------------------------------ */
 .osf-badge {
   font-family: var(--osf-font-mono); font-size: 9px; font-weight: 500;
   letter-spacing: 0.12em; text-transform: uppercase;
@@ -452,7 +354,6 @@ code, pre, kbd, samp { font-family: var(--osf-font-mono); }
   color: var(--osf-text-faint); border: 1px solid var(--osf-line-strong);
 }
 
-/* Shared search-field and keyboard-hint patterns. */
 .osf-search {
   position: relative; display: flex; align-items: center; min-width: 0;
   color: var(--osf-text-faint);
@@ -477,16 +378,12 @@ kbd {
 .osf-badge--warn { color: var(--osf-signal-warn); border-color: rgba(223, 166, 61, 0.5); }
 .osf-badge--stop { color: var(--osf-signal-stop); border-color: rgba(200, 80, 58, 0.5); }
 
-/* Square marker, not a dot — matches the game's list bullets. */
 .osf-dot {
   width: 6px; height: 6px; flex: none;
   background: transparent; transition: background var(--osf-dur-fast);
 }
 .osf-dot.osf-on { background: var(--osf-accent); }
 
-/* ------------------------------------------------------------
-   Note / callout block (micro-markdown content)
-   ------------------------------------------------------------ */
 .osf-note {
   font-family: var(--osf-font-sans); font-size: var(--osf-text-sm); line-height: 1.5;
   color: var(--osf-text-body); padding: 10px 14px;

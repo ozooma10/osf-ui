@@ -1,6 +1,6 @@
-#include "runtime/HealthReconciler.h"
+#include "Diagnostics/HealthReconciler.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 
 #include <cassert>
 #include <iostream>
@@ -11,8 +11,8 @@ namespace OSFUI::Log
 	{
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
-	bool DevMode() { return true; }
-	void SetDevMode(bool) {}
+	bool DebugEnabled() { return true; }
+	void SetDebugLogging(bool) {}
 }
 
 namespace
@@ -20,9 +20,6 @@ namespace
 	nlohmann::json IssueById(const OSFUI::HealthRegistry& a_healthRegistry,
 		std::string_view a_id)
 	{
-		// Bind the snapshot: at("issues") returns a reference into the returned
-		// temporary, and range-for lifetime extension (P2718) is not implemented
-		// by every supported C++23 toolchain.
 		const auto snapshot = a_healthRegistry.Snapshot();
 		for (const auto& issue : snapshot.at("issues")) {
 			if (issue.value("id", "") == a_id) return issue;
@@ -61,47 +58,25 @@ int main()
 
 	const std::array targets{
 		CompatibilityTarget{ "beta/mod", "mod", "2.0.0", "compat.needs-newer-osfui",
-			HealthRegistry::Severity::Error, "", "targetVersion" },
+			HealthRegistry::Severity::Error, "targetVersion" },
 		CompatibilityTarget{ "acme/view", "view", "2.0.0", "compat.needs-newer-osfui",
-			HealthRegistry::Severity::Error, "", "targetVersion" },
-		CompatibilityTarget{ "legacy.mod/panel", "view", "1.9.0", "compat.pre-2-view",
-			HealthRegistry::Severity::Warning, "2.1.0" },
+			HealthRegistry::Severity::Error, "targetVersion" },
 	};
 	reconciler.SyncCompatibility(healthRegistry, targets, "1.5.0", 3.0);
 	const auto compatId = "compat.needs-newer-osfui:view:acme/view";
 	assert(healthRegistry.IsActive(compatId));
 	assert(IssueById(healthRegistry, compatId).at("context").value("installedVersion", "") == "1.5.0");
-	const auto pre2Id = "compat.pre-2-view:view:legacy.mod/panel";
-	assert(healthRegistry.IsActive(pre2Id));
-	assert(IssueById(healthRegistry, pre2Id).value("severity", "") == "warning");
-	assert(IssueById(healthRegistry, pre2Id).at("context").value("consumer", "") == "legacy.mod/panel");
-	assert(IssueById(healthRegistry, pre2Id).at("context").value("targetVersion", "") == "1.9.0");
-	assert(IssueById(healthRegistry, pre2Id).at("context").value("installedVersion", "") == "1.5.0");
-	assert(IssueById(healthRegistry, pre2Id).at("context").value("removalVersion", "") == "2.1.0");
-
-	const std::array legacyConsumers{
-		CompatibilityTarget{ "SuitProtocol.dll", "plugin", "1.7", "compat.legacy-api",
-			HealthRegistry::Severity::Warning, "2.1.0", "abi" },
-		CompatibilityTarget{ "ak.autosort", "Papyrus mod", "1.x natives",
-			"compat.legacy-papyrus", HealthRegistry::Severity::Warning, "2.1.0", "api" },
+	const std::array unsupportedConsumers{
 		CompatibilityTarget{ "FuturePlugin.dll", "plugin", "3.0", "compat.unsupported-api",
-			HealthRegistry::Severity::Error, "", "abi" },
+			HealthRegistry::Severity::Error, "abi" },
 	};
-	reconciler.SyncCompatibility(healthRegistry, legacyConsumers, "2.0.0", 3.5);
-	const auto abi = IssueById(healthRegistry, "compat.legacy-api:plugin:SuitProtocol.dll");
-	assert(abi.value("severity", "") == "warning");
-	assert(abi.at("context").value("consumer", "") == "SuitProtocol.dll");
-	assert(abi.at("context").value("abi", "") == "1.7");
-	assert(abi.at("context").value("installedVersion", "") == "2.0.0");
-	assert(abi.at("context").value("removalVersion", "") == "2.1.0");
-	const auto papyrus = IssueById(healthRegistry, "compat.legacy-papyrus:Papyrus mod:ak.autosort");
-	assert(papyrus.at("context").value("api", "") == "1.x natives");
+	reconciler.SyncCompatibility(healthRegistry, unsupportedConsumers, "2.0.0", 3.5);
 	const auto unsupported = IssueById(healthRegistry, "compat.unsupported-api:plugin:FuturePlugin.dll");
 	assert(unsupported.value("severity", "") == "error");
-	assert(!unsupported.at("context").contains("removalVersion"));
+	assert(unsupported.at("context").value("abi", "") == "3.0");
 	reconciler.SyncCompatibility(healthRegistry, targets, "1.5.0", 3.75);
 	const auto occurrences = IssueById(healthRegistry, compatId).value("occurrences", 0u);
-	const std::array reordered{ targets[2], targets[1], targets[0] };
+	const std::array reordered{ targets[1], targets[0] };
 	reconciler.SyncCompatibility(healthRegistry, reordered, "1.5.0", 4.0);
 	assert(IssueById(healthRegistry, compatId).value("occurrences", 0u) == occurrences);
 	reconciler.SyncCompatibility(healthRegistry,
@@ -115,6 +90,26 @@ int main()
 	assert(healthRegistry.IsActive("view.load-failed:acme/view"));
 	reconciler.ReportViewLoad(healthRegistry, "acme/view", false, "", 0, 0, 8.0);
 	assert(!healthRegistry.IsActive("view.load-failed:acme/view"));
+
+	reconciler.SyncControlMap(healthRegistry, false, "1.16.244.0", "layout mismatch", 9.0);
+	const auto controlMapId = "input.control-map-unavailable";
+	assert(healthRegistry.IsActive(controlMapId));
+	const auto controlMapOccurrences = IssueById(healthRegistry, controlMapId).value("occurrences", 0u);
+	reconciler.SyncControlMap(healthRegistry, false, "1.16.244.0", "layout mismatch", 10.0);
+	assert(IssueById(healthRegistry, controlMapId).value("occurrences", 0u) == controlMapOccurrences);
+	reconciler.SyncControlMap(healthRegistry, true, "1.16.244.0", "", 11.0);
+	assert(!healthRegistry.IsActive(controlMapId));
+
+	reconciler.ReportRendererHealth(healthRegistry, "host.ring-truncated", true,
+		"mixed helper", true, 12.0);
+	assert(healthRegistry.IsActive("host.ring-truncated"));
+	assert(IssueById(healthRegistry, "host.ring-truncated").at("context").value("renderer", "") == "webview2");
+	reconciler.ReportRendererHealth(healthRegistry, "host.ring-truncated", false,
+		"", true, 13.0);
+	assert(!healthRegistry.IsActive("host.ring-truncated"));
+
+	reconciler.ReportProtocolMisuse(healthRegistry, "acme/view", "unknown-endpoint", 10, 14.0);
+	assert(healthRegistry.IsActive("view.protocol-misuse:acme/view"));
 
 	std::cout << "runtime health tests passed\n";
 }

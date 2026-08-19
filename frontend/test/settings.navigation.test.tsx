@@ -1,12 +1,4 @@
 // @vitest-environment jsdom
-//
-// The pane's five detail modes in dispatch order, the section index threshold,
-// search-jump, and rail cycling.
-//
-// The registries arrive as replayed STATE (`osfui/settings`, `osfui/views`), so
-// every case here starts from a document that was already populated at its
-// first paint; `ui.gamepad` stays an EVENT, because a rail step is a happening,
-// not a value.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';
@@ -46,8 +38,6 @@ describe('detail modes', () => {
   });
 
   it('mode 3 (not found): nothing installed still keeps System Health fixed', async () => {
-    // No mods and no views: the rail collapses to its fixed destinations, so
-    // System Health is always reachable — it is where load failures now live.
     const { el } = await mountWith({ mods: [] });
     expect(el.querySelector('.rail-item--health')).not.toBeNull();
   });
@@ -159,17 +149,13 @@ describe('rail cycling (LB/RB)', () => {
 
 describe('System Health rail entry', () => {
   it('stays fixed even while a filter matches nothing', async () => {
-    // The reason the old load-error alert was never filtered: a player typing
-    // the name of a broken mod must still reach the explanation.
     const { el } = await mountWith({ mods: [] });
     await typeFilter(el, 'anything');
     expect(el.querySelector('.rail-item--health')).not.toBeNull();
   });
 
-  it('reflects health-issue severity in its badge and clears search when selected', async () => {
+  it('reflects health severity and clears search when selected', async () => {
     const { bridge, el } = await mountWith(WIDGETS, VIEWS);
-    // A health condition raised mid-session: `osfui/diagnostics` is republished
-    // whole, never as a delta.
     bridge.publish('osfui/diagnostics', {
       system: {},
       issues: [
@@ -190,10 +176,8 @@ describe('System Health rail entry', () => {
     await flush();
     const health = el.querySelector('.rail-item--health')!;
     expect(health.classList.contains('rail-item--health-error')).toBe(true);
-    // The count is folded into the status phrase, not a separate badge.
     expect(health.querySelector('.rail-health-status--error')!.textContent).toBe('1 error');
 
-    // Selecting Health from a filtered rail clears the search and shows the pane.
     await typeFilter(el, 'zzz');
     (health as HTMLButtonElement).click();
     await flush();

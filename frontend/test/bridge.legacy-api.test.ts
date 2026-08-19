@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { composeHelper } from '../scripts/compose-helper.mjs';
 import type { GameInputContextClassification, VanillaContextClassification } from '@sdk';
 
-// Compile and exercise the deprecated SDK spelling only in this compatibility
-// suite; current Keybindings tests use GameInputContextClassification.
 const legacyClassification: VanillaContextClassification =
   'core' satisfies GameInputContextClassification;
 
@@ -28,7 +26,6 @@ type LegacyHelper = {
   send(name: string, payload?: Record<string, unknown>): boolean;
   emit(name: string, payload?: Record<string, unknown>): boolean;
   action(name: string, ...args: unknown[]): boolean;
-  viewReady(): boolean;
   request(name: string, payload?: Record<string, unknown>, opts?: { timeoutMs?: number }): Promise<any>;
   call(name: string, payload?: Record<string, unknown>, opts?: { timeoutMs?: number }): Promise<any>;
   on(type: string, fn: (payload: any, message: any) => void): () => void;
@@ -65,7 +62,7 @@ beforeEach(() => {
   document.body.replaceChildren();
 });
 
-describe('temporary 1.x helper facade', () => {
+describe('frozen 1.x helper facade', () => {
   it('is absent from a 2.0 navigation', () => {
     const { helper } = load('?scenario=strict');
     expect(typeof (helper as any).available).toBe('boolean');
@@ -100,9 +97,6 @@ describe('temporary 1.x helper facade', () => {
     expect(last(sent)).toEqual({
       kind: 'send', name: 'papyrus.send', payload: { name: 'equip', args: [42] },
     });
-    expect(helper.viewReady()).toBe(true);
-    expect(last(sent)).toMatchObject({ kind: 'send', name: 'view.ready' });
-
     const pong = vi.fn();
     helper.on('runtime.pong', pong);
     expect(helper.send('ping')).toBe(true);

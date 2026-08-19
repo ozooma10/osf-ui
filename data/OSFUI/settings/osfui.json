@@ -34,7 +34,7 @@
           "label": "Pause-menu entry",
           "type": "bool",
           "default": true,
-          "hint": "Add a MOD SETTINGS entry to the game's pause menu."
+          "hint": "Add a MOD SETTINGS entry to the game's pause menu. Takes effect on the next launch."
         },
         {
           "key": "vanillaKeyConflicts",
@@ -44,6 +44,21 @@
           "hint": "Show hard and possible warnings when mod hotkeys overlap Starfield's live bindings. The read-only game catalog stays visible when this is off."
         }
       ]
-	}
+    },
+    {
+      "id": "developer",
+      "label": "Developer",
+      "collapsed": true,
+      "settings": [
+        {
+          "key": "developerMode",
+          "label": "Developer mode",
+          "type": "bool",
+          "default": false,
+          "requires": "restart",
+          "hint": "Enable verbose diagnostics, F12 WebView DevTools, schema and loose-view hot reload, and developer-only views on the next launch. Security and validation rules remain unchanged."
+        }
+      ]
+    }
   ]
 }

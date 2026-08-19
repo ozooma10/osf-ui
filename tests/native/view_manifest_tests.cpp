@@ -1,6 +1,6 @@
-#include "runtime/ViewManifest.h"
+#include "Views/ViewManifest.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -30,8 +30,8 @@ namespace OSFUI::Log
 	{
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
-	bool DevMode() { return true; }
-	void SetDevMode(bool) {}
+	bool DebugEnabled() { return true; }
+	void SetDebugLogging(bool) {}
 }
 
 int main()
@@ -41,39 +41,23 @@ int main()
 
 	// No "id" field: identity comes from the folder path alone.
 	Write(path, R"({
-		"title": "Cargo terminal",
-		"accent": "#E6904A",
-		"readySignal": true,
-		"permissions": { "nativeBridge": true }
+		"title": "Cargo terminal"
 	})");
 	auto manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);
 	assert(manifest->id == "demo.mod/terminal");
-	assert(manifest->accent == "#e6904a");
-	assert(manifest->readySignal);
+	assert(manifest->title == "Cargo terminal");
 
-	// Explicit readiness cannot work without a bridge. The parser degrades to
-	// load completion, so a typo cannot leave the handoff waiting forever.
-	// The legacy "id" field — even a stale one from a copied manifest — is
-	// ignored, not rejected.
 	Write(path, R"({
-		"id": "some-old-name",
-		"accent": "#nothex",
-		"readySignal": true,
-		"permissions": { "nativeBridge": false }
+		"id": "some-old-name"
 	})");
 	manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);
 	assert(manifest->id == "demo.mod/terminal");
-	assert(manifest->accent.empty());
-	assert(!manifest->readySignal);
 
-	// During 2.0.x a valid pre-2.0 declaration remains in the catalog and keeps
-	// its exact target so navigation and diagnostics can select the v1 adapter.
 	Write(path, R"({
 		"entry": "index.html?mode=compact#inventory",
-		"targetVersion": "1.8.0",
-		"permissions": { "nativeBridge": true }
+		"targetVersion": "1.8.0"
 	})");
 	manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);

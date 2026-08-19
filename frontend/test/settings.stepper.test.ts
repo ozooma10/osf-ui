@@ -31,8 +31,6 @@ describe('stepperFor', () => {
   });
 
   it('falls back to the type default for step 0, negative and NaN', () => {
-    // All three divide-by-zero (or NaN) inside snap and commit NaN over the
-    // bridge — why the guard is `!(step > 0)` rather than `step < 0`.
     expect(stepperFor(s({ type: 'int', step: 0 })).step).toBe(1);
     expect(stepperFor(s({ type: 'int', step: -5 })).step).toBe(1);
     expect(stepperFor(s({ type: 'float', step: NaN })).step).toBe(0.01);
@@ -47,8 +45,6 @@ describe('stepperFor', () => {
   });
 
   it('does NOT flag a nullish step — `??` gives it the type default silently', () => {
-    // The guard runs on the post-`??` value, so a nullish step resolves to the
-    // type default without warning. Warning would be a new diagnostic.
     const nulled = { step: null } as unknown as Pick<Setting, 'step'>;
     expect(hasInvalidStep(nulled)).toBe(false);
     expect(stepperFor({ type: 'int', ...nulled }).step).toBe(DEFAULT_INT_STEP);
@@ -68,8 +64,6 @@ describe('snap', () => {
     const spec = stepperFor(s({ type: 'float', min: 0, max: 2, step: 0.1 }));
     let v = 0;
     for (let i = 0; i < 12; i++) v = applyStep(spec, v + spec.step);
-    // Without the 1e6 rounding this would be 1.2000000000000002 and the
-    // modified dot would light up on a value equal to the default.
     expect(v).toBe(1.2);
   });
 
@@ -82,16 +76,12 @@ describe('snap', () => {
 describe('applyStep — SNAP FIRST, CLAMP SECOND', () => {
   it('parks on the bound even when the bound is off the step grid', () => {
     const spec = stepperFor(s({ type: 'int', min: 0, max: 10, step: 3 }));
-    // From 9, + asks for 12. snap(12) = 12, clamp = 10 -> parks ON the bound.
-    // Clamp-then-snap would give snap(10) = 9 and the + button would look dead.
     expect(applyStep(spec, 12)).toBe(10);
     expect(stepUp(spec, 9)).toBe(10);
   });
 
   it('parks on the lower bound the same way', () => {
     const spec = stepperFor(s({ type: 'int', min: 1, max: 10, step: 4 }));
-    // Grid from min: 1, 5, 9. From 1, − asks for -3 -> snap(-3) = 1 already,
-    // so use a min that is off its own grid multiple to exercise the clamp.
     expect(stepDown(spec, 1)).toBe(1);
     expect(applyStep(spec, -100)).toBe(1);
   });

@@ -1,26 +1,9 @@
 // @vitest-environment jsdom
-//
-// Failure classification and the BridgeError contract (bridge protocol 2.0).
-// Three rules that look like details and are load-bearing:
-//   1. Classification is by envelope KIND. `kind:"reply"` always resolves,
-//      `kind:"error"` always rejects — a payload field can never be mistaken
-//      for an outcome. (1.x had to inspect `ui.result { ok:false }`, which is
-//      why a `settings.ack { ok:false }` was a *successful* request reporting a
-//      rejected value. 2.0 gives that case its own kind: settings.set rejects.)
-//   2. `err.code` is always a string, `""` when the error carried none, because
-//      call sites branch with `e.code === "capture-busy"` and friends
-//      (@lib/protocol `codeOf`).
-//   3. Every failure an author can cause is printed to THIS page's console with
-//      an `[osfui]` prefix — F12 DevTools is the debug destination, and a rejection
-//      that only reached the SFSE log is a rejection the author never sees.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// Read from disk rather than imported: osfui.js is a classic script, not a
-// module. Resolved against the vitest root (frontend/) because under jsdom
-// `import.meta.url` is an http: URL, not a file: one.
 const HELPER_SRC = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
 
 interface Frame {
@@ -37,9 +20,6 @@ interface Helper {
   request(
     name: string,
     payload?: Record<string, unknown>,
-    // `number | undefined` rather than just optional: one case passes an
-    // explicit undefined, which `exactOptionalPropertyTypes` would reject —
-    // and that call is the path being asserted.
     opts?: { timeoutMs?: number | undefined },
   ): Promise<unknown>;
   papyrus: { request(name: string, ...args: unknown[]): Promise<unknown> };
@@ -73,11 +53,6 @@ function deliver(helper: Helper, message: unknown): void {
   helper.onMessage(JSON.stringify(message));
 }
 
-/**
- * Await a promise that must reject and hand back the error, typed. Call it
- * before advancing fake timers: it attaches its handler synchronously, which is
- * what stops a timeout rejection from surfacing as unhandled.
- */
 async function caught(promise: Promise<unknown>): Promise<CaughtError> {
   try {
     await promise;
@@ -103,8 +78,6 @@ function resolutionFor(payload: unknown): Promise<unknown> {
   return promise;
 }
 
-// Every failure path logs through the helper's `report`, so console noise is
-// captured rather than printed — and inspected by the last describe.
 let logged: unknown[][] = [];
 let warned: unknown[][] = [];
 
@@ -131,8 +104,6 @@ describe('classification is by envelope KIND, not by payload content', () => {
   });
 
   it('resolves a reply even when its payload READS like a failure', async () => {
-    // There is exactly one failure channel now. A handler that wants to reject
-    // sends `kind:"error"`; `ok:false` in a reply is just data.
     await expect(resolutionFor({ ok: false, code: 'invalid-value' })).resolves.toEqual({
       ok: false,
       code: 'invalid-value',
@@ -140,8 +111,6 @@ describe('classification is by envelope KIND, not by payload content', () => {
   });
 
   it('coerces a missing reply payload to {}', async () => {
-    // `settle(id, true, message.payload || {})`. Callers destructure the
-    // resolution; undefined would throw at the await site.
     await expect(resolutionFor(undefined)).resolves.toEqual({});
   });
 
@@ -156,8 +125,6 @@ describe('BridgeError contract — code', () => {
   it('is "" (never undefined) when the error carries no code', async () => {
     const err = await rejectionFor({ message: 'it did not work' });
 
-    // `err.code = p.code || ""`. Call sites do `e.code === "..."` and log
-    // e.code; undefined would print "undefined".
     expect(err.code).toBe('');
     expect(err.code).not.toBeUndefined();
     expect(typeof err.code).toBe('string');
@@ -176,8 +143,6 @@ describe('BridgeError contract — code', () => {
   });
 
   it('surfaces the protocol-enforcement codes unchanged', async () => {
-    // The codes the OSF UI runtime can produce for a request, from MessageBridge.cpp.
-    // Views branch on these, so they must arrive as themselves.
     for (const code of [
       'wrong-endpoint-kind',
       'unknown-endpoint',
@@ -218,9 +183,6 @@ describe('BridgeError contract — payload', () => {
     });
 
     const err = await caught(promise);
-    // The payload, not the envelope: the caller already holds the promise, so
-    // the correlation id tells it nothing. `err.payload` is what DevTools shows
-    // as an inspectable object next to the printed summary.
     expect(err.payload).toEqual({ code: 'capture-busy', message: 'a capture is already armed' });
   });
 
@@ -234,8 +196,6 @@ describe('BridgeError contract — payload', () => {
 
     expect(err.code).toBe('timeout');
     expect(err.message).toBe('"ping" got no reply within 10000ms');
-    // Not "present and undefined": the key is never assigned, so consumers can
-    // use `"payload" in err` to tell an OSF UI runtime refusal from a local give-up.
     expect('payload' in err).toBe(false);
   });
 
@@ -254,8 +214,6 @@ describe('no bridge — a plain-browser preview fails fast instead of hanging', 
   it('rejects ready with code "no-bridge"', async () => {
     const { helper } = loadHelper({ bridge: false });
 
-    // 1.x left `ready` pending forever in a plain browser, so every view that
-    // awaited it rendered nothing. A rejection is something a view can handle.
     const err = await caught(helper.ready);
     expect(err.code).toBe('no-bridge');
     expect(err.message).toBe('no bridge (standalone preview)');
@@ -264,8 +222,6 @@ describe('no bridge — a plain-browser preview fails fast instead of hanging', 
   it('reports the missing bridge as a NOTICE, not an authoring error', () => {
     loadHelper({ bridge: false });
 
-    // Standalone preview is a supported way to run a view, so it warns; the
-    // console.error sink is reserved for things the author should fix.
     expect(logged).toEqual([]);
     expect(warned).toHaveLength(1);
     expect(String(warned[0]![0])).toContain('[osfui] no bridge');
@@ -274,8 +230,6 @@ describe('no bridge — a plain-browser preview fails fast instead of hanging', 
   it('still resolves i18n.ready, so a view can render its inline English', async () => {
     const { helper } = loadHelper({ bridge: false });
 
-    // Views await i18n.ready before their first paint; leaving it pending would
-    // render a blank page in any plain browser.
     const catalog = await helper.i18n.ready;
     expect(catalog.locale).toBe('en');
     expect(Object.keys(catalog.strings)).toEqual([]);
@@ -322,9 +276,6 @@ describe('the client timer', () => {
     vi.useFakeTimers();
     const { helper } = loadHelper();
 
-    // Papyrus answers over the VM's async call queue, which routinely takes
-    // longer than a native handler; the platform default would time out a
-    // healthy call.
     const pending = caught(helper.papyrus.request('GetWeight', 0x14));
     await vi.advanceTimersByTimeAsync(15000);
     expect((await pending).message).toBe('"papyrus.request" got no reply within 15000ms');
@@ -350,8 +301,6 @@ describe('the client timer', () => {
     await vi.advanceTimersByTimeAsync(10000);
     expect((await pending).code).toBe('timeout');
 
-    // The OSF UI runtime is still free to answer — it does not know the page gave up.
-    // The frame must be inert rather than resolving an already-rejected promise.
     expect(() =>
       deliver(helper, { kind: 'reply', id: sent[1]!.id!, payload: { pong: true } }),
     ).not.toThrow();
@@ -375,9 +324,6 @@ describe('the client timer', () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    // This is no longer a hang: the OSF UI runtime's own 30 s deadline (kRequestDeadline)
-    // answers `no-response`, which is a DISTINCT code from `timeout` on purpose
-    // — "the endpoint handler never answered" versus "the page gave up".
     deliver(helper, {
       kind: 'error',
       id: sent[1]!.id!,
@@ -398,9 +344,6 @@ describe('the client timer', () => {
     vi.useFakeTimers();
     const { helper } = loadHelper();
 
-    // The default is chosen with `"timeoutMs" in opts`, so an explicit
-    // `{ timeoutMs: undefined }` opts out of the default and — not being > 0 —
-    // disables the client timer. Surprising, but it is what ships.
     void helper.request('ping', undefined, {}).catch(() => {});
     expect(vi.getTimerCount()).toBe(1);
 
@@ -417,8 +360,6 @@ describe('every failure reaches the page console with an [osfui] prefix', () => 
     expect(String(logged[0]![0])).toBe(
       '[osfui] request "demo.thing" failed: invalid-value — out of range',
     );
-    // The payload goes through as an OBJECT, not interpolated: DevTools expands
-    // it, which is the whole reason this is console.error and not a log line.
     expect(logged[0]![1]).toEqual({ code: 'invalid-value', message: 'out of range' });
   });
 

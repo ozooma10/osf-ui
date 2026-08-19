@@ -1,11 +1,11 @@
 #include "HostApp.h"
-#include "compat/v1/Navigation.h"
+#include "Compat/V1/Navigation.h"
 
 #include "EmbeddedScripts.h"
 
-#include "core/Version.h"
-#include "input/ScanCode.h"
-#include "runtime/Json.h"
+#include "Core/Version.h"
+#include "Input/ScanCode.h"
+#include "Core/Json.h"
 #include "Wv2BoundedQueue.h"
 #include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2LocalUri.h"
@@ -53,20 +53,11 @@ namespace osfui::wv2
 		using osfui::win32::ToUtf8;
 		using osfui::win32::ToWide;
 
-		// Shared with the plugin (runtime/Json.h). Json::Dump is the UTF-8-safe
-		// serializer — a strict dump() throws on a split sequence, and this
-		// side's writers have no handler above them either; Json::Parse is the
-		// non-throwing reader. `Json` (capitalized) is the namespace, distinct
-		// from the `json` value type used-in above.
 		namespace Json = OSFUI::Json;
 
 		// Wire message shapes, compiled by the game side too (Wv2Messages.h).
 		namespace msg = osfui::wv2::msg;
 
-		// Physical identity of an accelerator key (DIK convention), matching
-		// the game side's OverlayInputHook::MessageScanCode: compose from the
-		// message's scan fields, fall back to the layout's VK->scan mapping
-		// when a synthesized message carried none.
 		std::uint32_t ComposeAcceleratorScan(std::uint32_t a_vk,
 			std::uint32_t a_rawScan, bool a_extended)
 		{
@@ -95,9 +86,6 @@ namespace osfui::wv2
 				if (a_path.empty()) return;
 				std::error_code ec;
 				std::filesystem::create_directories(a_path.parent_path(), ec);
-				// Keep the previous session's log (mirrors the plugin's logRotate=1):
-				// after a crash the file is all the forensics there is, and it must
-				// survive the next launch or the report prompt has nothing to attach.
 				if (std::filesystem::exists(a_path, ec)) {
 					auto old = a_path;
 					old.replace_extension(".old.log");
@@ -112,8 +100,6 @@ namespace osfui::wv2
 				{
 					std::scoped_lock lock(mutex);
 					if (file.is_open()) {
-						// Date matches the plugin log's pattern so the two files
-						// correlate at a glance across sessions.
 						const auto now = std::chrono::system_clock::now();
 						file << std::format("[{:%m-%d %H:%M:%S}] [{}] {}\n",
 							std::chrono::floor<std::chrono::milliseconds>(now),
@@ -146,16 +132,9 @@ namespace osfui::wv2
 			void Error(const std::string& a_text) { Log(2, a_text); }
 		};
 
-		// Microsoft's permanent link to the WebView2 Evergreen Bootstrapper
-		// (see /microsoft-edge/webview2/concepts/distribution, "online-only
-		// deployment") — opening it downloads MicrosoftEdgeWebview2Setup.exe.
 		constexpr wchar_t kRuntimeDownloadUrl[] =
 			L"https://go.microsoft.com/fwlink/p/?LinkId=2124703";
 
-		// A missing WebView2 Evergreen Runtime leaves the overlay invisible, and players
-		// don't read logs — raise a real dialog. This process lives outside the
-		// game, so parking a throwaway thread in MessageBox is safe and topmost
-		// works over the (borderless) game window. At most one prompt per browser-host process.
 		void PromptInstallWebView2Runtime(Logger& a_log)
 		{
 			static std::atomic_bool prompted{ false };
@@ -182,10 +161,6 @@ namespace osfui::wv2
 			}).detach();
 		}
 
-		// Controller creation can fail after the WebView2 Runtime version probe and the
-		// environment callback have both succeeded. That leaves no browser surface
-		// in which to explain the problem, so use the same out-of-process native
-		// prompt as the missing-WebView2-Runtime path.
 		void PromptRepairWebView2Runtime(Logger& a_log, HRESULT a_hr)
 		{
 			static std::atomic_bool prompted{ false };
@@ -250,11 +225,6 @@ namespace osfui::wv2
 			static inline App* s_hostInputApp{ nullptr };
 			bool reparented{ false };
 
-			// One view = one composition controller + WebView2 targeting its own
-			// child ContainerVisual of the captured root, plus a 1x1 child HWND of
-			// hostWindow so focus and synthetic keys route per view. Only the root
-			// is captured: WGC sees the already-composited stack, so N views still
-			// cost one capture and one texture ring.
 			struct View
 			{
 				std::string id;
@@ -268,55 +238,20 @@ namespace osfui::wv2
 				bool controllerRequested{ false };
 				bool securityReady{ false };
 				bool hidden{ true };
-				// A standard HTML control (select, datalist, date/color picker)
-				// has asked Chromium to show native popup UI. That popup owns the
-				// next physical click, so the session-wide browser-host capture must stand
-				// down until the page reports that the picker closed.
 				bool nativePopupOpen{ false };
-				// Warn-once latch for scripted (non-gesture) window.open attempts;
-				// they are dropped, and one log line per view is enough evidence.
 				bool nonGestureOpenWarned{ false };
-				// Page -> browser-host traffic is untrusted even when nativeBridge=false:
-				// every document can call chrome.webview.postMessage directly.
-				// Bound both individual messages and accepted rate before they
-				// allocate pipe/game-side queue entries.
 				std::uint64_t pageMessageWindowStarted{ 0 };
 				std::uint32_t pageMessagesThisWindow{ 0 };
 				bool pageMessageTooLargeWarned{ false };
 				bool pageMessageFloodWarned{ false };
-				// One-shot hidden paint requested by the game. Unlike leaving the
-				// controller visible indefinitely, this primes Chromium without
-				// running closed-view animations for the rest of the session.
-				bool prewarm{ false };
-				bool prewarmPending{ false };
-				std::uint64_t prewarmDeadline{ 0 };
-				// Explicit idle suspension is latched by the game. Attempts are async;
-				// activityGeneration plus the browser-host-unique attempt id prevent a late
-				// callback from re-suspending an active or newly recreated view.
-				bool suspendRequested{ false };
-				bool suspendInFlight{ false };
-				bool suspended{ false };
-				bool suspendFailureLogged{ false };
-				std::uint64_t suspendActivityGeneration{ 0 };
-				std::uint64_t suspendAttemptId{ 0 };
-				std::uint64_t nextSuspendAttemptMs{ 0 };
-				// Manifest (authoring) height, set by `navigate`: the page lays out at
-				// this height and ApplyScale derives the rasterization scale from it.
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
-				// Manifest nativeBridge permission, set by `navigate`. False skips
-				// the window.osfui shim injection entirely (security-model.md rule
-				// 6); the game side independently drops any message from a
-				// bridge-less view, so this is defence in depth, not the only gate.
-				bool bridge{ true };
-				// Deferred visibility: a reveal waits for the page's first painted
-				// frame after Chromium resume, and hides wait for pending reveals.
 				bool          revealPending{ false };
 				bool          hideDeferred{ false };
 				std::uint64_t revealDeadline{ 0 };
 				std::string   revealToken;
 				std::uint64_t pendingPresentationEpoch{ 0 };
 				int  order{ 0 };
-				bool domSeen{ false }, navigationSucceeded{ false };
+				bool domSeen{ false };
 				std::wstring currentUrl;
 				std::optional<std::wstring> pendingNavigate;
 				std::deque<std::string> queuedPostWeb;
@@ -324,53 +259,18 @@ namespace osfui::wv2
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
 			View* inputTarget{ nullptr };  // mouse/focus/synthetic-key target
 			bool  captureStarted{ false };
-			std::uint64_t nextSuspendAttemptId{ 1 };
-
-			// accel state pushed by the game (touched only on the STA thread).
-			// Physical scan codes (DIK convention, input/ScanCode.h) since
-			// protocol 6.
 			std::uint32_t toggleScan{ 0x44 /*F10*/ }, captureUpScan{ 0 };
 			bool          captured{ false }, captureArmed{ false };
-			// Whether an input-capturing menu owns real OS focus. HUD-only views
-			// leave this false so Starfield stays foreground. During a grant the
-			// browser-host HWND captures legacy mouse input; keyboard/IME route naturally
-			// to Chromium, and the game polls XInput independently of its suspended
-			// Windows.Gaming.Input stream.
 			bool          focusGranted{ false };
 			bool          rawMouseRegistered{ false };
 			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
 			std::unordered_set<UINT> handledKeys;
-			// Warn-once dedupe for denied egress, per view and origin. Hostnames
-			// are page-controlled (`fetch('https://' + Math.random() + '.x/')`),
-			// so the set AND the log lines it admits must both be bounded, or a
-			// hostile page grows the log, the pipe, and this process without
-			// limit (docs/logging.md: "Nothing may log unboundedly"). Past the
-			// cap one terminal line announces that further denials are silent.
-			// Entries are dropped with their view.
 			static constexpr std::size_t kMaxEgressWarnsPerView = 32;
 			std::unordered_map<std::string, std::unordered_set<std::string>> egressWarned;
 			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
-			// NOTE: the "key" message used to PostMessage into the Chromium widget
-			// and mark each tap in a syntheticKeys map so AcceleratorKeyPressed
-			// would pass it to the page instead of round-tripping it to the game
-			// (a delegated Esc read as a fresh press caused an infinite ping-pong).
-			// Synthetic gamepad keys are delivered as DOM events by the bridge
-			// shim — no Win32 message or marker needed. Physical presses reach the
-			// accelerator path throughout an input-capturing menu session.
 
-			// Rebind capture of character keys. AcceleratorKeyPressed, this browser host's
-			// only key path, by design does not fire for keys that map to a character
-			// with neither Ctrl nor Alt held ("A key is considered an accelerator
-			// if ... the pressed key does not map to a character"), so F-keys, Esc
-			// and arrows rebind but letters and digits never reach the game. While a
-			// capture is armed, the Chromium focus widget's session subclass forwards
-			// WM_KEYDOWN over the same "accelerator" message. That subclass also
-			// catches focused WM_MOUSEWHEEL during input-capturing menus. It lives in the
-			// browser host rather than the game, so it cannot collide with SFSE WndProc hooks.
 			HWND    captureWidget{ nullptr };
 			WNDPROC captureWidgetProc{ nullptr };
-			// A WNDPROC cannot carry state and there is one App per browser-host process.
-			// Set only while the subclass is installed.
 			static inline App* s_app{ nullptr };
 
 			ComPtr<ID3D11Device>         device;
@@ -390,12 +290,6 @@ namespace osfui::wv2
 			std::atomic_bool   captureClosing{ true };
 			std::uint32_t      captureCadenceHz{ 0 };
 
-			// Shared texture ring: the capture thread owns it; ringMutex guards
-			// against teardown from the STA thread. WGC dirty rectangles are relative
-			// to the immediately previous capture, but a reused ring slot contains a
-			// frame from several publishes ago. Copying only the current dirty rects
-			// would therefore leave stale pixels; keep full copies unless per-slot
-			// dirty-history accumulation is added.
 			std::mutex ringMutex;
 			struct Slot
 			{
@@ -412,9 +306,6 @@ namespace osfui::wv2
 			std::uint32_t              lastSlot{ 0 };
 			std::mutex                 captureEpochMutex;
 			std::atomic<std::uint64_t> presentationEpoch{ 0 };
-			// Serials the game released without a GPU read (hidden overlay, stale
-			// ring): it has no device to CPU-signal the consume fence, so it acks
-			// over the pipe instead.
 			std::atomic<std::uint64_t> ackedSerial{ 0 };
 			std::uint64_t consumeWaitTimeouts{ 0 };
 
@@ -486,25 +377,9 @@ namespace osfui::wv2
 				}
 			}
 
-			// Deferred visibility. A hidden view's controller gets
-			// put_IsVisible(FALSE), which stops presentation and lets Chromium
-			// throttle rendering, so on unhide it needs a few frames before it paints.
-			// A menu switch arrives as
-			// hide-old + show-new in one policy batch, so applying it verbatim blanks
-			// the output for those frames. Instead: resume Chromium at once but keep
-			// the child visual hidden until the page confirms a painted frame
-			// (double-rAF sentinel posted as a web message the browser host intercepts), and
-			// hold the batch's hides until every pending reveal completes or times
-			// out — the old content stays up and the switch is one composition change.
 
 			static constexpr std::string_view kRevealSentinelPrefix = "__osfuiRevealReady:";
-			static constexpr const wchar_t* kPrewarmSentinelScript =
-				L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
-				L"setTimeout(function(){chrome.webview.postMessage('__osfuiPrewarmReady');},0);"
-				L"});});";
-			static constexpr std::string_view kPrewarmSentinel = "__osfuiPrewarmReady";
 			static constexpr std::uint64_t kRevealTimeoutMs = 300;
-			static constexpr std::uint64_t kSuspendRetryMs = 5000;
 
 			std::string NewRevealToken()
 			{
@@ -519,69 +394,6 @@ namespace osfui::wv2
 					kRevealSentinelPrefix,
 					::GetCurrentProcessId(),
 					fallback.fetch_add(1, std::memory_order_relaxed) + 1);
-			}
-
-			void ResumeCore(View& a_view)
-			{
-				if (!a_view.webView) return;
-				ComPtr<ICoreWebView2_3> webView3;
-				if (FAILED(a_view.webView.As(&webView3)) || !webView3) return;
-				const auto hr = webView3->Resume();
-				if (FAILED(hr)) {
-					log.Warn(std::format("view '{}': Resume failed (0x{:08X})",
-						a_view.id, static_cast<unsigned>(hr)));
-				} else {
-					a_view.suspended = false;
-				}
-			}
-
-			void NoteViewActivity(View& a_view, bool a_clearSuspendRequest)
-			{
-				const bool mayNeedResume = a_view.suspendRequested ||
-					a_view.suspendInFlight || a_view.suspended;
-				++a_view.suspendActivityGeneration;
-				if (a_clearSuspendRequest) {
-					a_view.suspendRequested = false;
-					a_view.nextSuspendAttemptMs = 0;
-				} else if (a_view.suspendRequested) {
-					a_view.nextSuspendAttemptMs = ::GetTickCount64() + kSuspendRetryMs;
-				}
-				if (mayNeedResume) {
-					// Explicit even though visibility/navigation can also auto-resume:
-					// PostWebMessage has no such documented guarantee, and a suspend
-					// attempt may still be completing asynchronously.
-					ResumeCore(a_view);
-				}
-			}
-
-			void BeginPrewarm(View& a_view)
-			{
-				if (!a_view.prewarm || !a_view.hidden) return;
-				if (!a_view.prewarmPending) {
-					NoteViewActivity(a_view, /*a_clearSuspendRequest=*/false);
-					a_view.prewarmPending = true;
-					a_view.prewarmDeadline = 0;
-					if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
-				}
-				// The request may arrive before navigation reaches DOMContentLoaded.
-				// Calling again there arms the paint handshake once rAF exists.
-				if (a_view.webView && a_view.domSeen) {
-					a_view.prewarmDeadline = ::GetTickCount64() + kRevealTimeoutMs;
-					a_view.webView->ExecuteScript(kPrewarmSentinelScript,
-						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
-				}
-			}
-
-			void CompletePrewarm(View& a_view)
-			{
-				if (!a_view.prewarmPending) return;
-				a_view.prewarmPending = false;
-				a_view.prewarmDeadline = 0;
-				if (a_view.hidden && a_view.controller) {
-					a_view.controller->put_IsVisible(FALSE);
-				}
-				log.Info(std::format("view '{}': hidden prewarm complete", a_view.id));
 			}
 
 			bool AnyRevealPending() const
@@ -609,21 +421,16 @@ namespace osfui::wv2
 				a_view.pendingPresentationEpoch = 0;
 				a_view.revealPending = false;  // cancel an in-flight reveal
 				a_view.revealToken.clear();
-				a_view.prewarmPending = false;
-				a_view.prewarmDeadline = 0;
 				a_view.hideDeferred = true;    // applied at batch end / reveal end
 				log.Info(std::format("view '{}': hide (deferred to batch end)", a_view.id));
 			}
 
 			void ShowView(View& a_view)
 			{
-				NoteViewActivity(a_view, /*a_clearSuspendRequest=*/true);
 				if (!a_view.hidden) {
 					a_view.hideDeferred = false;
 					log.Info(std::format("view '{}': show — already visible (visual={})",
 						a_view.id, a_view.visual && a_view.visual.IsVisible()));
-					// Nothing changes on screen, so WGC will not capture; republish
-					// the current (genuine, on-screen) pixels under the new epoch.
 					if (PromotePresentation(a_view)) {
 						RepublishLatest();
 					}
@@ -631,16 +438,10 @@ namespace osfui::wv2
 				}
 				a_view.hidden = false;
 				a_view.hideDeferred = false;
-				a_view.prewarmPending = false;
-				a_view.prewarmDeadline = 0;
-				// Visibility also auto-resumes, after the explicit Resume above; nothing
-				// paints while a successful TrySuspend remains in force.
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				if (a_view.visual && a_view.visual.IsVisible()) {
 					log.Info(std::format(
 						"view '{}': show — hide was still deferred, never left the screen", a_view.id));
-					// Same as above: the composition is unchanged, so only a
-					// republish gets a frame with this epoch to the game.
 					if (PromotePresentation(a_view)) {
 						RepublishLatest();
 					}
@@ -660,8 +461,6 @@ namespace osfui::wv2
 						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
 				} else {
-					// No page to ask (still loading / no controller yet): show
-					// directly; the OSF UI runtime's overlay reveal gate covers boot.
 					log.Info(std::format(
 						"view '{}': show — direct (visual={} webView={} domSeen={})", a_view.id,
 						a_view.visual != nullptr, a_view.webView != nullptr, a_view.domSeen));
@@ -693,105 +492,11 @@ namespace osfui::wv2
 					if (view->revealPending && now >= view->revealDeadline) {
 						CompleteReveal(*view, /*a_timedOut=*/true);
 					}
-					if (view->prewarmPending && view->prewarmDeadline != 0 &&
-						now >= view->prewarmDeadline) {
-						log.Info(std::format(
-							"view '{}': hidden prewarm sentinel timed out", view->id));
-						CompletePrewarm(*view);
-					}
-				}
-			}
-
-			void TickSuspends()
-			{
-				const auto now = ::GetTickCount64();
-				for (auto& owned : views) {
-					auto& view = *owned;
-					if (!view.suspendRequested || !view.hidden || view.hideDeferred ||
-						view.revealPending || view.prewarmPending || view.pendingNavigate ||
-						!view.domSeen || !view.controller || !view.webView ||
-						view.suspendInFlight || now < view.nextSuspendAttemptMs) {
-						continue;
-					}
-					BOOL controllerVisible = TRUE;
-					if (FAILED(view.controller->get_IsVisible(&controllerVisible)) ||
-						controllerVisible == TRUE) {
-						continue;
-					}
-					ComPtr<ICoreWebView2_3> webView3;
-					if (FAILED(view.webView.As(&webView3)) || !webView3) {
-						if (!view.suspendFailureLogged) {
-							view.suspendFailureLogged = true;
-							log.Warn(std::format("view '{}': TrySuspend API unavailable", view.id));
-						}
-						view.nextSuspendAttemptMs = now + kSuspendRetryMs;
-						continue;
-					}
-					BOOL actuallySuspended = FALSE;
-					if (SUCCEEDED(webView3->get_IsSuspended(&actuallySuspended)) &&
-						actuallySuspended == TRUE) {
-						view.suspended = true;
-						continue;
-					}
-					if (view.suspended) {
-						// An API resumed it outside the explicit activity paths. Observe
-						// reality and allow a short sync window before trying again.
-						view.suspended = false;
-						view.nextSuspendAttemptMs = now + kSuspendRetryMs;
-						continue;
-					}
-
-					const auto id = view.id;
-					const auto generation = view.suspendActivityGeneration;
-					const auto attemptId = nextSuspendAttemptId++;
-					view.suspendAttemptId = attemptId;
-					view.suspendInFlight = true;
-					view.nextSuspendAttemptMs = now + kSuspendRetryMs;
-					const auto hr = webView3->TrySuspend(
-						Callback<ICoreWebView2TrySuspendCompletedHandler>(
-							[this, id, generation, attemptId](HRESULT a_error, BOOL a_success) -> HRESULT {
-								auto* current = FindView(id);
-								if (!current || current->suspendAttemptId != attemptId) return S_OK;
-								current->suspendInFlight = false;
-								const bool stale = current->suspendActivityGeneration != generation ||
-									!current->suspendRequested || !current->hidden;
-								if (stale) {
-									if (SUCCEEDED(a_error) && a_success == TRUE) ResumeCore(*current);
-									return S_OK;
-								}
-								if (SUCCEEDED(a_error) && a_success == TRUE) {
-									current->suspended = true;
-									current->suspendFailureLogged = false;
-									log.Info(std::format("view '{}': idle suspend accepted", id));
-								} else {
-									current->suspended = false;
-									current->nextSuspendAttemptMs =
-										::GetTickCount64() + kSuspendRetryMs;
-									if (!current->suspendFailureLogged) {
-										current->suspendFailureLogged = true;
-										log.Warn(std::format(
-											"view '{}': TrySuspend declined (0x{:08X}); retrying while hidden",
-											id, static_cast<unsigned>(a_error)));
-									}
-								}
-								return S_OK;
-							}).Get());
-					if (FAILED(hr)) {
-						view.suspendInFlight = false;
-						if (!view.suspendFailureLogged) {
-							view.suspendFailureLogged = true;
-							log.Warn(std::format(
-								"view '{}': TrySuspend call failed (0x{:08X}); retrying while hidden",
-								view.id, static_cast<unsigned>(hr)));
-						}
-					}
 				}
 			}
 
 			void DestroyOneView(View& a_view)
 			{
-				// The session-input subclass may be sitting on this view's widget: unhook
-				// before the HWND goes away.
 				if (captureWidget && ::IsChild(a_view.window, captureWidget)) {
 					RemoveCaptureSubclass();
 				}
@@ -835,42 +540,17 @@ namespace osfui::wv2
 								return S_OK;
 							}
 							environment = a_environment;
-							// Views navigated before the environment came up have
-							// been waiting for their controllers.
 							for (auto& view : views) {
 								RequestController(*view);
 							}
 							return S_OK;
 						});
-				// This browser host is intentionally windowless in practice: Chromium renders
-				// into a DirectComposition visual that WGC captures, while the native
-				// owner stays a visible 1x1 child so it cannot cover or intercept the
-				// game. Chromium's Windows occlusion tracker can classify that tiny
-				// owner as occluded and background the otherwise-visible controller;
-				// telemetry then shows rAF snapping from the monitor cadence to ~24-30
-				// fps. Ignore native HWND occlusion for this capture-only browser. Keep
-				// visible renderers at foreground scheduling priority as well. The
-				// native owner never receives ordinary foreground activation, so Chromium
-				// can otherwise demote a busy renderer even after native occlusion
-				// backgrounding is disabled. Native occlusion can also be applied directly
-				// to Chromium's compositor through a separately field-trialled feature, so
-				// disable both the calculation and compositor policy for this capture-only
-				// HWND. Explicit put_IsVisible(FALSE) remains the lifecycle gate that
-				// suspends hidden OSF UI views.
 				auto environmentOptions = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
 				if (!environmentOptions) {
 					log.Error("could not allocate WebView2 environment options");
 					environmentRequested = false;
 					return false;
 				}
-				// Scrolling: Edge's "Windows scrolling personality" scales the wheel
-				// distance to a PERCENTAGE of the hovered scroller's height, so a
-				// short scroll container barely moves per notch while a tall one
-				// jumps — wheel feel then depends on which element the cursor is
-				// over. Disable it (under both names Chromium has shipped it —
-				// unknown feature names are ignored, so stale entries are harmless
-				// across WebView2 Runtime updates) while keeping the default smooth/impulse
-				// scroll ANIMATION, which is distance-neutral and reads well in-game.
 				constexpr wchar_t kCaptureBrowserArguments[] =
 					L"--disable-backgrounding-occluded-windows --disable-renderer-backgrounding "
 					L"--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor,"
@@ -891,9 +571,6 @@ namespace osfui::wv2
 				if (FAILED(hr)) {
 					log.Error(std::format("CreateCoreWebView2EnvironmentWithOptions failed (0x{:08X})",
 						static_cast<unsigned>(hr)));
-					// 0x80070002: the documented "WebView2 Runtime not found" result — a
-					// missing or broken Evergreen install that slipped past the
-					// startup version check.
 					if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
 						PromptInstallWebView2Runtime(log);
 					}
@@ -912,8 +589,6 @@ namespace osfui::wv2
 					return;
 				}
 				a_view.controllerRequested = true;
-				// Capture the id, not the View*: the view can be destroyed while the
-				// controller is still in flight.
 				const auto hr = environment3->CreateCoreWebView2CompositionController(
 					a_view.window,
 					Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
@@ -938,10 +613,6 @@ namespace osfui::wv2
 				}
 			}
 
-			// Window tree != process tree: parent this STA's browser-host child under the
-			// game's top-level window so Win32 focus/IME routing works, while the
-			// browser processes stay outside the game's job/hooks. Runs once, on the
-			// first controller success.
 			void EnsureReparented()
 			{
 				if (reparented || !gameTopLevel) return;
@@ -1024,11 +695,6 @@ namespace osfui::wv2
 						"composition controller created but CoreWebView2 was unavailable");
 					return S_OK;
 				}
-				// The Edge context menu is a real HWND-backed popup outside our
-				// captured visual tree: it would draw over the game unclipped, and its
-				// Back/Reload/Save/Inspect entries are meaningless for a mod view.
-				// Suppressing it does NOT suppress the DOM `contextmenu` event, so
-				// right-click still reaches page script.
 				ComPtr<ICoreWebView2Settings> settings;
 				if (SUCCEEDED(a_view.webView->get_Settings(&settings)) && settings) {
 					settings->put_AreDefaultContextMenusEnabled(FALSE);
@@ -1040,16 +706,11 @@ namespace osfui::wv2
 				a_view.controller->put_Bounds(
 					RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
 				ApplyScale(a_view);
-				// Apply the current hidden state, except during the one-shot prewarm:
-				// an invisible controller suspends Chromium rendering entirely.
-				a_view.controller->put_IsVisible(
-					a_view.hidden && !a_view.prewarmPending ? FALSE : TRUE);
+				a_view.controller->put_IsVisible(a_view.hidden ? FALSE : TRUE);
 				ComPtr<ICoreWebView2Controller2> controller2;
 				if (SUCCEEDED(a_view.controller.As(&controller2))) {
 					controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 });
 				}
-				// The view's own child visual under the captured root; order and
-				// visibility live on it.
 				a_view.visual = compositor.CreateContainerVisual();
 				a_view.visual.Size({ static_cast<float>(width), static_cast<float>(height) });
 				a_view.visual.IsVisible(!a_view.hidden);
@@ -1074,9 +735,6 @@ namespace osfui::wv2
 						static_cast<unsigned>(result)));
 					return S_OK;
 				}
-				// Navigation and all authored page execution stay blocked until
-				// the asynchronous document-created egress script is confirmed.
-				// InstallNetworkGuard completes the rest of controller setup.
 				result = InstallNetworkGuard(a_view);
 				if (FAILED(result)) {
 					ReportSecurityFailure(a_view, result,
@@ -1103,20 +761,7 @@ namespace osfui::wv2
 				if (quit.load() || a_view.securityReady || !a_view.webView) return;
 				a_view.securityReady = true;
 				InstallEvents(a_view);
-				if (a_view.bridge) {
-					InstallBridgeShim(a_view);
-				} else {
-					log.Info(std::format(
-						"view '{}': nativeBridge=false — window.osfui not injected", a_view.id));
-				}
-				// HUD-only mode leaves the widget OS-unfocused, and an unfocused renderer stops matching
-				// :focus/:focus-visible/:focus-within and reports
-				// document.hasFocus()=false — so focus styling (padnav's ring,
-				// any view's own focus affordances) silently doesn't render even
-				// though navigation works (2026-07-21 report: "arrows/gamepad
-				// don't move focus"; they did — invisibly). Emulate document focus at
-				// the CDP layer. Input-capturing menus additionally get
-				// real focus for their full session.
+				InstallBridgeShim(a_view);
 				a_view.webView->CallDevToolsProtocolMethod(
 					L"Emulation.setFocusEmulationEnabled", LR"({"enabled":true})",
 					Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
@@ -1169,32 +814,11 @@ namespace osfui::wv2
 					end == std::wstring::npos ? std::wstring::npos : end - start);
 			}
 
-			// True only for the virtual-host origin the folder mapping serves.
-			// The "/" (or end-of-string) right after the host is load-bearing:
-			// it rejects https://osfui.local.evil.com/ and userinfo tricks like
-			// https://osfui.local@evil.com/ without parsing the URI.
-			// The decision itself lives in Wv2LocalUri.h so tests/native can
-			// exercise it without a Windows browser-host process.
 			[[nodiscard]] bool IsLocalViewUri(std::wstring a_uri) const
 			{
 				return osfui::wv2::IsLocalViewUri(std::move(a_uri), virtualHost);
 			}
 
-			// security-model.md rule 2 (default-deny egress): everything a view may
-			// legitimately load lives under the virtual-host folder mapping, so any
-			// other destination is exfiltration surface. Two mechanisms, because no
-			// single one covers everything:
-			// - a WebResourceRequested filter answers non-local http(s) requests
-			//   (documents, fetch/XHR, media, SSE; with source-kind ALL also
-			//   service/shared-worker-initiated ones) locally with 403;
-			// - WebResourceRequested cannot see non-HTTP transports, so the
-			//   document-created script below removes their entry points
-			//   (WebSocket, WebRTC, WebTransport) from every document instead.
-			// Non-network schemes (about:, data:, blob:, devtools:) stay unfiltered.
-			// Deliberate non-exceptions: devMode is NOT exempt (harness dev happens
-			// in a desktop browser), and target=_blank links are unaffected — the
-			// NewWindowRequested handler hands those to the OS default browser
-			// without this WebView ever fetching them.
 			HRESULT InstallNetworkGuard(View& a_view)
 			{
 				View* view = &a_view;
@@ -1256,23 +880,6 @@ namespace osfui::wv2
 						a_view.id, static_cast<unsigned>(eventHr)));
 					return eventHr;
 				}
-				// The channels the request filter can't see. Runs in every document
-				// (iframes included) before any page script; the non-configurable
-				// define means page code cannot restore the constructor, and
-				// `undefined` keeps feature detection on the graceful-degradation
-				// path. Two groups:
-				// - transports: WebSocket/WebRTC/WebTransport are non-HTTP, so the
-				//   403 filter never sees them.
-				// - workers: a Worker/SharedWorker loaded from a network URL gets its
-				//   OWN CSP from its script response, not the document's, and this
-				//   script does not run in worker scopes — so a worker is the one
-				//   place the transport neutering above wouldn't reach. WebView2's
-				//   folder mapping serves worker scripts internally without raising
-				//   WebResourceRequested, so a per-response CSP header isn't an
-				//   option either. Removing the constructors closes that scope
-				//   entirely. Views are local, no-network mod UIs; none use workers.
-				//   (Service workers are unaffected here but have no WebSocket, and
-				//   their fetches are already caught by the request filter.)
 				const auto viewId = a_view.id;
 				const auto scriptHr = AddDocumentScript(a_view, EmbeddedScript::NetworkGuard,
 					[this, viewId](const HRESULT a_scriptHr) {
@@ -1298,9 +905,6 @@ namespace osfui::wv2
 
 			void InstallEvents(View& a_view)
 			{
-				// Views live behind stable unique_ptrs and their controllers are
-				// Close()d before removal, so the raw View* in these callbacks cannot
-				// outlive the view.
 				View* view = &a_view;
 				EventRegistrationToken token{};
 				a_view.compositionController->add_CursorChanged(
@@ -1317,10 +921,6 @@ namespace osfui::wv2
 				a_view.controller->add_GotFocus(
 					Callback<ICoreWebView2FocusChangedEventHandler>(
 						[this](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
-							// Once the requested menu focus has landed, foreground mouse
-							// capture is permitted and replaces Starfield's now-suspended
-							// raw-input stream. An unsolicited focus grab outside a menu
-							// session is still bounced back immediately.
 							if (focusGranted) {
 								ApplyMouseCapture();
 								ReconcileInputWidgetSubclass();
@@ -1346,10 +946,6 @@ namespace osfui::wv2
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
 							const auto scan = ComposeAcceleratorScan(key,
 								physical.ScanCode, physical.IsExtendedKey != FALSE);
-							// Only physical presses arrive here; synthetic gamepad keys
-							// are DOM events and never reach this hook.
-							// Synchronous stand-in for Runtime::OnNativeAcceleratorKey;
-							// the game keeps this state fresh over the pipe (accelState).
 							const bool frameworkOwned =
 								captureArmed ||
 								(captureUpScan != 0 && scan == captureUpScan) ||
@@ -1357,12 +953,6 @@ namespace osfui::wv2
 								(devMode && key == VK_F12) ||
 								(key == 0x1B && captured);
 							const bool alreadyHandled = handledKeys.contains(key);
-							// Opening a menu transfers keyboard focus from Starfield
-							// to this WebView while the opening toggle can still be
-							// physically down. Its first auto-repeat therefore arrives
-							// here without a matching initial down in handledKeys.
-							// WasKeyDown identifies both that cross-focus repeat and
-							// ordinary repeats; neither is a second toggle intent.
 							const bool duplicateDown = down &&
 								(alreadyHandled || (frameworkOwned && physical.WasKeyDown));
 							bool handled = duplicateDown;
@@ -1435,21 +1025,13 @@ namespace osfui::wv2
 								}
 								return S_OK;
 							}
-							if (text == kPrewarmSentinel) {
-								// Browser-host-internal one-shot warmup; not forwarded.
-								CompletePrewarm(*view);
-								return S_OK;
-							}
 							static constexpr std::string_view kNativePopupPrefix = "__osfuiNativePopup:";
 							if (text.starts_with(kNativePopupPrefix)) {
-								// Browser-host-internal input handshake; authored controls
-								// must be able to use Chromium's standard popup UI.
 								view->nativePopupOpen =
 									text.substr(kNativePopupPrefix.size()) == "1";
 								if (inputTarget == view) ApplyMouseCapture();
 								return S_OK;
 							}
-							if (!view->bridge) return S_OK;
 							Send(msg::ToJson(msg::WebMessage{ .view = view->id,
 								.json = std::move(text) }));
 							return S_OK;
@@ -1458,16 +1040,7 @@ namespace osfui::wv2
 					Callback<ICoreWebView2NewWindowRequestedEventHandler>(
 						[this, view](ICoreWebView2*,
 							ICoreWebView2NewWindowRequestedEventArgs* a_args) -> HRESULT {
-							// Views are local content; a target="_blank" link (e.g. the
-							// Mod Settings "needs update" tag pointing at Nexus) means
-							// "leave the game". Unhandled, WebView2 would spawn a popup
-							// window over the game instead.
 							a_args->put_Handled(TRUE);
-							// Only a real user gesture (a click on a link) may leave the
-							// game. A scripted window.open never issues a network request,
-							// so InstallNetworkGuard's default-deny cannot see it — without
-							// this gate it is an egress channel around security-model.md
-							// rule 2, carrying any payload in the query string.
 							BOOL userInitiated = FALSE;
 							if (FAILED(a_args->get_IsUserInitiated(&userInitiated)) ||
 								!userInitiated) {
@@ -1514,10 +1087,6 @@ namespace osfui::wv2
 								.url = ToUtf8(view->currentUrl),
 								.description = success ? "" : "WebView2 navigation failed",
 								.code = static_cast<std::int32_t>(status) }));
-							view->navigationSucceeded = success == TRUE;
-							if (!view->navigationSucceeded && view->prewarmPending) {
-								CompletePrewarm(*view);
-							}
 							return S_OK;
 						}).Get(), &token);
 				ComPtr<ICoreWebView2_2> webView2;
@@ -1527,7 +1096,6 @@ namespace osfui::wv2
 							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs*) -> HRESULT {
 								view->domSeen = true;
 								DrainQueuedViewWork(*view);
-								BeginPrewarm(*view);
 								return S_OK;
 							}).Get(), &token);
 				}
@@ -1540,23 +1108,11 @@ namespace osfui::wv2
 								view->id, static_cast<int>(kind)));
 							switch (kind) {
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED:
-								// The whole environment died with the browser process;
-								// every controller is dead COM and a Navigate cannot
-								// revive anything. Exit so the pipe drop reaches the
-								// OSF UI runtime's browser-host-loss path (overlay hidden, logged)
-								// instead of leaving a zombie browser host the game still
-								// believes in.
 								byeReason = "browser-process-exited";
 								quit.store(true);
 								break;
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED:
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE:
-								// This view's content is gone/hung but the webView
-								// object survives, and a Navigate revives it — report
-								// a failed load so the game's crash-recovery reload
-								// reacts (Runtime::OnViewLoad) rather than leaving a
-								// blank input-capturing shell.
-								view->navigationSucceeded = false;
 								view->domSeen = false;
 								Send(msg::ToJson(msg::LoadEvent{
 									.view = view->id,
@@ -1574,10 +1130,6 @@ namespace osfui::wv2
 							}
 							return S_OK;
 						}).Get(), &token);
-				// devMode only: the game side registers a console handler solely in
-				// devMode, so forwarding in release would cross the pipe just to be
-				// dropped (and Runtime.enable keeps DevTools instrumentation live in
-				// every renderer for nothing).
 				if (devMode &&
 					SUCCEEDED(a_view.webView->GetDevToolsProtocolEventReceiver(
 						L"Runtime.consoleAPICalled", &a_view.consoleReceiver)) &&
@@ -1594,11 +1146,6 @@ namespace osfui::wv2
 								}
 								return S_OK;
 							}).Get(), &token);
-					// Uncaught exceptions are NOT console calls: a view whose boot code
-					// throws logs nothing through consoleAPICalled, so the game side
-					// used to see a perfectly healthy load event over a blank page.
-					// Forward them through the same console channel, pre-shaped as a
-					// console.error so the game-side parser needs no special case.
 					if (SUCCEEDED(a_view.webView->GetDevToolsProtocolEventReceiver(
 							L"Runtime.exceptionThrown", &a_view.exceptionReceiver)) &&
 						a_view.exceptionReceiver) {
@@ -1613,17 +1160,10 @@ namespace osfui::wv2
 									const auto raw = ToUtf8(value);
 									::CoTaskMemFree(value);
 									std::string text = raw;
-									// Page-authored CDP payload: lenient throughout, and
-									// total — the try/catch this replaced existed because
-									// json::parse and .value() both throw, on a callback
-									// where an escape is a std::terminate.
 									if (const auto parsed = Json::Parse(raw)) {
 										const json  empty = json::object();
 										const auto* found = Json::GetObject(*parsed, "exceptionDetails");
 										const json& details = found ? *found : empty;
-										// `description` carries the stack; fall back to the
-										// bare text ("Uncaught") plus location when a
-										// non-Error value was thrown.
 										const auto* thrown = Json::GetObject(details, "exception");
 										text = Json::Get(thrown ? *thrown : empty, "description",
 											Json::Get(details, "text", "uncaught exception"));
@@ -1695,9 +1235,6 @@ namespace osfui::wv2
 						});
 					captureSession = framePool.CreateCaptureSession(captureItem);
 					try { captureSession.IsCursorCaptureEnabled(false); } catch (...) {}
-					// Input-capturing menus get a permissive ceiling so capture can follow a
-					// high-refresh foreground WebView. HUD-only mode is deliberately capped
-					// at 60 Hz to bound capture/copy pressure while gameplay owns the GPU.
 					ApplyCaptureCadence();
 					captureSession.StartCapture();
 					return true;
@@ -1716,9 +1253,6 @@ namespace osfui::wv2
 					decltype(a_pool.TryGetNextFrame()) capturedFrame{ nullptr };
 					std::uint64_t framePresentationEpoch = 0;
 					{
-						// Recreate+promotion takes the same lock. A callback
-						// therefore either removes an old queued frame with the
-						// old epoch, or observes the newly drained pool and epoch.
 						std::scoped_lock epochLock(captureEpochMutex);
 						framePresentationEpoch =
 							presentationEpoch.load(std::memory_order_acquire);
@@ -1731,8 +1265,6 @@ namespace osfui::wv2
 					winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(&source)));
 					D3D11_TEXTURE2D_DESC desc{};
 					source->GetDesc(&desc);
-					// No warmup drop: a static page may paint fewer than 3 times in
-					// total, so the first captured frame has to publish.
 					PublishFrame(source.Get(), desc.Width, desc.Height,
 						framePresentationEpoch);
 				} catch (const winrt::hresult_error& a_error) {
@@ -1746,15 +1278,11 @@ namespace osfui::wv2
 			{
 				if (!a_view.webView) return;
 				if (a_view.pendingNavigate) {
-					a_view.domSeen = a_view.navigationSucceeded = false;
-					a_view.prewarmPending = false;
-					a_view.prewarmDeadline = 0;
+					a_view.domSeen = false;
 					a_view.currentUrl = *a_view.pendingNavigate;
 					a_view.pendingNavigate.reset();
-					if (a_view.prewarm && a_view.hidden) BeginPrewarm(a_view);
 					const auto hr = a_view.webView->Navigate(a_view.currentUrl.c_str());
 					if (FAILED(hr)) {
-						CompletePrewarm(a_view);
 						Send(msg::ToJson(msg::LoadEvent{ .view = a_view.id,
 							.failed = true,
 							.url = ToUtf8(a_view.currentUrl),
@@ -1763,9 +1291,6 @@ namespace osfui::wv2
 					}
 				}
 				if (!a_view.domSeen) return;
-				if (!a_view.queuedPostWeb.empty()) {
-					NoteViewActivity(a_view, /*a_clearSuspendRequest=*/false);
-				}
 				for (auto& message : a_view.queuedPostWeb) {
 					const auto wide = ToWide(message);
 					a_view.webView->PostWebMessageAsString(wide.c_str());
@@ -1773,22 +1298,11 @@ namespace osfui::wv2
 				a_view.queuedPostWeb.clear();
 			}
 
-			// Bounds are physical pixels (always the output size, so the composited
-			// stack maps 1:1); the rasterization scale is what makes the page lay out
-			// at its manifest height and scales CSS px up to output pixels. Without
-			// it a view lays out at scale 1.0 against the full output resolution,
-			// i.e. undersized on any display taller than the manifest (visibly so at
-			// 1440p/4K). ShouldDetectMonitorScaleChanges must be off, or WebView2
-			// folds the monitor's DPI in on top of ours and the result becomes
-			// machine-dependent.
 			void ApplyScale(View& a_view)
 			{
 				if (!a_view.controller) return;
 				ComPtr<ICoreWebView2Controller4> controller4;
 				if (FAILED(a_view.controller.As(&controller4)) || !controller4) {
-					// Pre-1.0.1108 WebView2 Runtime: no rasterization scale to set, so the page
-					// renders unscaled. Logged once per view so an odd-looking overlay
-					// is traceable.
 					log.Warn(std::format("view '{}': ICoreWebView2Controller4 unavailable — "
 						"rasterization scale not applied (WebView2 Runtime too old)", a_view.id));
 					return;
@@ -1827,13 +1341,8 @@ namespace osfui::wv2
 				} catch (const winrt::hresult_error& a_error) {
 					log.Warn(std::format("frame pool resize failed: {}", ToUtf8(a_error.message())));
 				}
-				// The ring recreates lazily on the next capture at the new dimensions
-				// (PublishFrame -> EnsureRing).
 			}
 
-			/// The input-target view's Chromium widget: the HWND that holds keyboard
-			/// focus during an input-capturing menu session. The session input path
-			/// subclasses it for wheel/rebind messages (synthetic keys are DOM events).
 			HWND FindInputTargetWidget() const
 			{
 				HWND widget = ::GetFocus();
@@ -1856,9 +1365,6 @@ namespace osfui::wv2
 				return widget;
 			}
 
-			/// Keeps one subclass while either native menu focus needs physical
-			/// wheel routing or key-rebind capture needs character-key interception.
-			/// Idempotent and safe across view switches/teardown.
 			void ReconcileInputWidgetSubclass()
 			{
 				if (captureArmed || focusGranted) {
@@ -1885,9 +1391,6 @@ namespace osfui::wv2
 				if (!focusGranted || !inputTarget || !inputTarget->compositionController) {
 					return false;
 				}
-				// Raw input is the authoritative physical-wheel source while native
-				// menu focus is live. A legacy WM_MOUSEWHEEL can still reach a
-				// same-process widget on some WebView2 builds; consume that duplicate.
 				if (rawMouseRegistered) return true;
 
 				const auto delta = static_cast<SHORT>(HIWORD(a_wparam));
@@ -1904,8 +1407,6 @@ namespace osfui::wv2
 			void RemoveCaptureSubclass()
 			{
 				if (!captureWidget) return;
-				// Only unhook if we are still the installed proc: restoring blindly
-				// over someone else's later subclass would strand it.
 				const auto current = reinterpret_cast<WNDPROC>(
 					::GetWindowLongPtrW(captureWidget, GWLP_WNDPROC));
 				if (current == &CaptureWndProc && captureWidgetProc) {
@@ -1917,17 +1418,12 @@ namespace osfui::wv2
 				s_app = nullptr;  // after the restore above, never before
 			}
 
-			/// Runs on the browser host's UI thread (the widget's own thread, same one as the
-			/// message pump), so it touches app state directly.
 			static LRESULT CALLBACK CaptureWndProc(
 				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
 				auto* self = s_app;
 				if (self && a_msg == WM_MOUSEWHEEL &&
 					self->SendFocusedMouseWheel(a_wparam)) {
-					// Wheel messages target the keyboard-focused Chromium widget,
-					// not the HWND holding SetCapture. Forward explicitly into the
-					// windowless composition controller and suppress duplication.
 					return 0;
 				}
 				if (self && self->captureArmed &&
@@ -1938,9 +1434,6 @@ namespace osfui::wv2
 						const auto scan = ComposeAcceleratorScan(vk,
 							static_cast<std::uint32_t>((a_lparam >> 16) & 0xFF),
 							(a_lparam & 0x01000000) != 0);
-						// Same envelope as the accelerator path, so the game side
-						// needs no new message type. Swallowed: mid-rebind the
-						// press is a binding, not text for the page.
 						self->Send(msg::ToJson(msg::Accelerator{
 							.vk = vk, .scan = scan, .down = true }));
 						return 0;
@@ -1987,15 +1480,6 @@ namespace osfui::wv2
 				rawMouseRegistered = a_enabled;
 			}
 
-			/// View-space position of the REAL pointer, sampled at call time.
-			/// The wheel must scroll whatever the page shows under the visible
-			/// cursor, and `capturedMouseX/Y` cannot be trusted for that: it has
-			/// two writers (the captured-HWND scaler and game-pipe moves carrying
-			/// the OSF UI runtime's virtual cursor), and whichever wrote last wins — a
-			/// stale or drifted pipe move parks it at the clamp corner and every
-			/// wheel notch then targets a dead pixel. Same scaling math as
-			/// SendCapturedMouse; falls back to the cache only when the game
-			/// window cannot be resolved (minimized/teardown).
 			[[nodiscard]] POINT LiveWheelPoint() const
 			{
 				POINT point{};
@@ -2059,8 +1543,6 @@ namespace osfui::wv2
 					static_cast<SHORT>(LOWORD(a_lparam)),
 					static_cast<SHORT>(HIWORD(a_lparam))
 				};
-				// Wheel messages carry screen coordinates; the other legacy mouse
-				// messages are relative to our captured 1x1 browser-host HWND.
 				if (a_msg != WM_MOUSEWHEEL) {
 					::ClientToScreen(hostWindow, &point);
 				}
@@ -2110,9 +1592,6 @@ namespace osfui::wv2
 				}
 				if (self && self->focusGranted) {
 					if (a_msg == WM_SETCURSOR) {
-						// While this HWND owns capture, the game no longer receives
-						// mouse packets on which to apply CursorChanged. Apply the
-						// composition controller's current CSS system cursor here.
 						UINT32 id = 0;
 						if (self->inputTarget && self->inputTarget->compositionController &&
 							SUCCEEDED(self->inputTarget->compositionController->get_SystemCursorId(&id))) {
@@ -2136,21 +1615,13 @@ namespace osfui::wv2
 
 			void SendMouse(const json& a_msg)
 			{
-				// Mouse always targets the input-target view. The OSF UI runtime selects the
-				// active menu, so sibling views never see the pointer.
 				if (!inputTarget || !inputTarget->compositionController) return;
 				const auto mouse = msg::FromJson<msg::Mouse>(a_msg);
 				const std::string& kind = mouse.kind;
 				const bool physicalWheel = kind == "physicalWheel";
-				// Prefer direct browser-host raw input and discard the later game-pipe
-				// fallback so one physical notch scrolls exactly once.
 				if (physicalWheel && rawMouseRegistered) return;
 				int x = mouse.x;
 				int y = mouse.y;
-				// Right-stick scrolling still arrives over the pipe. Once the browser host
-				// owns physical mouse capture, target the real pointer sampled at
-				// send time rather than the game-window path's now-stale WM_INPUT
-				// position (see LiveWheelPoint for why the cache cannot be used).
 				if (focusGranted && (kind == "wheel" || physicalWheel)) {
 					const POINT at = LiveWheelPoint();
 					x = at.x;
@@ -2196,8 +1667,6 @@ namespace osfui::wv2
 					++drained;
 				}
 				if (gameMessages.Size() != 0) ::SetEvent(wakeEvent);
-				// Hides deferred within this batch apply now, unless a reveal is
-				// still waiting on its incoming view's first painted frame.
 				if (!AnyRevealPending()) ApplyDeferredHides();
 			}
 
@@ -2275,8 +1744,6 @@ namespace osfui::wv2
 					};
 					while (!quit.load()) {
 						if (!SendHeartbeatIfDue()) break;
-						// Short timeout only while a reveal awaits its paint sentinel,
-						// so the timeout fallback stays responsive.
 						const DWORD wait = ::MsgWaitForMultipleObjectsEx(
 							2, waits, AnyRevealPending() ? 50 : 1000,
 							QS_ALLINPUT, MWMO_INPUTAVAILABLE);
@@ -2285,9 +1752,6 @@ namespace osfui::wv2
 							break;
 						}
 						if (pipeDead.load()) {
-							// A game exit can tear down the pipe a few milliseconds before
-							// Windows signals the process handle. Resolve that race before
-							// treating pipe loss as an ordinary renderer shutdown.
 							if (!captureGameExit(1000)) {
 								log.Info("pipe closed while game remained active — shutting down");
 							}
@@ -2299,11 +1763,6 @@ namespace osfui::wv2
 								gameWindowMissingSince = now;
 								log.Warn("game window disappeared before the process/pipe watchers fired");
 							}
-							// The game may have recreated its top-level window
-							// (display-device change, fullscreen transition) rather
-							// than exited. Re-resolve by PID before concluding it is
-							// gone; visible-only, so the game's hidden utility windows
-							// (DXGI, IME) cannot satisfy the check forever.
 							struct FindCtx { DWORD pid; HWND found; } findCtx{
 								::GetProcessId(gameProcess), nullptr };
 							if (findCtx.pid != 0) {
@@ -2340,7 +1799,6 @@ namespace osfui::wv2
 						}
 						DrainGameMessages();
 						TickReveals();
-						TickSuspends();
 						MSG message{};
 						while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
 							::TranslateMessage(&message);
@@ -2422,9 +1880,6 @@ namespace osfui::wv2
 			return 3;
 		}
 
-		// Pipe before OpenProcess: once log.pipe is set, every warning/error below
-		// is forwarded into the game's own log, so a startup death is diagnosable
-		// from "OSF UI.log" alone. The game tolerates log messages before hello.
 		app.pipe.PrepareForOpen();
 		if (!app.pipe.Connect(a_options.pipeName, 15000)) {
 			app.log.Error("pipe connect failed: " + app.pipe.LastErrorText());

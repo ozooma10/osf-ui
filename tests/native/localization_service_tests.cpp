@@ -1,9 +1,7 @@
-// Native desktop coverage for the English-source localization catalog and locale
-// fallback rules. Compiles the real service; no game/Windows dependency.
 
-#include "runtime/LocalizationService.h"
+#include "Localization/LocalizationService.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace
@@ -23,8 +21,8 @@ namespace OSFUI::Log
 	{
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
-	bool DevMode() { return true; }
-	void SetDevMode(bool) {}
+	bool DebugEnabled() { return true; }
+	void SetDebugLogging(bool) {}
 }
 
 int main()

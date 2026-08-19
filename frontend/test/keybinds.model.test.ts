@@ -33,9 +33,6 @@ function gameAction(event: string, label: string, key: string): KeybindingsData[
   };
 }
 
-// Hotkey-context resolution itself is @lib/settings/hotkeyContext (covered in
-// settings.hotkey-context.test.ts); these assert the keybinds model delegates to
-// it and localizes the implicit-context label.
 describe('buildModel hotkey contexts', () => {
   const contexts = [{ id: 'menu', label: 'Menu', blocksGameplay: true }];
 
@@ -114,8 +111,6 @@ describe('buildModel', () => {
             { key: 'unbound', type: 'key' },
             { key: 'missing', type: 'key' },
           ],
-          // "" is the allowUnbound state: no row, so an unbound key can never
-          // conflict with anything.
           values: { bound: 'F5', unbound: '' },
         }),
       ],
@@ -222,8 +217,6 @@ describe('buildModel', () => {
         key: 'Console',
         label: 'Console',
         owner: 'Starfield',
-        // The game binding's name is alias-folded too, so it groups with a mod that
-        // stored "Grave".
         name: 'Grave',
         keyLabel: 'Grave',
         engineInputContextName: 'MainGameplay',
@@ -282,8 +275,6 @@ describe('buildModel', () => {
   });
 
   it('degrades falsy (not just nullish) groups/settings/values to empty', () => {
-    // A hand-edited or hostile manifest carrying `groups: 0` must degrade to no
-    // rows, not throw out of the for-of and kill the whole render.
     const junk = [
       { id: 'a', schema: { groups: 0 } },
       { id: 'b', schema: { groups: [{ settings: 0 }] } },
@@ -293,8 +284,6 @@ describe('buildModel', () => {
   });
 
   it('skips null entries rather than throwing (documented divergence)', () => {
-    // Native never sends a null entry; skipping one beats throwing out of the
-    // render.
     const rows = buildModel(
       [null, mod({ id: 'm', settings: [{ key: 'k', type: 'key' }], values: { k: 'F1' } })] as
         unknown as ModEntry[],

@@ -64,8 +64,6 @@ int main()
 		::CloseHandle(watchdogDone);
 	}).detach();
 
-	// Close must remain sticky if the owner stops immediately after spawning
-	// the connection worker, before that worker reaches its open call.
 	for (int i = 0; i < 32; ++i) {
 		Pipe server;
 		server.PrepareForOpen();
@@ -79,8 +77,6 @@ int main()
 		CHECK(!accepted);
 	}
 
-	// Also prove cancellation after ConnectNamedPipe is waiting on a server
-	// handle that was published before any client launch.
 	{
 		Pipe server;
 		server.PrepareForOpen();
@@ -108,9 +104,6 @@ int main()
 	CHECK(client.ReadMessage(payload));
 	CHECK(payload == "round-trip");
 
-	// A connected peer that sends no hello/data cannot park the handshake
-	// forever. The timeout cancels its exact overlapped read; the caller then
-	// treats that stream as terminal and closes it.
 	{
 		Pipe timeoutServer;
 		Pipe silentClient;
@@ -137,8 +130,6 @@ int main()
 	CHECK(!read);
 	client.Close();
 
-	// A write larger than the pipe buffer parks until the peer drains it. Closing
-	// concurrently must cancel that write rather than waiting on the writer lock.
 	CHECK(ConnectPair(server, client));
 	bool wrote = true;
 	bool queuedWrote = true;

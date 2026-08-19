@@ -1,14 +1,8 @@
-// Native desktop unit tests for the SubscribeSettings bookkeeping: the REAL
-// src/api/SettingsSubscriptions.cpp — replay on
-// subscribe, queued change dispatch, unsubscribe semantics, and its
-// integration with the real SettingsStore + SettingsMirror wired exactly like
-// Runtime::BuildModules does — compiled against stubs/pch.h on the desktop
-// toolchain. Assert-style; process exit code is the failure count.
 
-#include "api/SettingsSubscriptions.h"
-#include "runtime/SettingsStore.h"
+#include "API/SettingsSubscriptions.h"
+#include "Settings/SettingsStore.h"
 
-#include "core/Log.h"
+#include "Core/Log.h"
 #include "check.h"
 
 namespace
@@ -21,6 +15,13 @@ namespace
 		std::string valueJson;
 	};
 	using Trace = std::vector<Record>;
+
+	void WriteFile(const std::filesystem::path& a_path, std::string_view a_text)
+	{
+		std::filesystem::create_directories(a_path.parent_path());
+		std::ofstream out(a_path, std::ios::binary | std::ios::trunc);
+		out << a_text;
+	}
 
 	void Recorder(const char* a_mod, const char* a_key, const char* a_valueJson, void* a_user) noexcept
 	{
@@ -46,8 +47,6 @@ namespace
 		call.cv.wait(lock, [&] { return call.release; });
 	}
 
-	// The (key -> valueJson) view of a trace slice, for order-insensitive
-	// replay assertions (mirror iteration order is unspecified).
 	std::unordered_map<std::string, std::string> ByKey(const Trace& a_trace, std::size_t a_first = 0, std::size_t a_count = SIZE_MAX)
 	{
 		std::unordered_map<std::string, std::string> out;
@@ -58,19 +57,17 @@ namespace
 	}
 }
 
-// core/Log.h declarations (real impl pulls game deps — stub, as in the other
-// suites).
 namespace OSFUI::Log
 {
-	static bool g_devMode = true;
+	static bool g_debugEnabled = true;
 
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message)
 	{
 		std::call_once(a_flag, [&] { REX::test::Log("WARN", std::string(a_message)); });
 	}
 
-	bool DevMode() { return g_devMode; }
-	void SetDevMode(bool a_enabled) { g_devMode = a_enabled; }
+	bool DebugEnabled() { return g_debugEnabled; }
+	void SetDebugLogging(bool a_enabled) { g_debugEnabled = a_enabled; }
 }
 
 int main()
@@ -134,9 +131,6 @@ int main()
 		subs.Pump(mirror);
 		CHECK(trace.empty());  // ...so the late subscriber never sees it
 
-		// The snapshot replay does NOT re-arm when the mod appears later in
-		// the mirror alone — late registration is delivered by the store's
-		// per-mod replay through OnChanged (integration test below).
 		mirror.Update("ghost", "k", 2);
 		subs.Pump(mirror);
 		CHECK(trace.empty());
@@ -172,15 +166,10 @@ int main()
 		Trace trace;
 		CHECK(subs.Subscribe("t.alpha", Recorder, &trace) != 0);
 
-		// A commit lands between Subscribe and Pump — Runtime wiring updates
-		// the mirror FIRST, then queues the event.
 		mirror.Update("t.alpha", "b", 2);
 		subs.OnChanged("t.alpha", "b", 2);
 
 		subs.Pump(mirror);
-		// Replay of the CURRENT values (a=1, b=2) first, then the queued
-		// event — b arrives twice with the identical value (documented benign
-		// duplicate).
 		CHECK(trace.size() == 3);
 		const auto replayed = ByKey(trace, 0, 2);
 		CHECK(replayed.size() == 2);
@@ -307,33 +296,29 @@ int main()
 		SettingsStore store;
 		SettingsMirror mirror;
 		SettingsSubscriptions subs;
-		// Exactly the Runtime::BuildModules wiring (mirror first, then the
-		// subscriber feed).
 		store.AddChangeListener([&](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 			mirror.Update(a_mod, a_key, a_value);
 			subs.OnChanged(a_mod, a_key, a_value);
 		});
 		store.AddRegistryListener([&] { mirror.Rebuild(store.Data()); });
 
-		store.LoadAll(schemaDir, valuesDir);  // empty dir — native registration follows
+		store.LoadAll(schemaDir, valuesDir);
 
-		// Subscribe BEFORE the mod exists: legal, silent until it registers.
+		// Subscribe BEFORE the mod exists: legal, silent until its file appears.
 		Trace early;
 		CHECK(subs.Subscribe("t.beta", Recorder, &early) != 0);
 		subs.Pump(mirror);
 		CHECK(early.empty());
 
-		CHECK(store.RegisterSchema(nlohmann::json::parse(R"json({
+		WriteFile(schemaDir / "t.beta.json", R"json({
 			"id": "t.beta", "title": "Beta",
 			"groups": [ { "label": "G", "settings": [
 				{ "key": "enabled", "type": "bool",  "default": true },
 				{ "key": "scale",   "type": "float", "default": 1.0, "min": 0.5, "max": 2.0 },
 				{ "key": "mode",    "type": "enum",  "default": "compact", "options": ["compact", "full"] }
-			] } ] })json"),
-			SettingsStore::Source::kNative));
+			] } ] })json");
+		CHECK(store.ReloadDropInFile(schemaDir / "t.beta.json"));
 
-		// The store's per-mod registration replay flowed through OnChanged —
-		// the load-order-insurance replay, no snapshot involved.
 		subs.Pump(mirror);
 		CHECK(early.size() == 3);
 		const auto initial = ByKey(early);
@@ -341,7 +326,7 @@ int main()
 		CHECK(initial.at("scale") == "1.0");
 		CHECK(initial.at("mode") == "\"compact\"");
 
-		// Subscribe AFTER registration: the mirror snapshot replay.
+		// Subscribe AFTER discovery: the mirror snapshot replay.
 		Trace late;
 		CHECK(subs.Subscribe("t.beta", Recorder, &late) != 0);
 		subs.Pump(mirror);

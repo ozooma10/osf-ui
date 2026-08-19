@@ -2,8 +2,8 @@
 // OSFUI_API.h - OSF UI native bridge API. Single copyable header; link nothing.
 //
 // Lets an SFSE plugin register bridge endpoints, publish data to a web view,
-// and receive messages back - without compiling into OSFUI.dll. Full docs:
-// docs/native-plugin-api.md.
+// and receive messages back - without compiling into OSFUI.dll. The public
+// contract is encoded directly in this header.
 //
 // USE OSFUI::API::Client: it fetches the bridge, caches the native ABI version once,
 // and turns a call the OSF UI runtime is too old for into a no-op.
@@ -47,12 +47,11 @@ namespace OSFUI::API
 {
 	// Packed (MAJOR << 16) | MINOR.
 	//
-	// ABI 2.0 is the breaking native cleanup shipped with OSF UI 2.0. Future
-	// additive methods append at the vtable tail and bump MINOR; another vtable
-	// or behavioral break bumps MAJOR. During 2.0.x only, the export vends a
-	// separate frozen 1.8 adapter to ABI 1.x callers; this 2.0 header remains
-	// strict and that adapter is removed in 2.1.0.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (2u << 16) | 0u;
+	// ABI 1.x is append-only. Existing virtual slots never move; retired slots
+	// remain inert tombstones. New capabilities append at the vtable tail and
+	// bump MINOR. ABI
+	// 1.8 added retained view state, and 1.9 adds strict one-way send endpoints.
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 9u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -70,6 +69,10 @@ namespace OSFUI::API
 	                           const char* a_payloadJson,
 	                           const char* a_sourceViewId,
 	                           void*       a_user) noexcept;
+	// Frozen ABI 1.0 callback shape. RegisterCommand accepts both send() and
+	// request(); requests receive an injected requestId and an automatic reply.
+	// New endpoints should use RegisterSend or RegisterRequest instead.
+	using CommandFn = SendFn;
 
 	// Copyable, deferred reply token for a registered request.
 	// Copies remain safe after response, timeout, or view closure: the opaque id
@@ -107,7 +110,7 @@ namespace OSFUI::API
 	// from any thread. Its const char* fields are valid only during this call.
 	using RequestFn = void (*)(const Request& a_request, void* a_user) noexcept;
 	static_assert(std::is_standard_layout_v<Request> && std::is_trivially_copyable_v<Request>);
-	// Fired when the native bridge becomes available (a nativeBridge view is instantiated), and again after any re-creation. Main thread.
+	// Fired when the native bridge becomes available (a view is instantiated), and again after any re-creation. Main thread.
 	using ReadyFn = void (*)(void* a_user) noexcept;
 
 	// Fired for every committed value of a mod subscribed via SubscribeSettings.
@@ -123,13 +126,10 @@ namespace OSFUI::API
 	                          const char* a_key,
 	                          void*       a_user) noexcept;
 
-	// How bad a reported condition is. There is no "info" tier on
-	// purpose: System Health only shows conditions worth acting on, and an
-	// informational issue is an issue a player learns to ignore.
 	enum class IssueSeverity : std::uint32_t
 	{
-		kWarning = 0,  // degraded, still usable
-		kError = 1,    // this part does not work
+		kWarning = 0,
+		kError = 1,
 	};
 
 	struct IOSFUIBridge
@@ -145,19 +145,21 @@ namespace OSFUI::API
 		virtual const char*   GetBridgeProtocolVersion() = 0;
 		virtual bool          IsBridgeReady() = 0;  // compatibility name: at least one bridge-enabled document is instantiated
 
-		// --- send registration. Thread-safe; applied next main tick. ---
-		// Register a handler for an EXACT send endpoint. This endpoint is strictly
-		// one-way; use RegisterRequest when the page needs an outcome.
+		// --- frozen command registration. Thread-safe; applied next main tick. ---
+		// send() invokes the handler one-way. request() preserves the original
+		// injected-requestId + automatic-reply contract. Prefer the strict tail
+		// methods RegisterSend or RegisterRequest for new endpoints.
 		//
-		//   * Id: "<author>.<modname>.<name>" - the mod id is lowercase [a-z0-9-] segments with dots
-		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterSend then re-register (works within one tick).
-		virtual void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) = 0;
-		virtual void UnregisterSend(const char* a_name) = 0;
+		//   * Id: opaque non-empty string outside the reserved platform endpoints and osfui.* namespace.
+		//     "<modId>.<name>" remains a useful convention; dots carry no runtime meaning.
+		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterCommand then re-register (works within one tick).
+		virtual void RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user) = 0;
+		virtual void UnregisterCommand(const char* a_name) = 0;
 
 		// --- native -> web EVENTS. Thread-safe; queued to the target view. ---
 		// Delivers { kind:"event", name: a_type, payload: <a_payloadJson> } to
 		// a_viewId, where it arrives at osfui.on(a_type). a_payloadJson must be
-		// valid JSON. A known discovered-but-uninstantiated or idle-reclaimed target retains a bounded
+		// valid JSON. A known discovered-but-uninstantiated target retains a bounded
 		// FIFO until its page is created and greets the bridge.
 		//
 		// An event is a ONE-SHOT HAPPENING: delivered at most once, never
@@ -205,15 +207,11 @@ namespace OSFUI::API
 		// Null/empty buffer = "how big?" probe. (type:"flags" values are arrays - no typed getter; read them from SettingChangedFn's JSON.)
 		virtual std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) = 0;
 
-		// --- settings registration. Thread-safe; merge lands next main tick. ---
-		// a_schemaJson is the same document a settings/<modId>.json drop-in would hold (id = "<author>.<modname>").
-		//
-		//   * Returns false on a parse/shape error (malformed JSON, non-object, missing/invalid "id"); true = queued.
-		//   * User values overlay from the same per-mod file as the drop-in tier, so a mod can migrate tiers without losing settings.
-		//   * Conflicts: this wins over a drop-in of the same id (warned); it replaces an earlier native registration of the same id.
-		virtual bool RegisterSettingsSchema(const char* a_schemaJson) = 0;
-		// Drops a native-registered schema (user's values file kept). Ignored (warned) for ids owned by drop-in files.
-		virtual void UnregisterSettingsSchema(const char* a_modId) = 0;
+		// Retired settings-registration slots. Kept in place so later 1.x vtable
+		// entries retain their binary positions. Slot 1 returns false; slot 2 is
+		// a no-op. Settings schemas are discovered only from settings/<modId>.json.
+		virtual bool ReservedSettingsSlot1(const char*) = 0;
+		virtual void ReservedSettingsSlot2(const char*) = 0;
 
 		// ===== hotkey dispatch =====
 
@@ -251,70 +249,11 @@ namespace OSFUI::API
 		// Returns false only on a null/empty/invalid id; true = queued.
 		virtual bool RegisterView(const char* a_viewId) = 0;
 
-		// ===== session health reporting =====
-		//
-		// Raise a condition into OSF UI's System Health destination — the one place a
-		// player looks when something is wrong, whichever mod noticed it. This is
-		// NOT a log channel and NOT a toast: report only durable conditions that
-		// are true right now, actionable, and worth a player's attention, and
-		// withdraw each one when it clears. Routine progress goes to your log.
-		//
-		//   * a_modId   : your "<author>.<modname>" id. Becomes the issue's source
-		//                 and namespaces everything below, so two mods can use the
-		//                 same local id without colliding. An invalid id is refused.
-		//   * a_id      : YOUR stable dedupe key for this condition, e.g.
-		//                 "pack-parse:highlights". Re-reporting an active issue id bumps its
-		//                 occurrence count in place instead of stacking an issue.
-		//   * a_code    : YOUR stable machine code for the KIND of condition, e.g.
-		//                 "catalog.parse-failed". Never player-facing prose: OSF UI
-		//                 owns the copy (so it stays localizable and a mod cannot
-		//                 write the UI's words). An unrecognized code renders as a
-		//                 generic issue naming your mod, with the context below shown
-		//                 as technical detail — degraded, never broken.
-		//   * a_subject : the affected thing (pack, view, file NAME, actor), or ""
-		//                 when the condition has no single subject.
-		//   * a_contextJson : optional bounded technical detail, a flat JSON OBJECT
-		//                 of string/number/bool values ("{}" or nullptr for none).
-		//                 Capped at 8 entries / 240 chars per value, and sanitized:
-		//                 anything path-, URL-, or command-shaped is reduced to its
-		//                 trailing component. Do not pass absolute paths — they
-		//                 identify the player's machine — and do not rely on nested
-		//                 values surviving.
-		//
-		// Returns false on a null/invalid mod id, an empty id/code, or a
-		// contextJson that is not a JSON object. Validation is synchronous; the
-		// registry write lands on the next main tick.
-		virtual bool ReportIssue(const char*   a_modId,
-		                         const char*   a_id,
-		                         const char*   a_code,
-		                         std::uint32_t a_severity,  // IssueSeverity
-		                         const char*   a_subject,
-		                         const char*   a_contextJson) = 0;
-
-		// Withdraw one of YOUR conditions by the id you reported it under. It moves
-		// to the pane's session history ("resolved"), which is exactly what a player
-		// needs to see after a retry. Safe and cheap to call unconditionally.
-		//
-		// Returns false only on a null/invalid mod id or empty id — true means
-		// queued, NOT that the id was active.
+		// Publish and withdraw durable, local-only conditions shown in System
+		// Health. These methods never upload data or open an external page.
+		virtual bool ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
+			std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) = 0;
 		virtual bool ClearIssue(const char* a_modId, const char* a_id) = 0;
-
-		// Reconcile: withdraw every ACTIVE issue of yours whose id is not in
-		// a_keepIdsJson (a JSON ARRAY of strings; "[]" clears all of yours). The
-		// primitive for producers that recompute a whole set — report what is wrong
-		// now, then sweep away what no longer is:
-		//
-		//     for (const auto& bad : Rescan()) bridge->ReportIssue(kMod, bad.id, ...);
-		//     bridge->ClearIssuesExcept(kMod, DumpIdArray(stillBad).c_str());
-		//
-		// The sweep is scoped to your MOD, not to one producer inside it: if your
-		// plugin raises issues from several places, the keep list must name every
-		// issue id you still want active, not just the ones the current producer
-		// recomputed. Tracking what you have raised is the consumer's job.
-		//
-		// Ordering is FIFO with ReportIssue, so a report-then-sweep pair issued
-		// back-to-back lands correctly in one tick. Returns false on a null/invalid
-		// mod id or a payload that is not a JSON array of strings.
 		virtual bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) = 0;
 
 		// Same name grammar and first-wins namespace as sends.
@@ -330,6 +269,12 @@ namespace OSFUI::API
 		// Native state is not session-scoped; Papyrus state is because it may
 		// contain form identities. Validation is synchronous.
 		virtual bool SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) = 0;
+
+		// --- strict sends (ABI 1.9). Appended; every ABI 1.0-1.8 slot above is frozen. ---
+		// A send endpoint is one-way: its payload is verbatim, a request naming it
+		// is rejected wrong-endpoint-kind, and OSF UI never fabricates a reply.
+		virtual void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) = 0;
+		virtual void UnregisterSend(const char* a_name) = 0;
 
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; consumers never delete it.
@@ -374,20 +319,21 @@ namespace OSFUI::API
 	//
 	// ========================================================================
 
-	// Named feature gates for future additive 2.x minors. Every feature present
-	// in this header is part of the ABI 2.0 baseline.
+	// Named features, valued as the additive ABI minor that introduced them.
 	enum class Feature : std::uint32_t
 	{
-		kSends = 0,
-		kRequestMenu = 0,
-		kSettings = 0,
-		kDeliveryGuarantee = 0,
-		kHotkeys = 0,
-		kRegisterView = 0,
-		kEndpointShape = 0,
-		kDiagnostics = 0,
-		kRequests = 0,
-		kViewState = 0,
+		kCommands = 0,
+		kRequestMenu = 1,
+		kSettings = 2,
+		kDeliveryGuarantee = 3,
+		kHotkeys = 4,
+		kRegisterView = 5,
+		kCommandShape = 6,
+		kDiagnostics = 7,
+		kRequests = 7,
+		kViewState = 8,
+		kSends = 9,
+		kEndpointShape = 9,
 	};
 
 	class Client
@@ -447,16 +393,30 @@ namespace OSFUI::API
 			return _bridge && _bridge->IsBridgeReady();
 		}
 
-		// --- 2.0 baseline ---
-		void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) const noexcept
+		// --- 1.0 frozen commands ---
+		void RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user) const noexcept
 		{
 			if (_bridge) {
+				_bridge->RegisterCommand(a_name, a_handler, a_user);
+			}
+		}
+		void UnregisterCommand(const char* a_name) const noexcept
+		{
+			if (_bridge) {
+				_bridge->UnregisterCommand(a_name);
+			}
+		}
+
+		// --- 1.9 strict sends ---
+		void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) const noexcept
+		{
+			if (Has(Feature::kSends)) {
 				_bridge->RegisterSend(a_name, a_handler, a_user);
 			}
 		}
 		void UnregisterSend(const char* a_name) const noexcept
 		{
-			if (_bridge) {
+			if (Has(Feature::kSends)) {
 				_bridge->UnregisterSend(a_name);
 			}
 		}
@@ -507,17 +467,6 @@ namespace OSFUI::API
 		{
 			return Has(Feature::kSettings) ? _bridge->GetSettingString(a_modId, a_key, a_buf, a_bufLen) : 0u;
 		}
-		bool RegisterSettingsSchema(const char* a_schemaJson) const noexcept
-		{
-			return Has(Feature::kSettings) && _bridge->RegisterSettingsSchema(a_schemaJson);
-		}
-		void UnregisterSettingsSchema(const char* a_modId) const noexcept
-		{
-			if (Has(Feature::kSettings)) {
-				_bridge->UnregisterSettingsSchema(a_modId);
-			}
-		}
-
 		// --- hotkeys ---
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) const noexcept
 		{
@@ -536,7 +485,6 @@ namespace OSFUI::API
 			return Has(Feature::kRegisterView) && _bridge->RegisterView(a_viewId);
 		}
 
-		// --- session health ---
 		bool ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
 			IssueSeverity a_severity, const char* a_subject = "",
 			const char* a_contextJson = nullptr) const noexcept
