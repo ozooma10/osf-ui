@@ -302,4 +302,16 @@ namespace OSFUI::OverlayInputHook
 	{
 		return g_hwnd;
 	}
+
+	std::optional<ClientSize> GameWindowClientSize()
+	{
+		RECT client{};
+		if (!g_hwnd || !::GetClientRect(g_hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
+			return std::nullopt;
+		}
+		return ClientSize{
+			.width = static_cast<std::uint32_t>(client.right - client.left),
+			.height = static_cast<std::uint32_t>(client.bottom - client.top),
+		};
+	}
 }

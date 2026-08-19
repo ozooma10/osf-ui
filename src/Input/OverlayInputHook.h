@@ -1,12 +1,19 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 namespace OSFUI
 {
 	// Subclass the game HWND to route and consume raw input while the overlay owns input.
 	namespace OverlayInputHook
 	{
+		struct ClientSize
+		{
+			std::uint32_t width{ 0 };
+			std::uint32_t height{ 0 };
+		};
+
 		// Renderer-worker request to restore focus on Starfield's window thread.
 		inline constexpr std::uint32_t kRestoreGameFocusMessage = 0x8049;
 		// Wake WndProc to apply cursor state immediately after main-thread policy changes.
@@ -16,6 +23,7 @@ namespace OSFUI
 		void RequestStateRefresh();
 		// Subclassed game window and authority for window-thread platform facts.
 		[[nodiscard]] void* GameWindowHandle();
+		[[nodiscard]] std::optional<ClientSize> GameWindowClientSize();
 
 		namespace detail
 		{

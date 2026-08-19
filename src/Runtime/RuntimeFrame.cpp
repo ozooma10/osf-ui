@@ -4,6 +4,7 @@
 #include "Compat/V1/Papyrus.h"
 #include "Core/Ids.h"
 #include "Input/FreeCursor.h"
+#include "Input/OverlayInputHook.h"
 #include "Input/PauseMenuEntry.h"
 
 #include "RE/B/BSFixedString.h"
@@ -144,7 +145,9 @@ namespace OSFUI
 		DriveRecovery();
 		DriveDevTools();
 		PumpDevViewReload();
-		if (_compositor) {
+		if (const auto clientSize = OverlayInputHook::GameWindowClientSize()) {
+			OnOutputResized(clientSize->width, clientSize->height);
+		} else if (_compositor) {
 			if (const auto outputSize = _compositor->GetObservedOutputSize()) {
 				OnOutputResized(outputSize->width, outputSize->height);
 			}

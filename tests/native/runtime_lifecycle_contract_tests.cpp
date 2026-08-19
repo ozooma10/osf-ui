@@ -137,8 +137,9 @@ namespace
 
 int main()
 {
+	const auto runtimeFrameSource = ReadSource("../../src/Runtime/RuntimeFrame.cpp");
 	const auto runtimeSource = ReadSource("../../src/Runtime/Runtime.cpp") +
-		ReadSource("../../src/Runtime/RuntimeFrame.cpp") +
+		runtimeFrameSource +
 		ReadSource("../../src/Bridge/RuntimeBridge.cpp") +
 		ReadSource("../../src/Views/RuntimeViews.cpp") +
 		ReadSource("../../src/Input/RuntimeInput.cpp");
@@ -221,6 +222,14 @@ int main()
 		"EnsureRing(a_width, a_height)",
 		"context->CopyResource" }),
 		"capture must pace same-sized frames while allowing a resized ring to replace an unpresentable first frame");
+
+	Check(ContainsInOrder(runtimeFrameSource, {
+		"void Runtime::ProcessRendererFrame(double a_deltaSeconds)",
+		"OverlayInputHook::GameWindowClientSize()",
+		"OnOutputResized(clientSize->width, clientSize->height)",
+		"else if (_compositor)",
+		"_compositor->GetObservedOutputSize()" }),
+		"the game client area must size the browser before transient Scaleform targets, with compositor observation retained only as fallback");
 
 	const auto settingsMaintenance = FunctionBody(runtimeSource,
 		"void Runtime::ProcessSettingsMaintenance()");
