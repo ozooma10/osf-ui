@@ -40,7 +40,7 @@ namespace OSFUI::UiPass
 		std::atomic<ResourceBarrierFn> g_origResourceBarrier{ nullptr };
 		std::atomic<SetDescriptorHeapsFn> g_origSetDescriptorHeaps{ nullptr };
 
-		// Track the engine's last heap binding so overlay recording can restore it.
+		// Continuously track the engine's last heap binding so a pass that inherits descriptor state can still be restored after overlay recording.
 		thread_local ID3D12GraphicsCommandList* tl_heapList = nullptr;
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
@@ -60,12 +60,13 @@ namespace OSFUI::UiPass
 		std::atomic<ID3D12GraphicsCommandList*> g_selfTestList{ nullptr };
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
 		std::atomic<bool> g_selfTestHeapsSeen{ false };
+		std::atomic_bool g_unknownEngineHeapLogged{ false };
 
 		void STDMETHODCALLTYPE SetDescriptorHeapsThunk(ID3D12GraphicsCommandList* a_self, const UINT a_num, ID3D12DescriptorHeap* const* a_heaps)
 		{
 			if (a_self == g_selfTestList.load(std::memory_order_acquire)) {
 				g_selfTestHeapsSeen.store(true, std::memory_order_relaxed);
-			} else if (tl_handoffWindow.TrackingHeaps() && !tl_inOverlayDraw) {
+			} else if (!tl_inOverlayDraw) {
 				tl_heapList = a_self;
 				tl_heapCount = a_num < 2u ? a_num : 2u;
 				for (UINT i = 0; i < tl_heapCount; ++i) {
@@ -163,10 +164,8 @@ namespace OSFUI::UiPass
 			if (created) {
 				auto** vtbl = *reinterpret_cast<void***>(list);
 				g_selfTestList.store(list, std::memory_order_release);
-				const auto origBarrier =
-					reinterpret_cast<ResourceBarrierFn>(vtbl[kSlotResourceBarrier]);
-				const auto origHeaps =
-					reinterpret_cast<SetDescriptorHeapsFn>(vtbl[kSlotSetDescriptorHeaps]);
+				const auto origBarrier = reinterpret_cast<ResourceBarrierFn>(vtbl[kSlotResourceBarrier]);
+				const auto origHeaps = reinterpret_cast<SetDescriptorHeapsFn>(vtbl[kSlotSetDescriptorHeaps]);
 				g_origResourceBarrier.store(origBarrier, std::memory_order_release);
 				g_origSetDescriptorHeaps.store(origHeaps, std::memory_order_release);
 				const bool patchedBarrier =
@@ -258,6 +257,12 @@ namespace OSFUI::UiPass
 			const UINT engineHeapCount = tl_heapCount;
 			const bool heapKnown =
 				engineHeapCount > 0 && tl_heapList == a_list;
+			if (!heapKnown) {
+				if (!g_unknownEngineHeapLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::WARN("[UiPass] overlay draw skipped because the engine descriptor heaps are unknown; preserving engine render state");
+				}
+				return;
+			}
 
 			// Scope compositor-heap suppression so every exit restores engine tracking.
 			struct OverlayDrawScope
@@ -273,21 +278,14 @@ namespace OSFUI::UiPass
 				// Early-outs occur before the compositor rebinds descriptor heaps.
 				return;
 			}
-			if (heapKnown) {
-				if (const auto original =
-						g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
-					original(a_list, engineHeapCount, engineHeaps);
-				}
+			if (const auto original = g_origSetDescriptorHeaps.load(std::memory_order_relaxed)) {
+				original(a_list, engineHeapCount, engineHeaps);
 			}
 		}
 
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
 			EnsureDrawHooksInstalled();
-			tl_heapList = nullptr;
-			tl_heaps[0] = nullptr;
-			tl_heaps[1] = nullptr;
-			tl_heapCount = 0;
 			tl_handoffWindow.Begin();
 			const auto original =
 				reinterpret_cast<ExecuteFn>(g_origBegin.load(std::memory_order_relaxed));

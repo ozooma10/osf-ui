@@ -150,6 +150,7 @@ int main()
 	const auto bridgeApiSource = ReadSource("../../src/API/BridgeApi.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
 	const auto compositorSource = ReadSource("../../src/Composite/D3D12Compositor.cpp");
+	const auto uiPassSource = ReadSource("../../src/Composite/UiPass.cpp");
 	const auto manifestSource = ReadSource("../../src/Views/ViewManifest.h") +
 		ReadSource("../../src/Views/ViewManifest.cpp");
 	const auto hostSource = ReadSource("../../tools/webview2_host/HostApp.cpp") +
@@ -509,6 +510,25 @@ int main()
 		"ringSlot = sharedRing.readySlot",
 		"DrawInstanced(3, 1, 0, 0)" }),
 		"each UI target must draw the cached frame while only generation-matched candidates replace it");
+	const auto setDescriptorHeaps = FunctionBody(uiPassSource,
+		"void STDMETHODCALLTYPE SetDescriptorHeapsThunk(");
+	Check(setDescriptorHeaps.find("else if (!tl_inOverlayDraw)") != std::string::npos &&
+		setDescriptorHeaps.find("TrackingHeaps()") == std::string::npos,
+		"descriptor-heap tracking must remain active outside the narrow handoff window");
+	const auto beginUiPass = FunctionBody(uiPassSource,
+		"void* BeginThunk(");
+	Check(beginUiPass.find("tl_heapList = nullptr") == std::string::npos &&
+		beginUiPass.find("tl_heapCount = 0") == std::string::npos,
+		"Scaleform Begin must preserve an inherited descriptor-heap binding");
+	const auto recordAtHandoff = FunctionBody(uiPassSource,
+		"const bool a_fgTarget");
+	Check(ContainsInOrder(recordAtHandoff, {
+		"const bool heapKnown",
+		"if (!heapKnown)",
+		"return",
+		"RecordOverlayIntoUIBuffer",
+		"original(a_list, engineHeapCount, engineHeaps)" }),
+		"overlay recording must fail closed without restorable engine heaps and restore known heaps after drawing");
 	Check(ContainsInOrder(submitFrame, {
 		"if (!decision.timedOut)",
 		"CancelPendingOpen()",
