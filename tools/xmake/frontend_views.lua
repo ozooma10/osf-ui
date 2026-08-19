@@ -1,5 +1,3 @@
-import("core.project.config")
-
 function build()
     local frontend = path.join(os.projectdir(), "frontend")
     cprint("${dim}building built-in views ..")
