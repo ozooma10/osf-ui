@@ -241,6 +241,7 @@ namespace OSFUI
 		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove };
 
 		std::atomic_bool              _captureInput{ false };
+		bool                          _captureIntegrationInitialized{ false };
 		bool                          _captureIntegrationAvailable{ false };
 
 		KeyLabels                     _keyLabels;

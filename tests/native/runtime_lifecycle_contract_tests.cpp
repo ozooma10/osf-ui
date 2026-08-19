@@ -305,6 +305,8 @@ int main()
 	const auto postDataIntegration = FunctionBody(runtimeSource,
 		"void Runtime::InitializePostDataLoadIntegration()");
 	Check(ContainsInOrder(postDataIntegration, {
+		"_captureIntegrationInitialized = true",
+		"UiLayoutGuard::VerifyUiLayout()",
 		"_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled",
 		"if (!_captureIntegrationAvailable)",
 		"_views.Find(Ids::kSettingsViewId)",
@@ -312,7 +314,10 @@ int main()
 		"InstantiateView(*settings, \"for hidden startup prewarm\")" }) &&
 		postDataIntegration.find("_presentation.Open") == std::string::npos &&
 		postDataIntegration.find("BeginViewOpen") == std::string::npos,
-		"post-post-data-load must instantiate settings hidden only after capture integration succeeds");
+		"post-post-data-load must record the integration attempt and instantiate settings hidden only after it succeeds");
+	Check(runtimeHeader.find("_captureIntegrationInitialized{ false }") != std::string::npos &&
+		runtimeHeader.find("_captureIntegrationAvailable{ false }") != std::string::npos,
+		"capture integration must distinguish not-yet-initialized from initialized-but-unavailable");
 	const auto successfulViewLoad = FunctionBody(runtimeSource, "void Runtime::OnViewLoad(");
 	Check(ContainsInOrder(successfulViewLoad, {
 		"const auto loadedAt = ViewTimingClock::now()",
@@ -418,6 +423,16 @@ int main()
 
 	const auto beginOpen = FunctionBody(runtimeSource, "bool Runtime::BeginViewOpen(std::string_view a_id)");
 	Check(ContainsInOrder(beginOpen, {
+		"const bool requiresCaptureIntegration",
+		"_captureIntegrationInitialized &&",
+		"!_captureIntegrationAvailable",
+		"required input integration is unavailable",
+		"const bool waitingForCaptureIntegration",
+		"!waitingForCaptureIntegration && loadState == ViewLoadState::Finished",
+		"_pendingViewOpen = std::string(a_id)",
+		"until required input integration initializes" }),
+		"an early input-capturing open must remain pending, while a completed integration failure still fails closed");
+	Check(ContainsInOrder(beginOpen, {
 		"manifest->kind == ViewKind::Hud",
 		"return _presentation.Open(a_id)",
 		"const auto loadState = m_viewLoads.GetState(a_id)",
@@ -439,6 +454,10 @@ int main()
 	const auto drivePending = FunctionBody(runtimeSource, "void Runtime::DrivePendingOpen()");
 	Check(ContainsInOrder(drivePending, {
 		"_presentation.IsInstantiated(target)",
+		"requiresCaptureIntegration && !_captureIntegrationInitialized",
+		"return",
+		"requiresCaptureIntegration && !_captureIntegrationAvailable",
+		"CancelPendingOpen()",
 		"m_viewLoads.GetState(target) != ViewLoadState::Finished",
 		"_presentation.Open(target)",
 		"_pendingViewOpen.reset()",
@@ -463,10 +482,10 @@ int main()
 		"const auto* manifest = _views.Find(id)",
 		"if (!manifest)",
 		"Reject(\"unknown-view\"",
-		"!_captureIntegrationAvailable",
+		"_captureIntegrationInitialized && !_captureIntegrationAvailable",
 		"Reject(\"input-unavailable\"",
 		"EnqueueOpenView(std::move(id))" }),
-		"browser menu.open must fail closed before an unknown or unsafe menu is queued");
+		"browser menu.open must queue while input integration is pending and reject only an initialized failure");
 	Check(ContainsInOrder(endpoints, {
 		"RegisterRequest(\"setViewHidden\"",
 		"_presentation.IsInstantiated(id)",

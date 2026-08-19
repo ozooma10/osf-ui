@@ -391,6 +391,7 @@ namespace OSFUI
 	void Runtime::InitializePostDataLoadIntegration()
 	{
 		REX::DEBUG("Runtime: consuming kPostPostDataLoad work on the main-thread tick");
+		_captureIntegrationInitialized = true;
 		if (!UiLayoutGuard::VerifyUiLayout()) {
 			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
 			return;
@@ -565,7 +566,8 @@ namespace OSFUI
 			return false;
 		}
 		const auto* manifest = _views.Find(a_id);
-		if (manifest && manifest->kind == ViewKind::Menu && manifest->capturesInput &&
+		const bool requiresCaptureIntegration = manifest && manifest->kind == ViewKind::Menu && manifest->capturesInput;
+		if (requiresCaptureIntegration && _captureIntegrationInitialized &&
 			!_captureIntegrationAvailable) {
 			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
@@ -576,8 +578,9 @@ namespace OSFUI
 			return _presentation.Open(a_id);
 		}
 
+		const bool waitingForCaptureIntegration = requiresCaptureIntegration && !_captureIntegrationAvailable;
 		const auto loadState = m_viewLoads.GetState(a_id);
-		if (loadState == ViewLoadState::Finished) {
+		if (!waitingForCaptureIntegration && loadState == ViewLoadState::Finished) {
 			CancelPendingOpen();
 			return _presentation.Open(a_id);
 		}
@@ -590,7 +593,11 @@ namespace OSFUI
 			BeginColdOpenTiming(a_id, ViewTimingClock::now());
 		}
 		_pendingViewOpen = std::string(a_id);
-		REX::DEBUG("Runtime: holding first open of '{}' until its main-frame load succeeds", a_id);
+		if (waitingForCaptureIntegration) {
+			REX::DEBUG("Runtime: holding open of '{}' until required input integration initializes", a_id);
+		} else {
+			REX::DEBUG("Runtime: holding first open of '{}' until its main-frame load succeeds", a_id);
+		}
 		return true;
 	}
 
@@ -704,6 +711,15 @@ namespace OSFUI
 		const auto* manifest = _views.Find(target);
 		if (!manifest || !_presentation.IsInstantiated(target)) {
 			REX::WARN("Runtime: cancelling pending open of '{}' because the view is no longer available", target);
+			CancelPendingOpen();
+			return;
+		}
+		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
+		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
+			return;
+		}
+		if (requiresCaptureIntegration && !_captureIntegrationAvailable) {
+			REX::WARN("Runtime: cancelling pending open of '{}' because required input integration failed to initialize", target);
 			CancelPendingOpen();
 			return;
 		}

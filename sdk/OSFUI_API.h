@@ -179,6 +179,8 @@ namespace OSFUI::API
 		// Open/close a view by qualified "<modId>/<viewName>" id. RequestMenu is
 		// the frozen ABI name and accepts both menu and HUD views.
 		// Opening a valid folder under views/<modId>/<viewName>/ instantiates it on demand.
+		// An input-capturing menu requested before OSF UI finishes its post-data-load
+		// input integration remains pending and opens when that integration succeeds.
 		//
 		// Returns:
 		//   * open  - true if a target exists and was queued; false if none was found.

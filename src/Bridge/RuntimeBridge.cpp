@@ -162,7 +162,7 @@ namespace OSFUI
 				return;
 			}
 			id = manifest->id;
-			if (manifest->kind == ViewKind::Menu && manifest->capturesInput && !_captureIntegrationAvailable) {
+			if (manifest->kind == ViewKind::Menu && manifest->capturesInput && _captureIntegrationInitialized && !_captureIntegrationAvailable) {
 				REX::WARN("Runtime: menu.open refused — required input integration is unavailable");
 				a_b.Reject("input-unavailable", "required input integration is unavailable");
 				return;
