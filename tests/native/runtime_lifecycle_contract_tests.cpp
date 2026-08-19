@@ -510,6 +510,30 @@ int main()
 		"ringSlot = sharedRing.readySlot",
 		"DrawInstanced(3, 1, 0, 0)" }),
 		"each UI target must draw the cached frame while only generation-matched candidates replace it");
+	const auto trackConsume = FunctionBody(compositorSource,
+		"[[nodiscard]] bool Track(");
+	Check(ContainsInOrder(trackConsume, {
+		"pending.begin(), pending.end()",
+		"pending.push_back",
+		"a_fence->AddRef()",
+		"pendingCount.store(pending.size()" }) &&
+		trackConsume.find("pendingSize == pending.size()") == std::string::npos,
+		"consume tracking must grow beyond its reserved fast-path capacity instead of disabling overlay draws");
+	const auto executeConsumes = FunctionBody(compositorSource,
+		"void OnCommandListsExecuted(");
+	Check(ContainsInOrder(executeConsumes, {
+		"const auto wasExecuted",
+		"std::scoped_lock lock(mutex)",
+		"while (true)",
+		"serial = (std::max)(serial, tracked.serial)",
+		"a_queue->Signal(fence, serial)",
+		"pending.pop_back()" }) &&
+		executeConsumes.find("std::array<PendingConsume") == std::string::npos,
+		"consume completion must remain allocation-free and handle every tracked list in one submission");
+	Check(compositorSource.find("pending.reserve(kReservedEntries)") != std::string::npos &&
+		compositorSource.find("std::vector<PendingConsume> pending") != std::string::npos &&
+		compositorSource.find("consume tracker capacity") == std::string::npos,
+		"consume tracking must reserve the normal working set while retaining dynamic overflow");
 	const auto setDescriptorHeaps = FunctionBody(uiPassSource,
 		"void STDMETHODCALLTYPE SetDescriptorHeapsThunk(");
 	Check(setDescriptorHeaps.find("else if (!tl_inOverlayDraw)") != std::string::npos &&
