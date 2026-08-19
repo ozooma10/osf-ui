@@ -273,6 +273,7 @@ namespace OSFUI
 		std::uint64_t submittedRingGeneration{ 0 };
 		std::uint64_t submittedSerial{ 0 };
 		std::uint32_t ringWidth{ 0 }, ringHeight{ 0 };
+		std::uint32_t ringSlotCount{ 0 };
 		std::uint64_t ringGeneration{ 0 };       // reader-side counter
 		std::uint64_t announcedGeneration{ 0 };  // dispatched to the compositor
 
@@ -956,15 +957,35 @@ namespace OSFUI
 			static_assert(osfui::wv2::kRingSlots <= SharedRingDesc::kMaxSlots);
 			SharedRingDesc desc{};
 			const auto& slots = a_msg.slots;
+			const auto& consumeFences = a_msg.consumeFences;
+			const auto closeHandleValue = [](std::uint64_t a_value) {
+				if (a_value != 0) {
+					::CloseHandle(reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(a_value)));
+				}
+			};
+			bool malformed = slots.empty() || slots.size() != consumeFences.size() ||
+				a_msg.produceFence == 0;
+			for (std::size_t i = 0; !malformed && i < slots.size(); ++i) {
+				malformed = slots[i] == 0 || consumeFences[i] == 0;
+			}
+			if (malformed) {
+				for (const auto handle : slots) closeHandleValue(handle);
+				for (const auto handle : consumeFences) closeHandleValue(handle);
+				closeHandleValue(a_msg.produceFence);
+				SignalDead("browser host announced an incomplete shared texture ring");
+				return;
+			}
 			for (std::size_t i = 0; i < SharedRingDesc::kMaxSlots && i < slots.size(); ++i) {
 				desc.slotHandles[i] = reinterpret_cast<void*>(
 					static_cast<std::uintptr_t>(slots[i]));
+				desc.consumeFences[i] = reinterpret_cast<void*>(
+					static_cast<std::uintptr_t>(consumeFences[i]));
 				++desc.slotCount;
 			}
 			for (std::size_t i = SharedRingDesc::kMaxSlots; i < slots.size(); ++i) {
 				// Close duplicated handles when a mismatched host exceeds ring capacity.
-				::CloseHandle(reinterpret_cast<HANDLE>(
-					static_cast<std::uintptr_t>(slots[i])));
+				closeHandleValue(slots[i]);
+				closeHandleValue(consumeFences[i]);
 			}
 			if (slots.size() > SharedRingDesc::kMaxSlots) {
 				REX::WARN("WebView2HostWebRenderer: browser host announced {} ring slots, "
@@ -976,8 +997,6 @@ namespace OSFUI
 				std::memory_order_relaxed);
 			desc.produceFence = reinterpret_cast<void*>(
 				static_cast<std::uintptr_t>(a_msg.produceFence));
-			desc.consumeFence = reinterpret_cast<void*>(
-				static_cast<std::uintptr_t>(a_msg.consumeFence));
 			desc.width = a_msg.width;
 			desc.height = a_msg.height;
 			desc.adapterLuidLow = a_msg.adapterLuidLow;
@@ -987,6 +1006,7 @@ namespace OSFUI
 				desc.generation = ++ringGeneration;
 				ringWidth = desc.width;
 				ringHeight = desc.height;
+				ringSlotCount = desc.slotCount;
 				haveFrame = false;  // prior slots are invalid now
 			}
 			Push(Notify{ .kind = Notify::Kind::Ring, .ring = desc });
@@ -999,11 +1019,15 @@ namespace OSFUI
 			const auto presentation = a_msg.presentationEpoch;
 			const auto w = a_msg.width;
 			const auto h = a_msg.height;
+			std::uint32_t ackSlot = 0;
 			std::uint64_t ackSerial = 0;
 			bool ackNew = false;
+			bool invalidSlot = false;
 			{
 				std::scoped_lock lock(frameMutex, stateMutex);
-				if (w != ringWidth || h != ringHeight) {
+				if (slot >= ringSlotCount) {
+					invalidSlot = true;
+				} else if (w != ringWidth || h != ringHeight) {
 					ackNew = true;  // stale ring — release the slot immediately
 				} else if (allHidden || presentation != presentationEpoch) {
 					// Reject pre-reveal frames and invalidate cached closed-state pixels.
@@ -1012,6 +1036,7 @@ namespace OSFUI
 				} else {
 					if (haveFrame && (sharedRingGeneration != submittedRingGeneration || frameSerial != submittedSerial)) {
 						// Acknowledge superseded frames that never reached the compositor.
+						ackSlot = frameSlot;
 						ackSerial = frameSerial;
 					}
 					frameSlot = slot;
@@ -1022,11 +1047,15 @@ namespace OSFUI
 					haveFrame = true;
 				}
 			}
+			if (invalidSlot) {
+				SignalDead(std::format("browser host published frame for invalid ring slot {}", slot));
+				return;
+			}
 			if (ackSerial) {
-				pipe.WriteMessage(Json::Dump(ToJson(msg::FrameAck{ .serial = ackSerial })));
+				pipe.WriteMessage(Json::Dump(ToJson(msg::FrameAck{ .slot = ackSlot, .serial = ackSerial })));
 			}
 			if (ackNew) {
-				pipe.WriteMessage(Json::Dump(ToJson(msg::FrameAck{ .serial = serial })));
+				pipe.WriteMessage(Json::Dump(ToJson(msg::FrameAck{ .slot = slot, .serial = serial })));
 			}
 		}
 
@@ -1115,7 +1144,9 @@ namespace OSFUI
 							if (handle) ::CloseHandle(handle);
 						}
 						if (value.ring.produceFence) ::CloseHandle(value.ring.produceFence);
-						if (value.ring.consumeFence) ::CloseHandle(value.ring.consumeFence);
+						for (auto* handle : value.ring.consumeFences) {
+							if (handle) ::CloseHandle(handle);
+						}
 					}
 					break;
 				case Notify::Kind::Log:
@@ -1273,7 +1304,9 @@ namespace OSFUI
 						if (handle) ::CloseHandle(handle);
 					}
 					if (value.ring.produceFence) ::CloseHandle(value.ring.produceFence);
-					if (value.ring.consumeFence) ::CloseHandle(value.ring.consumeFence);
+					for (auto* handle : value.ring.consumeFences) {
+						if (handle) ::CloseHandle(handle);
+					}
 				}
 				notifications.clear();
 				pendingWebCount = pendingConsoleCount = pendingLogCount = 0;
@@ -1290,6 +1323,7 @@ namespace OSFUI
 				submittedRingGeneration = 0;
 				submittedSerial = 0;
 				ringWidth = ringHeight = 0;
+				ringSlotCount = 0;
 				announcedGeneration = 0;
 				// Keep ring generations monotonic across browser-host processes.
 			}

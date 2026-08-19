@@ -251,9 +251,13 @@ namespace osfui::wv2::msg
 	struct FrameAck
 	{
 		static constexpr std::string_view kType = "frameAck";
+		std::uint32_t slot{ 0 };
 		std::uint64_t serial{ 0 };
 
-		static constexpr auto kFields = std::tuple{ F("serial", &FrameAck::serial) };
+		static constexpr auto kFields = std::tuple{
+			F("slot", &FrameAck::slot),
+			F("serial", &FrameAck::serial),
+		};
 	};
 
 	struct Hello
@@ -293,7 +297,7 @@ namespace osfui::wv2::msg
 		std::uint32_t              height{ 0 };
 		std::vector<std::uint64_t> slots;
 		std::uint64_t              produceFence{ 0 };
-		std::uint64_t              consumeFence{ 0 };
+		std::vector<std::uint64_t> consumeFences;
 		bool                       keyedMutex{ false };
 		std::uint32_t              adapterLuidLow{ 0 };
 		std::uint32_t              adapterLuidHigh{ 0 };
@@ -303,7 +307,7 @@ namespace osfui::wv2::msg
 			F("height", &Textures::height),
 			F("slots", &Textures::slots),
 			F("produceFence", &Textures::produceFence),
-			F("consumeFence", &Textures::consumeFence),
+			F("consumeFences", &Textures::consumeFences),
 			F("keyedMutex", &Textures::keyedMutex),
 			F("adapterLuidLow", &Textures::adapterLuidLow),
 			F("adapterLuidHigh", &Textures::adapterLuidHigh),

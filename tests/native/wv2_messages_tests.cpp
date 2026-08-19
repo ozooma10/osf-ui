@@ -76,19 +76,24 @@ int main()
 		Check(got.slot == 3 && got.serial == sent.serial && got.presentationEpoch == 9, "frame survives");
 	}
 	{
+		const auto got = RoundTrip(msg::FrameAck{ .slot = 2, .serial = 77 });
+		Check(got.slot == 2 && got.serial == 77, "frame acknowledgement preserves slot ownership");
+	}
+	{
 		const msg::Textures sent{
 			.width = 8,
 			.height = 9,
 			.slots = { 1ull, 2ull, 0xFFFF'FFFF'FFFFull },
 			.produceFence = 111,
-			.consumeFence = 222,
+			.consumeFences = { 222, 333, 444 },
 			.keyedMutex = true,
 			.adapterLuidLow = 1,
 			.adapterLuidHigh = 2,
 		};
 		const auto got = RoundTrip(sent);
 		Check(got.slots == sent.slots, "slot handle array survives in order");
-		Check(got.keyedMutex && got.produceFence == 111 && got.consumeFence == 222, "fence handles survive");
+		Check(got.keyedMutex && got.produceFence == 111 &&
+			got.consumeFences == sent.consumeFences, "per-slot fence handles survive in order");
 	}
 	{
 		// Opaque already-serialized payloads must not be re-escaped or reparsed.
@@ -164,6 +169,7 @@ int main()
 		Check(got.slots.size() == 2 && got.slots[0] == 7 && got.slots[1] == 9, "non-integer slot entries are skipped");
 		Check(msg::FromJson<msg::Textures>(json{ { "type", "textures" } }).slots.empty(), "absent slots array reads empty, not a throw");
 		Check(msg::FromJson<msg::Textures>(json{ { "type", "textures" }, { "slots", "not-an-array" } }).slots.empty(), "wrong-typed slots reads empty");
+		Check(msg::FromJson<msg::Textures>(json{ { "type", "textures" }, { "consumeFences", "not-an-array" } }).consumeFences.empty(), "wrong-typed consume fences read empty");
 	}
 
 	{

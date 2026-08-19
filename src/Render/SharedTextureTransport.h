@@ -18,7 +18,7 @@ namespace OSFUI
 		void*         slotHandles[kMaxSlots]{};
 		std::uint32_t slotCount{ 0 };
 		void*         produceFence{ nullptr };
-		void*         consumeFence{ nullptr };
+		void*         consumeFences[kMaxSlots]{};
 		std::uint32_t width{ 0 };
 		std::uint32_t height{ 0 };
 		std::uint32_t adapterLuidLow{ 0 };

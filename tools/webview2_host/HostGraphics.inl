@@ -140,20 +140,24 @@
 
 			bool EnsureFences()
 			{
-				if (produceFence && consumeFence) return true;
-				auto hr = device5->CreateFence(0, D3D11_FENCE_FLAG_SHARED,
-					IID_PPV_ARGS(&produceFence));
-				if (FAILED(hr)) {
-					log.Error(std::format("CreateFence(produce) failed (0x{:08X})",
-						static_cast<unsigned>(hr)));
-					return false;
+				if (!produceFence) {
+					const auto hr = device5->CreateFence(0, D3D11_FENCE_FLAG_SHARED,
+						IID_PPV_ARGS(&produceFence));
+					if (FAILED(hr)) {
+						log.Error(std::format("CreateFence(produce) failed (0x{:08X})",
+							static_cast<unsigned>(hr)));
+						return false;
+					}
 				}
-				hr = device5->CreateFence(0, D3D11_FENCE_FLAG_SHARED,
-					IID_PPV_ARGS(&consumeFence));
-				if (FAILED(hr)) {
-					log.Error(std::format("CreateFence(consume) failed (0x{:08X})",
-						static_cast<unsigned>(hr)));
-					return false;
+				for (std::uint32_t slot = 0; slot < kRingSlots; ++slot) {
+					if (consumeFences[slot]) continue;
+					const auto hr = device5->CreateFence(0, D3D11_FENCE_FLAG_SHARED,
+						IID_PPV_ARGS(&consumeFences[slot]));
+					if (FAILED(hr)) {
+						log.Error(std::format("CreateFence(consume slot {}) failed (0x{:08X})",
+							slot, static_cast<unsigned>(hr)));
+						return false;
+					}
 				}
 				return true;
 			}
@@ -226,7 +230,8 @@
 				ringWrite = 0;
 
 				// Duplicate everything into the game and announce the new ring.
-				json slots = json::array();
+				std::vector<std::uint64_t> slots;
+				slots.reserve(kRingSlots);
 				for (auto& slot : ring) {
 					const auto remote = DuplicateToGame(slot.localHandle);
 					if (!remote) {
@@ -236,29 +241,42 @@
 					slots.push_back(reinterpret_cast<std::uint64_t>(remote));
 				}
 				HANDLE produceLocal = nullptr;
-				HANDLE consumeLocal = nullptr;
 				if (FAILED(produceFence->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr,
-						&produceLocal)) ||
-					FAILED(consumeFence->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr,
-						&consumeLocal))) {
-					log.Error("fence CreateSharedHandle failed");
+						&produceLocal))) {
+					log.Error("produce fence CreateSharedHandle failed");
 					ReleaseRing();
 					return false;
 				}
 				const auto produceRemote = DuplicateToGame(produceLocal);
-				const auto consumeRemote = DuplicateToGame(consumeLocal);
 				::CloseHandle(produceLocal);
-				::CloseHandle(consumeLocal);
-				if (!produceRemote || !consumeRemote) {
+				if (!produceRemote) {
 					ReleaseRing();
 					return false;
+				}
+				std::vector<std::uint64_t> consumeRemotes;
+				consumeRemotes.reserve(kRingSlots);
+				for (std::uint32_t slot = 0; slot < kRingSlots; ++slot) {
+					HANDLE consumeLocal = nullptr;
+					if (FAILED(consumeFences[slot]->CreateSharedHandle(nullptr, GENERIC_ALL,
+							nullptr, &consumeLocal))) {
+						log.Error(std::format("consume fence CreateSharedHandle failed for slot {}", slot));
+						ReleaseRing();
+						return false;
+					}
+					const auto consumeRemote = DuplicateToGame(consumeLocal);
+					::CloseHandle(consumeLocal);
+					if (!consumeRemote) {
+						ReleaseRing();
+						return false;
+					}
+					consumeRemotes.push_back(reinterpret_cast<std::uint64_t>(consumeRemote));
 				}
 				Send(msg::ToJson(msg::Textures{
 					.width = a_width,
 					.height = a_height,
 					.slots = std::move(slots),
 					.produceFence = reinterpret_cast<std::uint64_t>(produceRemote),
-					.consumeFence = reinterpret_cast<std::uint64_t>(consumeRemote),
+					.consumeFences = std::move(consumeRemotes),
 					.keyedMutex = ringKeyedMutex,
 					.adapterLuidLow = graphicsAdapterLuid.LowPart,
 					.adapterLuidHigh = static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart),
@@ -275,21 +293,23 @@
 			{
 				std::scoped_lock lock(ringMutex);
 				if (captureClosing.load()) return;
-				const auto consumed = [this] {
-					const auto fenceValue = consumeFence ? consumeFence->GetCompletedValue() : 0;
-					return (std::max)(fenceValue, ackedSerial.load());
+				const auto consumed = [this](std::uint32_t a_slot) {
+					const auto fenceValue = consumeFences[a_slot] ?
+						consumeFences[a_slot]->GetCompletedValue() : 0;
+					return (std::max)(fenceValue, ackedSerials[a_slot].load());
 				};
 				const bool ringNeedsRebuild = !ring[0].texture || ringWidth != a_width || ringHeight != a_height;
 				const bool newPresentation = frameSerial != 0 && a_presentationEpoch != lastPublishedPresentationEpoch;
 				//resize or new presentation may use another free slot: the prior presentation can be hidden before its last frame is consumed, and must not block the reveal.
-				if (!ringNeedsRebuild && !newPresentation && frameSerial != 0 && consumed() < frameSerial) return;
+				if (!ringNeedsRebuild && !newPresentation && frameSerial != 0 &&
+					consumed(lastSlot) < ring[lastSlot].lastSerial) return;
 				if (!EnsureRing(a_width, a_height)) return;
 
-				const auto completed = consumed();
 				auto writableSlot = kRingSlots;
 				for (std::uint32_t offset = 0; offset < kRingSlots; ++offset) {
 					const auto candidate = (ringWrite + offset) % kRingSlots;
-					if (ring[candidate].lastSerial == 0 || completed >= ring[candidate].lastSerial) {
+					if (ring[candidate].lastSerial == 0 ||
+						consumed(candidate) >= ring[candidate].lastSerial) {
 						writableSlot = candidate;
 						break;
 					}
@@ -297,7 +317,7 @@
 				if (writableSlot == kRingSlots) {
 					++consumeLagDrops;
 					if (consumeLagDrops == 1 || consumeLagDrops % 300 == 0) {
-						log.Warn(std::format("consume lagging (all {} slots busy, completed {}, {} drops); captured frame dropped", kRingSlots, completed, consumeLagDrops));
+						log.Warn(std::format("consume lagging (all {} slots busy, {} drops); captured frame dropped", kRingSlots, consumeLagDrops));
 					}
 					return;
 				}
@@ -368,6 +388,12 @@
 			{
 				std::scoped_lock lock(ringMutex);
 				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) {
+					return;
+				}
+				const auto fenceValue = consumeFences[lastSlot] ?
+					consumeFences[lastSlot]->GetCompletedValue() : 0;
+				if ((std::max)(fenceValue, ackedSerials[lastSlot].load()) <
+					ring[lastSlot].lastSerial) {
 					return;
 				}
 				const auto serial = ++frameSerial;

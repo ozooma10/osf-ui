@@ -18,8 +18,7 @@ namespace osfui::wv2
 	{
 		if (a_type == "mouse" && a_kind == "move") return "mouse.move";
 		if (a_type == "resize" || a_type == "focus" ||
-			a_type == "accelState" ||
-			a_type == "frameAck") {
+			a_type == "accelState") {
 			return std::string(a_type);
 		}
 		if ((a_type == "setHidden" || a_type == "setOrder") &&

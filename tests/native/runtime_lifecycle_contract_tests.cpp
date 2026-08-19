@@ -224,22 +224,27 @@ int main()
 		"EnsureRing(a_width, a_height)",
 		"for (std::uint32_t offset = 0; offset < kRingSlots; ++offset)",
 		"ring[candidate].lastSerial == 0",
-		"completed >= ring[candidate].lastSerial",
+		"consumed(candidate) >= ring[candidate].lastSerial",
 		"if (writableSlot == kRingSlots)",
 		"context->CopyResource",
 		"lastPublishedPresentationEpoch = a_presentationEpoch" }),
 		"capture must pace within one presentation while allowing a new presentation to bypass a stranded prior frame through a free slot");
-	Check(publishFrame.find("ackedSerial.store") == std::string::npos,
+	Check(publishFrame.find("ackedSerials[a_slot]") != std::string::npos &&
+		publishFrame.find("consumed(lastSlot) < ring[lastSlot].lastSerial") != std::string::npos &&
+		publishFrame.find("ackedSerial.store") == std::string::npos,
 		"presentation rollover must not synthetically acknowledge a texture that the GPU may still be reading");
 	const auto releaseRing = FunctionBody(hostGraphics, "void ReleaseRing()");
 	Check(releaseRing.find("lastPublishedPresentationEpoch = 0") != std::string::npos,
 		"rebuilding the shared ring must reset its published-presentation tracker");
 	const auto republishLatest = FunctionBody(hostGraphics, "void RepublishLatest()");
 	Check(ContainsInOrder(republishLatest, {
+		"consumeFences[lastSlot]->GetCompletedValue()",
+		"ackedSerials[lastSlot].load()",
+		"ring[lastSlot].lastSerial",
 		"lastPublishedPresentationEpoch =",
 		"presentationEpoch.load(std::memory_order_relaxed)",
 		".presentationEpoch = lastPublishedPresentationEpoch" }),
-		"cached-frame republication must keep presentation-aware pacing synchronized");
+		"cached-frame republication must wait for that slot's prior use and keep presentation-aware pacing synchronized");
 
 	Check(ContainsInOrder(runtimeFrameSource, {
 		"void Runtime::ProcessRendererFrame(double a_deltaSeconds)",
@@ -464,6 +469,10 @@ int main()
 		"haveFrame = false",
 		"ackNew = true" }),
 		"all-hidden and wrong-epoch frames must be rejected and acknowledged");
+	Check(onFrame.find("ackSlot = frameSlot") != std::string::npos &&
+		onFrame.find(".slot = ackSlot") != std::string::npos &&
+		onFrame.find(".slot = slot") != std::string::npos,
+		"discard acknowledgements must release only the exact superseded ring slot");
 	const auto takeLatestFrame = FunctionBody(rendererSource,
 		"std::optional<FrameBufferView> WebView2HostWebRenderer::TakeLatestFrame()");
 	Check(takeLatestFrame.find("submittedRingGeneration == _impl->sharedRingGeneration") != std::string::npos &&
@@ -508,8 +517,9 @@ int main()
 	Check(ContainsInOrder(recordOverlay, {
 		"frameGeneration == sharedRing.activeGeneration",
 		"ringSlot = sharedRing.readySlot",
+		"sharedRing.consumeFences[ringSlot]",
 		"DrawInstanced(3, 1, 0, 0)" }),
-		"each UI target must draw the cached frame while only generation-matched candidates replace it");
+		"each UI target must draw the cached frame and track completion on that slot's own fence");
 	const auto trackConsume = FunctionBody(compositorSource,
 		"[[nodiscard]] bool Track(");
 	Check(ContainsInOrder(trackConsume, {

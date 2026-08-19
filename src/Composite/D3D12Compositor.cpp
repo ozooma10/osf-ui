@@ -301,10 +301,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			ID3D12Resource* slots[SharedRingDesc::kMaxSlots]{};
 			std::uint32_t slotCount{ 0 };
 			ID3D12Fence* produceFence{ nullptr };
-			ID3D12Fence* consumeFence{ nullptr };
+			ID3D12Fence* consumeFences[SharedRingDesc::kMaxSlots]{};
 			ID3D12Resource* retiredSlots[SharedRingDesc::kMaxSlots]{};
 			ID3D12Fence* retiredProduceFence{ nullptr };
-			ID3D12Fence* retiredConsumeFence{ nullptr };
+			ID3D12Fence* retiredConsumeFences[SharedRingDesc::kMaxSlots]{};
 			std::uint64_t activeGeneration{ 0 };
 			std::uint32_t readySlot{ 0 };
 			std::uint64_t readySerial{ 0 };
@@ -329,9 +329,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					::CloseHandle(a_desc.produceFence);
 					a_desc.produceFence = nullptr;
 				}
-				if (a_desc.consumeFence) {
-					::CloseHandle(a_desc.consumeFence);
-					a_desc.consumeFence = nullptr;
+				for (auto*& handle : a_desc.consumeFences) {
+					if (handle) {
+						::CloseHandle(handle);
+						handle = nullptr;
+					}
 				}
 			}
 
@@ -374,15 +376,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					SafeRelease(slot);
 				}
 				SafeRelease(retiredProduceFence);
-				SafeRelease(retiredConsumeFence);
+				for (auto*& fence : retiredConsumeFences) {
+					SafeRelease(fence);
+				}
 				for (std::size_t i = 0; i < SharedRingDesc::kMaxSlots; ++i) {
 					retiredSlots[i] = slots[i];
 					slots[i] = nullptr;
+					retiredConsumeFences[i] = consumeFences[i];
+					consumeFences[i] = nullptr;
 				}
 				retiredProduceFence = produceFence;
 				produceFence = nullptr;
-				retiredConsumeFence = consumeFence;
-				consumeFence = nullptr;
 				slotCount = 0;
 				activeGeneration = 0;
 				readySlot = 0;
@@ -395,13 +399,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					SafeRelease(slot);
 				}
 				SafeRelease(retiredProduceFence);
-				SafeRelease(retiredConsumeFence);
+				for (auto*& fence : retiredConsumeFences) {
+					SafeRelease(fence);
+				}
 				for (auto*& slot : slots) {
 					SafeRelease(slot);
 				}
 				slotCount = 0;
 				SafeRelease(produceFence);
-				SafeRelease(consumeFence);
+				for (auto*& fence : consumeFences) {
+					SafeRelease(fence);
+				}
 			}
 
 			Frame SnapshotFrame()
@@ -669,9 +677,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				openHr = pending.produceFence ? dev->OpenSharedHandle(pending.produceFence, __uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.produceFence)) : E_HANDLE;
 				ok = SUCCEEDED(openHr);
 			}
-			if (ok) {
+			for (std::size_t i = 0; ok && i < pending.slotCount; ++i) {
 				openObject = "consume fence";
-				openHr = pending.consumeFence ? dev->OpenSharedHandle(pending.consumeFence, __uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.consumeFence)) : E_HANDLE;
+				openSlot = static_cast<int>(i);
+				openHr = pending.consumeFences[i] ? dev->OpenSharedHandle(pending.consumeFences[i], __uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.consumeFences[i])) : E_HANDLE;
 				ok = SUCCEEDED(openHr);
 			}
 			SharedRingState::CloseHandles(pending);
@@ -777,7 +786,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 			// Reserve consume tracking before mutating the engine command list. If the fixed tracker is ever exhausted, skip the draw rather than lose the exact-submission fence signal that protects shared-ring reuse.
-			if (!consumes.Track(a_list, sharedRing.consumeFence, serial)) {
+			if (!consumes.Track(a_list, sharedRing.consumeFences[ringSlot], serial)) {
 				return false;
 			}
 

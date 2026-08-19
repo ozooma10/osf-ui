@@ -127,10 +127,15 @@
 
 			void HandleFrameAck(const json& a_msg)
 			{
-				const auto serial = msg::FromJson<msg::FrameAck>(a_msg).serial;
-				auto current = ackedSerial.load();
-				while (serial > current &&
-					!ackedSerial.compare_exchange_weak(current, serial)) {}
+				const auto ack = msg::FromJson<msg::FrameAck>(a_msg);
+				if (ack.slot >= kRingSlots) {
+					log.Warn(std::format("ignoring frame acknowledgement for invalid slot {}", ack.slot));
+					return;
+				}
+				auto& completed = ackedSerials[ack.slot];
+				auto current = completed.load();
+				while (ack.serial > current &&
+					!completed.compare_exchange_weak(current, ack.serial)) {}
 			}
 
 			void HandlePostWeb(const json& a_msg)
