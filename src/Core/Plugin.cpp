@@ -39,9 +39,9 @@ namespace OSFUI::Plugin
 				try {
 					Runtime::Get().Tick(dt);
 				} catch (const std::exception& e) {
-					REX::ERROR("FrameTick: Runtime::Tick threw '{}'; disabling further UI ticks to contain the failure", e.what());
+					REX::ERROR("FrameTick: Runtime::Tick threw '{}';", e.what());
 				} catch (...) {
-					REX::ERROR("FrameTick: Runtime::Tick threw an unknown exception; disabling further UI ticks to contain the failure");
+					REX::ERROR("FrameTick: Runtime::Tick threw an unknown exception;");
 				}
 				m_tickPending.store(false, std::memory_order_release);
 			}

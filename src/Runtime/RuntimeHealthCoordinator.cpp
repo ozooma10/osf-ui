@@ -199,6 +199,7 @@ namespace OSFUI
 			{ "nativeFocus", runtime._renderer != nullptr },
 			{ "locale", runtime._localization.Locale() },
 			{ "devMode", runtime._developerMode },
+			{ "highRefreshCapture", runtime._highRefreshCapture },
 		});
 	}
 

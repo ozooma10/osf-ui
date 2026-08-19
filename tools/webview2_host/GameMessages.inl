@@ -11,6 +11,7 @@
 				height = (std::max)(1u, a_msg.height);
 				userData = std::filesystem::path(ToWide(a_msg.userDataDir));
 				devMode = a_msg.devMode;
+				highRefreshCapture = a_msg.highRefreshCapture;
 				defaultHidden = a_msg.hidden;
 				if (userData.empty()) {
 					log.Error("init without userDataDir");
@@ -29,9 +30,7 @@
 					return;
 				}
 				rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
-				log.Info(std::format("init: views='{}' {}x{} hidden={} topLevel=0x{:X}",
-					ToUtf8(viewsRoot.native()), width, height, defaultHidden,
-					reinterpret_cast<std::uintptr_t>(gameTopLevel)));
+				log.Info(std::format("init: views='{}' {}x{} hidden={} highRefreshCapture={} topLevel=0x{:X}", ToUtf8(viewsRoot.native()), width, height, defaultHidden, highRefreshCapture, reinterpret_cast<std::uintptr_t>(gameTopLevel)));
 				BeginEnvironment();
 			}
 
@@ -182,6 +181,7 @@
 				std::erase_if(views, [view](const std::unique_ptr<View>& a_view) {
 					return a_view.get() == view;
 				});
+				RefreshCaptureVisibility();
 				if (wasInputTarget) inputTarget = views.empty() ? nullptr : views.front().get();
 				if (!AnyRevealPending()) ApplyDeferredHides();
 			}

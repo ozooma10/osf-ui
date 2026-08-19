@@ -232,6 +232,7 @@ namespace OSFUI
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
 		bool                          _developerMode{ false };  // startup-latched; setting changes apply next launch
+		bool                          _highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
 
 		ViewRevealGate                 m_viewReveal;
 

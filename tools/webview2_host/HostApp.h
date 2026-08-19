@@ -24,7 +24,7 @@ namespace osfui::wv2
 
 	struct HostOptions
 	{
-		std::wstring          pipeName;      // without \\.\pipe\ prefix
+		std::wstring          pipeName;
 		std::uint32_t         gamePid{ 0 };
 		std::filesystem::path logFile;       // empty = no file log
 	};

@@ -38,7 +38,7 @@ describe('shipped settings-schema JSON files', () => {
     expect(doc.id).toBe(stem);
   });
 
-  it('declares developer mode as an off-by-default restart setting in a collapsed group', () => {
+  it('declares performance-sensitive developer settings as off-by-default restart latches', () => {
     const doc = JSON.parse(readFileSync(osfuiSettingsFile, 'utf8')) as {
       groups?: Array<{
         id?: string;
@@ -50,6 +50,13 @@ describe('shipped settings-schema JSON files', () => {
     expect(group).toMatchObject({ collapsed: true });
     const setting = group?.settings?.find((candidate) => candidate.key === 'developerMode');
     expect(setting).toMatchObject({
+      type: 'bool',
+      default: false,
+      requires: 'restart',
+    });
+
+    const highRefresh = group?.settings?.find((candidate) => candidate.key === 'highRefreshCapture');
+    expect(highRefresh).toMatchObject({
       type: 'bool',
       default: false,
       requires: 'restart',

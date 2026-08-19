@@ -832,6 +832,7 @@ namespace OSFUI
 					.height = height,
 					.userDataDir = ToUtf8(userData.native()),
 					.devMode = config.devMode,
+					.highRefreshCapture = config.highRefreshCapture,
 					.hidden = allHidden,
 					.adapterLuidLow = adapterLuidLow,
 					.adapterLuidHigh = adapterLuidHigh,

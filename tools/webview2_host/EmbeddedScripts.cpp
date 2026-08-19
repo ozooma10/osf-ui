@@ -23,12 +23,10 @@ namespace osfui::wv2
 			static_assert(N > 0 && N - 1 <= static_cast<std::size_t>((std::numeric_limits<int>::max)()));
 			const auto size = static_cast<int>(N - 1);  // bin2c appends a NUL terminator
 			const auto* data = reinterpret_cast<const char*>(a_data);
-			const auto chars = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-				data, size, nullptr, 0);
+			const auto chars = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, size, nullptr, 0);
 			if (chars <= 0) return {};
 			std::wstring result(static_cast<std::size_t>(chars), L'\0');
-			if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-					data, size, result.data(), chars) != chars) {
+			if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, size, result.data(), chars) != chars) {
 				return {};
 			}
 			return result;

@@ -52,6 +52,7 @@ int main()
 			.height = 1440,
 			.userDataDir = "C:/users/data",
 			.devMode = true,
+			.highRefreshCapture = true,
 			.hidden = false,
 			.adapterLuidLow = 4242,
 			.adapterLuidHigh = 7,
@@ -60,7 +61,7 @@ int main()
 		Check(got.topLevelHwnd == sent.topLevelHwnd, "u64 handle survives (above 2^53)");
 		Check(got.viewsPath == sent.viewsPath, "string survives");
 		Check(got.width == 2560 && got.height == 1440, "u32 survives");
-		Check(got.devMode && !got.hidden, "bools survive independently");
+		Check(got.devMode && got.highRefreshCapture && !got.hidden, "bools survive independently");
 		Check(got.adapterLuidHigh == 7, "adapter luid survives");
 	}
 	{
@@ -72,8 +73,7 @@ int main()
 		const msg::Frame sent{ .slot = 3, .serial = 0xDEAD'BEEF'0000'0001ull,
 			.width = 1920, .height = 1080, .presentationEpoch = 9 };
 		const auto got = RoundTrip(sent);
-		Check(got.slot == 3 && got.serial == sent.serial && got.presentationEpoch == 9,
-			"frame survives");
+		Check(got.slot == 3 && got.serial == sent.serial && got.presentationEpoch == 9, "frame survives");
 	}
 	{
 		const msg::Textures sent{
@@ -88,8 +88,7 @@ int main()
 		};
 		const auto got = RoundTrip(sent);
 		Check(got.slots == sent.slots, "slot handle array survives in order");
-		Check(got.keyedMutex && got.produceFence == 111 && got.consumeFence == 222,
-			"fence handles survive");
+		Check(got.keyedMutex && got.produceFence == 111 && got.consumeFence == 222, "fence handles survive");
 	}
 	{
 		// Opaque already-serialized payloads must not be re-escaped or reparsed.
@@ -107,8 +106,7 @@ int main()
 		const auto got = msg::FromJson<msg::Navigate>(json{ { "type", "navigate" } });
 		Check(got.entry == "index.html", "navigate.entry defaults to index.html");
 		Check(!got.legacyApi, "navigate.legacyApi defaults false");
-		Check(got.logicalHeight == osfui::wv2::kDefaultLogicalHeight,
-			"navigate.logicalHeight defaults to the shared constant");
+		Check(got.logicalHeight == osfui::wv2::kDefaultLogicalHeight, "navigate.logicalHeight defaults to the shared constant");
 		Check(got.id.empty(), "navigate.id defaults empty (the caller rejects it)");
 	}
 	{
@@ -119,6 +117,7 @@ int main()
 		const auto got = msg::FromJson<msg::Init>(json{ { "type", "init" } });
 		Check(got.virtualHost == "osfui.local", "init.virtualHost default");
 		Check(got.width == 1 && got.height == 1, "init dimensions default to 1, never 0");
+		Check(!got.highRefreshCapture, "init high-refresh capture defaults off");
 		Check(got.hidden, "init.hidden defaults true");
 	}
 	{
@@ -129,8 +128,7 @@ int main()
 	{
 		const auto got = msg::FromJson<msg::Mouse>(json{ { "type", "mouse" } });
 		Check(got.kind == "move", "mouse.kind defaults to move");
-		Check(got.x == 0 && got.y == 0 && got.wheel == 0 && got.button == 0 && !got.down,
-			"mouse numerics default to 0");
+		Check(got.x == 0 && got.y == 0 && got.wheel == 0 && got.button == 0 && !got.down, "mouse numerics default to 0");
 	}
 
 	{
@@ -144,39 +142,28 @@ int main()
 		Check(got.id == "acme.mod/v", "good field still read alongside bad ones");
 		Check(got.entry == "index.html", "wrong-typed string falls back to default");
 		Check(!got.legacyApi, "wrong-typed bool falls back to default");
-		Check(got.logicalHeight == osfui::wv2::kDefaultLogicalHeight,
-			"wrong-typed number falls back to default");
+		Check(got.logicalHeight == osfui::wv2::kDefaultLogicalHeight, "wrong-typed number falls back to default");
 	}
 	{
-		Check(msg::FromJson<msg::Focus>(json::array({ 1, 2 })).focused == false,
-			"array document reads as defaults");
-		Check(msg::FromJson<msg::Bye>(json("nope")).reason.empty(),
-			"string document reads as defaults");
+		Check(msg::FromJson<msg::Focus>(json::array({ 1, 2 })).focused == false, "array document reads as defaults");
+		Check(msg::FromJson<msg::Bye>(json("nope")).reason.empty(), "string document reads as defaults");
 		Check(msg::FromJson<msg::Cursor>(json()).id == 0, "null document reads as defaults");
 	}
 	{
-		const auto got = msg::FromJson<msg::Cursor>(json{
-			{ "type", "cursor" }, { "id", 5u }, { "shapeHint", "beam" }, { "future", { 1, 2 } } });
+		const auto got = msg::FromJson<msg::Cursor>(json{ { "type", "cursor" }, { "id", 5u }, { "shapeHint", "beam" }, { "future", { 1, 2 } } });
 		Check(got.id == 5, "unknown fields ignored, known field still read");
 	}
 	{
-		const auto got = msg::FromJson<msg::Resize>(json{
-			{ "type", "resize" }, { "width", -1 }, { "height", 1080 } });
+		const auto got = msg::FromJson<msg::Resize>(json{ { "type", "resize" }, { "width", -1 }, { "height", 1080 } });
 		Check(got.width == 1, "negative into unsigned keeps the default, no wrap");
 		Check(got.height == 1080, "sibling field unaffected");
 	}
 	{
 		// Slot array with a junk element: skipped, not defaulted to a null handle.
-		const auto got = msg::FromJson<msg::Textures>(json{
-			{ "type", "textures" }, { "slots", json::array({ 7u, "junk", 9u }) } });
-		Check(got.slots.size() == 2 && got.slots[0] == 7 && got.slots[1] == 9,
-			"non-integer slot entries are skipped");
-		Check(msg::FromJson<msg::Textures>(json{ { "type", "textures" } }).slots.empty(),
-			"absent slots array reads empty, not a throw");
-		Check(msg::FromJson<msg::Textures>(json{
-				  { "type", "textures" }, { "slots", "not-an-array" } })
-				  .slots.empty(),
-			"wrong-typed slots reads empty");
+		const auto got = msg::FromJson<msg::Textures>(json{ { "type", "textures" }, { "slots", json::array({ 7u, "junk", 9u }) } });
+		Check(got.slots.size() == 2 && got.slots[0] == 7 && got.slots[1] == 9, "non-integer slot entries are skipped");
+		Check(msg::FromJson<msg::Textures>(json{ { "type", "textures" } }).slots.empty(), "absent slots array reads empty, not a throw");
+		Check(msg::FromJson<msg::Textures>(json{ { "type", "textures" }, { "slots", "not-an-array" } }).slots.empty(), "wrong-typed slots reads empty");
 	}
 
 	{
@@ -185,17 +172,13 @@ int main()
 			.hostVersion = "2.0.0",
 			.runtimeVersion = "120.0.0.0",
 			.pid = 4242 });
-		Check(got.protocolVersion == osfui::wv2::kBrowserHostProtocolVersion,
-			"hello carries the protocol version");
+		Check(got.protocolVersion == osfui::wv2::kBrowserHostProtocolVersion, "hello carries the protocol version");
 		Check(got.pid == 4242, "hello carries the pid");
 		// A garbage hello must land on 0/0 so the gate rejects rather than admits.
-		const auto junk = msg::FromJson<msg::Hello>(json{ { "type", "hello" },
-			{ "protocolVersion", "six" }, { "pid", nullptr } });
-		Check(junk.protocolVersion == 0 && junk.pid == 0,
-			"unreadable hello fields read as 0 so the identity gate fails closed");
+		const auto junk = msg::FromJson<msg::Hello>(json{ { "type", "hello" }, { "protocolVersion", "six" }, { "pid", nullptr } });
+		Check(junk.protocolVersion == 0 && junk.pid == 0, "unreadable hello fields read as 0 so the identity gate fails closed");
 	}
 
-	std::cout << "wv2_messages_tests: " << checks << " checks, " << failures
-			  << " failure(s)\n";
+	std::cout << "wv2_messages_tests: " << checks << " checks, " << failures  << " failure(s)\n";
 	return failures;
 }

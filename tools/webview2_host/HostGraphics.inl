@@ -274,12 +274,15 @@
 			{
 				std::scoped_lock lock(ringMutex);
 				if (captureClosing.load()) return;
+				const auto consumed = [this] {
+					const auto fenceValue = consumeFence ? consumeFence->GetCompletedValue() : 0;
+					return (std::max)(fenceValue, ackedSerial.load());
+				};
+				// Do not copy faster than Starfield consumes (or rejects) the last delivery. WGC still drains independently, so the next eligible callback is current.
+				if (frameSerial != 0 && consumed() < frameSerial) return;
 				if (!EnsureRing(a_width, a_height)) return;
 
 				auto& slot = ring[ringWrite];
-				const auto consumed = [this] {
-					return (std::max)(consumeFence->GetCompletedValue(), ackedSerial.load());
-				};
 				if (slot.lastSerial != 0 && consumed() < slot.lastSerial) {
 					const HANDLE evt = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
 					if (!evt) {
@@ -417,6 +420,7 @@
 				}
 				views.push_back(std::move(owned));
 				auto& view = *views.back();
+				RefreshCaptureVisibility();
 				if (!inputTarget) inputTarget = &view;
 				RequestController(view);
 				return view;

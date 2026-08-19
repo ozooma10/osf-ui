@@ -57,6 +57,14 @@
           "default": false,
           "requires": "restart",
           "hint": "Enable verbose diagnostics, F12 WebView DevTools, schema and loose-view hot reload, and developer-only views on the next launch. Security and validation rules remain unchanged."
+        },
+        {
+          "key": "highRefreshCapture",
+          "label": "240 Hz focused capture",
+          "type": "bool",
+          "default": false,
+          "requires": "restart",
+          "hint": "Allow focused menus to request capture at up to 240 Hz. Published frames remain paced by Starfield consumption. May increase CPU and GPU use."
         }
       ]
     }

@@ -90,6 +90,15 @@ namespace OSFUI
 		}
 		Log::SetDebugLogging(_developerMode);
 		REX::INFO("Runtime: developer mode = {} (restart-latched from osfui.developerMode)", _developerMode);
+
+		configured = _settings->Store().GetValue("osfui", "highRefreshCapture");
+		if (configured && configured->is_boolean()) {
+			_highRefreshCapture = configured->get<bool>();
+		} else {
+			_highRefreshCapture = false;
+			REX::WARN("Runtime: setting 'osfui.highRefreshCapture' is unavailable or invalid; high-refresh capture disabled");
+		}
+		REX::INFO("Runtime: high-refresh capture = {} (restart-latched from osfui.highRefreshCapture)", _highRefreshCapture);
 	}
 
 	void Runtime::LoadLocalization()
@@ -129,6 +138,7 @@ namespace OSFUI
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = _developerMode,
+			.highRefreshCapture = _highRefreshCapture,
 			.dataDir = Paths::DataDir(),
 		};
 
@@ -852,6 +862,11 @@ namespace OSFUI
 			const auto desired = a_value.get<bool>();
 			if (desired != _developerMode) {
 				REX::INFO("Runtime: developer mode setting changed to {}; effective mode remains {} until the next launch", desired, _developerMode);
+			}
+		} else if (a_key == "highRefreshCapture" && a_value.is_boolean()) {
+			const auto desired = a_value.get<bool>();
+			if (desired != _highRefreshCapture) {
+				REX::INFO("Runtime: high-refresh capture setting changed to {}; effective mode remains {} until the next launch", desired, _highRefreshCapture);
 			}
 		}
 	}

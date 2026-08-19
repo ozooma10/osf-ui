@@ -84,6 +84,7 @@ namespace osfui::wv2::msg
 		std::uint32_t height{ 1 };
 		std::string   userDataDir;
 		bool          devMode{ false };
+		bool          highRefreshCapture{ false };
 		bool          hidden{ true };
 		std::uint32_t adapterLuidLow{ 0 };
 		std::uint32_t adapterLuidHigh{ 0 };
@@ -96,6 +97,7 @@ namespace osfui::wv2::msg
 			F("height", &Init::height),
 			F("userDataDir", &Init::userDataDir),
 			F("devMode", &Init::devMode),
+			F("highRefreshCapture", &Init::highRefreshCapture),
 			F("hidden", &Init::hidden),
 			F("adapterLuidLow", &Init::adapterLuidLow),
 			F("adapterLuidHigh", &Init::adapterLuidHigh),

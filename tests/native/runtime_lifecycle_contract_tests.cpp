@@ -149,6 +149,7 @@ int main()
 		ReadSource("../../src/Views/ViewManifest.cpp");
 	const auto hostSource = ReadSource("../../tools/webview2_host/HostApp.cpp") +
 		ReadSource("../../tools/webview2_host/GameMessages.inl");
+	const auto hostGraphics = ReadSource("../../tools/webview2_host/HostGraphics.inl");
 	const auto hostMessages = ReadSource("../../tools/webview2_shared/Wv2Messages.h");
 	const auto menuEventSource = ReadSource("../../src/Input/MenuEventSink.cpp");
 	const auto presentationSource = ReadSource("../../src/Views/ViewPresentationController.cpp");
@@ -175,10 +176,17 @@ int main()
 		"the one authoritative SettingsModule must supply and latch developer mode before debug logging is configured");
 	Check(initializeSettings.find("_developerMode = false") != std::string::npos,
 		"an unavailable or malformed developer setting must fail closed");
+	Check(initializeSettings.find("GetValue(\"osfui\", \"highRefreshCapture\")") !=
+			std::string::npos &&
+		initializeSettings.find("_highRefreshCapture = false") != std::string::npos,
+		"240 Hz capture must be a separate off-by-default startup latch");
 
 	const auto initializeRenderer = FunctionBody(runtimeSource, "bool Runtime::InitializeRenderer()");
 	Check(initializeRenderer.find(".devMode = _developerMode") != std::string::npos,
 		"the WebView host must receive the effective startup latch");
+	Check(initializeRenderer.find(".highRefreshCapture = _highRefreshCapture") !=
+		std::string::npos,
+		"the WebView host must receive the explicit high-refresh capture opt-in");
 
 	const auto onSettingChanged = FunctionBody(runtimeSource,
 		"void Runtime::OnSettingChanged(std::string_view a_modId");
@@ -187,6 +195,27 @@ int main()
 		onSettingChanged.find("_developerMode = desired") == std::string::npos &&
 		onSettingChanged.find("SetDebugLogging") == std::string::npos,
 		"changing developerMode must report a next-launch preference without mutating the effective session");
+	Check(onSettingChanged.find("a_key == \"highRefreshCapture\"") != std::string::npos &&
+		onSettingChanged.find("desired != _highRefreshCapture") != std::string::npos &&
+		onSettingChanged.find("_highRefreshCapture = desired") == std::string::npos,
+		"changing highRefreshCapture must not mutate the effective session");
+
+	const auto captureCadence = FunctionBody(hostSource, "void ApplyCaptureCadence()");
+	Check(captureCadence.find(
+		"highRefreshCapture && focusGranted ? 240u : 60u") != std::string::npos,
+		"focused capture must default to 60 Hz and require an explicit opt-in for 240 Hz");
+	const auto frameArrival = FunctionBody(hostSource, "void OnFrameArrived(");
+	Check(ContainsInOrder(frameArrival, {
+		"TryGetNextFrame()",
+		"if (!captureHasVisibleView.load(std::memory_order_acquire)) return",
+		"capturedFrame.Surface()" }),
+		"hidden capture must drain WGC and return before accessing the surface");
+	const auto publishFrame = FunctionBody(hostGraphics, "void PublishFrame(");
+	Check(ContainsInOrder(publishFrame, {
+		"if (frameSerial != 0 && consumed() < frameSerial) return",
+		"EnsureRing(a_width, a_height)",
+		"context->CopyResource" }),
+		"capture must wait for Starfield's observed consumption before copying another frame");
 
 	const auto settingsMaintenance = FunctionBody(runtimeSource,
 		"void Runtime::ProcessSettingsMaintenance()");

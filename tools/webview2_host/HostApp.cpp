@@ -216,6 +216,7 @@ namespace osfui::wv2
 			std::wstring          virtualHost{ L"osfui.local" };
 			std::uint32_t         width{ 1 }, height{ 1 };
 			bool                  devMode{ false };
+			bool                  highRefreshCapture{ false };
 			bool                  defaultHidden{ true };  // init.hidden — a new view's starting state
 
 			HWND bootstrapWindow{ nullptr };
@@ -288,6 +289,7 @@ namespace osfui::wv2
 			winrt::Windows::Graphics::Capture::GraphicsCaptureSession captureSession{ nullptr };
 			winrt::event_token frameToken{};
 			std::atomic_bool   captureClosing{ true };
+			std::atomic_bool   captureHasVisibleView{ false };
 			std::uint32_t      captureCadenceHz{ 0 };
 
 			std::mutex ringMutex;
@@ -404,6 +406,12 @@ namespace osfui::wv2
 				return false;
 			}
 
+			void RefreshCaptureVisibility()
+			{
+				const bool anyVisible = std::ranges::any_of(views, [](const std::unique_ptr<View>& a_view) { return !a_view->hidden; });
+				captureHasVisibleView.store(anyVisible, std::memory_order_release);
+			}
+
 			void ApplyDeferredHides()
 			{
 				for (auto& view : views) {
@@ -418,6 +426,7 @@ namespace osfui::wv2
 			{
 				if (a_view.hidden && !a_view.revealPending) return;
 				a_view.hidden = true;
+				RefreshCaptureVisibility();
 				a_view.pendingPresentationEpoch = 0;
 				a_view.revealPending = false;  // cancel an in-flight reveal
 				a_view.revealToken.clear();
@@ -437,6 +446,7 @@ namespace osfui::wv2
 					return;
 				}
 				a_view.hidden = false;
+				captureHasVisibleView.store(true, std::memory_order_release);
 				a_view.hideDeferred = false;
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				if (a_view.visual && a_view.visual.IsVisible()) {
@@ -1190,7 +1200,7 @@ namespace osfui::wv2
 			void ApplyCaptureCadence()
 			{
 				if (!captureSession) return;
-				const std::uint32_t desiredHz = focusGranted ? 240u : 60u;
+				const std::uint32_t desiredHz = highRefreshCapture && focusGranted ? 240u : 60u;
 				if (captureCadenceHz == desiredHz) return;
 				try {
 					if (const auto cadence = captureSession.try_as<
@@ -1245,8 +1255,7 @@ namespace osfui::wv2
 				}
 			}
 
-			void OnFrameArrived(
-				const winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool& a_pool)
+			void OnFrameArrived(const winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool& a_pool)
 			{
 				if (quit.load() || captureClosing.load()) return;
 				try {
@@ -1254,19 +1263,18 @@ namespace osfui::wv2
 					std::uint64_t framePresentationEpoch = 0;
 					{
 						std::scoped_lock epochLock(captureEpochMutex);
-						framePresentationEpoch =
-							presentationEpoch.load(std::memory_order_acquire);
+						framePresentationEpoch = presentationEpoch.load(std::memory_order_acquire);
 						capturedFrame = a_pool.TryGetNextFrame();
 					}
 					if (!capturedFrame) return;
-					auto access = capturedFrame.Surface().as<
-						::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
+					// Draining keeps the WGC pool current while closed; no surface access, GPU copy, fence signal, serialization, or pipe write is useful without a visible view.
+					if (!captureHasVisibleView.load(std::memory_order_acquire)) return;
+					auto access = capturedFrame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
 					ComPtr<ID3D11Texture2D> source;
 					winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(&source)));
 					D3D11_TEXTURE2D_DESC desc{};
 					source->GetDesc(&desc);
-					PublishFrame(source.Get(), desc.Width, desc.Height,
-						framePresentationEpoch);
+					PublishFrame(source.Get(), desc.Width, desc.Height, framePresentationEpoch);
 				} catch (const winrt::hresult_error& a_error) {
 					log.Warn(std::format("capture callback failed: {}", ToUtf8(a_error.message())));
 				}

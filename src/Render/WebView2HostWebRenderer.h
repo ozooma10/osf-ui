@@ -11,6 +11,7 @@ namespace OSFUI
 		std::uint32_t width{ kDefaultViewWidth };
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
+		bool          highRefreshCapture{ false };
 		std::filesystem::path dataDir;
 	};
 
