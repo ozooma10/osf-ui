@@ -481,6 +481,11 @@ namespace osfui::wv2
 				captureHasVisibleView.store(true, std::memory_order_release);
 				a_view.hideDeferred = false;
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
+				// WebView2 may restore its last keyboard focus merely by becoming visible.
+				// Until the game has admitted FocusMenu, keep that focus parked outside Chromium.
+				if (!focusGranted && FocusedView()) {
+					ReleaseInputFocus("view show");
+				}
 				if (a_view.visual && a_view.visual.IsVisible()) {
 					log.Info(std::format(
 						"view '{}': show — hide was still deferred, never left the screen", a_view.id));
@@ -1007,6 +1012,25 @@ namespace osfui::wv2
 				PublishFocusState();
 			}
 
+			void ReleaseInputFocus(std::string_view a_reason)
+			{
+				if (FocusedView() && hostWindow) {
+					// Move focus onto our non-WebView owner first, then clear this input queue.
+					// This gives Chromium a synchronous LostFocus edge instead of relying solely
+					// on a cross-process SetFocus posted back to Starfield.
+					::SetFocus(hostWindow);
+					::SetFocus(nullptr);
+				}
+				PublishFocusState();
+				if (FocusedView()) {
+					log.Info(std::format(
+						"WebView focus remained after local release during {} (epoch={}); "
+						"Starfield restore remains queued",
+						a_reason, focusEpoch));
+				}
+				QueueGameFocusRestore();
+			}
+
 			void QueueGameFocusRestore()
 			{
 				if (gameTopLevel) {
@@ -1048,9 +1072,8 @@ namespace osfui::wv2
 								ApplyMouseCapture();
 								ReconcileInputWidgetSubclass();
 								if (view != inputTarget) QueueFocusReconcile();
-							}
-							if (!focusGranted) {
-								QueueGameFocusRestore();
+							} else {
+								ReleaseInputFocus("unexpected GotFocus");
 							}
 							return S_OK;
 						}).Get(), &token);

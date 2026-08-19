@@ -140,10 +140,10 @@
 					RequestInputFocus("focus request");
 				} else {
 					PublishFocusState();
-					if (!focusGranted && FocusedView()) QueueGameFocusRestore();
 				}
 				ReconcileInputWidgetSubclass();
 				ApplyMouseCapture();
+				if (!focusGranted) ReleaseInputFocus("focus revoke");
 				ApplyCaptureCadence();
 			}
 
