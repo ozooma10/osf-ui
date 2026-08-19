@@ -15,8 +15,8 @@ namespace OSFUI::Paths
 
 	bool Initialize()
 	{
-		const std::filesystem::path modulePath = REX::FModule::GetCurrentModule().GetFileName();
-		g_pluginDir = modulePath.parent_path();
+		const std::filesystem::path gamePath = REX::FModule::GetExecutingModule().GetFileName();
+		g_pluginDir = gamePath.parent_path() / "Data" / "SFSE" / "Plugins";
 		g_dataDir = g_pluginDir / kDataFolderName;
 
 		REX::INFO("Paths: plugin dir = {}", g_pluginDir.string());
