@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>__OSFUI_VIEW_ID__</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      display: grid;
+      min-height: 100vh;
+      margin: 0;
+      place-items: center;
+      background: #111827;
+      color: #f9fafb;
+      font: 18px/1.5 system-ui, sans-serif;
+    }
+    main {
+      width: min(420px, 90vw);
+      padding: 32px;
+      border: 1px solid #374151;
+      border-radius: 12px;
+      background: #1f2937;
+      text-align: center;
+    }
+    button {
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 6px;
+      background: #38bdf8;
+      color: #082f49;
+      font: inherit;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>OSF UI Papyrus demo</h1>
+    <p>Clicks published by Papyrus: <strong id="clicks">0</strong></p>
+    <button id="bump" type="button">Call Papyrus</button>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

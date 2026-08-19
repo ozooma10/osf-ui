@@ -1,0 +1,64 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ozooma10/osf-ui/refs/heads/main/docs/schema/settings-schema.schema.json",
+  "id": "__OSFUI_MOD_ID__",
+  "title": "__OSFUI_DISPLAY_NAME__",
+  "description": "Settings and hotkeys for __OSFUI_DISPLAY_NAME__.",
+  "groups": [
+    {
+      "id": "general",
+      "label": "General",
+      "settings": [
+        {
+          "key": "enabled",
+          "label": "Enabled",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "strength",
+          "label": "Strength",
+          "type": "int",
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "default": 50,
+          "format": {
+            "suffix": "%"
+          },
+          "enabledWhen": {
+            "key": "enabled",
+            "eq": true
+          }
+        },
+        {
+          "key": "mode",
+          "label": "Mode",
+          "type": "enum",
+          "options": [
+            "quiet",
+            "normal",
+            "loud"
+          ],
+          "optionLabels": [
+            "Quiet",
+            "Normal",
+            "Loud"
+          ],
+          "default": "normal"
+        },
+        {
+          "key": "notifyKey",
+          "label": "Show notification",
+          "type": "key",
+          "default": "F8",
+          "allowUnbound": true,
+          "hint": "Rebindable in this menu; the binding is saved with your settings.",
+          "onPress": {
+            "script": "__OSFUI_SCRIPT_NAME__",
+            "function": "OnHotkey"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "__OSFUI_PROJECT_NAME__",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "osfui dev",
+    "dev:game": "osfui dev --game",
+    "check": "osfui check",
+    "build": "npm run build:native && osfui build",
+    "package": "npm run build:native && osfui package",
+    "doctor": "osfui doctor",
+    "build:native": "node native/build.mjs"
+  },
+  "devDependencies": {
+    "@osfui/cli": "__OSFUI_CLI_SPEC_JSON__"
+  }
+}

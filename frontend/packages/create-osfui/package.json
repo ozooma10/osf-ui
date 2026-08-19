@@ -1,0 +1,33 @@
+{
+  "name": "create-osfui",
+  "version": "0.1.0",
+  "description": "Create an OSF UI project",
+  "keywords": [
+    "starfield",
+    "sfse",
+    "osfui"
+  ],
+  "type": "module",
+  "bin": {
+    "create-osfui": "src/cli.mjs"
+  },
+  "files": [
+    "src",
+    "templates"
+  ],
+  "dependencies": {
+    "@osfui/cli": "0.1.0",
+    "@clack/prompts": "^1.7.0"
+  },
+  "scripts": {
+    "prepack": "node scripts/sync-sdk.mjs",
+    "pretest": "npm run sync:sdk",
+    "sync:sdk": "node scripts/sync-sdk.mjs",
+    "check:sdk": "node scripts/sync-sdk.mjs --check",
+    "test": "npm run check:sdk && node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "license": "GPL-3.0-or-later"
+}

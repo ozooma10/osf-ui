@@ -1,0 +1,17 @@
+{
+  "name": "__OSFUI_PROJECT_NAME__",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "osfui dev",
+    "dev:game": "osfui dev --game",
+    "check": "osfui check",
+    "build": "osfui build",
+    "package": "osfui package",
+    "doctor": "osfui doctor"
+  },
+  "devDependencies": {
+    "@osfui/cli": "__OSFUI_CLI_SPEC_JSON__"
+  }
+}
