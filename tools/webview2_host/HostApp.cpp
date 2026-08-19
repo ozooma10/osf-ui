@@ -204,7 +204,7 @@ namespace osfui::wv2
 			bool                  initialized{ false };
 			HWND                  gameTopLevel{ nullptr };
 			std::filesystem::path viewsRoot, userData;
-			std::wstring          virtualHost{ L"osfui.local" };
+			std::wstring          virtualHost{ L"osfui.example" };
 			std::uint32_t         width{ 1 }, height{ 1 };
 			bool                  devMode{ false };
 			bool                  highRefreshCapture{ false };

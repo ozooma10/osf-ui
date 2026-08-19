@@ -47,7 +47,7 @@ int main()
 		const msg::Init sent{
 			.topLevelHwnd = 0x7FFF'FFFF'FFFF'FFFFull,
 			.viewsPath = "C:/mods/views",
-			.virtualHost = "osfui.local",
+			.virtualHost = "osfui.example",
 			.width = 2560,
 			.height = 1440,
 			.userDataDir = "C:/users/data",
@@ -115,7 +115,7 @@ int main()
 	}
 	{
 		const auto got = msg::FromJson<msg::Init>(json{ { "type", "init" } });
-		Check(got.virtualHost == "osfui.local", "init.virtualHost default");
+		Check(got.virtualHost == "osfui.example", "init.virtualHost default");
 		Check(got.width == 1 && got.height == 1, "init dimensions default to 1, never 0");
 		Check(!got.highRefreshCapture, "init high-refresh capture defaults off");
 		Check(got.hidden, "init.hidden defaults true");

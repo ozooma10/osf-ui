@@ -79,7 +79,7 @@ namespace osfui::wv2::msg
 		static constexpr std::string_view kType = "init";
 		std::uint64_t topLevelHwnd{ 0 };
 		std::string   viewsPath;
-		std::string   virtualHost{ "osfui.local" };
+		std::string   virtualHost{ "osfui.example" };
 		std::uint32_t width{ 1 };
 		std::uint32_t height{ 1 };
 		std::string   userDataDir;
