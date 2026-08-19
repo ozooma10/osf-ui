@@ -135,6 +135,7 @@
 				}
 				ringWidth = ringHeight = 0;
 				ringWrite = 0;
+				lastPublishedPresentationEpoch = 0;
 			}
 
 			bool EnsureFences()
@@ -279,41 +280,28 @@
 					return (std::max)(fenceValue, ackedSerial.load());
 				};
 				const bool ringNeedsRebuild = !ring[0].texture || ringWidth != a_width || ringHeight != a_height;
-				// Pace steady-state copies to Starfield consumption. A resize must bypass the old ring's in-flight frame or first reveal deadlocks on the authored size.
-				if (!ringNeedsRebuild && frameSerial != 0 && consumed() < frameSerial) return;
+				const bool newPresentation = frameSerial != 0 && a_presentationEpoch != lastPublishedPresentationEpoch;
+				//resize or new presentation may use another free slot: the prior presentation can be hidden before its last frame is consumed, and must not block the reveal.
+				if (!ringNeedsRebuild && !newPresentation && frameSerial != 0 && consumed() < frameSerial) return;
 				if (!EnsureRing(a_width, a_height)) return;
 
-				auto& slot = ring[ringWrite];
-				if (slot.lastSerial != 0 && consumed() < slot.lastSerial) {
-					const HANDLE evt = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-					if (!evt) {
-						log.Warn("could not create the consume wait event; dropping captured frame");
-						return;
-					}
-					const auto waitHr = consumeFence->SetEventOnCompletion(slot.lastSerial, evt);
-					if (FAILED(waitHr)) {
-						::CloseHandle(evt);
-						log.Warn(std::format(
-							"consume wait registration failed (hr=0x{:08X}); dropping captured frame",
-							static_cast<std::uint32_t>(waitHr)));
-						return;
-					}
-					const auto deadline = ::GetTickCount64() + 50;
-					while (consumed() < slot.lastSerial && ::GetTickCount64() < deadline) {
-						::WaitForSingleObject(evt, 10);
-					}
-					const bool stillBusy = consumed() < slot.lastSerial;
-					::CloseHandle(evt);
-					if (stillBusy) {
-						++consumeWaitTimeouts;
-						if (consumeWaitTimeouts == 1 || consumeWaitTimeouts % 300 == 0) {
-							log.Warn(std::format(
-								"consume lagging (slot serial {}, completed {}, {} drops); captured frame dropped",
-								slot.lastSerial, consumed(), consumeWaitTimeouts));
-						}
-						return;
+				const auto completed = consumed();
+				auto writableSlot = kRingSlots;
+				for (std::uint32_t offset = 0; offset < kRingSlots; ++offset) {
+					const auto candidate = (ringWrite + offset) % kRingSlots;
+					if (ring[candidate].lastSerial == 0 || completed >= ring[candidate].lastSerial) {
+						writableSlot = candidate;
+						break;
 					}
 				}
+				if (writableSlot == kRingSlots) {
+					++consumeLagDrops;
+					if (consumeLagDrops == 1 || consumeLagDrops % 300 == 0) {
+						log.Warn(std::format("consume lagging (all {} slots busy, completed {}, {} drops); captured frame dropped", kRingSlots, completed, consumeLagDrops));
+					}
+					return;
+				}
+				auto& slot = ring[writableSlot];
 
 				if (ringKeyedMutex) {
 					ComPtr<IDXGIKeyedMutex> mutex;
@@ -332,8 +320,9 @@
 
 				const auto serial = ++frameSerial;
 				slot.lastSerial = serial;
-				lastSlot = ringWrite;
-				ringWrite = (ringWrite + 1) % kRingSlots;
+				lastSlot = writableSlot;
+				ringWrite = (writableSlot + 1) % kRingSlots;
+				lastPublishedPresentationEpoch = a_presentationEpoch;
 				context4->Signal(produceFence.Get(), serial);
 				context->Flush();
 				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
@@ -383,12 +372,12 @@
 				}
 				const auto serial = ++frameSerial;
 				ring[lastSlot].lastSerial = serial;
+				lastPublishedPresentationEpoch = presentationEpoch.load(std::memory_order_relaxed);
 				context4->Signal(produceFence.Get(), serial);
 				context->Flush();
 				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
 					.width = ringWidth, .height = ringHeight,
-					.presentationEpoch =
-						presentationEpoch.load(std::memory_order_relaxed) }));
+					.presentationEpoch = lastPublishedPresentationEpoch }));
 			}
 
 			View* FindView(std::string_view a_id)

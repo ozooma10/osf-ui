@@ -218,10 +218,27 @@ int main()
 	const auto publishFrame = FunctionBody(hostGraphics, "void PublishFrame(");
 	Check(ContainsInOrder(publishFrame, {
 		"const bool ringNeedsRebuild",
-		"if (!ringNeedsRebuild && frameSerial != 0 && consumed() < frameSerial) return",
+		"const bool newPresentation",
+		"if (!ringNeedsRebuild && !newPresentation",
 		"EnsureRing(a_width, a_height)",
-		"context->CopyResource" }),
-		"capture must pace same-sized frames while allowing a resized ring to replace an unpresentable first frame");
+		"for (std::uint32_t offset = 0; offset < kRingSlots; ++offset)",
+		"ring[candidate].lastSerial == 0",
+		"completed >= ring[candidate].lastSerial",
+		"if (writableSlot == kRingSlots)",
+		"context->CopyResource",
+		"lastPublishedPresentationEpoch = a_presentationEpoch" }),
+		"capture must pace within one presentation while allowing a new presentation to bypass a stranded prior frame through a free slot");
+	Check(publishFrame.find("ackedSerial.store") == std::string::npos,
+		"presentation rollover must not synthetically acknowledge a texture that the GPU may still be reading");
+	const auto releaseRing = FunctionBody(hostGraphics, "void ReleaseRing()");
+	Check(releaseRing.find("lastPublishedPresentationEpoch = 0") != std::string::npos,
+		"rebuilding the shared ring must reset its published-presentation tracker");
+	const auto republishLatest = FunctionBody(hostGraphics, "void RepublishLatest()");
+	Check(ContainsInOrder(republishLatest, {
+		"lastPublishedPresentationEpoch =",
+		"presentationEpoch.load(std::memory_order_relaxed)",
+		".presentationEpoch = lastPublishedPresentationEpoch" }),
+		"cached-frame republication must keep presentation-aware pacing synchronized");
 
 	Check(ContainsInOrder(runtimeFrameSource, {
 		"void Runtime::ProcessRendererFrame(double a_deltaSeconds)",

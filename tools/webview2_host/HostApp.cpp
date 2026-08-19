@@ -297,10 +297,11 @@ namespace osfui::wv2
 			ComPtr<ID3D11Fence> produceFence, consumeFence;
 			std::uint64_t              frameSerial{ 0 };
 			std::uint32_t              lastSlot{ 0 };
+			std::uint64_t              lastPublishedPresentationEpoch{ 0 };
 			std::mutex                 captureEpochMutex;
 			std::atomic<std::uint64_t> presentationEpoch{ 0 };
 			std::atomic<std::uint64_t> ackedSerial{ 0 };
-			std::uint64_t consumeWaitTimeouts{ 0 };
+			std::uint64_t consumeLagDrops{ 0 };
 
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
