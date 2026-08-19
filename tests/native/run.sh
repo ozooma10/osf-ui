@@ -67,6 +67,7 @@ SUITES=(
 "localization_service_tests localization_service_tests.cpp ../../src/Localization/LocalizationService.cpp ../../src/Core/Json.cpp"
 "view_manifest_tests view_manifest_tests.cpp ../../src/Views/ViewManifest.cpp ../../src/Core/Json.cpp"
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/Views/Dev/DevViewFiles.cpp"
+"view_cache_tests view_cache_tests.cpp ../../src/Views/ViewCache.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
 "gamepad_session_tests gamepad_session_tests.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp"

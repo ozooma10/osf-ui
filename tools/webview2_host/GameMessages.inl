@@ -17,6 +17,20 @@
 					log.Error("init without userDataDir");
 					return;
 				}
+				const auto leasePath = viewsRoot / OSFUI::ViewCache::kUseLock;
+				std::error_code leaseEc;
+				if (std::filesystem::exists(leasePath, leaseEc) && !viewsLease.Open(leasePath)) {
+					log.Error(std::format("could not acquire views-cache lease '{}' ({})", ToUtf8(leasePath.native()), ::GetLastError()));
+					byeReason = "views-cache-lease-failed";
+					quit.store(true);
+					return;
+				}
+				if (leaseEc) {
+					log.Error("could not inspect views-cache lease: " + leaseEc.message());
+					byeReason = "views-cache-lease-failed";
+					quit.store(true);
+					return;
+				}
 				std::optional<LUID> requestedAdapter;
 				if (a_raw.contains("adapterLuidLow") && a_raw.contains("adapterLuidHigh")) {
 					LUID luid{};

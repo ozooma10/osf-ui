@@ -6,6 +6,7 @@
 #include "Core/Version.h"
 #include "Input/ScanCode.h"
 #include "Core/Json.h"
+#include "Views/ViewCache.h"
 #include "Wv2BoundedQueue.h"
 #include "Wv2LocalUri.h"
 #include "Wv2Messages.h"
@@ -131,6 +132,36 @@ namespace osfui::wv2
 			void Error(const std::string& a_text) { Log(2, a_text); }
 		};
 
+		struct SharedReadLease
+		{
+			HANDLE handle{ INVALID_HANDLE_VALUE };
+
+			~SharedReadLease()
+			{
+				if (handle != INVALID_HANDLE_VALUE) ::CloseHandle(handle);
+			}
+
+			bool Open(const std::filesystem::path& a_path)
+			{
+				if (handle != INVALID_HANDLE_VALUE) return true;
+				const HANDLE mutex = ::CreateMutexW(nullptr, FALSE, OSFUI::ViewCache::kMutexName);
+				if (!mutex) return false;
+				const auto wait = ::WaitForSingleObject(mutex, 30000);
+				const bool owned = wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED;
+				if (!owned) {
+					::CloseHandle(mutex);
+					::SetLastError(wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : ERROR_LOCK_FAILED);
+					return false;
+				}
+				handle = ::CreateFileW(a_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_HIDDEN, nullptr);
+				const auto error = handle == INVALID_HANDLE_VALUE ? ::GetLastError() : ERROR_SUCCESS;
+				::ReleaseMutex(mutex);
+				::CloseHandle(mutex);
+				if (error != ERROR_SUCCESS) ::SetLastError(error);
+				return handle != INVALID_HANDLE_VALUE;
+			}
+		};
+
 		constexpr wchar_t kRuntimeDownloadUrl[] = L"https://go.microsoft.com/fwlink/p/?LinkId=2124703";
 
 		void PromptInstallWebView2Runtime(Logger& a_log)
@@ -204,6 +235,7 @@ namespace osfui::wv2
 			bool                  initialized{ false };
 			HWND                  gameTopLevel{ nullptr };
 			std::filesystem::path viewsRoot, userData;
+			SharedReadLease       viewsLease;  // released after every WebView member
 			std::wstring          virtualHost{ L"osfui.example" };
 			std::uint32_t         width{ 1 }, height{ 1 };
 			bool                  devMode{ false };
