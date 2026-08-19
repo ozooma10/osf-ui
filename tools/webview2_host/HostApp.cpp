@@ -288,6 +288,11 @@ namespace osfui::wv2
 			std::uint32_t toggleScan{ 0x44 /*F10*/ }, captureUpScan{ 0 };
 			bool          captured{ false }, captureArmed{ false };
 			bool          focusGranted{ false };
+			std::uint64_t focusEpoch{ 0 };
+			std::uint64_t focusStateSequence{ 0 };
+			bool          publishedFocusState{ false };
+			bool          lastPublishedFocused{ false };
+			std::string   lastPublishedFocusView;
 			bool          rawMouseRegistered{ false };
 			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
 			std::unordered_set<UINT> handledKeys;
@@ -820,7 +825,7 @@ namespace osfui::wv2
 					a_view.id, views.size()));
 				DrainQueuedViewWork(a_view);
 				if (focusGranted && inputTarget == &a_view && !a_view.hidden) {
-					a_view.controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+					RequestInputFocus("controller ready");
 				}
 				ReconcileInputWidgetSubclass();
 			}
@@ -940,6 +945,86 @@ namespace osfui::wv2
 				return S_OK;
 			}
 
+			[[nodiscard]] View* FocusedView() const
+			{
+				GUITHREADINFO info{};
+				info.cbSize = sizeof(info);
+				if (!::GetGUIThreadInfo(0, &info)) return nullptr;
+				const HWND focused = info.hwndFocus;
+				if (!focused) return nullptr;
+				for (const auto& view : views) {
+					if (view->window && (focused == view->window ||
+						::IsChild(view->window, focused) != FALSE)) {
+						return view.get();
+					}
+				}
+				return nullptr;
+			}
+
+			[[nodiscard]] bool GameIsForeground() const
+			{
+				return gameTopLevel && ::GetForegroundWindow() == gameTopLevel;
+			}
+
+			void PublishFocusState(View* a_eventView = nullptr, bool a_gotFocus = false)
+			{
+				auto* actual = FocusedView();
+				// GotFocus is authoritative even if the native child HWND has not entered the
+				// thread focus queue by the time WebView2 invokes the callback.
+				if (!actual && a_gotFocus) actual = a_eventView;
+				const bool focused = actual != nullptr;
+				const std::string view = actual ? actual->id : std::string{};
+				Send(msg::ToJson(msg::FocusState{
+					.focused = focused,
+					.epoch = focusEpoch,
+					.sequence = ++focusStateSequence,
+					.view = view,
+				}));
+				if (!publishedFocusState || focused != lastPublishedFocused ||
+					view != lastPublishedFocusView) {
+					publishedFocusState = true;
+					lastPublishedFocused = focused;
+					lastPublishedFocusView = view;
+					log.Info(std::format("focus-state actual={} view='{}' desired={} epoch={}",
+						focused, view, focusGranted, focusEpoch));
+				}
+			}
+
+			void RequestInputFocus(std::string_view a_reason)
+			{
+				if (!focusGranted || !inputTarget || !inputTarget->controller ||
+					inputTarget->hidden || !GameIsForeground()) {
+					PublishFocusState();
+					return;
+				}
+				const auto hr = inputTarget->controller->MoveFocus(
+					COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+				if (FAILED(hr)) {
+					log.Warn(std::format(
+						"view '{}': MoveFocus failed during {} (0x{:08X}, epoch={})",
+						inputTarget->id, a_reason, static_cast<unsigned>(hr), focusEpoch));
+				}
+				PublishFocusState();
+			}
+
+			void QueueGameFocusRestore()
+			{
+				if (gameTopLevel) {
+					::PostMessageW(gameTopLevel, kRestoreGameFocusMessage,
+						static_cast<WPARAM>(focusEpoch), 0);
+				}
+			}
+
+			static constexpr UINT kReconcileFocusMessage = 0x804B;
+
+			void QueueFocusReconcile()
+			{
+				if (hostWindow) {
+					::PostMessageW(hostWindow, kReconcileFocusMessage,
+						static_cast<WPARAM>(focusEpoch), 0);
+				}
+			}
+
 			void InstallEvents(View& a_view)
 			{
 				View* view = &a_view;
@@ -957,14 +1042,23 @@ namespace osfui::wv2
 						}).Get(), &token);
 				a_view.controller->add_GotFocus(
 					Callback<ICoreWebView2FocusChangedEventHandler>(
-						[this](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
+						[this, view](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
+							PublishFocusState(view, true);
 							if (focusGranted) {
 								ApplyMouseCapture();
 								ReconcileInputWidgetSubclass();
+								if (view != inputTarget) QueueFocusReconcile();
 							}
-							if (!focusGranted && gameTopLevel) {
-								::PostMessageW(gameTopLevel, kRestoreGameFocusMessage, 0, 0);
+							if (!focusGranted) {
+								QueueGameFocusRestore();
 							}
+							return S_OK;
+						}).Get(), &token);
+				a_view.controller->add_LostFocus(
+					Callback<ICoreWebView2FocusChangedEventHandler>(
+						[this](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
+							PublishFocusState();
+							if (focusGranted) QueueFocusReconcile();
 							return S_OK;
 						}).Get(), &token);
 				a_view.controller->add_AcceleratorKeyPressed(
@@ -1621,6 +1715,13 @@ namespace osfui::wv2
 				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
 				auto* self = s_hostInputApp;
+				if (self && a_msg == kReconcileFocusMessage) {
+					if (static_cast<std::uint64_t>(a_wparam) == self->focusEpoch &&
+						self->focusGranted) {
+						self->RequestInputFocus("focus event");
+					}
+					return 0;
+				}
 				if (self && a_msg == WM_INPUT) {
 					self->SendRawMouseWheel(a_lparam);
 					// The original proc must still release the raw-input buffer.
@@ -1708,6 +1809,11 @@ namespace osfui::wv2
 			void CloseWebResources()
 			{
 				focusGranted = false;
+				focusEpoch = 0;
+				focusStateSequence = 0;
+				publishedFocusState = false;
+				lastPublishedFocused = false;
+				lastPublishedFocusView.clear();
 				SetRawMouseInput(false);
 				captureArmed = false;
 				ReconcileInputWidgetSubclass();

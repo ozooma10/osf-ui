@@ -175,9 +175,32 @@ namespace osfui::wv2::msg
 	struct Focus
 	{
 		static constexpr std::string_view kType = "focus";
-		bool focused{ false };
+		bool          focused{ false };
+		std::uint64_t epoch{ 0 };
+		std::string   view;
 
-		static constexpr auto kFields = std::tuple{ F("focused", &Focus::focused) };
+		static constexpr auto kFields = std::tuple{
+			F("focused", &Focus::focused),
+			F("epoch", &Focus::epoch),
+			F("view", &Focus::view),
+		};
+	};
+
+	/** Actual host focus, emitted after each request and WebView focus event. */
+	struct FocusState
+	{
+		static constexpr std::string_view kType = "focusState";
+		bool          focused{ false };
+		std::uint64_t epoch{ 0 };
+		std::uint64_t sequence{ 0 };
+		std::string   view;
+
+		static constexpr auto kFields = std::tuple{
+			F("focused", &FocusState::focused),
+			F("epoch", &FocusState::epoch),
+			F("sequence", &FocusState::sequence),
+			F("view", &FocusState::view),
+		};
 	};
 
 	struct Mouse

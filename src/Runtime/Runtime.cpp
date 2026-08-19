@@ -801,8 +801,12 @@ namespace OSFUI
 			return;
 		}
 		const auto active = _presentation.ActiveMenu();
-		const bool want = m_visible.load() && _captureInput.load() && active.has_value();
-		if (want == _nativeFocusGranted) {
+		const bool wantsCapture = m_visible.load() && _captureInput.load() && active.has_value();
+		// Do not move OS focus away from Starfield until its menu stack has admitted the input-owning sentinel. This keeps engine and native ownership on the same edge.
+		const bool focusMenuReady = !wantsCapture || (FocusMenu::IsRegistered() && FocusMenu::IsOpenInEngine());
+		const bool want = wantsCapture && focusMenuReady;
+		const bool refresh = _nativeFocusRefreshRequested.exchange(false) && want;
+		if (want == _nativeFocusGranted && !refresh) {
 			return;
 		}
 		_nativeFocusGranted = want;

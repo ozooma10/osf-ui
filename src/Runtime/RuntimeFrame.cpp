@@ -130,6 +130,7 @@ namespace OSFUI
     void Runtime::ReconcileFrameState(double a_deltaSeconds)
     {
 		ReconcileFocusMenu();
+		ReconcileNativeFocus();
 		ReconcileControlLayer();
 		ReconcileSimPause();
 		FreeCursor::Apply(_presentation.DesiredCapture());

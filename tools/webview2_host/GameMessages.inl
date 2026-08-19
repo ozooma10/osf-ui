@@ -105,7 +105,9 @@
 				inputTarget = view;
 				log.Info(std::format("input-target view -> '{}'", view->id));
 				if (focusGranted && view->controller && !view->hidden) {
-					view->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+					RequestInputFocus("input target change");
+				} else {
+					PublishFocusState();
 				}
 				ReconcileInputWidgetSubclass();
 				ApplyMouseCapture();
@@ -113,13 +115,32 @@
 
 			void HandleFocus(const json& a_msg)
 			{
-				focusGranted = msg::FromJson<msg::Focus>(a_msg).focused;
+				const auto request = msg::FromJson<msg::Focus>(a_msg);
+				if (request.epoch < focusEpoch) {
+					log.Info(std::format("stale focus request ignored (epoch {} < {})",
+						request.epoch, focusEpoch));
+					PublishFocusState();
+					return;
+				}
+				focusEpoch = request.epoch;
+				focusGranted = request.focused;
+				if (!request.view.empty()) {
+					if (auto* requestedView = FindView(request.view)) {
+						if (inputTarget && inputTarget != requestedView) {
+							inputTarget->nativePopupOpen = false;
+						}
+						inputTarget = requestedView;
+					}
+				}
 				if (!focusGranted) {
 					for (auto& view : views) view->nativePopupOpen = false;
 				}
 				SetRawMouseInput(focusGranted);
 				if (focusGranted && inputTarget && inputTarget->controller && !inputTarget->hidden) {
-					inputTarget->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+					RequestInputFocus("focus request");
+				} else {
+					PublishFocusState();
+					if (!focusGranted && FocusedView()) QueueGameFocusRestore();
 				}
 				ReconcileInputWidgetSubclass();
 				ApplyMouseCapture();

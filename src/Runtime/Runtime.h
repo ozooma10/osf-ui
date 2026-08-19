@@ -57,6 +57,8 @@ namespace OSFUI
 
 		// Called by the WndProc hook on WM_INPUTLANGCHANGE (window-message thread): flags the keycap-label map for a main-thread rebuild.
 		void NotifyKeyboardLayoutChanged();
+		// Called by the WndProc hook when Starfield regains focus during an active capture.
+		void NotifyGameWindowFocused();
 
 		void OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
 		void OnGameWindowMouseButton(int a_button, bool a_down);
@@ -214,6 +216,7 @@ namespace OSFUI
 		std::optional<ColdOpenTiming> _coldOpenTiming;
 
 		bool _nativeFocusGranted{ false };
+		std::atomic_bool _nativeFocusRefreshRequested{ false };
 
 		ViewRequestQueue m_viewRequests;
 		ViewLoadTracker m_viewLoads;

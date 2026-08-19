@@ -171,8 +171,18 @@ namespace OSFUI::OverlayInputHook
 				// The capture/cursor edge was already reconciled above.
 				return 0;
 			case kRestoreGameFocusMessage:
-				::SetFocus(a_hwnd);
+				// A close-edge restore can arrive after a rapid reopen. Never let that stale message steal focus from the newly active input-capturing view.
+				if (!runtime.IsInputCaptured()) {
+					::SetFocus(a_hwnd);
+				} else {
+					runtime.NotifyGameWindowFocused();
+				}
 				return 0;
+			case WM_SETFOCUS:
+				if (runtime.IsInputCaptured()) {
+					runtime.NotifyGameWindowFocused();
+				}
+				break;
 			case WM_KEYDOWN:
 			case WM_SYSKEYDOWN:
 			{

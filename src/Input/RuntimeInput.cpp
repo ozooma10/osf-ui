@@ -14,6 +14,13 @@
 
 namespace OSFUI
 {
+	void Runtime::NotifyGameWindowFocused()
+	{
+		if (IsInputCaptured()) {
+			_nativeFocusRefreshRequested.store(true, std::memory_order_release);
+		}
+	}
+
     namespace
     {
         constexpr KeyCode kVkF12 { 0x7B };

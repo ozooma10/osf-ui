@@ -257,14 +257,16 @@ namespace OSFUI
 	{
 		struct Notify
 		{
-			enum class Kind { Web, Load, Fatal, Console, Ring, Log, Dead };
+			enum class Kind { Web, Load, Fatal, Console, Ring, Log, Focus, Dead };
 			Kind           kind{ Kind::Web };
 			std::string    view;
 			std::string    text, detail;
+			bool           focused{};
 			bool           failed{};
 			int            code{};
 			std::uint32_t  unsignedCode{};
 			std::uint64_t  id{};
+			std::uint64_t  sequence{};
 			SharedRingDesc ring{};
 		};
 
@@ -338,9 +340,15 @@ namespace OSFUI
 		std::mutex sessionMutex;
 		BrowserHostSession session;
 
-		// Game-thread watchdog repairs Chromium MoveFocus races without stealing focus while alt-tabbed.
+		// Focus requests cross a process boundary. Epochs and actual-state acknowledgements make transitions deterministic; the slow Win32 poll below remains a last-resort safety net.
 		std::atomic_bool focusRequested{ false };  // last SetNativeFocus argument
+		std::atomic<std::uint64_t> focusEpoch{ 0 };
+		std::uint64_t focusAckEpoch{ 0 };
+		std::uint64_t focusAckSequence{ 0 };
+		bool          focusActual{ false };
+		std::string   focusActualView;
 		double focusCheckAccum{ 0.0 };
+		double focusMismatchAccum{ 0.0 };
 		bool   focusFixWarned{ false };  // one WARN per strand episode
 
 		std::atomic<std::uint32_t> ringSlotsAnnounced{ 0 };
@@ -1008,7 +1016,11 @@ namespace OSFUI
 				if (!inputTargetId.empty()) {
 					addBootstrap(ToJson(msg::SetInputTarget{ .view = inputTargetId }));
 				}
-				addBootstrap(ToJson(msg::Focus{ .focused = focusRequested.load() }));
+				addBootstrap(ToJson(msg::Focus{
+					.focused = focusRequested.load(),
+					.epoch = focusEpoch.load(),
+					.view = inputTargetId,
+				}));
 			}
 			if (!PublishConnected(std::move(bootstrap))) {
 				if (!stopRequested.load(std::memory_order_acquire)) {
@@ -1092,6 +1104,13 @@ namespace OSFUI
 						const auto accel = msg::FromJson<msg::Accelerator>(message);
 						onAccelerator(accel.vk, accel.scan, accel.down);
 					}
+				} else if (type == msg::FocusState::kType) {
+					const auto state = msg::FromJson<msg::FocusState>(message);
+					Push(Notify{ .kind = Notify::Kind::Focus,
+						.view = state.view,
+						.focused = state.focused,
+						.id = state.epoch,
+						.sequence = state.sequence });
 				} else if (type == msg::Log::kType) {
 					const auto entry = msg::FromJson<msg::Log>(message);
 					Push(Notify{ .kind = Notify::Kind::Log,
@@ -1312,6 +1331,14 @@ namespace OSFUI
 						REX::INFO("WebView2 browser host: {}", value.text);
 					}
 					break;
+				case Notify::Kind::Focus:
+					if (value.sequence > focusAckSequence) {
+						focusAckSequence = value.sequence;
+						focusAckEpoch = value.id;
+						focusActual = value.focused;
+						focusActualView = std::move(value.view);
+					}
+					break;
 				case Notify::Kind::Dead:
 					if (!deadLogged) {
 						deadLogged = true;
@@ -1496,7 +1523,13 @@ namespace OSFUI
 			dead.store(false, std::memory_order_release);
 			deadLogged = false;
 			focusRequested.store(false);
+			focusEpoch.store(0);
+			focusAckEpoch = 0;
+			focusAckSequence = 0;
+			focusActual = false;
+			focusActualView.clear();
 			focusCheckAccum = 0.0;
+			focusMismatchAccum = 0.0;
 			focusFixWarned = false;
 			ringSlotsAnnounced.store(0);
 			ringSlotsReported = 0;
@@ -1578,6 +1611,7 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::SetInputTargetView(std::string_view a_id)
 	{
+		bool changed = false;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
 			if (!_impl->FindView(a_id)) {
@@ -1587,8 +1621,18 @@ namespace OSFUI
 			}
 			if (_impl->inputTargetId == a_id) return;
 			_impl->inputTargetId = a_id;
+			changed = true;
 		}
+		if (!changed) return;
 		_impl->Send(ToJson(msg::SetInputTarget{ .view = std::string(a_id) }));
+		if (_impl->focusRequested.load()) {
+			const auto epoch = _impl->focusEpoch.fetch_add(1) + 1;
+			_impl->focusCheckAccum = 0.0;
+			_impl->focusMismatchAccum = 0.0;
+			_impl->focusFixWarned = false;
+			_impl->Send(ToJson(msg::Focus{
+				.focused = true, .epoch = epoch, .view = std::string(a_id) }));
+		}
 	}
 
 	void WebView2HostWebRenderer::Resize(std::uint32_t a_width, std::uint32_t a_height)
@@ -1616,48 +1660,60 @@ namespace OSFUI
 		}
 		_impl->DrainNotifications();
 
-		// Repair focus only while the foreground focus window remains in the game tree.
+		// The host's focus events/acknowledgements are authoritative. Poll Win32 slowly as a safety net for lost OS/WebView events, and only repair a mismatch that persists.
 		const auto browserHostSession = _impl->BrowserHostSessionSnapshot();
 		if (browserHostSession.topLevel && _impl->connected.load(std::memory_order_acquire)) {
 			_impl->focusCheckAccum += a_deltaSeconds;
 			if (_impl->focusCheckAccum >= 0.5) {
+				const double checkElapsed = _impl->focusCheckAccum;
 				_impl->focusCheckAccum = 0.0;
 				GUITHREADINFO info{};
 				info.cbSize = sizeof(info);
-				bool healthy = true;
+				bool inGameTree = false;
+				bool focusInHost = false;
 				if (::GetGUIThreadInfo(0, &info) && info.hwndFocus) {
 					DWORD focusPid = 0;
 					::GetWindowThreadProcessId(info.hwndFocus, &focusPid);
-					const bool inGameTree = info.hwndFocus == browserHostSession.topLevel ||
-											::IsChild(browserHostSession.topLevel, info.hwndFocus) != FALSE;
-					const bool focusInHost = focusPid != ::GetCurrentProcessId();
-					if (!_impl->focusRequested && inGameTree && focusInHost) {
-						// Return stranded Chromium focus when no input-capturing session is live.
-						healthy = false;
+					inGameTree = info.hwndFocus == browserHostSession.topLevel || ::IsChild(browserHostSession.topLevel, info.hwndFocus) != FALSE;
+					focusInHost = focusPid != ::GetCurrentProcessId();
+				}
+
+				std::string target;
+				{
+					std::scoped_lock lock(_impl->stateMutex);
+					target = _impl->inputTargetId;
+				}
+				const bool requested = _impl->focusRequested.load();
+				const auto epoch = _impl->focusEpoch.load();
+				const bool ackMatches = _impl->focusAckEpoch >= epoch && _impl->focusActual == requested && (!requested || target.empty() || _impl->focusActualView == target);
+				const bool nativeMatches = inGameTree && (focusInHost == requested);
+				const bool healthy = ackMatches && nativeMatches;
+				if (healthy || !inGameTree) {
+					_impl->focusMismatchAccum = 0.0;
+					_impl->focusFixWarned = false;
+				} else {
+					_impl->focusMismatchAccum += checkElapsed;
+					constexpr double kRepairDelaySeconds = 1.0;
+					if (_impl->focusMismatchAccum >= kRepairDelaySeconds) {
+						_impl->focusMismatchAccum = 0.0;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
-							REX::WARN("WebView2HostWebRenderer: focus stranded in browser-host child "
-									  "0x{:X} outside an input-capturing menu; re-asserting game focus (watchdog)",
-								reinterpret_cast<std::uintptr_t>(info.hwndFocus));
+							REX::WARN("WebView2HostWebRenderer: focus mismatch persisted for {:.1f}s (desired={} target='{}' epoch={}, actual={} view='{}' ackEpoch={}); applying safety repair", 
+								kRepairDelaySeconds, requested, target, epoch, _impl->focusActual, _impl->focusActualView, _impl->focusAckEpoch);
 						}
-						::PostMessageW(browserHostSession.topLevel,
-							OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
-					} else if (_impl->focusRequested && info.hwndFocus == browserHostSession.topLevel) {
-						// Retry Chromium focus when MoveFocus loses an active capture request.
-						healthy = false;
-						if (!_impl->focusFixWarned) {
-							_impl->focusFixWarned = true;
-							REX::WARN("WebView2HostWebRenderer: input-capturing menu live but game window "
-									  "still owns focus; re-sending focus request (watchdog)");
+						if (requested) {
+							_impl->Send(ToJson(msg::SetInputTarget{ .view = target }));
+							_impl->Send(ToJson(msg::Focus{ .focused = true, .epoch = epoch, .view = target }));
+						} else {
+							::PostMessageW(browserHostSession.topLevel, OverlayInputHook::kRestoreGameFocusMessage, static_cast<WPARAM>(epoch), 0);
 						}
-						_impl->Send(ToJson(msg::Focus{ .focused = true }));
 					}
 				}
-				if (healthy) {
-					_impl->focusFixWarned = false;
-				}
-				// Clear the warning latch after focus self-corrects.
 			}
+		} else {
+			_impl->focusCheckAccum = 0.0;
+			_impl->focusMismatchAccum = 0.0;
+			_impl->focusFixWarned = false;
 		}
 
 		// Report truncated ring depth as a game-thread degradation, not total failure.
@@ -1738,16 +1794,24 @@ namespace OSFUI
 	}
 	void WebView2HostWebRenderer::SetNativeFocus(bool a_focused)
 	{
+		_impl->focusRequested.store(a_focused);
+		const auto epoch = _impl->focusEpoch.fetch_add(1) + 1;
+		std::string target;
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			target = _impl->inputTargetId;
+		}
+		_impl->focusCheckAccum = 0.0;
+		_impl->focusMismatchAccum = 0.0;
+		_impl->focusFixWarned = false;
 		if (a_focused) {
 			_impl->Start();
 		}
-		_impl->focusRequested = a_focused;
-		_impl->Send(ToJson(msg::Focus{ .focused = a_focused }));
+		_impl->Send(ToJson(msg::Focus{ .focused = a_focused, .epoch = epoch, .view = target }));
 		const auto browserHostSession = _impl->BrowserHostSessionSnapshot();
 		if (!a_focused && browserHostSession.topLevel) {
 			// Restore game focus on the game's own window thread.
-			::PostMessageW(browserHostSession.topLevel,
-				OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
+			::PostMessageW(browserHostSession.topLevel, OverlayInputHook::kRestoreGameFocusMessage, static_cast<WPARAM>(epoch), 0);
 		}
 	}
 

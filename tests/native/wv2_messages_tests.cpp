@@ -70,6 +70,17 @@ int main()
 		Check(got.view == "acme.mod/panel" && got.order == -12, "negative i32 survives");
 	}
 	{
+		const auto request = RoundTrip(msg::Focus{
+			.focused = true, .epoch = 41, .view = "acme.mod/panel" });
+		Check(request.focused && request.epoch == 41 && request.view == "acme.mod/panel",
+			"focus request preserves desired state, epoch and target");
+		const auto state = RoundTrip(msg::FocusState{
+			.focused = true, .epoch = 41, .sequence = 9, .view = "acme.mod/panel" });
+		Check(state.focused && state.epoch == 41 && state.sequence == 9 &&
+			state.view == "acme.mod/panel",
+			"focus acknowledgement preserves actual state ordering");
+	}
+	{
 		const msg::Frame sent{ .slot = 3, .serial = 0xDEAD'BEEF'0000'0001ull,
 			.width = 1920, .height = 1080, .presentationEpoch = 9 };
 		const auto got = RoundTrip(sent);

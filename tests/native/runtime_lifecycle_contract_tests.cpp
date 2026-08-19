@@ -158,6 +158,7 @@ int main()
 	const auto hostGraphics = ReadSource("../../tools/webview2_host/HostGraphics.inl");
 	const auto hostMessages = ReadSource("../../tools/webview2_shared/Wv2Messages.h");
 	const auto menuEventSource = ReadSource("../../src/Input/MenuEventSink.cpp");
+	const auto overlayInputSource = ReadSource("../../src/Input/OverlayInputHook.cpp");
 	const auto presentationSource = ReadSource("../../src/Views/ViewPresentationController.cpp");
 
 	const auto initialize = FunctionBody(runtimeSource, "bool Runtime::Initialize()");
@@ -456,6 +457,55 @@ int main()
 		"if (!visible)",
 		"m_viewReveal.Cancel()" }),
 		"closing during a held reveal must cancel the reveal gate");
+
+	const auto reconcileFrame = FunctionBody(runtimeFrameSource,
+		"void Runtime::ReconcileFrameState(double a_deltaSeconds)");
+	Check(ContainsInOrder(reconcileFrame, {
+		"ReconcileFocusMenu()",
+		"ReconcileNativeFocus()" }),
+		"native browser focus must be reconciled only after the engine FocusMenu state");
+	const auto reconcileNativeFocus = FunctionBody(runtimeSource,
+		"void Runtime::ReconcileNativeFocus()");
+	Check(reconcileNativeFocus.find("FocusMenu::IsOpenInEngine()") != std::string::npos &&
+		reconcileNativeFocus.find("_nativeFocusRefreshRequested.exchange(false)") !=
+			std::string::npos,
+		"native focus grants must wait for FocusMenu admission and accept event-driven refreshes");
+	Check(ContainsInOrder(overlayInputSource, {
+		"case kRestoreGameFocusMessage:",
+		"if (!runtime.IsInputCaptured())",
+		"::SetFocus(a_hwnd)",
+		"runtime.NotifyGameWindowFocused()",
+		"case WM_SETFOCUS:" }),
+		"queued game-focus restores must not steal focus from a newly active capture");
+
+	const auto setInputTarget = FunctionBody(rendererSource,
+		"void WebView2HostWebRenderer::SetInputTargetView(std::string_view a_id)");
+	Check(ContainsInOrder(setInputTarget, {
+		"focusRequested.load()",
+		"focusEpoch.fetch_add(1)",
+		"msg::Focus" }),
+		"changing the active view while focused must create a new acknowledged focus epoch");
+	const auto setNativeFocus = FunctionBody(rendererSource,
+		"void WebView2HostWebRenderer::SetNativeFocus(bool a_focused)");
+	Check(ContainsInOrder(setNativeFocus, {
+		"focusRequested.store(a_focused)",
+		"focusEpoch.fetch_add(1)",
+		".focused = a_focused, .epoch = epoch, .view = target" }),
+		"every native focus transition must carry a monotonic epoch and explicit target");
+	const auto handleFocus = FunctionBody(hostSource, "void HandleFocus(const json& a_msg)");
+	Check(ContainsInOrder(handleFocus, {
+		"request.epoch < focusEpoch",
+		"stale focus request ignored",
+		"focusEpoch = request.epoch",
+		"RequestInputFocus(\"focus request\")" }),
+		"the browser host must reject stale focus requests before applying ownership");
+	Check(hostSource.find("add_LostFocus") != std::string::npos &&
+		hostSource.find("msg::FocusState") != std::string::npos &&
+		hostSource.find("MoveFocus failed") != std::string::npos,
+		"the host must report actual focus changes and surface MoveFocus failures");
+	Check(rendererSource.find("kRepairDelaySeconds = 1.0") != std::string::npos &&
+		rendererSource.find("focusAckEpoch >= epoch") != std::string::npos,
+		"the focus watchdog must wait for a persistent acknowledgement mismatch");
 
 	const auto setHidden = FunctionBody(rendererSource,
 		"void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden)");
