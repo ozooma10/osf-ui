@@ -100,9 +100,11 @@ namespace osfui::wv2
 				{
 					std::scoped_lock lock(mutex);
 					if (file.is_open()) {
-						const auto now = std::chrono::system_clock::now();
-						file << std::format("[{:%m-%d %H:%M:%S}] [{}] {}\n",
-							std::chrono::floor<std::chrono::milliseconds>(now),
+						SYSTEMTIME localTime{};
+						::GetLocalTime(&localTime);
+						file << std::format("[{:02}-{:02} {:02}:{:02}:{:02}.{:03}] [{}] {}\n",
+							localTime.wMonth, localTime.wDay, localTime.wHour, localTime.wMinute,
+							localTime.wSecond, localTime.wMilliseconds,
 							a_level == 2 ? "ERROR" : a_level == 1 ? "WARN" : "info", a_text);
 						file.flush();
 					}
