@@ -216,10 +216,11 @@ int main()
 		"hidden capture must drain WGC and return before accessing the surface");
 	const auto publishFrame = FunctionBody(hostGraphics, "void PublishFrame(");
 	Check(ContainsInOrder(publishFrame, {
-		"if (frameSerial != 0 && consumed() < frameSerial) return",
+		"const bool ringNeedsRebuild",
+		"if (!ringNeedsRebuild && frameSerial != 0 && consumed() < frameSerial) return",
 		"EnsureRing(a_width, a_height)",
 		"context->CopyResource" }),
-		"capture must wait for Starfield's observed consumption before copying another frame");
+		"capture must pace same-sized frames while allowing a resized ring to replace an unpresentable first frame");
 
 	const auto settingsMaintenance = FunctionBody(runtimeSource,
 		"void Runtime::ProcessSettingsMaintenance()");

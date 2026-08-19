@@ -91,8 +91,7 @@ namespace OSFUI::API
 		};
 		[[nodiscard]] PendingBatch TakePendingBatch();
 
-		void NoteUnsupportedApiCaller(std::string a_moduleName, std::uint32_t a_major,
-			std::uint32_t a_minor);
+		void NoteUnsupportedApiCaller(std::string a_moduleName, std::uint32_t a_major, std::uint32_t a_minor);
 		struct UnsupportedCaller
 		{
 			std::string module;

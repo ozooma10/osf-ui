@@ -278,8 +278,9 @@
 					const auto fenceValue = consumeFence ? consumeFence->GetCompletedValue() : 0;
 					return (std::max)(fenceValue, ackedSerial.load());
 				};
-				// Do not copy faster than Starfield consumes (or rejects) the last delivery. WGC still drains independently, so the next eligible callback is current.
-				if (frameSerial != 0 && consumed() < frameSerial) return;
+				const bool ringNeedsRebuild = !ring[0].texture || ringWidth != a_width || ringHeight != a_height;
+				// Pace steady-state copies to Starfield consumption. A resize must bypass the old ring's in-flight frame or first reveal deadlocks on the authored size.
+				if (!ringNeedsRebuild && frameSerial != 0 && consumed() < frameSerial) return;
 				if (!EnsureRing(a_width, a_height)) return;
 
 				auto& slot = ring[ringWrite];
