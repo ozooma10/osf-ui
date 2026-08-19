@@ -2,17 +2,19 @@
   "name": "osfui",
   "version": "1.0.0",
   "private": true,
-  "description": "OSF UI runtime and built-in views.",
+  "description": "OSF UI runtime, built-in views, and view-authoring CLI.",
   "license": "GPL-3.0",
   "engines": {
     "node": ">=20.19"
   },
   "workspaces": [
+    "packages/cli",
     "frontend"
   ],
   "scripts": {
     "build": "npm run build --workspace osfui-frontend",
-    "test": "npm test --workspace osfui-frontend",
-    "verify": "npm run verify --workspace osfui-frontend"
+    "test:toolchain": "npm test --workspace @osfui/cli",
+    "test": "npm run test:toolchain && npm test --workspace osfui-frontend",
+    "verify": "npm run test:toolchain && npm run verify --workspace osfui-frontend"
   }
 }
