@@ -92,6 +92,27 @@ describe('ui.visibility open edge', () => {
     expect(reset).toHaveBeenCalled();
   });
 
+  it('clears launch cooldown when Settings is revealed after a focus handoff', async () => {
+    const bridge = makeBridge({ state: REPLAY });
+    const el = await mount(bridge);
+    await flush();
+
+    const card = [...el.querySelectorAll<HTMLButtonElement>('.home-tile')]
+      .find((button) => button.textContent!.includes('Kit Panel'))!;
+    card.click();
+    await flush();
+    expect(card.disabled).toBe(true);
+
+    bridge.deliver('ui.visibility', { visible: false, reason: 'focus' });
+    bridge.deliver('ui.visibility', { visible: true, reason: 'focus' });
+    await flush();
+
+    const resetCard = [...el.querySelectorAll<HTMLButtonElement>('.home-tile')]
+      .find((button) => button.textContent!.includes('Kit Panel'))!;
+    expect(resetCard).not.toBe(card);
+    expect(resetCard.disabled).toBe(false);
+  });
+
   it('a focus-switch show (reason:"focus") changes nothing — same visit', async () => {
     const reset = vi.fn();
     (window as { padnav?: unknown }).padnav = { reset };

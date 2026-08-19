@@ -96,6 +96,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const [activePages, setActivePages] = useState<Record<string, string>>({});
   const [undoOpen, setUndoOpen] = useState(false);
   const [flash, setFlash] = useState<{ modId: string; key: string } | null>(null);
+  const [openCooldownEpoch, setOpenCooldownEpoch] = useState(0);
 
   const [save, setSave, saveRef] = useStateRef<SaveState>(initialSaveState);
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -265,6 +266,9 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         { selectedId: selectedIdRef.current ?? '', filter: filterRef.current },
         p,
       );
+      // A focus handoff preserves the visit, but launch feedback belongs to
+      // the view we just left and must not survive when Settings is revealed.
+      if (p.visible) setOpenCooldownEpoch((epoch) => epoch + 1);
       if (!intent.clearBaseline) return; // hide edge
       registry.clearBaseline();
       if (intent.reselect) {
@@ -575,6 +579,7 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           osfuiReleaseVersion={osfuiReleaseVersion}
           tr={tr}
           assetRoots={assetRoots}
+          openCooldownEpoch={openCooldownEpoch}
           focusIssueId={focusIssueId}
           onOpenIssue={openIssue}
           collapsed={collapsed}

@@ -6,7 +6,7 @@ import { titleOf, type ModRecord, type ViewRecord } from '@lib/settings/rail';
 import { issueForSubject, type HealthModel } from '@lib/settings/health';
 import type { Translator } from '@lib/i18n';
 import { homeAccentFor, initials, Mark } from './marks';
-import { OPEN_COOLDOWN_MS } from './openCooldown';
+import { useOpenCooldown } from './openCooldown';
 
 export interface HomeProps {
   views: ViewRecord[];
@@ -183,7 +183,7 @@ interface MenuCardProps {
 function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue }: MenuCardProps) {
   const failed = v.loadState === 'failed';
   const accent = homeAccentFor(v.id);
-  const [cooling, setCooling] = useState(false);
+  const cooldown = useOpenCooldown();
   const [iconFailed, setIconFailed] = useState(false);
   const showIcon = !!iconSrc && !iconFailed;
   const reviewable = failed && !!issueId;
@@ -192,15 +192,14 @@ function MenuCard({ view: v, tr, iconSrc, caption, issueId, onOpen, onOpenIssue 
     <button
       type="button"
       class={failed ? 'home-tile failed' : 'home-tile'}
-      disabled={(failed && !reviewable) || cooling}
+      disabled={(failed && !reviewable) || cooldown.active}
       onClick={() => {
         if (reviewable) {
           onOpenIssue(issueId as string);
           return;
         }
+        if (!cooldown.begin()) return;
         onOpen(v.id);
-        setCooling(true);
-        setTimeout(() => setCooling(false), OPEN_COOLDOWN_MS);
       }}
     >
       <Patch accent={accent} failed={failed}>

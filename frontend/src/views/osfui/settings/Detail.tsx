@@ -25,7 +25,7 @@ import { Home } from './Home';
 import { Presets, type PresetRecord } from './Presets';
 import type { CaptureTarget } from './useCapture';
 import { devWarn } from './warn';
-import { OPEN_COOLDOWN_MS } from './openCooldown';
+import { useOpenCooldown } from './openCooldown';
 
 
 /** The anchor a section-index button jumps to. Only called on labelled groups. */
@@ -60,6 +60,8 @@ export interface DetailProps {
   osfuiReleaseVersion: string;
   tr: Translator;
   assetRoots: AssetRoots | undefined;
+  /** Changes on every Settings show edge to clear stale launch feedback. */
+  openCooldownEpoch: number;
 
   /** Issue to expand in System Health, set by a deep link. */
   focusIssueId: string | null;
@@ -138,6 +140,7 @@ export function Detail(props: DetailProps) {
         <SearchResults mods={mods} query={query} tr={tr} onJump={props.onJump} />
       ) : selectedId === HOME_ID ? (
         <Home
+          key={props.openCooldownEpoch}
           views={views}
           mods={mods}
           health={props.health}
@@ -620,7 +623,7 @@ function ViewsSection(props: ViewsSectionProps) {
       <div class="group-rows">
         {menus.map((v) => (
           <MenuRow
-            key={v.id}
+            key={`${v.id}:${props.openCooldownEpoch}`}
             view={v}
             tr={tr}
             issueId={(issueForSubject(props.health.issues, v.id) || {}).id ?? null}
@@ -670,7 +673,7 @@ function MenuRow({
   onOpenIssue: (issueId: string) => void;
 }) {
   const failed = v.loadState === 'failed';
-  const [opening, setOpening] = useState(false);
+  const cooldown = useOpenCooldown();
 
   if (failed && issueId) {
     return (
@@ -696,15 +699,14 @@ function MenuRow({
         <button
           type="button"
           class={`osf-btn osf-btn--sm ${failed ? 'osf-btn--danger' : 'osf-btn--osf-accent'}`}
-          disabled={failed || opening}
+          disabled={failed || cooldown.active}
           {...(failed ? { title: tr('viewFailed', 'The view failed to load; see OSF UI.log.') } : {})}
           onClick={() => {
+            if (!cooldown.begin()) return;
             onOpen(v.id);
-            setOpening(true);
-            setTimeout(() => setOpening(false), OPEN_COOLDOWN_MS);
           }}
         >
-          {failed ? tr('failed', 'Failed') : opening ? tr('opening', 'Opening…') : tr('open', 'Open')}
+          {failed ? tr('failed', 'Failed') : cooldown.active ? tr('opening', 'Opening…') : tr('open', 'Open')}
         </button>
       </div>
     </Row>
