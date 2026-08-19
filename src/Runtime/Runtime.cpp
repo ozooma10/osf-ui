@@ -644,6 +644,23 @@ namespace OSFUI
 		}
 	}
 
+	void Runtime::DrainSchemaOps(std::vector<API::BridgeApi::SchemaOp> a_ops)
+	{
+		if (!_settings || a_ops.empty()) {
+			return;
+		}
+		auto& store = _settings->Store();
+		for (auto& op : a_ops) {
+			if (!op.schema.is_null()) {
+				store.RegisterSchema(std::move(op.schema), SettingsStore::Source::kNative);
+			} else if (store.GetSource(op.modId) == SettingsStore::Source::kNative) {
+				store.RemoveMod(op.modId);
+			} else {
+				REX::WARN("Runtime: UnregisterSettingsSchema('{}') ignored — not a native-registered schema", op.modId);
+			}
+		}
+	}
+
 	void Runtime::ApplyViewPresentationPolicy()
 	{
 		if (!_renderer) {

@@ -99,7 +99,7 @@ namespace OSFUI
 		}
 		// A deleted file removes its mod. Values files are kept (§10).
 		for (const auto& [stem, mtime] : _schemaMtimes) {
-			if (!seen.contains(stem)) {
+			if (!seen.contains(stem) && _store.GetSource(stem) == SettingsStore::Source::kDropIn) {
 				REX::INFO("SettingsModule: settings file '{}' removed — dropping its mod", stem);
 				_store.RemoveMod(stem);
 			}

@@ -170,9 +170,6 @@ namespace
         g_ui.SetReadyCallback(&OnBridgeAvailable, nullptr);
 
         if (g_ui.Has(OSFUI::API::Feature::kSettings)) {
-            const auto schema = OSFUI::API::Json::parse(
-                R"osfui({"$schema":"https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json","id":"__OSFUI_MOD_ID__","title":"__OSFUI_DISPLAY_NAME__","description":"Settings for __OSFUI_VIEW_TITLE__.","version":1,"targetVersion":"__OSFUI_RELEASE_VERSION__","accent":"#7bdcff","groups":[{"id":"general","label":"General","settings":[{"key":"enabled","label":"Enable mod-backend actions","type":"bool","default":true},{"key":"mode","label":"Display mode","type":"enum","options":["compact","detailed"],"optionLabels":["Compact","Detailed"],"default":"detailed"},{"key":"intensity","label":"Example integer","type":"int","min":0,"max":100,"step":5,"default":65,"enabledWhen":{"key":"enabled","eq":true}},{"key":"greeting","label":"Mod-backend greeting","type":"string","default":"Hello from OSF UI","maxLength":80},{"key":"accent","label":"Accent colour","type":"string","widget":"color","default":"#7bdcff"},{"key":"openKey","label":"Open example view","type":"key","default":"F9","allowUnbound":true},{"type":"action","key":"recalibrate","label":"Run native action","command":"__OSFUI_MOD_ID__.recalibrate","style":"accent","confirm":"Run the generated native request example?"}]}]})osfui", nullptr, false);
-            if (!schema.is_discarded()) (void)g_json.RegisterSettingsSchema(schema);
             (void)g_ui.SubscribeSettings(kModId, &OnSetting, nullptr);
         }
         if (g_ui.Has(OSFUI::API::Feature::kHotkeys)) {

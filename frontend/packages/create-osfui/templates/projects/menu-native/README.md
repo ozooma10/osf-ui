@@ -20,9 +20,11 @@ example built on the optional `OSFUI_JSON.h` facade:
   changes its state and pushes the serialized struct back to JavaScript.
 - **Call C++ and await reply** sends a `JsonRequest`; C++ validates the
   required `name`, replies with JSON, and lets OSF UI own correlation.
-- The plugin also registers this view, a native settings schema, settings and
-  bridge-availability callbacks, and an **F9** open-view hotkey. `osfui.mock.ts` mirrors
-  the round trips in the browser harness.
+- The plugin also registers this view, settings and bridge-availability
+  callbacks, and an **F9** open-view hotkey. The bundled
+  `mod/SFSE/Plugins/OSFUI/settings/__OSFUI_MOD_ID__.json` schema is discovered
+  automatically; runtime schema registration is deprecated. `osfui.mock.ts`
+  mirrors the round trips in the browser harness.
 
 1. Install xmake and Visual Studio's C++ workload.
 2. Add CommonLibSF: `git submodule add https://github.com/ozooma10/commonlibsf.git native/lib/commonlibsf`.

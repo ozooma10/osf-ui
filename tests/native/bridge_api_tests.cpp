@@ -134,8 +134,8 @@ namespace
 		bool GetSettingInt(const char*, const char*, std::int64_t*) override { return false; }
 		bool GetSettingFloat(const char*, const char*, double*) override { return false; }
 		std::uint32_t GetSettingString(const char*, const char*, char*, std::uint32_t) override { return 0; }
-		bool ReservedSettingsSlot1(const char*) override { return false; }
-		void ReservedSettingsSlot2(const char*) override {}
+		bool RegisterSettingsSchema(const char*) override { return false; }
+		void UnregisterSettingsSchema(const char*) override {}
 		std::uint32_t SubscribeHotkey(const char*, const char*, OSFUI::API::HotkeyFn, void*) override { return 0; }
 		void UnsubscribeHotkey(std::uint32_t) override {}
 		bool RegisterView(const char*) override { return false; }
@@ -694,13 +694,25 @@ int main()
 	CHECK(api.SetViewState("batch.mod", "value", "7"));
 	CHECK(api.RegisterView("batch.mod/panel"));
 	CHECK(api.RequestMenu("acme.mymod/dash", true));
+	CHECK(!api.RegisterSettingsSchema(nullptr));
+	CHECK(!api.RegisterSettingsSchema("{bad"));
+	CHECK(!api.RegisterSettingsSchema(R"([])"));
+	CHECK(!api.RegisterSettingsSchema(R"({"title":"missing id"})"));
+	CHECK(api.RegisterSettingsSchema(R"({"id":"batch.mod","groups":[{"settings":[{"key":"enabled","type":"bool","default":true}]}]})"));
+	api.UnregisterSettingsSchema("batch.mod");
+	CHECK(LoggedContaining("WARN", "[deprecated] RegisterSettingsSchema('batch.mod')"));
 	{
 		auto batch = api.TakePendingBatch();
 		CHECK(batch.state.size() == 1 && batch.state[0].key == "value" && batch.state[0].value == 7);
 		CHECK(batch.viewRegistrations == std::vector<std::string>{ "batch.mod/panel" });
 		CHECK(batch.presentation.size() == 1 && batch.presentation[0].view == "acme.mymod/dash" && batch.presentation[0].open);
+		CHECK(batch.schemas.size() == 2);
+		if (batch.schemas.size() == 2) {
+			CHECK(batch.schemas[0].schema.value("id", "") == "batch.mod");
+			CHECK(batch.schemas[1].schema.is_null() && batch.schemas[1].modId == "batch.mod");
+		}
 		const auto empty = api.TakePendingBatch();
-		CHECK(empty.state.empty() && empty.viewRegistrations.empty() && empty.presentation.empty());
+		CHECK(empty.state.empty() && empty.schemas.empty() && empty.viewRegistrations.empty() && empty.presentation.empty());
 	}
 
 	// The send registry re-applies to a replacement bridge, handlers intact.

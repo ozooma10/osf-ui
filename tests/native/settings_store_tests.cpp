@@ -104,6 +104,13 @@ int main()
 	// Persisted values for a mod whose drop-in appears after startup.
 	WriteFile(valuesDir / "t.gamma.json", R"json({ "level": 7 })json");
 
+	// Deprecated native registration is rejected until the store has a values
+	// directory, then retains its historical precedence while old mods migrate.
+	{
+		SettingsStore fresh;
+		CHECK(!fresh.RegisterSchema(nlohmann::json{ { "id", "t.early" } }, SettingsStore::Source::kNative));
+	}
+
 	// --- LoadAll: overlay, clamp, duplicate handling -------------------------
 	SettingsStore store;
 	store.LoadAll(schemaDir, valuesDir);
@@ -124,6 +131,40 @@ int main()
 	CHECK(store.GetValue("bad id", "x") != nullptr);
 	CHECK(store.GetValue("plainmod", "x") != nullptr);
 	CHECK(store.GetValue("nope", "x") == nullptr);
+
+	// Runtime-only schema registration remains functional, adopts the same
+	// persisted values, replaces a drop-in, and cannot be displaced by one.
+	{
+		const auto nativeSchemaDir = root / "native-settings";
+		const auto nativeValuesDir = root / "native-values";
+		WriteFile(nativeSchemaDir / "t.native.json", R"json({
+			"id": "t.native", "title": "Drop-in",
+			"groups": [{ "settings": [{ "key": "level", "type": "int", "default": 1 }] }]
+		})json");
+		WriteFile(nativeValuesDir / "t.native.json", R"json({ "level": 7 })json");
+		SettingsStore nativeStore;
+		nativeStore.LoadAll(nativeSchemaDir, nativeValuesDir);
+		CHECK(nativeStore.GetSource("t.native") == SettingsStore::Source::kDropIn);
+		CHECK(nativeStore.RegisterSchema(nlohmann::json::parse(R"json({
+			"id": "t.native", "title": "Runtime",
+			"groups": [{ "settings": [
+				{ "key": "level", "type": "int", "default": 2 },
+				{ "key": "enabled", "type": "bool", "default": true }
+			] }]
+		})json"), SettingsStore::Source::kNative));
+		CHECK(nativeStore.GetSource("t.native") == SettingsStore::Source::kNative);
+		CHECK(nativeStore.GetValue("t.native", "level") && *nativeStore.GetValue("t.native", "level") == 7);
+		CHECK(nativeStore.GetValue("t.native", "enabled") && *nativeStore.GetValue("t.native", "enabled") == true);
+		CHECK(!nativeStore.ReloadDropInFile(nativeSchemaDir / "t.native.json"));
+		CHECK(nativeStore.GetSource("t.native") == SettingsStore::Source::kNative);
+		CHECK(nativeStore.RemoveMod("t.native"));
+		CHECK(!nativeStore.GetSource("t.native").has_value());
+	}
+
+	CHECK(SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "opaque mod!" } }));
+	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json::array()));
+	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "title", "No Id" } }));
+	CHECK(!SettingsStore::ValidateSchemaShape(nlohmann::json{ { "id", "osfui" } }));
 
 	store.SetTextResolver([](std::string_view mod, std::string_view address, std::string_view english) {
 		if (mod == "t.alpha" && address == "settings.title") return std::string("Alpha übersetzt");

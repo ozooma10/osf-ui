@@ -43,8 +43,8 @@ namespace OSFUI::API
 		bool          GetSettingInt(const char* a_modId, const char* a_key, std::int64_t* a_out) override;
 		bool          GetSettingFloat(const char* a_modId, const char* a_key, double* a_out) override;
 		std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) override;
-		bool          ReservedSettingsSlot1(const char*) override;
-		void          ReservedSettingsSlot2(const char*) override;
+		bool          RegisterSettingsSchema(const char* a_schemaJson) override;
+		void          UnregisterSettingsSchema(const char* a_modId) override;
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
 		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 		bool          RegisterView(const char* a_viewId) override;
@@ -83,10 +83,17 @@ namespace OSFUI::API
 		};
 		std::vector<ViewStateOp> TakeViewStateOps();
 
+		struct SchemaOp
+		{
+			nlohmann::json schema;  // null for unregister
+			std::string    modId;
+		};
+
 		struct PendingBatch
 		{
 			std::vector<ViewPresentationRequest> presentation;
 			std::vector<ViewStateOp>              state;
+			std::vector<SchemaOp>                 schemas;
 			std::vector<std::string>              viewRegistrations;
 		};
 		[[nodiscard]] PendingBatch TakePendingBatch();
@@ -176,6 +183,7 @@ namespace OSFUI::API
 			kPendingViewRegistrations = 1u << 3,
 			kPendingHealth = 1u << 4,
 			kPendingUnsupported = 1u << 5,
+			kPendingSchemas = 1u << 6,
 		};
 		void MarkPending(std::uint32_t a_bits) noexcept
 		{
@@ -200,6 +208,7 @@ namespace OSFUI::API
 		std::unordered_set<std::string>               _instantiatedViews;  // views with an instantiated document
 		bool                                          _viewCatalogReady{ false };
 		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
+		std::vector<SchemaOp>                         _pendingSchemaOps;   // deprecated schema registrations, drained by Runtime
 		std::vector<UnsupportedCaller>                _unsupportedCallers;
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
 		std::vector<HealthIssueOp>                    _pendingHealthIssueOps;

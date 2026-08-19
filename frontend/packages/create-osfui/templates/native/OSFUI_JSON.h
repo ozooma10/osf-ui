@@ -276,6 +276,7 @@ namespace OSFUI::API
 			}
 		}
 
+		[[deprecated("Ship settings/<modId>.json; runtime schema registration will be removed at the next native ABI major")]]
 		[[nodiscard]] bool RegisterSettingsSchema(const Json& a_schema) const noexcept
 		{
 			try {

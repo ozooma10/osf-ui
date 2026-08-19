@@ -4,6 +4,7 @@
 #include "Core/Ids.h"            // qualified view id shape — the synchronous RegisterView gate
 #include "Bridge/MessageBridge.h"  // also pulls nlohmann/json
 #include "Core/Json.h"           // Dump — never a bare dump() on a tick path
+#include "Settings/SettingsStore.h"
 
 namespace OSFUI::API
 {
@@ -355,13 +356,35 @@ namespace OSFUI::API
 		_hotkeys.Unsubscribe(a_token);
 	}
 
-	bool BridgeApi::ReservedSettingsSlot1(const char*)
+	bool BridgeApi::RegisterSettingsSchema(const char* a_schemaJson)
 	{
-		return false;
+		if (!a_schemaJson) {
+			return false;
+		}
+		auto parsed = Json::Parse(a_schemaJson);
+		if (!parsed) {
+			REX::WARN("BridgeApi: [content] RegisterSettingsSchema rejected — malformed JSON");
+			return false;
+		}
+		if (!SettingsStore::ValidateSchemaShape(*parsed)) {
+			return false;
+		}
+		const auto modId = Json::Get(*parsed, "id", "");
+		REX::WARN("BridgeApi: [deprecated] RegisterSettingsSchema('{}') remains available for migration only; ship settings/{}.json and remove this call before the next native ABI major", modId, modId);
+		std::lock_guard lock(_mutex);
+		_pendingSchemaOps.push_back({ std::move(*parsed), {} });
+		MarkPending(kPendingSchemas);
+		return true;
 	}
 
-	void BridgeApi::ReservedSettingsSlot2(const char*)
+	void BridgeApi::UnregisterSettingsSchema(const char* a_modId)
 	{
+		if (!a_modId || !a_modId[0]) {
+			return;
+		}
+		std::lock_guard lock(_mutex);
+		_pendingSchemaOps.push_back({ nlohmann::json{}, std::string(a_modId) });
+		MarkPending(kPendingSchemas);
 	}
 
 	std::vector<BridgeApi::ViewPresentationRequest> BridgeApi::TakeViewPresentationRequests()
@@ -493,17 +516,16 @@ namespace OSFUI::API
 
 	BridgeApi::PendingBatch BridgeApi::TakePendingBatch()
 	{
-		constexpr std::uint32_t frameBits =
-			kPendingPresentation | kPendingState | kPendingViewRegistrations;
+		constexpr std::uint32_t frameBits = kPendingPresentation | kPendingState | kPendingViewRegistrations | kPendingSchemas;
 		const auto reasons = _pending.fetch_and(~frameBits, std::memory_order_acq_rel);
 		PendingBatch batch;
 		if ((reasons & frameBits) == 0) return batch;
 
-		// Clear before locking. A producer racing after the atomic operation remains
-		// marked for the next tick even if its item joins this batch.
+		// Clear before locking. A producer racing after the atomic operation remains marked for the next tick even if its item joins this batch.
 		std::lock_guard lock(_mutex);
 		batch.presentation.swap(_pendingViewPresentationRequests);
 		batch.state.swap(_pendingStateOps);
+		batch.schemas.swap(_pendingSchemaOps);
 		batch.viewRegistrations.swap(_pendingViewRegs);
 		return batch;
 	}

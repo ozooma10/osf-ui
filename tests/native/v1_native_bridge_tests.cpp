@@ -167,7 +167,7 @@ int main()
 	CHECK(outbox.back()["payload"]["__osfuiV1Reply"]["type"] == "legacy.result");
 	CHECK(outbox.back()["payload"]["__osfuiV1Reply"]["payload"]["accepted"] == true);
 
-	CHECK(!bridgeVtable->RegisterSettingsSchema(
+	CHECK(bridgeVtable->RegisterSettingsSchema(
 		R"({"id":"acme.widgets","groups":[{"settings":[{"key":"enabled","type":"bool","default":true}]}]})"));
 	api.Mirror().Update("acme.widgets", "enabled", true);
 	api.Mirror().Update("acme.widgets", "count", std::int64_t{ 7 });
@@ -206,6 +206,14 @@ int main()
 	CHECK(bridgeVtable->SetViewState("acme.widgets", "status", R"({"ready":true})"));
 	CHECK(api.TakeViewStateOps().size() == 1);
 	bridgeVtable->UnregisterSettingsSchema("acme.widgets");
+	{
+		const auto batch = api.TakePendingBatch();
+		CHECK(batch.schemas.size() == 2);
+		if (batch.schemas.size() == 2) {
+			CHECK(batch.schemas[0].schema.value("id", "") == "acme.widgets");
+			CHECK(batch.schemas[1].schema.is_null() && batch.schemas[1].modId == "acme.widgets");
+		}
+	}
 	bridgeVtable->UnregisterCommand("acme.widgets.legacy");
 	bridgeVtable->UnregisterRequest("acme.widgets.request");
 	api.PumpMainThread();

@@ -109,6 +109,7 @@ namespace OSFUI
 		void DrivePendingOpen();
 
 		void DrainViewRegistrations(std::vector<std::string> a_ids);
+		void DrainSchemaOps(std::vector<API::BridgeApi::SchemaOp> a_ops);
 
 		// open/close engine focus menu to match active menu capture policy.
 		void ReconcileFocusMenu();

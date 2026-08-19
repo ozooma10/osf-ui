@@ -211,6 +211,17 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
         assert.match(nativeSource, /OSFUI::API::JsonRequest/);
         assert.match(nativeSource, /SubscribeSettings/);
         assert.match(nativeSource, /SubscribeHotkey/);
+        assert.doesNotMatch(nativeSource, /RegisterSettingsSchema/);
+        const schema = JSON.parse(await readFile(
+          resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),
+          'utf8',
+        ));
+        assert.equal(schema.id, 'acme.widgets');
+        assert.equal(schema.targetVersion, OSFUI_RELEASE_VERSION);
+        assert.deepEqual(
+          schema.groups[0].settings.map(({ key }) => key),
+          ['enabled', 'mode', 'intensity', 'greeting', 'accent', 'openKey', 'recalibrate'],
+        );
         assert.match(source, /request<DemoState>\('acme\.widgets\.getState'/);
         assert.match(source, /osfui\.state\.on<DemoState>\('acme\.widgets\/state'/);
         assert.match(source, /acme\.widgets\.increment/);

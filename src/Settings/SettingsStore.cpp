@@ -234,6 +234,7 @@ namespace OSFUI
 		_mods.clear();
 		_loadErrors.clear();
 		_valuesDir = a_valuesDir;
+		_loaded = true;
 		++_generation;
 
 		std::error_code ec;
@@ -268,10 +269,38 @@ namespace OSFUI
 				RecordLoadError("schema-parse", path.filename().string(), "", why);
 				continue;
 			}
-			AddDropInSchema(std::move(*schema), path.stem().string(), /*a_notify=*/false, /*a_replaceExisting=*/false, path);
+			AddSchema(std::move(*schema), Source::kDropIn, path.stem().string(),
+				/*a_notify=*/false, /*a_dropInReplace=*/false, path);
 		}
 
 		REX::INFO("SettingsStore: {} mod schema(s) registered from {}", _mods.size(), a_schemaDir.string());
+	}
+
+	bool SettingsStore::RegisterSchema(nlohmann::json a_schema, Source a_source)
+	{
+		if (!_loaded) {
+			REX::WARN("SettingsStore: [content] RegisterSchema before LoadAll — rejected");
+			return false;
+		}
+		return AddSchema(std::move(a_schema), a_source, /*a_idHint=*/"", /*a_notify=*/true);
+	}
+
+	bool SettingsStore::ValidateSchemaShape(const nlohmann::json& a_schema, bool a_allowBuiltIn)
+	{
+		if (!a_schema.is_object()) {
+			REX::WARN("SettingsStore: [content] rejected schema — not a JSON object");
+			return false;
+		}
+		const auto id = Json::Get(a_schema, "id", "");
+		if (id.empty()) {
+			REX::WARN("SettingsStore: [content] rejected schema with no id");
+			return false;
+		}
+		if (!(a_allowBuiltIn ? Ids::IsAcceptedModId(id) : Ids::IsValidModId(id))) {
+			REX::ERROR("SettingsStore: [content] rejected schema id '{}' — invalid or reserved mod id (max {} bytes)", id.substr(0, kMaxModIdLen), kMaxModIdLen);
+			return false;
+		}
+		return true;
 	}
 
 	bool SettingsStore::ReloadDropInFile(const std::filesystem::path& a_path)
@@ -286,23 +315,24 @@ namespace OSFUI
 			return false;
 		}
 		EraseLoadErrorsForFile(a_path.filename().string());
-		return AddDropInSchema(std::move(*schema), a_path.stem().string(), /*a_notify=*/true, /*a_replaceExisting=*/true, a_path);
+		return AddSchema(std::move(*schema), Source::kDropIn, a_path.stem().string(),
+			/*a_notify=*/true, /*a_dropInReplace=*/true, a_path);
 	}
 
-	bool SettingsStore::AddDropInSchema(nlohmann::json a_schema, std::string a_idHint, bool a_notify, bool a_replaceExisting, std::filesystem::path a_sourcePath)
+	bool SettingsStore::AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint,
+		bool a_notify, bool a_dropInReplace, std::filesystem::path a_sourcePath)
 	{
 		if (!a_schema.is_object()) {
 			REX::WARN("SettingsStore: [content] rejected schema — not a JSON object");
 			return false;
 		}
 		auto id = Json::Get(a_schema, "id", a_idHint);
-		if (id != a_idHint) {
+		if (a_source == Source::kDropIn && !a_idHint.empty() && id != a_idHint) {
 			REX::WARN("SettingsStore: [content] schema id '{}' must equal the filename stem — using '{}'", id.substr(0, kMaxModIdLen), a_idHint);
 			id = a_idHint;
 		}
 		a_schema["id"] = id;  // the document the web layer sees carries the effective id
-		if (!Ids::IsAcceptedModId(id)) {
-			REX::ERROR("SettingsStore: [content] rejected schema id '{}' — invalid filename stem (max {} bytes)", id.substr(0, kMaxModIdLen), kMaxModIdLen);
+		if (!ValidateSchemaShape(a_schema, a_source == Source::kDropIn)) {
 			return false;
 		}
 		if (Log::DebugEnabled()) {
@@ -313,14 +343,16 @@ namespace OSFUI
 
 		Mod* existing = FindMod(id);
 		if (existing) {
-			if (!a_replaceExisting) {
+			if (a_source == Source::kDropIn && !(a_dropInReplace && existing->source == Source::kDropIn)) {
 				// First-wins: log both files and record the loser so Data() can report the conflict.
-				const auto kept = existing->schemaPath.empty() ? std::string("the first-loaded schema") : existing->schemaPath.string();
+				const auto kept = existing->source == Source::kNative ? std::string("the native registration") : (existing->schemaPath.empty() ? std::string("the first-loaded schema") : existing->schemaPath.string());
 				REX::ERROR("SettingsStore: [content] duplicate schema id '{}' - keeping {}, ignoring {}", id, kept, a_sourcePath.string());
-				const auto loser = a_sourcePath.filename().string();
-				if (std::find(existing->shadowed.begin(), existing->shadowed.end(), loser) == existing->shadowed.end()) {
-					existing->shadowed.push_back(loser);
-					InvalidateData();
+				if (!a_sourcePath.empty() && existing->source == Source::kDropIn) {
+					const auto loser = a_sourcePath.filename().string();
+					if (std::find(existing->shadowed.begin(), existing->shadowed.end(), loser) == existing->shadowed.end()) {
+						existing->shadowed.push_back(loser);
+						InvalidateData();
+					}
 				}
 				return false;
 			}
@@ -329,7 +361,11 @@ namespace OSFUI
 				REX::ERROR("SettingsStore: cannot replace schema '{}'; pending values could not be saved", existing->id);
 				return false;
 			}
-			REX::DEBUG("SettingsStore: hot-reloading drop-in schema '{}'", id);
+			if (a_source == Source::kDropIn) {
+				REX::DEBUG("SettingsStore: hot-reloading drop-in schema '{}'", id);
+			} else {
+				REX::WARN("SettingsStore: [deprecated] native registration replaces {} schema for id '{}'; ship settings/{}.json and remove RegisterSettingsSchema before the next native ABI major", existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id, id);
+			}
 		}
 
 		WarnHotkeyContexts(a_schema, id);
@@ -339,9 +375,10 @@ namespace OSFUI
 		mod.schema = std::move(a_schema);
 		mod.valuesPath = _valuesDir / (mod.id + ".json");
 		mod.schemaPath = std::move(a_sourcePath);
+		mod.source = a_source;
 		mod.values = nlohmann::json::object();
 		mod.preserved = nlohmann::json::object();
-		const auto schemaSource = mod.schemaPath.filename().string();
+		const auto schemaSource = mod.schemaPath.empty() ? std::string("<runtime>") : mod.schemaPath.filename().string();
 		ForEachSetting(mod.schema, [&](const nlohmann::json& a_setting) {
 			const auto parsed = ParseHotkeyTarget(a_setting);
 			if (parsed.present && !parsed.target) {
@@ -613,6 +650,12 @@ namespace OSFUI
 		}
 		const auto* setting = FindSetting(*mod, a_key);
 		return setting ? Json::Get(*setting, "type", "") : std::string{};
+	}
+
+	std::optional<SettingsStore::Source> SettingsStore::GetSource(std::string_view a_modId) const
+	{
+		const auto* mod = FindMod(a_modId);
+		return mod ? std::optional(mod->source) : std::nullopt;
 	}
 
 	std::optional<std::string> SettingsStore::CanonicalEnumValue(std::string_view a_modId, std::string_view a_key, std::string_view a_value) const

@@ -7,10 +7,17 @@
 
 namespace OSFUI
 {
-	// Schema-driven settings registry. Mods ship read-only JSON schemas as `settings/<id>.json` drop-in files.
+	// Schema-driven settings registry. Mods should ship read-only JSON schemas as `settings/<id>.json` drop-in files. 
+	// Native registration remains temporarily available for ABI compatibility while existing mods migrate.
 	class SettingsStore
 	{
 	public:
+		enum class Source
+		{
+			kDropIn,
+			kNative,
+		};
+
 		// Fired for commits plus startup and schema-reload replays.
 		using ChangeListener = std::function<void(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)>;
 
@@ -58,7 +65,11 @@ namespace OSFUI
 		void AddRegistryListener(RegistryListener a_listener) { _registryListeners.push_back(std::move(a_listener)); }
 		void AddPersistListener(PersistListener a_listener) { _persistListeners.push_back(std::move(a_listener)); }
 
+		// Deprecated compatibility path for RegisterSettingsSchema. Runtime schemas retain their historical precedence over drop-ins until this API is removed at a future native ABI major.
+		bool RegisterSchema(nlohmann::json a_schema, Source a_source);
 		bool RemoveMod(std::string_view a_modId);
+		[[nodiscard]] static bool ValidateSchemaShape(const nlohmann::json& a_schema, bool a_allowBuiltIn = false);
+		[[nodiscard]] std::optional<Source> GetSource(std::string_view a_modId) const;
 
 		void NotifyAll() const;
 		void NotifyMod(std::string_view a_modId) const;
@@ -182,14 +193,15 @@ namespace OSFUI
 			std::string              targetVersion;
 			std::int64_t             formatVersion{ 2 };
 			std::filesystem::path valuesPath;
-			std::filesystem::path schemaPath;  // drop-in source file
+			std::filesystem::path schemaPath;  // drop-in source file; empty for native registrations
 			std::vector<std::string> shadowed;
 			std::vector<HotkeyTargetIssue> hotkeyTargetIssues;
+			Source                source{ Source::kDropIn };
 			bool                  dirty{ false };  // has unflushed write-behind changes
 			double                dueAt{ 0.0 };    // when the open window flushes (store clock)
 		};
 
-		bool AddDropInSchema(nlohmann::json a_schema, std::string a_idHint, bool a_notify, bool a_replaceExisting, std::filesystem::path a_sourcePath);
+		bool AddSchema(nlohmann::json a_schema, Source a_source, std::string a_idHint, bool a_notify, bool a_dropInReplace = false, std::filesystem::path a_sourcePath = {});
 
 		[[nodiscard]] Mod*       FindMod(std::string_view a_modId);
 		[[nodiscard]] const Mod* FindMod(std::string_view a_modId) const;
@@ -250,5 +262,6 @@ namespace OSFUI
 		std::filesystem::path       _valuesDir;
 		std::uint64_t               _generation{ 0 };
 		double                      _now{ 0.0 };  // last PumpPersistence clock; MarkDirty stamps windows with it
+		bool                        _loaded{ false };
 	};
 }

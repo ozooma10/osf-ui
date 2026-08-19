@@ -7,12 +7,13 @@ const packageRoot = resolve(here, '..');
 const check = process.argv.slice(2).includes('--check');
 const unknown = process.argv.slice(2).filter((arg) => arg !== '--check');
 if (unknown.length > 0) throw new Error(`unknown argument: ${unknown.join(' ')}`);
+const repositoryRoot = resolve(packageRoot, '..', '..', '..');
 
 const files = [
-  [resolve(packageRoot, '..', '..', 'sdk', 'OSFUI_API.h'), resolve(packageRoot, 'templates', 'native', 'OSFUI_API.h')],
-  [resolve(packageRoot, '..', '..', 'sdk', 'OSFUI_JSON.h'), resolve(packageRoot, 'templates', 'native', 'OSFUI_JSON.h')],
+  [resolve(repositoryRoot, 'sdk', 'OSFUI_API.h'), resolve(packageRoot, 'templates', 'native', 'OSFUI_API.h')],
+  [resolve(repositoryRoot, 'sdk', 'OSFUI_JSON.h'), resolve(packageRoot, 'templates', 'native', 'OSFUI_JSON.h')],
   [
-    resolve(packageRoot, '..', '..', 'data', 'Scripts', 'Source', 'OSFUI.psc'),
+    resolve(repositoryRoot, 'data', 'Scripts', 'Source', 'OSFUI.psc'),
     resolve(packageRoot, 'templates', 'papyrus', 'OSFUI.psc'),
   ],
 ];

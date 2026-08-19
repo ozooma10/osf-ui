@@ -207,11 +207,18 @@ namespace OSFUI::API
 		// Null/empty buffer = "how big?" probe. (type:"flags" values are arrays - no typed getter; read them from SettingChangedFn's JSON.)
 		virtual std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) = 0;
 
-		// Retired settings-registration slots. Kept in place so later 1.x vtable
-		// entries retain their binary positions. Slot 1 returns false; slot 2 is
-		// a no-op. Settings schemas are discovered only from settings/<modId>.json.
-		virtual bool ReservedSettingsSlot1(const char*) = 0;
-		virtual void ReservedSettingsSlot2(const char*) = 0;
+		// --- DEPRECATED settings registration. Thread-safe; merge lands next main tick. ---
+		// Compatibility window for existing plugins only. New and updated mods MUST
+		// ship settings/<modId>.json. These methods are planned for removal at the
+		// next native ABI major; their frozen slots remain here throughout ABI 1.x.
+		//
+		// Returns false on malformed JSON or an invalid/missing id; true = queued.
+		// A native schema retains its historical precedence over a drop-in with the
+		// same id. User values use the same per-mod persistence file in either tier.
+		[[deprecated("Ship settings/<modId>.json; runtime schema registration will be removed at the next native ABI major")]]
+		virtual bool RegisterSettingsSchema(const char* a_schemaJson) = 0;
+		[[deprecated("Remove the runtime registration call and ship settings/<modId>.json")]]
+		virtual void UnregisterSettingsSchema(const char* a_modId) = 0;
 
 		// ===== hotkey dispatch =====
 
@@ -466,6 +473,18 @@ namespace OSFUI::API
 		std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) const noexcept
 		{
 			return Has(Feature::kSettings) ? _bridge->GetSettingString(a_modId, a_key, a_buf, a_bufLen) : 0u;
+		}
+		[[deprecated("Ship settings/<modId>.json; runtime schema registration will be removed at the next native ABI major")]]
+		bool RegisterSettingsSchema(const char* a_schemaJson) const noexcept
+		{
+			return Has(Feature::kSettings) && _bridge->RegisterSettingsSchema(a_schemaJson);
+		}
+		[[deprecated("Remove the runtime registration call and ship settings/<modId>.json")]]
+		void UnregisterSettingsSchema(const char* a_modId) const noexcept
+		{
+			if (Has(Feature::kSettings)) {
+				_bridge->UnregisterSettingsSchema(a_modId);
+			}
 		}
 		// --- hotkeys ---
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) const noexcept

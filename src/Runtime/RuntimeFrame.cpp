@@ -176,6 +176,7 @@ namespace OSFUI
 		ProcessLifecycleWork();
 		ProcessPauseMenuEntry();
 		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
+		DrainSchemaOps(std::move(bridgeBatch.schemas));
 		DrainViewRegistrations(std::move(bridgeBatch.viewRegistrations));
 		const auto presentationWork = TakePresentationRequests(std::move(bridgeBatch.presentation));
 		PreparePresentationRequests(presentationWork);
