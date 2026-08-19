@@ -7,7 +7,6 @@
 #include "Input/ScanCode.h"
 #include "Core/Json.h"
 #include "Wv2BoundedQueue.h"
-#include "Wv2BrokerLaunch.h"  // LaunchMethodName (logging only)
 #include "Wv2LocalUri.h"
 #include "Wv2Messages.h"
 #include "Wv2Pipe.h"
