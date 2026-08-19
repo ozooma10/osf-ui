@@ -47,7 +47,7 @@ int main()
 	Check(handoff.TrackingHeaps() && !handoff.HandoffArmed(),
 		"Begin opens heap tracking without scanning unrelated barriers");
 	handoff.End();
-	Check(handoff.HandoffArmed() && handoff.ConsumeHandoff() &&
+	Check(handoff.HandoffArmed() && handoff.ConsumeAndReportFirstCandidate() &&
 			handoff.TrackingHeaps(),
 		"the first post-End target keeps tracking open for the FG target");
 	for (int i = 0; i < 4; ++i) {
@@ -61,9 +61,9 @@ int main()
 
 	handoff.Begin();
 	handoff.End();
-	Check(handoff.ConsumeHandoff(),
+	Check(handoff.ConsumeAndReportFirstCandidate(),
 		"the first target in a new region is classified as first");
-	Check(!handoff.ConsumeHandoff() && !handoff.HandoffArmed() &&
+	Check(!handoff.ConsumeAndReportFirstCandidate() && !handoff.HandoffArmed() &&
 			!handoff.TrackingHeaps(),
 		"the second target closes the Begin-to-handoff heap window");
 	handoff.Begin();
