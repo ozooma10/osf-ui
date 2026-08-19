@@ -13,6 +13,12 @@ namespace OSFUI::Plugin
 		public:
 			void Run() override
 			{
+				const auto now = std::chrono::steady_clock::now();
+				const auto nowTicks = now.time_since_epoch().count();
+				if (!Runtime::Get().IsVisible() && nowTicks < m_nextIdleTick.load(std::memory_order_relaxed)) {
+					return;
+				}
+				m_nextIdleTick.store((now + kIdleTickInterval).time_since_epoch().count(), std::memory_order_relaxed);
 				// At most one tick may be queued or running. If main thread stalls, shed redundant notifications
 				if (m_tickPending.exchange(true, std::memory_order_acq_rel)) {
 					return;
@@ -46,8 +52,10 @@ namespace OSFUI::Plugin
 				m_tickPending.store(false, std::memory_order_release);
 			}
 
+			static constexpr auto                                 kIdleTickInterval = std::chrono::milliseconds(100);
 			std::atomic_bool                                      m_tickPending{ false };
 			std::optional<std::chrono::steady_clock::time_point>  m_lastMainTick;
+			std::atomic<std::chrono::steady_clock::duration::rep> m_nextIdleTick{ 0 };
 		};
 
 		void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
@@ -74,8 +82,6 @@ namespace OSFUI::Plugin
 
 	bool OnLoad()
 	{
-		REX::INFO("{} v{}: load entered", kPluginName, kOsfuiReleaseVersion);
-
 		if (const auto* messaging = SFSE::GetMessagingInterface()) {
 			if (!messaging->RegisterListener(OnSFSEMessage)) {
 				REX::WARN("Plugin: failed to register SFSE message listener (non-fatal)");

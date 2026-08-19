@@ -147,7 +147,6 @@ namespace OSFUI
 			return false;
 		}
 
-		REX::INFO("Runtime: renderer = webview2");
 		return true;
 	}
 
@@ -177,7 +176,6 @@ namespace OSFUI
 			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
 			return false;
 		}
-		REX::INFO("Runtime: compositor = d3d12");
 		return true;
 	}
 
@@ -227,7 +225,6 @@ namespace OSFUI
 		RefreshKeyboardLabels("startup");
 
 		_settings->OnStart();
-		REX::INFO("Runtime: settings and diagnostics initialized");
 	}
 
 	void Runtime::InitializeBridge()
@@ -355,8 +352,6 @@ namespace OSFUI
 			REX::INFO("PauseMenuEntry: disabled by startup setting");
 		}
 
-		REX::INFO("Runtime: initialized (visible={})", m_visible.load());
-
 		return true;
 	}
 
@@ -420,13 +415,13 @@ namespace OSFUI
 	}
 
 
-	Runtime::PendingPresentationWork Runtime::TakePresentationRequests()
+	Runtime::PendingPresentationWork Runtime::TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin)
 	{
 		auto queued = m_viewRequests.Take();
 		PendingPresentationWork work;
 		work.local = std::move(queued.presentation);
 		work.openViews = std::move(queued.openViews);
-		work.plugin = API::BridgeApi::Get().TakeViewPresentationRequests();
+		work.plugin = std::move(a_plugin);
 		return work;
 	}
 
@@ -607,21 +602,20 @@ namespace OSFUI
 		ApplyViewPresentationPolicy();
 	}
 
-	void Runtime::DrainViewRegistrations()
+	void Runtime::DrainViewRegistrations(std::vector<std::string> a_ids)
 	{
-		auto ids = API::BridgeApi::Get().TakeViewRegistrations();
-		if (ids.empty()) {
+		if (a_ids.empty()) {
 			return;
 		}
 		if (!_renderer) {
 			// Drop requests when the overlay has no viable renderer.
-			for (const auto& id : ids) {
+			for (const auto& id : a_ids) {
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — overlay not running", id);
 			}
 			return;
 		}
 		bool catalogChanged = false;
-		for (const auto& id : ids) {
+		for (const auto& id : a_ids) {
 			// Do not re-register instantiated views and discard their page state.
 			if (_presentation.IsInstantiated(id)) {
 				REX::DEBUG("Runtime: plugin RegisterView('{}') — already instantiated, left untouched", id);

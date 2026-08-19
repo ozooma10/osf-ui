@@ -144,6 +144,9 @@ int main()
 		ReadSource("../../src/Input/RuntimeInput.cpp");
 	const auto runtimeHeader = ReadSource("../../src/Runtime/Runtime.h");
 	const auto runtimeHealthSource = ReadSource("../../src/Runtime/RuntimeHealthCoordinator.cpp");
+	const auto pluginSource = ReadSource("../../src/Core/Plugin.cpp");
+	const auto papyrusSource = ReadSource("../../src/API/PapyrusApi.cpp");
+	const auto bridgeApiSource = ReadSource("../../src/API/BridgeApi.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
 	const auto compositorSource = ReadSource("../../src/Composite/D3D12Compositor.cpp");
 	const auto manifestSource = ReadSource("../../src/Views/ViewManifest.h") +
@@ -276,11 +279,29 @@ int main()
 		"runtime feature policy must not be owned by the logging namespace or a removed config object");
 
 	const auto tick = FunctionBody(runtimeSource, "void Runtime::Tick(double a_deltaSeconds)");
+	const auto frameTaskRun = FunctionBody(pluginSource, "void Run() override");
+	Check(ContainsInOrder(frameTaskRun, {
+		"!Runtime::Get().IsVisible()",
+		"nowTicks < m_nextIdleTick.load",
+		"m_tickPending.exchange",
+		"NativeMainThreadQueue::Post" }),
+		"hidden frames must return before coalescing or allocating an engine delegate");
+	Check(pluginSource.find("kIdleTickInterval = std::chrono::milliseconds(100)") != std::string::npos,
+		"hidden runtime maintenance must be capped at 10 Hz while visible UI remains per-frame");
+	Check(papyrusSource.find("State().pending.exchange(false") != std::string::npos &&
+		FunctionBody(papyrusSource, "PendingBatch TakePendingBatch(").find("std::lock_guard") != std::string::npos,
+		"Papyrus work must use one pending probe and one batch lock");
+	Check(bridgeApiSource.find("BridgeApi::PendingBatch BridgeApi::TakePendingBatch()") != std::string::npos &&
+		FunctionBody(bridgeApiSource, "BridgeApi::PendingBatch BridgeApi::TakePendingBatch()")
+			.find("std::lock_guard") != std::string::npos,
+		"Bridge runtime queues must be extracted as one batch");
 	Check(ContainsInOrder(tick, {
 		"ProcessPauseMenuEntry()",
-		"TakePresentationRequests()",
+		"auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch()",
+		"TakePresentationRequests(std::move(bridgeBatch.presentation))",
 		"PreparePresentationRequests(presentationWork)",
-		"ProcessBackendQueues()",
+		"auto papyrusBatch = API::Papyrus::TakePendingBatch()",
+		"ProcessBackendQueues(std::move(papyrusBatch)",
 		"ApplyPresentationRequests(presentationWork)" }),
 		"Tick must instantiate requested views hidden, flush native sends, then apply visibility");
 	const auto pauseMenuEntry = FunctionBody(runtimeSource, "void Runtime::ProcessPauseMenuEntry()");
@@ -289,7 +310,7 @@ int main()
 		"UI_MESSAGE_TYPE::kHide",
 		"EnqueueOpenView(std::string(Ids::kSettingsViewId))" }),
 		"PauseMenu actions must defer the engine hide and Mod Settings open to Runtime::Tick");
-	const auto backendQueues = FunctionBody(runtimeSource, "void Runtime::ProcessBackendQueues()");
+	const auto backendQueues = FunctionBody(runtimeSource, "void Runtime::ProcessBackendQueues(");
 	Check(backendQueues.find("API::BridgeApi::Get().PumpMainThread()") != std::string::npos,
 		"the extracted backend phase must still flush native sends before presentation is applied");
 

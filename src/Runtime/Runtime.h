@@ -3,6 +3,7 @@
 #include <unordered_set>  // not in pch.h
 
 #include "API/BridgeApi.h"
+#include "API/PapyrusApi.h"
 #include "Composite/D3D12Compositor.h"
 #include "Input/GamepadSession.h"
 #include "Input/KeyLabels.h"
@@ -99,7 +100,7 @@ namespace OSFUI
 			std::vector<std::string>                 openViews;  // EnqueueOpenView (internal native triggers)
 			std::vector<API::BridgeApi::ViewPresentationRequest> plugin;
 		};
-		PendingPresentationWork TakePresentationRequests();
+		PendingPresentationWork TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin);
 		void                          PreparePresentationRequests(const PendingPresentationWork& a_work);
 		void                          ApplyPresentationRequests(const PendingPresentationWork& a_work);
 
@@ -107,7 +108,7 @@ namespace OSFUI
 		bool CancelPendingOpen();
 		void DrivePendingOpen();
 
-		void DrainViewRegistrations();
+		void DrainViewRegistrations(std::vector<std::string> a_ids);
 
 		// open/close engine focus menu to match active menu capture policy.
 		void ReconcileFocusMenu();
@@ -127,7 +128,7 @@ namespace OSFUI
 		
 		void ProcessLifecycleWork();
 		void ProcessControlMapUpdates();
-		void ProcessBackendQueues();
+		void ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus, std::vector<API::BridgeApi::ViewStateOp> a_bridgeState);
 		void ProcessSettingsMaintenance();
 		void ProcessPauseMenuEntry();
 		void ReconcileFrameState(double a_deltaSeconds);

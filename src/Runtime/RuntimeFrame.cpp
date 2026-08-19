@@ -54,48 +54,48 @@ namespace OSFUI
 		}
 	}
 
-    void Runtime::ProcessBackendQueues()
+    void Runtime::ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus, std::vector<API::BridgeApi::ViewStateOp> a_bridgeState)
     {
 		DrainKeyCapture();
 		DrainHotkeys();
 
 		if(_settings) {
-			API::Papyrus::DrainSettingsOps(_settings->Store());
+			API::Papyrus::ApplySettingsOps(std::move(a_papyrus.settings), _settings->Store());
 		}
 		if(_bridge) {
-			if(API::Papyrus::TakeSessionReset()) {
+			if(a_papyrus.sessionReset) {
 				_retainedState.ClearSessionScoped();
 				Compat::V1::Papyrus::ClearPendingPushes();
 			}
 
-			API::Papyrus::DrainViewState([this](const API::Papyrus::ViewState& a_state) {
+			for (const auto& a_state : a_papyrus.states) {
 				_retainedState.Set(a_state.mod, a_state.key, a_state.value, /*sessionScoped*/ true);
 				PublishModState(a_state.mod, a_state.key, a_state.value);
-			});
+			}
 
 			Compat::V1::Papyrus::DrainPushes([this](const Compat::V1::Papyrus::Push& a_push) {
 				const auto targets = InstantiatedViewsOfMod(a_push.mod);
 				if (!targets.empty()) _bridge->Emit(targets, "data.push", a_push.payload);
 			});
 
-			for(auto& op : API::BridgeApi::Get().TakeViewStateOps()) {
+			for(auto& op : a_bridgeState) {
 				_retainedState.Set(op.mod, op.key, op.value, /*sessionScoped*/ false);
 				PublishModState(op.mod, op.key, op.value);
 			}
 
-			API::Papyrus::DrainViewEvents([this](const API::Papyrus::ViewEvent& a_event) {
+			for (const auto& a_event : a_papyrus.events) {
 				const auto targets = InstantiatedViewsOfMod(a_event.mod);
 				if (!targets.empty()) {
 					_bridge->Emit(targets, std::format("{}.{}", a_event.mod, a_event.name), nlohmann::json{ { "args", a_event.args } });
 				}
-			});
-			API::Papyrus::DrainViewReplies([this](const API::Papyrus::ViewReply& reply) {
+			}
+			for (const auto& reply : a_papyrus.replies) {
 				if(reply.rejected) {
 					_bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
 					_bridge->RespondTo(reply.deferToken, nlohmann::json{ { "value", reply.value } });
 				}
-			});
+			}
 
 			_bridge->Tick();
 		}
@@ -164,21 +164,22 @@ namespace OSFUI
 		_runtimeHealth.Pump();
     }
 
-    void Runtime::Tick(double a_deltaSeconds)
+	void Runtime::Tick(double a_deltaSeconds)
 	{
 		if (!_initialized) {
 			return;
 		}
 		_uptime += a_deltaSeconds;
-
 		ProcessLifecycleWork();
 		ProcessPauseMenuEntry();
-		DrainViewRegistrations();
-		const auto presentationWork = TakePresentationRequests();
+		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
+		DrainViewRegistrations(std::move(bridgeBatch.viewRegistrations));
+		const auto presentationWork = TakePresentationRequests(std::move(bridgeBatch.presentation));
 		PreparePresentationRequests(presentationWork);
+		auto papyrusBatch = API::Papyrus::TakePendingBatch();
 
 		ProcessControlMapUpdates();
-		ProcessBackendQueues();
+		ProcessBackendQueues(std::move(papyrusBatch), std::move(bridgeBatch.state));
 		ApplyPresentationRequests(presentationWork);
 
 		ProcessSettingsMaintenance();

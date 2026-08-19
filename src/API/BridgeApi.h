@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <thread>
 #include <unordered_set>
@@ -82,6 +83,14 @@ namespace OSFUI::API
 		};
 		std::vector<ViewStateOp> TakeViewStateOps();
 
+		struct PendingBatch
+		{
+			std::vector<ViewPresentationRequest> presentation;
+			std::vector<ViewStateOp>              state;
+			std::vector<std::string>              viewRegistrations;
+		};
+		[[nodiscard]] PendingBatch TakePendingBatch();
+
 		void NoteUnsupportedApiCaller(std::string a_moduleName, std::uint32_t a_major,
 			std::uint32_t a_minor);
 		struct UnsupportedCaller
@@ -160,7 +169,21 @@ namespace OSFUI::API
 		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
 		void DropInflightRequest(std::uint64_t) noexcept;
 		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
+		enum Pending : std::uint32_t
+		{
+			kPendingPump = 1u << 0,
+			kPendingPresentation = 1u << 1,
+			kPendingState = 1u << 2,
+			kPendingViewRegistrations = 1u << 3,
+			kPendingHealth = 1u << 4,
+			kPendingUnsupported = 1u << 5,
+		};
+		void MarkPending(std::uint32_t a_bits) noexcept
+		{
+			_pending.fetch_or(a_bits, std::memory_order_release);
+		}
 		std::mutex                                    _mutex;
+		std::atomic<std::uint32_t>                    _pending{ 0 };
 		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
 		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex
 		HotkeySubscriptions                           _hotkeys;           // own locking; never touched under _mutex

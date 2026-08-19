@@ -690,6 +690,19 @@ int main()
 	CHECK(Last(toWeb).value("kind", "") == "event");
 	CHECK(PayloadOf(Last(toWeb)).value("lazy", false));
 
+	// Runtime-facing Bridge queues share one snapshot lock and an empty atomic fast path.
+	CHECK(api.SetViewState("batch.mod", "value", "7"));
+	CHECK(api.RegisterView("batch.mod/panel"));
+	CHECK(api.RequestMenu("acme.mymod/dash", true));
+	{
+		auto batch = api.TakePendingBatch();
+		CHECK(batch.state.size() == 1 && batch.state[0].key == "value" && batch.state[0].value == 7);
+		CHECK(batch.viewRegistrations == std::vector<std::string>{ "batch.mod/panel" });
+		CHECK(batch.presentation.size() == 1 && batch.presentation[0].view == "acme.mymod/dash" && batch.presentation[0].open);
+		const auto empty = api.TakePendingBatch();
+		CHECK(empty.state.empty() && empty.viewRegistrations.empty() && empty.presentation.empty());
+	}
+
 	// The send registry re-applies to a replacement bridge, handlers intact.
 	lazyBridge.HandleWebMessage("acme.mymod/dash", SendMsg("acme.mymod.catalog.get"));
 	CHECK(g_firedA.size() == 3);

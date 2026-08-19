@@ -92,8 +92,7 @@ int main()
 
 	std::vector<API::Papyrus::ViewState> drained;
 	const auto                           drain = [&] {
-		drained.clear();
-		API::Papyrus::DrainViewState([&](const API::Papyrus::ViewState& a_state) { drained.push_back(a_state); });
+		drained = API::Papyrus::TakePendingBatch().states;
 	};
 
 	NamedForm    keyword{ 0x0014E8D2, RE::FormType::kKYWD, "Melee Weapons" };
@@ -216,13 +215,12 @@ int main()
 		CHECK(forms[2] == &weapon);
 	}
 
-	CHECK(!API::Papyrus::TakeSessionReset());  // nothing to report before a load
 	setViewForms(*vm, 0, {}, "t.forms", "catalog", { &keyword });
 	RE::TESLoadGameEvent::GetEventSource()->Notify(RE::TESLoadGameEvent{});
-	drain();
-	CHECK(drained.empty());                    // queued identities never reach the new session
-	CHECK(API::Papyrus::TakeSessionReset());   // raised once by the load...
-	CHECK(!API::Papyrus::TakeSessionReset());  // ...and consumed by the tick that saw it
+	auto resetBatch = API::Papyrus::TakePendingBatch();
+	CHECK(resetBatch.states.empty());                          // queued identities never reach the new session
+	CHECK(resetBatch.sessionReset);                            // raised once by the load...
+	CHECK(!API::Papyrus::TakePendingBatch().sessionReset);     // ...and consumed by one batch
 
 	std::fprintf(stderr, "papyrus_form_tests: %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures;

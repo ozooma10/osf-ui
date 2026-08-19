@@ -6,6 +6,8 @@
 #include "Core/Ids.h"  // opaque id safety validation + case-insensitive matching
 #include "Settings/SettingsStore.h"
 
+#include <atomic>
+
 #include "RE/B/BSScriptUtil.h"       // BindNativeMethod marshaling, GameVM, VirtualMachine
 #include "RE/E/Events.h"             // TESLoadGameEvent
 #include "RE/F/FORM_ENUM_STRING.h"   // FormType -> record-signature table
@@ -46,13 +48,7 @@ namespace OSFUI::API::Papyrus
 			bool wantsArgs{ false };
 		};
 
-		struct QueuedOp
-		{
-			std::string    mod;
-			std::string    key;    // empty (reset only) = whole mod
-			nlohmann::json value;  // ignored for resets
-			bool           reset{ false };
-		};
+		using QueuedOp = PendingSettingsOp;
 
 		// Queue FormIDs, never TESForm pointers; serialize them on the main thread.
 		struct QueuedState
@@ -88,6 +84,7 @@ namespace OSFUI::API::Papyrus
 		struct ProcessState
 		{
 			std::mutex                                          lock;
+			std::atomic_bool                                   pending{ false };
 			std::vector<Entry>                                  slots;
 			std::uint16_t                                       nextGen{ 1 };
 			std::vector<QueuedOp>                               ops;
@@ -103,6 +100,11 @@ namespace OSFUI::API::Papyrus
 		{
 			static ProcessState* const state = new ProcessState;
 			return *state;
+		}
+
+		void MarkPending() noexcept
+		{
+			State().pending.store(true, std::memory_order_release);
 		}
 
 		// BSFixedString preserves process-first casing, so normalize before matching.
@@ -335,6 +337,7 @@ namespace OSFUI::API::Papyrus
 				pending.deferToken = a_deferToken;
 				pending.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 				State().viewRequests.emplace(token, std::move(pending));
+				MarkPending();
 			}
 
 			std::vector<RE::BSFixedString> argv;
@@ -367,6 +370,7 @@ namespace OSFUI::API::Papyrus
 			it->second.answered = true;
 			it->second.value = std::move(a_value);
 			it->second.formIds = std::move(a_formIds);
+			MarkPending();
 			return true;
 		}
 
@@ -381,6 +385,7 @@ namespace OSFUI::API::Papyrus
 			it->second.rejected = true;
 			it->second.code = a_code.empty() ? "papyrus-error" : a_code.c_str();
 			it->second.message = a_message.c_str();
+			MarkPending();
 			return true;
 		}
 		void QueueOp(RE::BSFixedString& a_mod, RE::BSFixedString& a_key, nlohmann::json a_value, bool a_reset)
@@ -399,6 +404,7 @@ namespace OSFUI::API::Papyrus
 				return;
 			}
 			State().ops.push_back({ mod, key ? key : "", std::move(a_value), a_reset });
+			MarkPending();
 		}
 
 		// VM thread; normalize BSFixedString casing before validating the target.
@@ -425,6 +431,7 @@ namespace OSFUI::API::Papyrus
 				return;
 			}
 			State().states.push_back(std::move(a_state));
+			MarkPending();
 		}
 
 		void EnqueueState(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key,
@@ -714,6 +721,7 @@ namespace OSFUI::API::Papyrus
 				return;
 			}
 			State().events.push_back(QueuedEvent{ std::move(*mod), a_name.c_str(), std::move(args) });
+			MarkPending();
 		}
 
 		void SetViewBool(PapVM&, std::uint32_t, std::monostate,
@@ -953,6 +961,7 @@ namespace OSFUI::API::Papyrus
 			State().states.clear();
 			State().events.clear();
 			State().sessionReset = true;
+			MarkPending();
 			if (dropped) {
 				REX::INFO("PapyrusApi: cleared {} script registration(s) on game load (session-scoped; scripts re-register)", dropped);
 			}
@@ -1063,12 +1072,25 @@ namespace OSFUI::API::Papyrus
 		return DispatchViewRequest(a_modId, a_request, a_args, a_viewId, a_deferToken);
 	}
 
-	void DrainViewReplies(const std::function<void(const ViewReply&)>& a_deliver,
-		std::chrono::steady_clock::time_point a_now)
+	PendingBatch TakePendingBatch(std::chrono::steady_clock::time_point a_now)
 	{
+		PendingBatch batch;
+		if (!State().pending.exchange(false, std::memory_order_acq_rel)) {
+			return batch;
+		}
+
+		std::vector<QueuedState> states;
+		std::vector<QueuedEvent> events;
 		std::vector<PendingViewRequest> completed;
 		{
+			// Clear the hint before locking. A racing producer may be included in this
+			// batch while leaving its bit set, which only causes one harmless extra pass.
 			std::lock_guard l{ State().lock };
+			batch.settings.swap(State().ops);
+			states.swap(State().states);
+			events.swap(State().events);
+			batch.sessionReset = State().sessionReset;
+			State().sessionReset = false;
 			for (auto it = State().viewRequests.begin(); it != State().viewRequests.end();) {
 				if (!it->second.answered && a_now < it->second.deadline) {
 					++it;
@@ -1077,7 +1099,29 @@ namespace OSFUI::API::Papyrus
 				completed.push_back(std::move(it->second));
 				it = State().viewRequests.erase(it);
 			}
+			if (!State().viewRequests.empty()) {
+				MarkPending();
+			}
 		}
+
+		batch.states.reserve(states.size());
+		for (auto& queued : states) {
+			ViewState out{ std::move(queued.mod), std::move(queued.key), std::move(queued.value) };
+			if (queued.formIds) {
+				auto forms = nlohmann::json::array();
+				for (const auto id : *queued.formIds) forms.push_back(SerializeForm(id));
+				out.value = std::move(forms);
+			}
+			batch.states.push_back(std::move(out));
+		}
+
+		batch.events.reserve(events.size());
+		for (auto& queued : events) {
+			batch.events.push_back(ViewEvent{
+				std::move(queued.mod), std::move(queued.name), std::move(queued.args) });
+		}
+
+		batch.replies.reserve(completed.size());
 		for (auto& pending : completed) {
 			ViewReply reply;
 			reply.view = std::move(pending.view);
@@ -1096,59 +1140,14 @@ namespace OSFUI::API::Papyrus
 			} else {
 				reply.value = std::move(pending.value);
 			}
-			a_deliver(reply);
+			batch.replies.push_back(std::move(reply));
 		}
+		return batch;
 	}
 
-	void DrainViewState(const std::function<void(const ViewState&)>& a_deliver)
+	void ApplySettingsOps(std::vector<PendingSettingsOp> a_ops, SettingsStore& a_store)
 	{
-		std::vector<QueuedState> states;
-		{
-			std::lock_guard l{ State().lock };
-			states.swap(State().states);
-		}
-		for (auto& queued : states) {
-			ViewState out{ std::move(queued.mod), std::move(queued.key), std::move(queued.value) };
-			if (queued.formIds) {
-				// Serialize on main and keep vanished forms as null to preserve alignment.
-				auto forms = nlohmann::json::array();
-				for (const auto id : *queued.formIds) {
-					forms.push_back(SerializeForm(id));
-				}
-				out.value = std::move(forms);
-			}
-			a_deliver(out);
-		}
-	}
-
-	void DrainViewEvents(const std::function<void(const ViewEvent&)>& a_deliver)
-	{
-		std::vector<QueuedEvent> events;
-		{
-			std::lock_guard l{ State().lock };
-			events.swap(State().events);
-		}
-		for (auto& queued : events) {
-			a_deliver(ViewEvent{ std::move(queued.mod), std::move(queued.name), std::move(queued.args) });
-		}
-	}
-
-	bool TakeSessionReset()
-	{
-		std::lock_guard l{ State().lock };
-		const bool pending = State().sessionReset;
-		State().sessionReset = false;
-		return pending;
-	}
-
-	void DrainSettingsOps(SettingsStore& a_store)
-	{
-		std::vector<QueuedOp> ops;
-		{
-			std::lock_guard l{ State().lock };
-			ops.swap(State().ops);
-		}
-		for (auto& op : ops) {
+		for (auto& op : a_ops) {
 			// Restore authored casing before the case-exact store lookup.
 			std::string mod;
 			std::string key;

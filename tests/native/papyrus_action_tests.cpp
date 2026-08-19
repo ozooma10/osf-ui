@@ -272,7 +272,7 @@ int main()
 	CHECK(replyViewInt(*vm, 0, {}, replyToken.c_str(), 77));
 	CHECK(!replyViewInt(*vm, 0, {}, replyToken.c_str(), 88));  // one-shot
 	std::vector<API::Papyrus::ViewReply> replies;
-	API::Papyrus::DrainViewReplies([&](const auto& reply) { replies.push_back(reply); });
+	replies = API::Papyrus::TakePendingBatch().replies;
 	CHECK(replies.size() == 1);
 	if (!replies.empty()) {
 		CHECK(replies[0].view == "t.requests/view" && replies[0].deferToken == "q1");
@@ -283,31 +283,38 @@ int main()
 	CHECK(API::Papyrus::OnViewRequest("t.requests", "fail", {}, "t.requests/view", "q2"));
 	replyToken = vm->calls[0].args.back();
 	CHECK(rejectViewRequest(*vm, 0, {}, replyToken.c_str(), "not-allowed", "No"));
-	replies.clear();
-	API::Papyrus::DrainViewReplies([&](const auto& reply) { replies.push_back(reply); });
+	replies = API::Papyrus::TakePendingBatch().replies;
 	CHECK(replies.size() == 1 && replies[0].rejected && replies[0].code == "not-allowed");
 
 	vm->calls.clear();
 	CHECK(API::Papyrus::OnViewRequest("t.requests", "slow", {}, "t.requests/view", "q3"));
-	replies.clear();
-	API::Papyrus::DrainViewReplies([&](const auto& reply) { replies.push_back(reply); },
-		std::chrono::steady_clock::now() + std::chrono::seconds(11));
+	replies = API::Papyrus::TakePendingBatch(
+		std::chrono::steady_clock::now() + std::chrono::seconds(11)).replies;
 	CHECK(replies.size() == 1 && replies[0].rejected && replies[0].code == "papyrus-timeout");
 	CHECK(!API::Papyrus::OnViewRequest("other.mod", "x", {}, "other.mod/view", "q4"));
+
+	// One tick snapshots all Papyrus producer queues behind one lock.
+	setViewInt(*vm, 0, {}, "t.alpha", "batched", 9);
+	sendViewEvent(*vm, 0, {}, "t.alpha", "batched", { Str{ "x" } });
+	{
+		auto batch = API::Papyrus::TakePendingBatch();
+		CHECK(batch.states.size() == 1 && batch.states[0].key == "batched" && batch.states[0].value == 9);
+		CHECK(batch.events.size() == 1 && batch.events[0].name == "batched" && batch.events[0].args == std::vector<std::string>{ "x" });
+		CHECK(batch.settings.empty() && batch.replies.empty() && !batch.sessionReset);
+		const auto empty = API::Papyrus::TakePendingBatch();
+		CHECK(empty.settings.empty() && empty.states.empty() && empty.events.empty() && empty.replies.empty());
+	}
 
 	RetainedStateStore                   store;
 	std::vector<API::Papyrus::ViewState> states;
 	std::vector<API::Papyrus::ViewEvent> events;
 	const auto                           tick = [&] {
-		states.clear();
-		events.clear();
-		API::Papyrus::DrainViewState([&](const API::Papyrus::ViewState& a_state) {
+		auto batch = API::Papyrus::TakePendingBatch();
+		states = std::move(batch.states);
+		events = std::move(batch.events);
+		for (const auto& a_state : states) {
 			store.Set(a_state.mod, a_state.key, a_state.value, /*sessionScoped*/ true);
-			states.push_back(a_state);
-		});
-		API::Papyrus::DrainViewEvents([&](const API::Papyrus::ViewEvent& a_event) {
-			events.push_back(a_event);
-		});
+		}
 	};
 
 	// --- SetView* state queue / drain ----------------------------------------------
@@ -424,14 +431,13 @@ int main()
 
 	setViewInt(*vm, 0, {}, "t.alpha", "count", 5);
 	sendViewEvent(*vm, 0, {}, "t.alpha", "boom", {});
-	CHECK(!API::Papyrus::TakeSessionReset());  // nothing to report before a load
 	vm->natives.clear();
 	RE::TESLoadGameEvent::GetEventSource()->Notify(RE::TESLoadGameEvent{});
 	CHECK(vm->natives.contains("ListenForViewActions"));  // re-bound
-	tick();
-	CHECK(states.empty() && events.empty());   // the queues were dropped, not delivered
-	CHECK(API::Papyrus::TakeSessionReset());   // raised once by the load...
-	CHECK(!API::Papyrus::TakeSessionReset());  // ...and consumed by the tick that saw it
+	auto resetBatch = API::Papyrus::TakePendingBatch();
+	CHECK(resetBatch.states.empty() && resetBatch.events.empty());  // queued session identities were dropped
+	CHECK(resetBatch.sessionReset);                                // raised once by the load...
+	CHECK(!API::Papyrus::TakePendingBatch().sessionReset);         // ...and consumed by one batch
 	store.ClearSessionScoped();                // what Runtime::Tick does with the flag
 	CHECK(store.Find("t.alpha") == nullptr);   // retained Papyrus state is gone with it
 

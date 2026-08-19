@@ -842,7 +842,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	bool D3D12Compositor::Initialize()
 	{
 		_impl = std::make_unique<Impl>();
-		REX::INFO("D3D12Compositor: initialized (UI-pass-only overlay; engine device/queue are set up on the first submitted frame)");
 		return true;
 	}
 

@@ -90,6 +90,7 @@ namespace OSFUI::API
 		_commands[name] = { a_handler, a_user };
 		std::erase(_pendingCommandUnregister, name);
 		_dirty = true;
+		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::UnregisterCommand(const char* a_name)
@@ -100,6 +101,7 @@ namespace OSFUI::API
 		if (_commands.erase(name) > 0) {
 			_pendingCommandUnregister.push_back(name);
 			_dirty = true;
+			MarkPending(kPendingPump);
 		}
 	}
 
@@ -121,6 +123,7 @@ namespace OSFUI::API
 		_sends[name] = { a_handler, a_user };
 		std::erase(_pendingSendUnregister, name);  // cancel a pending removal of the same id
 		_dirty = true;
+		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::UnregisterSend(const char* a_name)
@@ -133,6 +136,7 @@ namespace OSFUI::API
 		if (_sends.erase(name) > 0) {
 			_pendingSendUnregister.push_back(name);
 			_dirty = true;
+			MarkPending(kPendingPump);
 		}
 	}
 
@@ -152,6 +156,7 @@ namespace OSFUI::API
 		_requests[name] = { a_handler, a_user };
 		std::erase(_pendingRequestUnregister, name);
 		_dirty = true;
+		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::UnregisterRequest(const char* a_name)
@@ -162,6 +167,7 @@ namespace OSFUI::API
 		if (_requests.erase(name) > 0) {
 			_pendingRequestUnregister.push_back(name);
 			_dirty = true;
+			MarkPending(kPendingPump);
 		}
 	}
 	bool BridgeApi::SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson)
@@ -183,6 +189,7 @@ namespace OSFUI::API
 			_pendingSends.erase(oldest);
 		}
 		_pendingSends.push_back({ std::string(a_viewId), std::string(a_type), std::string(a_payloadJson) });
+		MarkPending(kPendingPump);
 		return true;
 	}
 
@@ -213,6 +220,7 @@ namespace OSFUI::API
 			return false;
 		}
 		_pendingStateOps.push_back(ViewStateOp{ std::string(a_modId), key, std::move(*parsed) });
+		MarkPending(kPendingState);
 		return true;
 	}
 
@@ -225,10 +233,13 @@ namespace OSFUI::API
 		}
 		if (_unsupportedCallers.size() >= kMaxUnsupportedCallers) return;
 		_unsupportedCallers.push_back(UnsupportedCaller{ std::move(a_moduleName), a_major, a_minor });
+		MarkPending(kPendingUnsupported);
 	}
 
 	std::vector<BridgeApi::UnsupportedCaller> BridgeApi::TakeUnsupportedApiCallers()
 	{
+		const auto reasons = _pending.fetch_and(~kPendingUnsupported, std::memory_order_acq_rel);
+		if ((reasons & kPendingUnsupported) == 0) return {};
 		std::lock_guard lock(_mutex);
 		std::vector<UnsupportedCaller> out;
 		out.swap(_unsupportedCallers);
@@ -237,6 +248,8 @@ namespace OSFUI::API
 
 	std::vector<BridgeApi::ViewStateOp> BridgeApi::TakeViewStateOps()
 	{
+		const auto reasons = _pending.fetch_and(~kPendingState, std::memory_order_acq_rel);
+		if ((reasons & kPendingState) == 0) return {};
 		std::lock_guard lock(_mutex);
 		std::vector<ViewStateOp> out;
 		out.swap(_pendingStateOps);
@@ -254,6 +267,7 @@ namespace OSFUI::API
 		// Re-arm an available bridge so Pump invokes the replacement on the main thread.
 		if (_bridgeAvailable.load()) {
 			_readyFired = false;
+			MarkPending(kPendingPump);
 		}
 	}
 
@@ -270,6 +284,7 @@ namespace OSFUI::API
 			return false;
 		}
 		_pendingViewPresentationRequests.push_back({ *id, a_open });
+		MarkPending(kPendingPresentation);
 		return true;
 	}
 
@@ -280,6 +295,7 @@ namespace OSFUI::API
 		_knownViews.insert(a_viewIds.begin(), a_viewIds.end());
 		_instantiatedViews.clear();
 		_viewCatalogReady = true;
+		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::SetViewInstantiated(std::string_view a_viewId, bool a_instantiated)
@@ -296,6 +312,7 @@ namespace OSFUI::API
 			std::erase_if(_inflightRequests,
 				[&](const auto& entry) { return Ids::EqualsCaseInsensitiveAscii(entry.second.view, id); });
 		}
+		MarkPending(kPendingPump);
 	}
 
 	std::uint32_t BridgeApi::SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user)
@@ -349,6 +366,8 @@ namespace OSFUI::API
 
 	std::vector<BridgeApi::ViewPresentationRequest> BridgeApi::TakeViewPresentationRequests()
 	{
+		const auto reasons = _pending.fetch_and(~kPendingPresentation, std::memory_order_acq_rel);
+		if ((reasons & kPendingPresentation) == 0) return {};
 		std::lock_guard lock(_mutex);
 		std::vector<ViewPresentationRequest> out;
 		out.swap(_pendingViewPresentationRequests);
@@ -369,11 +388,14 @@ namespace OSFUI::API
 		// Runtime resolves queued registrations against manifests on the main tick.
 		std::lock_guard lock(_mutex);
 		_pendingViewRegs.emplace_back(a_viewId);
+		MarkPending(kPendingViewRegistrations);
 		return true;
 	}
 
 	std::vector<std::string> BridgeApi::TakeViewRegistrations()
 	{
+		const auto reasons = _pending.fetch_and(~kPendingViewRegistrations, std::memory_order_acq_rel);
+		if ((reasons & kPendingViewRegistrations) == 0) return {};
 		std::lock_guard lock(_mutex);
 		std::vector<std::string> out;
 		out.swap(_pendingViewRegs);
@@ -416,6 +438,7 @@ namespace OSFUI::API
 			.subject = a_subject ? a_subject : "",
 			.context = std::move(context),
 		});
+		MarkPending(kPendingHealth);
 		return true;
 	}
 
@@ -427,6 +450,7 @@ namespace OSFUI::API
 		_pendingHealthIssueOps.push_back(HealthIssueOp{
 			.kind = HealthIssueOp::Kind::kClear, .modId = a_modId, .id = a_id,
 		});
+		MarkPending(kPendingHealth);
 		return true;
 	}
 
@@ -453,15 +477,35 @@ namespace OSFUI::API
 		_pendingHealthIssueOps.push_back(HealthIssueOp{
 			.kind = HealthIssueOp::Kind::kClearExcept, .modId = a_modId, .keep = std::move(keep),
 		});
+		MarkPending(kPendingHealth);
 		return true;
 	}
 
 	std::vector<BridgeApi::HealthIssueOp> BridgeApi::TakeHealthIssueOps()
 	{
+		const auto reasons = _pending.fetch_and(~kPendingHealth, std::memory_order_acq_rel);
+		if ((reasons & kPendingHealth) == 0) return {};
 		std::lock_guard lock(_mutex);
 		std::vector<HealthIssueOp> out;
 		out.swap(_pendingHealthIssueOps);
 		return out;
+	}
+
+	BridgeApi::PendingBatch BridgeApi::TakePendingBatch()
+	{
+		constexpr std::uint32_t frameBits =
+			kPendingPresentation | kPendingState | kPendingViewRegistrations;
+		const auto reasons = _pending.fetch_and(~frameBits, std::memory_order_acq_rel);
+		PendingBatch batch;
+		if ((reasons & frameBits) == 0) return batch;
+
+		// Clear before locking. A producer racing after the atomic operation remains
+		// marked for the next tick even if its item joins this batch.
+		std::lock_guard lock(_mutex);
+		batch.presentation.swap(_pendingViewPresentationRequests);
+		batch.state.swap(_pendingStateOps);
+		batch.viewRegistrations.swap(_pendingViewRegs);
+		return batch;
 	}
 
 	void BridgeApi::RespondThunk(std::uint64_t token, const char* type, const char* json) noexcept { Get().RespondRequest(token, type, json); }
@@ -475,6 +519,7 @@ namespace OSFUI::API
 		if (it == _inflightRequests.end()) { REX::WARN("BridgeApi: ignored late response for stale token {}", token); return; }
 		if (it->second.answered) { REX::WARN("BridgeApi: ignored second response for request '{}'", it->second.name); return; }
 		it->second.answered = true;
+		MarkPending(kPendingPump);
 		if (!parsed) {
 			it->second.rejected = true; it->second.code = "invalid-response"; it->second.message = "plugin returned invalid JSON"; return;
 		}
@@ -491,6 +536,7 @@ namespace OSFUI::API
 		it->second.answered = true; it->second.rejected = true;
 		it->second.code = (code && code[0]) ? code : "plugin-error";
 		it->second.message = message ? message : "";
+		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::DropInflightRequest(std::uint64_t a_token) noexcept
@@ -537,10 +583,17 @@ namespace OSFUI::API
 		std::lock_guard lock(_mutex);
 		_bridge = a_bridge;  // a change (incl. null<->ptr) is detected in Pump and forces a re-apply
 		if (!a_bridge) _inflightRequests.clear();
+		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::PumpMainThread()
 	{
+		const auto reasons = _pending.fetch_and(~kPendingPump, std::memory_order_acq_rel);
+		if ((reasons & kPendingPump) == 0) {
+			_subscriptions.Pump(_mirror);
+			_hotkeys.Pump();
+			return;
+		}
 		MessageBridge* bridge = nullptr;
 		std::vector<std::string> commandRemovals, sendRemovals, requestRemovals;
 		std::vector<std::pair<std::string, Registration>> commands;
