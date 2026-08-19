@@ -771,9 +771,20 @@ namespace OSFUI
 			_presentation.CloseActiveMenu();
 		}
 
-		for (const auto& layer : _presentation.DesiredLayers()) {
-			_renderer->SetViewHidden(layer.id, layer.hidden);
+		const auto layers = _presentation.DesiredLayers();
+		for (const auto& layer : layers) {
 			_renderer->SetViewOrder(layer.id, layer.z);
+		}
+		// A menu switch is intentionally show-before-hide. The browser host keeps the outgoing visual until the incoming view passes its paint handshake;
+		for (const auto& layer : layers) {
+			if (!layer.hidden) {
+				_renderer->SetViewHidden(layer.id, false);
+			}
+		}
+		for (const auto& layer : layers) {
+			if (layer.hidden) {
+				_renderer->SetViewHidden(layer.id, true);
+			}
 		}
 
 		const auto active = _presentation.ActiveMenu();
