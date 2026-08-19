@@ -265,36 +265,15 @@ int main()
 
 	const auto postDataIntegration = FunctionBody(runtimeSource,
 		"void Runtime::InitializePostDataLoadIntegration()");
-	Check(ContainsInOrder(postDataIntegration, {
-		"_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled",
-		"if (!_captureIntegrationAvailable)",
-		"return",
-		"StartBuiltInMenuPrewarm()" }),
-		"built-in menu prewarm must begin only after required input integration succeeds");
-	const auto startMenuPrewarm = FunctionBody(runtimeSource,
-		"void Runtime::StartBuiltInMenuPrewarm()");
-	Check(ContainsInOrder(startMenuPrewarm, {
-		"_builtInMenuPrewarmStarted = true",
-		"_views.Find(Ids::kSettingsViewId)",
-		"InstantiateView(*settings, \"for built-in menu prewarm\")",
-		"ApplyViewPresentationPolicy()",
-		"m_viewLoads.GetState(Ids::kSettingsViewId) == ViewLoadState::Finished",
-		"PrewarmBuiltInKeybindings()" }),
-		"prewarm must instantiate Mod Settings first and stage keybindings behind its load");
-	const auto prewarmKeybindings = FunctionBody(runtimeSource,
-		"void Runtime::PrewarmBuiltInKeybindings()");
-	Check(prewarmKeybindings.find("Ids::kKeybindingsViewId") != std::string::npos &&
-		ContainsInOrder(prewarmKeybindings, {
-			"InstantiateView(*keybindings, \"after Mod Settings prewarm\")",
-			"ApplyViewPresentationPolicy()" }),
-		"the second prewarm stage must be limited to the built-in keybindings page");
+	Check(postDataIntegration.find("Prewarm") == std::string::npos &&
+		runtimeSource.find("BuiltInMenuPrewarm") == std::string::npos &&
+		runtimeSource.find("PrewarmBuiltInKeybindings") == std::string::npos &&
+		runtimeHeader.find("BuiltInMenuPrewarm") == std::string::npos &&
+		runtimeHeader.find("PrewarmBuiltInKeybindings") == std::string::npos,
+		"built-in settings and keybindings pages must remain unloaded until requested");
 	const auto successfulViewLoad = FunctionBody(runtimeSource, "void Runtime::OnViewLoad(");
-	Check(ContainsInOrder(successfulViewLoad, {
-		"if (!a_failed)",
-		"a_viewId == Ids::kSettingsViewId",
-		"PrewarmBuiltInKeybindings()",
-		"BroadcastViewsData()" }),
-		"successful Mod Settings load must trigger the staged keybindings prewarm");
+	Check(successfulViewLoad.find("Prewarm") == std::string::npos,
+		"loading one built-in menu must not preload another menu");
 
 	const auto hudEligible = FunctionBody(runtimeSource,
 		"bool Runtime::HudAutoStartEligible(const ViewManifest& a_manifest) const");

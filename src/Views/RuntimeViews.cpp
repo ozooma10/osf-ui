@@ -10,46 +10,6 @@
 
 namespace OSFUI
 {
-	void Runtime::StartBuiltInMenuPrewarm()
-	{
-		if (_builtInMenuPrewarmStarted) {
-			return;
-		}
-		_builtInMenuPrewarmStarted = true;
-
-		const auto* settings = _views.Find(Ids::kSettingsViewId);
-		if (!settings) {
-			REX::WARN("Runtime: built-in menu prewarm skipped because '{}' was not discovered", Ids::kSettingsViewId);
-			return;
-		}
-		if (!InstantiateView(*settings, "for built-in menu prewarm")) {
-			REX::WARN("Runtime: built-in menu prewarm could not instantiate '{}'", Ids::kSettingsViewId);
-			return;
-		}
-		ApplyViewPresentationPolicy();
-
-		// Normally OnViewLoad stages the second page. Cover an already-loaded settings document too, without starting both cold navigations at once.
-		if (m_viewLoads.GetState(Ids::kSettingsViewId) == ViewLoadState::Finished) {
-			PrewarmBuiltInKeybindings();
-		}
-	}
-
-	void Runtime::PrewarmBuiltInKeybindings()
-	{
-		if (!_builtInMenuPrewarmStarted || _presentation.IsInstantiated(Ids::kKeybindingsViewId)) {
-			return;
-		}
-
-		const auto* keybindings = _views.Find(Ids::kKeybindingsViewId);
-		if (!keybindings) {
-			REX::WARN("Runtime: staged built-in menu prewarm skipped because '{}' was not discovered", Ids::kKeybindingsViewId);
-			return;
-		}
-		if (InstantiateView(*keybindings, "after Mod Settings prewarm")) {
-			ApplyViewPresentationPolicy();
-		}
-	}
-
     bool Runtime::InstantiateView(const ViewManifest& a_manifest, std::string_view a_reason)
 	{
 		const auto& id = a_manifest.id;
@@ -108,9 +68,6 @@ namespace OSFUI
 				REX::INFO("Runtime: view '{}' finished loading ({})", a_viewId, a_url);
 			}
 			_runtimeHealth.ReportViewLoad(a_viewId, false, {}, 0, 0);
-			if (a_viewId == Ids::kSettingsViewId) {
-				PrewarmBuiltInKeybindings();
-			}
 			BroadcastViewsData();  // loadState loading -> loaded
 			return;
 		}
