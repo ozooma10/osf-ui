@@ -16,7 +16,7 @@ namespace OSFUI::Json
 {
 	using Value = nlohmann::json;
 
-	// dump() that doesnt throw
+	// Non-throwing JSON serialization.
 	[[nodiscard]] inline std::string Dump(const Value& a_value, int a_indent = -1)
 	{
 		return a_value.dump(a_indent, ' ', /*ensure_ascii=*/false, Value::error_handler_t::replace);
@@ -33,7 +33,7 @@ namespace OSFUI::Json
 	// Reads and parses a file. Returns std::nullopt on a missing file or bad JSON.
 	[[nodiscard]] std::optional<Value> ParseFile(const std::filesystem::path& a_path, std::string* a_outError = nullptr);
 
-	// One lenient typed read. A missing key, a non-object receiver, or a value  of the wrong type all yield a_default; nothing here throws or rejects.
+	// Returns a_default for missing or wrong-typed fields without throwing.
 	template <class T> requires std::is_arithmetic_v<std::decay_t<T>> || std::is_convertible_v<std::decay_t<T>, std::string_view>
 	[[nodiscard]] auto Get(const Value& a_obj, std::string_view a_key, T&& a_default)
 	{

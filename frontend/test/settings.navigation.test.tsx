@@ -1,12 +1,4 @@
 // @vitest-environment jsdom
-//
-// The pane's five detail modes in dispatch order, the section index threshold,
-// search-jump, and rail cycling.
-//
-// The registries arrive as replayed STATE (`osfui/settings`, `osfui/views`), so
-// every case here starts from a document that was already populated at its
-// first paint; `ui.gamepad` stays an EVENT, because a rail step is a happening,
-// not a value.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';

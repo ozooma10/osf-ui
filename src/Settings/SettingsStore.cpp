@@ -1182,7 +1182,7 @@ namespace OSFUI
 	bool SettingsStore::PersistNow(Mod& a_mod) const
 	{
 		if (!Persist(a_mod)) {
-			// Keep the pending write alive, but back off so a read-only or full filesystem does not turn every frame into another write attempt.
+			// Keep the write pending but back off after filesystem failures.
 			a_mod.dueAt = _now + kPersistDelaySeconds;
 			return false;
 		}

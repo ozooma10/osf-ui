@@ -1,24 +1,9 @@
 // @vitest-environment jsdom
-//
-// Outbound envelope shape: what the shipped helper (src/shared-kit/osfui.js,
-// bridge protocol 2.0) posts, and what src/Bridge/MessageBridge.cpp accepts.
-//
-// 2.0 moved routing metadata BESIDE the payload — `kind`, `name` and `id` are
-// envelope fields, so no payload key can steer routing any more (1.x carried
-// `payload.command`). The OSF UI runtime's envelope validator is mirrored at the bottom
-// of this file, executable rather than prose, and every envelope this helper
-// can produce is swept through it.
-//
-// jsdom is needed because the file drives the real helper (an IIFE decorating
-// `window.osfui`).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// Read from disk, not imported: osfui.js is a classic script. Resolved against
-// the vitest root (frontend/) because under jsdom `import.meta.url` is an http:
-// URL, not a file: one.
 const HELPER_SRC = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
 
 /** One web->native envelope. Loosely typed so a case can assert on any field. */
@@ -45,23 +30,9 @@ interface Helper {
   };
 }
 
-/**
- * Install a fake native bridge and evaluate the shipped helper over it.
- *
- * `new Function` rather than import: osfui.js is a classic script whose
- * `window` / `document` / `setTimeout` references must bind to jsdom's globals.
- * A fresh `window.osfui` per call resets the helper's private `seq` closure, so
- * request ids are deterministic per test.
- *
- * `sent[0]` is ALWAYS the `osfui.hello` greeting: the helper greets during its
- * own evaluation (see "the handshake is page-initiated" below), so a case that
- * inspects its own traffic indexes from 1.
- */
 function loadHelper(opts?: { bridge?: boolean }): { helper: Helper; raw: string[]; sent: Frame[] } {
   const raw: string[] = [];
   const sent: Frame[] = [];
-  // Omitting postMessage models a view without a native bridge (a plain
-  // browser): `available` is `typeof g.postMessage === "function"`.
   const stub: Record<string, unknown> =
     opts?.bridge === false
       ? {}
@@ -80,9 +51,6 @@ describe('the handshake is page-initiated — hello is the first thing on the wi
   it('greets the OSF UI runtime with osfui.hello as the helper loads, before any view code runs', () => {
     const { sent } = loadHelper();
 
-    // The one boot path for first open, F5, hot-reload and crash recovery. The
-    // OSF UI runtime answers `ready`, replays state, then opens this view's event gate
-    // (MessageBridge::HandleHello) — nothing here has to be re-requested later.
     expect(sent).toEqual([{ kind: 'send', name: 'osfui.hello', payload: {} }]);
   });
 
@@ -109,9 +77,6 @@ describe('send envelopes', () => {
 
     expect(helper.send('close')).toBe(true);
     expect(sent[1]).toEqual({ kind: 'send', name: 'close', payload: {} });
-    // An id on a send is a hard `invalid-request` at the OSF UI runtime: a caller that
-    // supplied one expects a settlement that is never coming, and answering it
-    // would resurrect the 1.x auto-ack.
     expect('id' in sent[1]!).toBe(false);
   });
 
@@ -123,8 +88,6 @@ describe('send envelopes', () => {
     helper.send('log', null as unknown as Record<string, unknown>);
     helper.send('log', 0 as unknown as Record<string, unknown>);
 
-    // `payload || {}`. The OSF UI runtime rejects a present-but-non-object payload, so
-    // the coercion is what keeps a sloppy call routable.
     for (const frame of sent.slice(1)) expect(frame.payload).toEqual({});
   });
 
@@ -133,8 +96,6 @@ describe('send envelopes', () => {
 
     helper.send('close', { kind: 'request', name: 'evil', id: 'q9', command: 'evil' });
 
-    // The 1.x wire put `command` inside the payload; 2.0's whole point is that
-    // it cannot be spoofed from there.
     expect(sent[1]).toEqual({
       kind: 'send',
       name: 'close',
@@ -147,9 +108,6 @@ describe('send envelopes', () => {
 
     helper.send(42 as unknown as string);
 
-    // `String(name)`: the OSF UI runtime reads `name` as a string and treats a non-string
-    // as an empty name, i.e. `invalid-request`. The coercion keeps a sloppy
-    // caller routable instead of silently unroutable.
     expect(sent[1]!.name).toBe('42');
   });
 
@@ -158,8 +116,6 @@ describe('send envelopes', () => {
 
     helper.papyrus.send('OnThing', 1, 'two', true);
 
-    // Sugar over a fixed endpoint, never a new wire shape: the Papyrus event
-    // name travels in the payload, so `name` stays a platform endpoint.
     expect(sent[1]).toEqual({
       kind: 'send',
       name: 'papyrus.send',
@@ -236,11 +192,6 @@ describe('request envelopes', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Mirror of MessageBridge::HandleWebMessage's envelope gates
-// (src/Bridge/MessageBridge.cpp). Only ENVELOPE validity: an unknown endpoint
-// name is a well-formed message that answers `unknown-endpoint`, not this.
-// ---------------------------------------------------------------------------
 
 const K_MAX_REQUEST_ID_LENGTH = 64;
 
@@ -253,8 +204,6 @@ function bridgeVerdict(msg: Record<string, unknown>): Verdict {
   const name = typeof msg.name === 'string' ? msg.name : '';
   if (name.length === 0) return 'invalid-request';
 
-  // A present-but-non-object payload is a client bug, not something to coerce
-  // (`it->is_object()`; an array is not an object to nlohmann either).
   if ('payload' in msg && msg.payload !== null) {
     if (typeof msg.payload !== 'object' || Array.isArray(msg.payload)) return 'invalid-request';
   }
@@ -273,9 +222,6 @@ describe('OSF UI runtime envelope validation — 2.0 REJECTS where 1.x silently 
   });
 
   it('rejects a 65-char id as invalid-request instead of ignoring the id', () => {
-    // 1.x treated an over-long id as ABSENT: the request was demoted to
-    // fire-and-forget and the caller hung to its client timeout. 2.0 answers an
-    // error the caller can settle on — a client bug that reports itself.
     expect(bridgeVerdict({ kind: 'request', name: 'ping', id: 'q'.repeat(65) })).toBe(
       'invalid-request',
     );
@@ -329,8 +275,6 @@ describe('OSF UI runtime envelope validation — 2.0 REJECTS where 1.x silently 
     const id = sent[1]!.id!;
 
     expect(id.length).toBeLessThanOrEqual(K_MAX_REQUEST_ID_LENGTH);
-    // "q" + counter stays short for any plausible session: a billion requests
-    // is 11 characters.
     expect(('q' + 1e9).length).toBeLessThan(K_MAX_REQUEST_ID_LENGTH);
   });
 });

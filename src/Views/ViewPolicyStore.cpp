@@ -18,8 +18,7 @@ namespace OSFUI
 		}
 		const auto json = Json::ParseFile(_path);
 		if (!json || !json->is_object()) {
-			// Same posture as corrupt settings values: quarantine, serve
-			// defaults, never guess at what the player meant.
+			// Quarantine corrupt policy and serve defaults.
 			auto quarantine = _path;
 			quarantine += ".bad";
 			std::filesystem::remove(quarantine, ec);

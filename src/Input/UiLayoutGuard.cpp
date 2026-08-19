@@ -7,9 +7,7 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Index of the BSInputEventReceiver vtable in RE::UI::VTABLE (AddressLib
-		// ID 475439), confirmed on game 1.16.244. VerifyUiLayout() hard-fails if
-		// this stops holding.
+		// BSInputEventReceiver is RE::UI::VTABLE[10] on 1.16.244 (AddressLib ID 475439).
 		constexpr std::size_t kReceiverVtblIndex = 10;
 	}
 
@@ -21,21 +19,7 @@ namespace OSFUI
 			return false;
 		}
 
-		// Cross-check compiled UI base offsets against the running binary before
-		// anything writes to or registers on the UI object: the live
-		// BSInputEventReceiver subobject's vptr must equal the vtable AddressLib
-		// reports. A stale CommonLibSF layout then fails here instead of
-		// corrupting UI state — that shipped against 1.16.244 with a pre-PR#26
-		// submodule and crashed on save load.
-		//
-		// The receiver's entry is VTABLE[kReceiverVtblIndex], not VTABLE[0] or [1];
-		// IDs_VTABLE.h array order does not follow base-declaration order. Derived
-		// 2026-06-12 by resolving all 11 versionlib-1-16-244 entries
-		// (tools/research/parse_versionlib.py) against the live vptr; the match is also the
-		// cluster's only 2-slot vtable (dtor + PerformInputProcessing), which is
-		// BSInputEventReceiver's shape. Both checks below stay hard requirements:
-		// a reordered array or a moved vtable refuses and dumps what re-derivation
-		// needs.
+		// Compare the live receiver subobject against AddressLib before any UI registration or write.
 		auto* receiver = static_cast<RE::BSInputEventReceiver*>(ui);
 		const auto liveVptr = *reinterpret_cast<const std::uintptr_t*>(receiver);
 		const REL::Relocation<std::uintptr_t> vtbl{ RE::UI::VTABLE[kReceiverVtblIndex] };

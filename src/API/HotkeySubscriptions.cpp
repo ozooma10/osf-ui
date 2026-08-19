@@ -33,9 +33,7 @@ namespace OSFUI::API
 
 	void HotkeySubscriptions::OnFired(std::string_view a_modId, std::string_view a_key)
 	{
-		// Drop early when nobody listens, else queue entries accumulate:
-		// dispatch fires for every key-typed setting and most have no native
-		// consumer.
+		// Queue only fires with a current subscriber.
 		std::lock_guard lock(_mutex);
 		const bool anySubscriber = std::any_of(_subs.begin(), _subs.end(),
 			[&](const auto& a_entry) {
@@ -58,9 +56,7 @@ namespace OSFUI::API
 			std::string   key;
 		};
 
-		// Resolve queued fires against the subscriber set under one lock, then
-		// invoke unlocked with a per-call liveness re-check (same discipline as
-		// SettingsSubscriptions::Pump).
+		// Resolve under the lock, then invoke unlocked with a liveness recheck.
 		std::vector<Call> calls;
 		{
 			std::lock_guard lock(_mutex);

@@ -8,12 +8,9 @@ export default defineConfig({
     alias: aliases,
   },
   test: {
-    // Node by default; component tests opt into jsdom with a per-file
     // `// @vitest-environment jsdom` pragma. Keeps the pure-logic suite fast.
     environment: 'node',
     include: ['test/**/*.test.{ts,tsx}'],
-    // Build-output gates read build/frontend/views, which `npm run build` must have
-    // produced first. `npm run verify` sequences them correctly.
     testTimeout: 15000,
   },
 });

@@ -1,10 +1,3 @@
-// Native desktop tests for the HotkeyService core: the
-// REAL src/Bindings/HotkeyService.cpp + SettingsStore + KeyNames,
-// wired exactly like Runtime::BuildModules — registry rebuild on rebind and
-// registry shape change, suppression while the overlay captures / a rebind is
-// armed, duplicate-binding fan-out, and the informational conflict data
-// embedded in SettingsStore::Data(). Assert-style; process exit code is the
-// failure count.
 
 #include "Bindings/HotkeyService.h"
 #include "Settings/SettingsStore.h"
@@ -33,12 +26,8 @@ namespace
 		return fired;
 	}
 
-	// The emitted schema object for one setting of one mod in a Data()
-	// document, or nullptr.
 	const nlohmann::json* FindEmittedSetting(const nlohmann::json& a_data, std::string_view a_mod, std::string_view a_key)
 	{
-		// Iterate by reference into a_data (json::value() would return
-		// temporaries and the returned pointer must outlive this call).
 		for (const auto& mod : a_data.at("mods")) {
 			if (mod.value("id", "") != a_mod) {
 				continue;
@@ -77,8 +66,6 @@ namespace
 	}
 }
 
-// Core/Log.h declarations (real impl pulls game deps — stub, as in the other
-// suites).
 namespace OSFUI::Log
 {
 	static bool g_debugEnabled = true;
@@ -104,8 +91,6 @@ int main()
 	const auto schemaDir = root / "settings";
 	const auto valuesDir = root / "values";
 
-	// alpha.toggleHud and beta.openMenu share F6 by default (the informational
-	// conflict case); alpha.screenshot is unique on F7.
 	WriteFile(schemaDir / "t.alpha.json", R"json({
 		"id": "t.alpha", "title": "Alpha Mod",
 		"groups": [ { "label": "Keys", "settings": [
@@ -125,8 +110,6 @@ int main()
 	bool suppressed = false;
 	svc.SetSuppression([&] { return suppressed; });
 
-	// Exactly the Runtime::BuildModules wiring: rebuild on any key-typed
-	// commit and on registry shape change; conflicts share ResolveKeyName.
 	store.SetKeyNameResolver(ResolveKeyName);
 	store.AddChangeListener([&](std::string_view a_mod, std::string_view a_key, const nlohmann::json&) {
 		if (store.GetSettingType(a_mod, a_key) == "key") {
@@ -231,9 +214,6 @@ int main()
 
 	// --- conflict data in Data(): informational, both sides, alias-aware ---------
 	{
-		// Fresh store so this section owns its bindings. delta.grave uses the
-		// "Tilde" alias of epsilon.console's "Grave" — same VK, so the
-		// grouping must resolve names, not compare strings.
 		const auto root2 = root / "conflicts";
 		const auto schemaDir2 = root2 / "settings";
 		WriteFile(schemaDir2 / "t.delta.json", R"json({
@@ -268,10 +248,6 @@ int main()
 		// Unique binding: no conflicts field at all.
 		CHECK(!FindEmittedSetting(data, "t.delta", "unique")->contains("conflicts"));
 
-		// --- ConflictsFor(): the live-warn half (capture-time lookup) --------
-		// Same store state; the runtime calls this with the just-captured VK
-		// BEFORE the view commits, so the setting being rebound still holds
-		// its OLD value — hence the explicit self-exclusion.
 		const auto names = [](const nlohmann::json& a_conflicts) {
 			std::vector<std::string> out;
 			for (const auto& c : a_conflicts) {
@@ -282,8 +258,6 @@ int main()
 		};
 		// Rebinding delta.unique onto F6 would collide with both holders.
 		CHECK(names(s2.ConflictsFor(vkF6, "t.delta", "unique")) == (std::vector<std::string>{ "t.delta.boundA", "t.delta.boundB" }));
-		// Re-capturing F6 for a setting already on F6: self is excluded even
-		// though its stored value still resolves to the same VK.
 		CHECK(names(s2.ConflictsFor(vkF6, "t.delta", "boundA")) == std::vector<std::string>{ "t.delta.boundB" });
 		// Alias-aware (Tilde vs Grave = one VK), and titles come through.
 		{
@@ -297,22 +271,14 @@ int main()
 		// vk 0 (unresolvable capture) never conflicts.
 		CHECK(s2.ConflictsFor(0, "t.delta", "unique").empty());
 
-		// A rebind away clears both sides on the next Data() — i.e. the
-		// annotation lives on the emitted COPY; the stored schema is never
-		// mutated.
 		CHECK(s2.Set("t.delta", "boundB", "\"F10\""));
 		data = s2.Data();
 		CHECK(!FindEmittedSetting(data, "t.delta", "boundA")->contains("conflicts"));
 		CHECK(!FindEmittedSetting(data, "t.delta", "boundB")->contains("conflicts"));
 
-		// With the remaining collision (grave/console) also rebound away, no
-		// conflict data survives anywhere in the document.
 		CHECK(s2.Set("t.delta", "grave", "\"F11\""));
 		CHECK(s2.DataJson().find("\"conflicts\"") == std::string::npos);
 
-		// Without a resolver, Data() emits no conflict data and ConflictsFor
-		// finds none (store defensive default; the composition root always
-		// wires one).
 		SettingsStore s3;
 		s3.LoadAll(schemaDir2, root2 / "values3");
 		CHECK(s3.DataJson().find("\"conflicts\"") == std::string::npos);
@@ -380,8 +346,6 @@ int main()
 		const auto legacyScope = s5.ScopeForHotkey("t.zeta", "save");
 		CHECK(!legacyScope.scoped && legacyScope.modes == OSFUI::kAllGameplayModes);
 
-		// The first valid duplicate context wins: scene omits @game.Jump but
-		// still reports the other mod on Space.
 		CHECK(ConflictsOf(FindEmittedSetting(data, "t.zeta", "scene")) ==
 			std::vector<std::string>{ "t.eta.globalSpace" });
 		CHECK(ConflictsOf(FindEmittedSetting(data, "t.eta", "globalSpace")) ==
@@ -395,8 +359,6 @@ int main()
 			{ "conflicts", s5.ConflictsFor(ResolveKeyName("F9"), "t.zeta", "unknown") } };
 		CHECK(ConflictsOf(&fallbackCapture) == std::vector<std::string>{ "@game.QuickLoad" });
 
-		// The player-facing warning toggle hides only game conflicts. The live
-		// internal game catalog and mod-to-mod diagnosis stay intact.
 		CHECK(s5.SetGameBindingWarningsEnabled(false));
 		const auto warningsOff = s5.Data();
 		CHECK(!warningsOff.contains("vanillaKeys"));
@@ -453,20 +415,6 @@ int main()
 		CHECK(!s7.ScopeForHotkey("t.iota", "bad").scoped);
 	}
 
-	// ---- key-name round trip -------------------------------------------------
-	// KeyName (scan -> name) and ResolveKeyName (name -> scan) read the SAME
-	// kNamedScans table, so they cannot drift the way two hand-written tables
-	// could. What still needs guarding is the property that replaced that risk:
-	// KeyName returns the FIRST row matching a code, so the canonical spelling
-	// is whichever row comes first. Moving an alias ahead of its canonical row
-	// (e.g. { "Return", 0x1C } before { "Enter", 0x1C }) would silently change
-	// the name written into the values JSON on a rebind capture — which
-	// ResolveKeyName must still turn back into the same code on the next load.
-	// The list below therefore holds the canonical spelling of every code that
-	// has an alias, plus the families that used to be arithmetic branches
-	// (letters, digits, F-keys) and the once-missing keys (OEM punctuation was
-	// unbindable pre-1.1; numpad/IntlBackslash/PrintScreen pre-2.x). The
-	// exhaustive whole-table sweep lives in scan_code_tests.
 	{
 		using OSFUI::KeyName;
 		for (const char* name : { "Minus", "Equals", "LBracket", "RBracket",
@@ -475,8 +423,6 @@ int main()
 				 "IntlBackslash", "NumpadEnter", "Numpad0", "PrintScreen" }) {
 			const auto scan = ResolveKeyName(name);
 			CHECK(scan != OSFUI::kInvalidScanCode);
-			// Canonical spelling round-trips exactly — this is the property a
-			// saved binding depends on.
 			CHECK(KeyName(scan) == std::string(name));
 		}
 		// Aliases resolve to the same code but fold to the canonical spelling.

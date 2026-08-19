@@ -1,7 +1,3 @@
-// Source-linked characterization of the mature runtime's cross-component view
-// lifecycle. This deliberately does not execute Starfield, WebView2, or D3D12;
-// it makes the proven ordering and fail-closed seams explicit so later edits
-// cannot silently remove them without updating a focused test.
 
 #include <fstream>
 #include <initializer_list>

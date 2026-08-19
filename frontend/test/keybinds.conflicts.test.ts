@@ -113,10 +113,6 @@ describe('keyState', () => {
   });
 
   it('returns BOTH flags true when a key has a shared pair and a conflicting pair', () => {
-    // {blocking mod, plain mod, game} = 3 pairs:
-    //   blocking x plain -> conflict (mod vs mod)
-    //   blocking x game  -> shared
-    //   plain    x game  -> conflict
     const rows = [
       modRow('F5', { owner: 'blocker', blocks: true }),
       modRow('F5', { owner: 'plain' }),
@@ -138,15 +134,11 @@ describe('holderState', () => {
   });
 
   it('excludes self BY IDENTITY, not by value', () => {
-    // Two structurally identical rows (a mod registering the same binding
-    // twice, or a duplicated game action entry) do conflict with each other.
     const a = modRow('F5');
     const clone = modRow('F5');
     expect(a).toEqual(clone); // same value...
     expect(holderState([a, clone], a)).toEqual({ conflict: true, shared: false });
 
-    // ...and a row that is not in the array compares against its twin, so it
-    // self-reports a conflict. Callers must pass a row from the same array.
     const outsider = modRow('F5');
     expect(holderState([a], outsider)).toEqual({ conflict: true, shared: false });
   });

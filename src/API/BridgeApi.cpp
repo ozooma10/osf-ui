@@ -200,9 +200,7 @@ namespace OSFUI::API
 			REX::WARN("BridgeApi: [content] refused SetViewState — key longer than 128 characters");
 			return false;
 		}
-		// Validate and parse OUTSIDE the mutex (this is callable from any
-		// thread), then take it only to queue. Any JSON VALUE is legal, not just
-		// an object: a state key may perfectly well be a number or an array.
+		// Parse any JSON value before locking because SetViewState is callable from any thread.
 		auto parsed = Json::Parse(a_payloadJson);
 		if (!parsed) {
 			REX::WARN("BridgeApi: [content] refused SetViewState('{}.{}') — payload is not valid JSON", a_modId, key);
@@ -253,8 +251,7 @@ namespace OSFUI::API
 		}
 		_readyCb = a_callback;
 		_readyUser = a_user;
-		// If the bridge is already available, re-arm so Pump fires the new callback on
-		// the next (main-thread) tick rather than dropping it.
+		// Re-arm an available bridge so Pump invokes the replacement on the main thread.
 		if (_bridgeAvailable.load()) {
 			_readyFired = false;
 		}
@@ -267,9 +264,7 @@ namespace OSFUI::API
 		}
 		const std::string requested(a_viewId);
 		std::lock_guard lock(_mutex);
-		// Truthful queue-time contract: opens accept anything discovered at boot
-		// (Runtime will instantiate it on demand); closes accept only an instantiated view and
-		// never cause an uninstantiated view to be created.
+		// Opens accept discovered views; closes accept only instantiated views.
 		const auto* id = FindIdCaseInsensitive(a_open ? _knownViews : _instantiatedViews, requested);
 		if (!id) {
 			return false;
@@ -365,17 +360,13 @@ namespace OSFUI::API
 		if (!a_viewId || !a_viewId[0]) {
 			return false;
 		}
-		// Synchronous shape gate: view ids are qualified "<modId>/<view>". A structurally invalid
-		// id can never match a discovered manifest, so refuse it here where the
-		// caller sees the false.
+		// Reject malformed qualified view ids synchronously.
 		if (!Ids::IsValidQualifiedViewId(a_viewId) || !Ids::IsValidModId(Ids::ModOf(a_viewId))) {
 			REX::WARN("BridgeApi: [content] refused RegisterView('{}') — view ids are qualified '<modId>/<view>'",
 				std::string_view(a_viewId).substr(0, 128));
 			return false;
 		}
-		// Runtime drains this on the main tick (DrainViewRegistrations), where the
-		// manifest lookup happens and openOnStart is applied; a not-found id warns
-		// there, not here.
+		// Runtime resolves queued registrations against manifests on the main tick.
 		std::lock_guard lock(_mutex);
 		_pendingViewRegs.emplace_back(a_viewId);
 		return true;
@@ -512,9 +503,6 @@ namespace OSFUI::API
 		const nlohmann::json& payload, MessageBridge& bridge)
 	{
 		const std::string view(bridge.CurrentSource());
-		// A request always carries an id in 2.0 — the bridge rejects one that
-		// does not before dispatch ever happens — so there is no
-		// "request-id-required" case left to answer.
 		Request request;
 		const std::string payloadJson = Json::Dump(payload);
 		std::uint64_t token = 0;
@@ -531,9 +519,7 @@ namespace OSFUI::API
 		const std::string deferToken = bridge.Defer([this, token] { DropInflightRequest(token); });
 		{
 			std::lock_guard lock(_mutex);
-			// The payload is the caller's own object, verbatim: routing metadata
-			// lives beside it on the envelope now, so there is no `command` field
-			// to strip out of it first.
+			// Forward the payload verbatim; routing metadata belongs to the envelope.
 			InflightRequest inflight;
 			inflight.token = token;
 			inflight.view = view;
@@ -582,9 +568,7 @@ namespace OSFUI::API
 					for (const auto& pair : _requests) requests.push_back(pair);
 					_appliedBridge = bridge; _dirty = false;
 				}
-				// Retain known discovered-but-uninstantiated targets until Runtime marks their view instance
-				// instantiated. Unknown ids keep the historical drop behavior once discovery
-				// has supplied an authoritative catalog.
+				// Retain known targets until instantiated, but drop ids absent from the final catalog.
 				for (auto it = _pendingSends.begin(); it != _pendingSends.end();) {
 					if (_instantiatedViews.contains(it->view)) {
 						sends.push_back(std::move(*it));
@@ -633,19 +617,12 @@ namespace OSFUI::API
 				const std::string src(b.CurrentSource()); reg.fn(name.c_str(), dump.c_str(), src.c_str(), reg.user);
 			});
 			for (const auto& [name, reg] : requests) bridge->RegisterRequest(name, [this, name, reg](const nlohmann::json& payload, MessageBridge& b) { DispatchRequest(name, reg, payload, b); });
-			// A plugin push is an EVENT: unsolicited, one-shot, never replayed.
-			// Mod-backend-owned data that changes over time belongs in SetViewState.
+			// Plugin pushes are one-shot events; retained data belongs in SetViewState.
 			for (const auto& send : sends) bridge->EmitJson(send.view, send.type, send.payloadJson);
 			for (const auto& reply : replies) {
 				if (reply.rejected) {
 					REX::WARN("BridgeApi: request '{}' from view '{}' -> {}", reply.name, reply.view, reply.code);
-					// No ReportProtocolFault(): a plugin answering `Reject` is the endpoint
-					// working as designed, and the code it chose is its own. The
-					// page already gets the typed error from RejectTo, and the
-					// helper prints it to the view's console — routing it through
-					// the misuse sink as well made ordinary application errors
-					// accumulate toward a `view.protocol-misuse` issue blaming a
-					// view that did nothing wrong.
+					// Plugin rejections are application errors, not protocol faults.
 					bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
 					if (reply.legacyReply) {
@@ -665,9 +642,7 @@ namespace OSFUI::API
 		_bridgeAvailable.store(bridge != nullptr);
 		bool invokeReady = false;
 		if (fireReady && readyCb) {
-			// Close the snapshot-to-call race under the same mutex used by
-			// SetReadyCallback. A replacement is deferred to the next pump;
-			// once armed here, an off-thread replacement waits for completion.
+			// Arm under _mutex so SetReadyCallback cannot race this invocation.
 			std::lock_guard lock(_mutex);
 			if (_readyCb == readyCb && _readyUser == readyUser) {
 				_readyInvoking = true;

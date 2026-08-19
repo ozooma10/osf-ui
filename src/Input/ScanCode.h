@@ -4,22 +4,7 @@
 
 namespace OSFUI
 {
-	// Builds the canonical ScanCode from the fields a keyboard message carries:
-	// the raw make code (lParam bits 16-23) and the extended flag (bit 24),
-	// folded into the DirectInput convention (0x80 | base for extended keys).
-	//
-	// Three keys need the VK because their raw fields collide or lie:
-	//  * Pause is the E1-prefixed sequence E1 1D 45; messages report raw 0x45
-	//    with the extended bit CLEAR — indistinguishable from NumLock by scan
-	//    fields alone. DIK_PAUSE is 0xC5.
-	//  * NumLock reports raw 0x45 too (some paths set the extended bit even
-	//    though the wire code has no E0 prefix). DIK_NUMLOCK is 0x45.
-	//  * PrintScreen (VK_SNAPSHOT) reports E0 37 but only ever surfaces as a
-	//    key-up; normalize to DIK_SYSRQ 0xB7 regardless of message fields.
-	//
-	// Returns kInvalidScanCode when the message carried no scan code at all
-	// (SendInput-synthesized input); the caller falls back to
-	// Platform::VkToDirectInputScan.
+	// Normalize WM key data to DIK, special-casing Pause, NumLock, and PrintScreen; zero scan uses the VK fallback.
 	[[nodiscard]] constexpr ScanCode ComposeScanCode(std::uint32_t a_vk,
 		std::uint8_t a_rawScan, bool a_extended) noexcept
 	{

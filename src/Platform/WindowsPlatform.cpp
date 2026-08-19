@@ -1,8 +1,6 @@
 #include "Platform/WindowsPlatform.h"
 
-// Keep <Windows.h> confined to this TU. NOGDI stops wingdi.h's ERROR macro from
-// clobbering REX::ERROR; this file uses no REX logging, so it has no init-order
-// requirements.
+// Keep <Windows.h> here with NOGDI to avoid wingdi's ERROR macro.
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #define NOMINMAX
@@ -39,9 +37,7 @@ namespace OSFUI::Platform
 			}
 			BYTE    state[256]{};  // no modifiers, no CapsLock: the base keycap
 			wchar_t buf[8]{};
-			// Flag 0x4 (Win10 1607+, unconditionally available at our floor):
-			// do not change keyboard state — probing a dead key ("^", "´")
-			// must not poison the player's next composed character.
+			// ToUnicodeEx flag 0x4 prevents dead-key probes from changing keyboard state.
 			int produced = ::ToUnicodeEx(vk, a_scan & 0x7Fu, state, buf, 8, 0x4, hkl);
 			if (produced == -1) {
 				produced = 1;  // dead key: buf[0] holds the spacing accent
@@ -50,23 +46,18 @@ namespace OSFUI::Platform
 				return {};
 			}
 			std::wstring glyph(buf, buf + produced);
-			// Control characters and whitespace are not keycaps (Tab, Enter
-			// and friends label through the fixed table instead).
+			// Label control and whitespace keys through the fixed table.
 			if (glyph.size() == 1 && (glyph[0] < 0x20 || glyph[0] == 0x7F || glyph[0] == L' ')) {
 				return {};
 			}
-			// Keycap form: uppercase a single alphabetic glyph ('ö' -> 'Ö';
-			// CharUpperBuffW maps 'ß' to itself, which matches German keycaps).
+			// Uppercase single alphabetic glyphs to keycap form.
 			if (glyph.size() == 1) {
 				::CharUpperBuffW(glyph.data(), 1);
 			}
 			return ToUtf8(glyph);
 		};
 		source.layoutName = [](ScanCode a_scan) -> std::string {
-			// GetKeyNameTextW takes the lParam format: scan in bits 16-23,
-			// extended in bit 24. Bit 25 ("don't care") stays clear so sided
-			// modifiers keep distinct names. Uses the CALLING thread's layout
-			// (no HKL parameter) — acceptable for a last-resort fallback.
+			// Keep lParam bit 25 clear so GetKeyNameTextW preserves sided modifiers.
 			const LONG lparam = static_cast<LONG>(((a_scan & 0x7Fu) << 16) |
 			                                      ((a_scan & 0x80u) ? (1u << 24) : 0u));
 			wchar_t buf[64]{};
@@ -87,10 +78,7 @@ namespace OSFUI::Platform
 
 	std::uint32_t VkToDirectInputScan(std::uint32_t a_vk)
 	{
-		// Same three quirk keys ScanCode.h normalizes: Pause's EX mapping is an
-		// 0xE1 composite whose base byte collides with RCtrl's, NumLock shares
-		// Pause's raw make code, and PrintScreen is delivery-quirky — pin all
-		// three to their DIK values instead of trusting the API's composite.
+		// Pin Pause, NumLock, and PrintScreen to DIK values rather than ambiguous API composites.
 		switch (a_vk) {
 		case VK_PAUSE:
 			return 0xC5;
@@ -102,9 +90,7 @@ namespace OSFUI::Platform
 			break;
 		}
 
-		// VK_TO_VSC_EX returns 0xE0xx/0xE1xx composites for extended keys (the
-		// 0xE0 prefix byte in the high byte); DIK codes are set-1 make codes
-		// with 0x80 marking extended keys instead.
+		// Convert VK_TO_VSC_EX prefixes to DIK's 0x80 extended-key convention.
 		const UINT composite = ::MapVirtualKeyW(a_vk, MAPVK_VK_TO_VSC_EX);
 		if (composite == 0) {
 			return 0;
@@ -123,8 +109,7 @@ namespace OSFUI::Platform
 			return {};
 		}
 		HMODULE module = nullptr;
-		// UNCHANGED_REFCOUNT: look the module up without taking a reference, so
-		// this can never keep a plugin loaded in the process.
+		// UNCHANGED_REFCOUNT prevents diagnostics from retaining a plugin module.
 		if (!::GetModuleHandleExW(
 				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
 				reinterpret_cast<LPCWSTR>(a_address),

@@ -1,15 +1,6 @@
 #pragma once
 
-// Native-desktop-test replacement for src/pch.h: the std umbrella plus a minimal REX
-// logging stub, so runtime-layer sources that don't touch the game (e.g.
-// SettingsStore) compile and run on any desktop toolchain. Never used by the
-// real plugin build — xmake force-includes src/pch.h there.
 
-// The suites also compile on Windows (local MSVC loop; CI is clang/Linux).
-// sdk/OSFUI_API.h's non-REX fallback includes <Windows.h> there — keep
-// wingdi's ERROR macro (and min/max) from clobbering REX::ERROR / std::min
-// in the sources under test. This stub pch is force-included first, so the
-// defines land before any transitive <Windows.h>.
 #ifdef _WIN32
 #	ifndef WIN32_LEAN_AND_MEAN
 #		define WIN32_LEAN_AND_MEAN
@@ -46,8 +37,6 @@ namespace REX
 {
 	namespace test
 	{
-		// Everything logged, in order, as "LEVEL: message" — tests assert on
-		// warnings (e.g. duplicate-id handling) through this.
 		inline std::vector<std::string>& Entries()
 		{
 			static std::vector<std::string> entries;

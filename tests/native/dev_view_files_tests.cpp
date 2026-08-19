@@ -52,15 +52,10 @@ int main()
 	fs::last_write_time(first / "a.js", fixedTime + std::chrono::seconds(1));
 	assert(OSFUI::DevViewFiles::Fingerprint(first) != beforeManifest);
 
-	// A qualified view id resolves to its mod folder; an unqualified one is
-	// already the folder.
 	assert(OSFUI::DevViewFiles::ModFolder("acme.widgets/panel") == "acme.widgets");
 	assert(OSFUI::DevViewFiles::ModFolder("osfui/settings/nested") == "osfui");
 	assert(OSFUI::DevViewFiles::ModFolder("acme.widgets") == "acme.widgets");
 
-	// Mod scope: every view's manifest is one level down and must stay
-	// restart-only, but a bundle under the mod-level assets/ sibling is exactly
-	// what a reload has to notice — the entry HTML reaches it via "../assets/".
 	const auto mod = root / "acme.widgets";
 	Write(mod / "panel" / "index.html", "<script src=\"../assets/index-aaa.js\">");
 	Write(mod / "assets" / "index-aaa.js", "old");

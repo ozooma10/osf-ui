@@ -9,9 +9,7 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Main thread only (driven from Runtime::Tick). Mirrors our own
-		// contribution to UI::pauseRequestCount, which must stay strictly
-		// balanced — a leaked increment pauses the game forever.
+		// Main-thread only; keep this owner's pause-counter contribution balanced.
 		bool g_engaged{ false };
 
 		// Name the engine's pause-counter bookkeeping records for us.
@@ -30,9 +28,7 @@ namespace OSFUI
 		}
 		auto* ui = RE::UI::GetSingleton();
 		if (!ui) {
-			// Too early (boot); retry next tick, warning once so it isn't silent.
-			// A release edge cannot strand a count: an increment can only come
-			// through this path, which needed the singleton.
+			// Retry at boot; no count can be stranded before the singleton exists.
 			static bool warned = false;
 			if (a_desired && !warned) {
 				warned = true;

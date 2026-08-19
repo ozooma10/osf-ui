@@ -16,15 +16,7 @@ namespace OSFUI
 			ScanCode         code;
 		};
 
-		// The one source of truth for both directions. The first spelling per
-		// code is canonical; later rows are aliases accepted from hand-edited
-		// configs and W3C KeyboardEvent.code values.
-		//
-		// Codes are set-1 make codes in the DirectInput convention (0x80 | base
-		// for 0xE0-prefixed extended keys), bit-identical to Starfield's
-		// controlmap DIK tokens. A name denotes a physical US-reference position;
-		// the keycap printed by the active layout is display data (KeyLabels).
-		// Every name stays <=16 chars (the authoring key-value constraint).
+		// First spelling is canonical; later <=16-character names are accepted aliases for the same DIK code.
 		constexpr NamedScan kNamedScans[] = {
 			{ "Escape", 0x01 },
 			{ "1", 0x02 }, { "2", 0x03 }, { "3", 0x04 }, { "4", 0x05 }, { "5", 0x06 },

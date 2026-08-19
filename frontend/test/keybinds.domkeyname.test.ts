@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { domKeyName } from '@lib/keybinds/domKeyName';
 
-// No `code`: exercises the legacy e.key fallback branch (environments without
-// KeyboardEvent.code). Browsers always set `code`, taking the physical branch
-// tested in the `e.code` describe below.
 const k = (key: string) => domKeyName({ key });
 const c = (code: string) => domKeyName({ key: 'irrelevant', code });
 
@@ -19,8 +16,6 @@ describe('domKeyName', () => {
 
   it('uppercases letters of EITHER case', () => {
     expect(k('a')).toBe('A');
-    // Unlike canonicalName, the /i flag sends an uppercase letter down this
-    // same branch.
     expect(k('A')).toBe('A');
     expect(k('z')).toBe('Z');
   });
@@ -52,8 +47,6 @@ describe('domKeyName', () => {
 
   it('returns "" for unmapped keys, which the capture path treats as cancel', () => {
     expect(k('Escape')).toBe('');
-    // Modifiers are drawn on the board but aren't resolvable from e.key: the
-    // DOM can't distinguish left from right here.
     expect(k('Shift')).toBe('');
     expect(k('Control')).toBe('');
     expect(k('Alt')).toBe('');
@@ -62,8 +55,6 @@ describe('domKeyName', () => {
   });
 
   it('names the OEM punctuation keys, which used to be unbindable', () => {
-    // KeyNames.cpp resolves these natively, so the board treats them
-    // as ordinary bindable cells and this path must agree.
     expect(k('-')).toBe('Minus');
     expect(k('=')).toBe('Equals');
     expect(k('[')).toBe('LBracket');
@@ -79,8 +70,6 @@ describe('domKeyName', () => {
 
 describe('domKeyName over e.code (physical, layout-independent)', () => {
   it('wins over e.key whenever code is present', () => {
-    // German layout: the physical US-semicolon key produces "ö", but its code
-    // is still "Semicolon" — and that, not the character, is the binding.
     expect(domKeyName({ key: 'ö', code: 'Semicolon' })).toBe('Semicolon');
     expect(domKeyName({ key: 'z', code: 'KeyY' })).toBe('Y');
   });

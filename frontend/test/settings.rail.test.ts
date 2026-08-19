@@ -91,8 +91,6 @@ describe('railNodes — paint order', () => {
       'home',
       FRAMEWORK_ID,
       'section',
-      // localeCompare sensitivity "base": "alpha works" sorts before "Zeta
-      // Tools" despite the case difference.
       'acme.alpha',
       'acme.zeta',
     ]);

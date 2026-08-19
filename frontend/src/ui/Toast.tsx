@@ -1,11 +1,3 @@
-// Transient-notice stack. @lib/toast owns the state machine and timings; this
-// file owns the DOM and the timers. The fade and removal delays are independent
-// and both measured from insertion (see the header of src/lib/toast.ts), so
-// removal must not be chained off the fade — that would desynchronise it from
-// the CSS transition window.
-//
-// `aria-live="polite"` sits on the stack, not the entry, so the announcement
-// fires on insertion — the same reason legacy kept a permanent container node.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import {
@@ -25,19 +17,9 @@ export interface Toasts {
   push: (message: string, kind?: ToastKind) => void;
 }
 
-/**
- * Owns a toast list plus its timers.
- *
- * State is mirrored into a ref because `push` is called from bridge callbacks
- * holding an older render's closure; reading the ref keeps the id counter
- * monotonic across those. Timer ids are tracked so an unmount mid-flight cannot
- * fire a setState into a torn-down tree.
- */
 export function useToasts(): Toasts {
   const [state, setState] = useState<ToastState>(initialToastState);
   const stateRef = useRef<ToastState>(initialToastState);
-  // `ReturnType<typeof setTimeout>`, not `number`: @types/node is in the
-  // devDependency graph, so the ambient signature is Node's and returns Timeout.
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
@@ -53,9 +35,6 @@ export function useToasts(): Toasts {
   };
 
   const push = (message: string, kind?: ToastKind) => {
-    // `addToast` is overloaded on the absence of `kind`. An explicit undefined
-    // would also suppress the modifier class, but building the call
-    // conditionally keeps `exactOptionalPropertyTypes` honest.
     const result = kind === undefined
       ? addToast(stateRef.current, message)
       : addToast(stateRef.current, message, kind);

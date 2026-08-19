@@ -1,9 +1,3 @@
-// SearchBox.tsx — the kit's search field.
-//
-// The markup is fixed by osfui.css (`.osf-search` positions the icon and the
-// trailing <kbd> around the input), so nothing is configurable except the
-// strings and the input's extra class. The icon is inline SVG so the component
-// has no external asset dependency.
 
 import type { Ref } from 'preact';
 
@@ -13,10 +7,6 @@ export interface SearchBoxProps {
   value: string;
   onInput: (value: string) => void;
   placeholder: string;
-  /**
-   * Accessible name. Callers today point this and `placeholder` at the same
-   * catalog address, but they stay separate props so a view can diverge.
-   */
   ariaLabel: string;
   /** Printed in the trailing <kbd> chip, e.g. "Ctrl F". */
   kbd: string;

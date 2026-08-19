@@ -392,8 +392,7 @@ namespace OSFUI
 	{
 		if (!_initialized || !_available) return false;
 		if (a_localizationChanged) _translationCache.clear();
-		// This forced refresh reads the newest map too, so consume any queued dirty
-		// edges and avoid a redundant debounce rebuild on the following tick.
+		// Consume queued dirty edges after this forced read to avoid a redundant rebuild.
 		_seenRemapGeneration = g_remapGeneration.load(std::memory_order_acquire);
 		_pendingRemapEdges = 0;
 		_remapPending = false;

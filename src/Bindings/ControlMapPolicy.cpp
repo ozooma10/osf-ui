@@ -68,8 +68,7 @@ namespace OSFUI::ControlMapPolicy
 		const auto has = [&](std::uint8_t a_id) {
 			return std::ranges::find(a_activeEngineInputContexts, a_id) != a_activeEngineInputContexts.end();
 		};
-		// Proven semantic precedence: MainGameplay can remain active underneath
-		// each of these more specific modes.
+		// More specific modes outrank MainGameplay when both remain active.
 		if (has(0x49)) return GameplayMode::Vehicle;
 		if (std::ranges::any_of(a_activeEngineInputContexts, IsDefiniteShipEngineInputContext)) {
 			return GameplayMode::Ship;

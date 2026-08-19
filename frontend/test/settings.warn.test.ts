@@ -1,6 +1,3 @@
-// The schema-diagnostic channel's dedupe. Every caller sits in a render path,
-// so the property under test is "once per distinct message per page load", not
-// "once per call".
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { devWarn, resetDevWarnDedupe } from '../src/views/osfui/settings/warn';

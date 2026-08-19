@@ -5,23 +5,18 @@
 
 namespace OSFUI
 {
-	// Observes the game's menu open/close stream (RE::UI is a
-	// BSTEventSource<MenuOpenCloseEvent>; no hooking involved).
+	// Observe RE::UI's native MenuOpenCloseEvent source without hooking.
 	class MenuEventSink final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 	{
 	public:
-		// Registers on RE::UI::GetSingleton(); call on the first main-thread tick
-		// after kPostPostDataLoad. Returns false (and logs) if it doesn't. Events
-		// fired before registration are missed.
+		// Register on the first main-thread tick after kPostPostDataLoad.
 		static bool Install();
 
 		RE::BSEventNotifyControl ProcessEvent(
 			const RE::MenuOpenCloseEvent& a_event,
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
 
-		// Dev console open, tracked off its open/close edges. Feeds
-		// MenuMode::AnyGameMenuOpen — the console is kModal-clear, so the flag
-		// walk alone misses it. Any thread.
+		// Any-thread console edge used because its kModal-clear flag escapes the menu-mode walk.
 		[[nodiscard]] static bool ConsoleOpen();
 
 	private:

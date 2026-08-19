@@ -1,15 +1,5 @@
 #pragma once
 
-// Desktop-test stand-in for CommonLibSF's Papyrus glue: just enough of the
-// RE::BSScript surface for API/PapyrusApi.cpp to compile UNCHANGED and be
-// driven from tests/native/papyrus_action_tests.cpp. Two recording seams:
-//   - IVirtualMachine::BindNativeMethod stores each native by name (type-
-//     erased); the test fetches it back with its exact function-pointer type
-//     and calls it directly — the real marshaling layer is not reproduced.
-//   - Internal::VirtualMachine::DispatchStaticCall/DispatchMethodCall resolve
-//     the packed args and record the call instead of queueing onto a VM.
-// Never used by the real plugin build (the lib/commonlibsf include path wins
-// there; this directory is only on the tests' include path).
 
 #include <any>
 #include <cassert>
@@ -65,10 +55,6 @@ namespace RE
 		struct IStackCallbackFunctor
 		{};
 
-		// String assignment (scalar args) and a string[] via PackVariable (the
-		// args-list action shape) are modeled: the code under test packs
-		// BSFixedStrings and vectors through its args functor; the test reads them
-		// back out of recorded calls.
 		class Variable
 		{
 		public:
@@ -120,8 +106,6 @@ namespace RE
 			bool                     _isList{ false };
 		};
 
-		// Minimal stand-in for CommonLibSF's PackVariable array overload: store
-		// the string[] elements so the recording VM can flatten them back out.
 		inline void PackVariable(Variable& a_var, const std::vector<BSFixedString>& a_values)
 		{
 			std::vector<std::string> out;
@@ -150,8 +134,6 @@ namespace RE
 				natives[std::string(a_name)] = a_func;
 			}
 
-			// Test-side accessor: F must be the native's exact function-pointer
-			// type (any_cast is exact-match).
 			template <class F>
 			[[nodiscard]] F GetNative(std::string_view a_name) const
 			{
@@ -223,9 +205,6 @@ namespace RE
 					Packed out;
 					out.args.reserve(packed.size());
 					out.types.reserve(packed.size());
-					// A string[] arg (the args-list action shape) flattens inline:
-					// its elements follow the leading action string, so a test can
-					// assert on the whole call as one flat vector.
 					for (const auto& v : packed) {
 						if (v.IsList()) {
 							for (const auto& s : v.List()) {

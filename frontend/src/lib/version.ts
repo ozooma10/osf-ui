@@ -1,22 +1,4 @@
-// Semver-ish comparison and the "needs update" badge derivation.
-//
-// This module owns only the newer-than-installed-release advisory badge.
-// Explicitly pre-2.0 view manifests are refused natively and reported through
-// System Health; settings schemas continue to load best-effort.
 
-/**
- * Dotted-version compare, numeric per component, missing parts are 0 — so
- * "1.2" < "1.10.0" as a human expects, not as strings.
- *
- * Load-bearing quirks:
- *  - Exactly three components are compared. A fourth ("1.0.0.5") is invisible,
- *    so it can never make one version newer than another.
- *  - `parseInt` ignores trailing junk, so prerelease-like suffixes compare by
- *    their numeric release components.
- *  - `parseInt(...) || 0` maps NaN and 0 to 0, so a non-numeric component
- *    ("1.x.0") reads as zero rather than poisoning the comparison.
- *  - Equal versions return false: strict "less than", not "<=".
- */
 export function versionLess(a: string, b: string): boolean {
   const pa = String(a).split('.');
   const pb = String(b).split('.');
@@ -28,13 +10,6 @@ export function versionLess(a: string, b: string): boolean {
   return false;
 }
 
-/**
- * One thing that declared a `targetVersion` — a catalog view or a settings mod.
- *
- * `label` is what the tooltip names it by, resolved at the call site because it
- * needs the live mod list: views use `homeModCaption(v) || v.mod || v.id`,
- * settings mods use `titleOf(mod)`.
- */
 export interface VersionTarget {
   /** Manifest/schema `targetVersion`. "" (or absent) means undeclared. */
   readonly targetVersion?: string | undefined;
@@ -48,21 +23,6 @@ export interface NeedsUpdate {
   readonly wanting: readonly string[];
 }
 
-/**
- * OSF UI release-version badge state for the Mod Settings rail head. When anything's
- * `targetVersion` is newer than the installed OSF UI release, the badge goes
- * yellow, a tag appears beneath it, and the tooltip names the askers — it is
- * OSF UI itself that needs updating, not the mod.
- *
- * An empty `osfuiReleaseVersion` yields no askers, overriding `versionLess("", "1.2")`
- * (which is true): the badge stays suppressed before the bridge `ready`
- * handshake lands rather than flashing "needs update" before a release
- * version. The badge is re-derived on every `osfui/settings`, `osfui/views`,
- * or `osfui/i18n` state update, so it appears as soon as the version is known.
- *
- * @param viewTargets catalog views from the unfiltered `osfui/views` state — a
- *   `hub:false` utility view still gets to ask for a newer OSF UI release.
- */
 export function deriveNeedsUpdate(
   osfuiReleaseVersion: string,
   viewTargets: readonly VersionTarget[],
@@ -73,8 +33,6 @@ export function deriveNeedsUpdate(
   const asking = (t: VersionTarget): boolean =>
     !!t.targetVersion && versionLess(osfuiReleaseVersion, t.targetVersion);
 
-  // Views first, then mods, de-duplicated by first occurrence — the order the
-  // tooltip reads in.
   const wanting = [
     ...new Set([
       ...viewTargets.filter(asking).map((t) => t.label),

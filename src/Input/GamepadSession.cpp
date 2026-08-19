@@ -134,8 +134,7 @@ namespace OSFUI
 		}
 		const bool dpadHeld = dpadLeft || dpadRight || dpadUp || dpadDown;
 		const auto navigation = NavigationAction(m_navigation.Update(navigationX, navigationY, a_now));
-		// The down edge above owns the first D-pad action. The navigation state is
-		// still primed here so a deliberate hold repeats without a second timer.
+		// Prime navigation after the first D-pad edge so deliberate holds can repeat.
 		if (!dpadPressed && !(started && dpadHeld))
 		{
 			frame.navigationAction = navigation;

@@ -14,7 +14,7 @@ namespace OSFUI::StringUtil
 		}
 	}
 
-	// ASCII lowercase copy (A-Z -> a-z; every other byte unchanged). Owning, because lowercasing produces new characters.
+	// Owning ASCII lowercase copy; non-A-Z bytes are unchanged.
 	[[nodiscard]] inline std::string ToLowerAscii(std::string_view a_s)
 	{
 		std::string out(a_s);

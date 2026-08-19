@@ -1,22 +1,3 @@
-// Native desktop integration tests for the settings web path (protocol 2.0):
-// the REAL SettingsModule + MessageBridge +
-// SettingsStore driven through actual 2.0 envelopes, with a capturing SendFn
-// standing in for the renderer.
-//
-// What moved from 1.x, and why the assertions look different:
-//   * `settings.get` is GONE. It was a read whose real job was to subscribe the
-//     caller, so the registry is now the `osfui/settings` STATE key — published
-//     to every view that has GREETED the bridge, and replayed to each fresh
-//     document by the OSF UI runtime's hello hook (Runtime::OnViewGreeted). Every test
-//     below therefore boots its views the way the runtime does: OnViewCreated,
-//     then a page-initiated `osfui.hello`.
-//   * The module's `_subscribers` set is gone with it. Delivery scope is the
-//     bridge's greeted-view set, which is why an ungreeted view is the 2.0
-//     stand-in for 1.x's "never subscribed".
-//   * `settings.ack` is gone: settings.set REPLIES { mod, key, value } and
-//     REJECTS with an error envelope, so a caller that ignores the outcome can
-//     no longer mistake a refusal for success.
-// Assert-style; process exit code is the failure count.
 
 #include "Bridge/MessageBridge.h"
 #include "Settings/SettingsModule.h"
@@ -34,9 +15,6 @@ namespace
 		out << a_text;
 	}
 
-	// One captured native->web envelope, flattened. 2.0 keeps every routing
-	// field BESIDE the payload, so they are all top-level here too — a test can
-	// never accidentally assert on a payload field that shadowed routing.
 	struct Sent
 	{
 		std::string    view;
@@ -50,8 +28,6 @@ namespace
 
 	std::vector<Sent> g_sent;
 
-	// Bridge-detected protocol faults (MessageBridge::SetProtocolFaultSink). 2.0 routes them
-	// out of band instead of dropping the message silently the way 1.x did.
 	struct ReportedProtocolFault
 	{
 		std::string view;
@@ -71,9 +47,6 @@ namespace
 		return out;
 	}
 
-	// State envelopes for one "<mod>/<key>" pair. Both halves are asserted: a
-	// value published under the wrong mod would reach a page's `<mod>/<key>`
-	// subscription and nowhere else.
 	std::vector<Sent> StateTo(std::string_view a_view, std::string_view a_mod, std::string_view a_key)
 	{
 		std::vector<Sent> out;
@@ -97,10 +70,6 @@ namespace
 		return out;
 	}
 
-	// --- web -> native, exactly as the page helper builds it -----------------
-	// A `send` is a pure notification and carries NO id (one supplied is a hard
-	// invalid-request, because the caller would be waiting for a settlement
-	// that never comes).
 	void Send(OSFUI::MessageBridge& a_bridge, std::string_view a_view, std::string_view a_name,
 		nlohmann::json a_payload = nlohmann::json::object())
 	{
@@ -112,9 +81,6 @@ namespace
 		a_bridge.HandleWebMessage(a_view, envelope.dump());
 	}
 
-	// A `request` REQUIRES a correlation id — spelling it at every call site is
-	// the point: 1.x silently demoted a missing/oversized id to fire-and-forget,
-	// which turned a client bug into a promise that never settled.
 	void Request(OSFUI::MessageBridge& a_bridge, std::string_view a_view, std::string_view a_name,
 		std::string_view a_id, nlohmann::json a_payload = nlohmann::json::object())
 	{
@@ -127,9 +93,6 @@ namespace
 		a_bridge.HandleWebMessage(a_view, envelope.dump());
 	}
 
-	// Boot a view the way the OSF UI runtime does: arm its (closed) event gate, then let
-	// the DOCUMENT greet. The page-initiated handshake is the only boot path,
-	// so first open, F5 and crash-recovery reload are all this same sequence.
 	void Greet(OSFUI::MessageBridge& a_bridge, std::string_view a_view)
 	{
 		a_bridge.OnViewCreated(a_view);
@@ -181,9 +144,6 @@ int main()
 
 	MessageBridge bridge([](std::string_view a_view, std::string_view a_json) {
 		auto msg = nlohmann::json::parse(a_json, nullptr, false);
-		// Every envelope the bridge encodes must be valid JSON: the encoders
-		// splice pre-dumped text into hand-written wrappers, and a malformed one
-		// would reach the renderer, not an exception handler.
 		CHECK(!msg.is_discarded());
 		const auto kind = msg.value("kind", "");
 		g_sent.push_back(Sent{
@@ -201,18 +161,11 @@ int main()
 							const nlohmann::json&, bool) {
 		g_protocolFaults.push_back(ReportedProtocolFault{ std::string(a_view), std::string(a_code) });
 	});
-	// The OSF UI runtime's whole hello obligation for this key (Runtime::OnViewGreeted):
-	// publish the CURRENT registry straight to the greeting document. It does
-	// not route through any change-dedupe — a dedupe against the last change
-	// would send the second document to connect nothing at all.
 	bridge.SetHelloHook([&](std::string_view a_view) {
 		bridge.PublishState(a_view, "osfui", "settings", module.Store().DataView());
 	});
 	module.RegisterEndpoints(bridge);
 
-	// `settings.get` is gone as a name, not merely unused: a stale 1.x view
-	// naming it gets an observable `unknown-endpoint`, never a half-working read.
-	// The set/reset sections below exercise both live request endpoints.
 	g_sent.clear();
 	Request(bridge, "osfui/settings", "settings.get", "removed-get");
 	CHECK(KindTo("osfui/settings", "error").size() == 1);
@@ -222,8 +175,6 @@ int main()
 	g_sent.clear();
 	Greet(bridge, "osfui/settings");
 	Greet(bridge, "t.alpha/hud");
-	// Created but never greeted — the 2.0 stand-in for 1.x's "never subscribed".
-	// It stays quiet for the whole session until the last section boots it.
 	bridge.OnViewCreated("t.alpha/other");
 	{
 		CHECK(StateTo("osfui/settings", "osfui", "settings").size() == 1);
@@ -231,9 +182,6 @@ int main()
 		CHECK(StateTo("t.alpha/other", "osfui", "settings").empty());
 		CHECK(StateTo("osfui/settings", "osfui", "settings")[0].payload["mods"].size() == 1);
 
-		// Ordering is structural, not a convention call sites remember: `ready`
-		// precedes every state value for a document, and state precedes the
-		// first event it can see.
 		CHECK(g_sent.size() == 4);
 		CHECK(g_sent[0].view == "osfui/settings" && g_sent[0].kind == "ready");
 		CHECK(g_sent[1].view == "osfui/settings" && g_sent[1].kind == "state");
@@ -257,13 +205,8 @@ int main()
 		CHECK(toSettings.size() == 1);
 		CHECK(toHud.size() == 1);
 		CHECK(toHud[0].payload["mod"] == "t.alpha" && toHud[0].payload["key"] == "scale" && toHud[0].payload["value"] == 1.5);
-		// An event is a one-shot happening, so an ungreeted document is not a
-		// target at all: it could not have been present for it, and the state it
-		// actually needs arrives on its greeting.
 		CHECK(EventsTo("t.alpha/other", "settings.changed").empty());
 
-		// Write-behind: the commit pushed settings.changed immediately, but the
-		// disk write (and its settings.persisted confirmation) waits for the flush.
 		CHECK(EventsTo("osfui/settings", "settings.persisted").empty());
 	}
 
@@ -278,9 +221,6 @@ int main()
 	module.Store().FlushPersistence();  // nothing dirty — no push
 	CHECK(g_sent.empty());
 
-	// --- rejected set: an ERROR envelope, no settings.changed ----------------
-	// 1.x resolved a `settings.ack { ok:false }` the caller had to remember to
-	// inspect, so forgetting read as success. A rejection cannot be ignored.
 	g_sent.clear();
 	Request(bridge, "osfui/settings", "settings.set", "r-bad",
 		{ { "mod", "t.alpha" }, { "key", "scale" }, { "value", "huge" } });
@@ -292,9 +232,6 @@ int main()
 		CHECK(EventsTo("t.alpha/hud", "settings.changed").empty());
 	}
 
-	// --- a view that never greeted can still write ---------------------------
-	// Writing is a request, and a request settles straight back to its source:
-	// it needs no gate, because nothing about it is a push.
 	g_sent.clear();
 	Request(bridge, "t.alpha/other", "settings.set", "r-other",
 		{ { "mod", "t.alpha" }, { "key", "enabled" }, { "value", false } });
@@ -302,10 +239,6 @@ int main()
 	CHECK(EventsTo("t.alpha/other", "settings.changed").empty());  // ungreeted: no pushes
 	CHECK(EventsTo("t.alpha/hud", "settings.changed").size() == 1);
 
-	// --- write authority (Ids::ResolveWritableMod) ---------------------------
-	// A view may only write its OWN mod's settings; naming a foreign mod is
-	// refused with `forbidden` and commits nothing. Only the built-in Mod Settings
-	// view and Keybindings view may write cross-mod (their entire purpose).
 	{
 		// t.keys/panel names t.alpha: refused, nothing pushed, value intact.
 		g_sent.clear();
@@ -332,8 +265,6 @@ int main()
 			CHECK(StateTo("t.alpha/hud", "osfui", "settings").empty());  // nothing republished
 		}
 
-		// An omitted mod field resolves to the caller's own mod — the field
-		// carries no authority for a non-editor view either way.
 		g_sent.clear();
 		Request(bridge, "t.alpha/other", "settings.set", "r-implicit-mod",
 			{ { "key", "scale" }, { "value", 1.25 } });
@@ -343,14 +274,8 @@ int main()
 			CHECK(replies.size() == 1 && replies[0].payload["value"] == 1.25);
 		}
 
-		// The built-in Mod Settings view stays cross-mod capable (asserted throughout
-		// this file: every osfui/settings write above targets t.alpha/t.keys).
 	}
 
-	// --- kind enforcement: a mutation sent as a `send` executes nothing -------
-	// The kind is what callers dispatch on, so a request endpoint reached with
-	// send() is dropped rather than run — and, unlike 1.x, the protocol fault is REPORTED
-	// to the offending view instead of vanishing.
 	{
 		g_sent.clear();
 		g_protocolFaults.clear();
@@ -369,9 +294,6 @@ int main()
 		{ { "mod", "t.alpha" }, { "key", "" } });
 	{
 		const auto replies = KindTo("osfui/settings", "reply");
-		// The reply says only "the reset happened": carrying the document in it
-		// as well would make the caller's copy arrive by a different route than
-		// everyone else's.
 		CHECK(replies.size() == 1 && replies[0].id == "r-reset" && replies[0].payload.empty());
 		CHECK(StateTo("osfui/settings", "osfui", "settings").size() == 1);
 		CHECK(StateTo("t.alpha/hud", "osfui", "settings").size() == 1);
@@ -379,9 +301,6 @@ int main()
 		CHECK(EventsTo("t.alpha/hud", "settings.changed").empty());
 	}
 
-	// A caller that has not greeted gets its reply and nothing else: state is
-	// never pushed at an ungreeted document, because its greeting replays
-	// everything current in one shot.
 	g_sent.clear();
 	Request(bridge, "t.alpha/other", "settings.reset", "r-reset-other",
 		{ { "mod", "t.alpha" }, { "key", "" } });
@@ -427,9 +346,6 @@ int main()
 	}
 	CHECK(EventsTo("t.alpha/other", "ui.hotkey").empty());  // never greeted
 
-	// --- a torn-down view stops receiving pushes -----------------------------
-	// The gate the bridge drops is the subscription. The settings module owns no
-	// per-view lifecycle state; 1.x had to sweep a separate subscriber set here.
 	g_sent.clear();
 	bridge.OnViewDestroyed("t.alpha/hud");
 	CHECK(module.Store().Set("t.alpha", "scale", "0.75"));
@@ -442,9 +358,6 @@ int main()
 	CHECK(module.Store().Set("t.alpha", "scale", "0.5"));  // direct native write (the ABI path)
 	CHECK(g_sent.empty());
 
-	// Re-registering resumes delivery to exactly the views the BRIDGE still
-	// considers greeted — there is no per-module subscriber set to rebuild or
-	// forget to clear, which is the whole point of the state key.
 	module.RegisterEndpoints(bridge);
 	CHECK(module.Store().Set("t.alpha", "scale", "1.25"));
 	CHECK(EventsTo("osfui/settings", "settings.changed").size() == 1);
@@ -452,9 +365,6 @@ int main()
 
 	// --- schema hot-reload ---------------------------------------------------
 	{
-		// A reload (F5, dev hot reload, crash recovery) is just another greeting:
-		// the fresh document is replayed the current registry with nothing to
-		// re-request. 1.x had to call settings.get again purely to re-subscribe.
 		g_sent.clear();
 		Send(bridge, "osfui/settings", "osfui.hello");
 		{
@@ -462,12 +372,8 @@ int main()
 			CHECK(replayed.size() == 1 && replayed[0].payload["mods"][0]["values"]["scale"] == 1.25);
 		}
 
-		// Baseline scan: seeds nothing new (the ctor snapshot already covers
-		// alpha.json) and starts the 1 s cadence clock.
 		module.PumpSchemaHotReload(10.0);
 
-		// Edit alpha.json: retitle + add a setting. Bump mtime explicitly so
-		// the test never depends on filesystem timestamp resolution.
 		const auto alphaPath = schemaDir / "t.alpha.json";
 		const auto oldTime = fs::last_write_time(alphaPath);
 		WriteFile(alphaPath, R"json({
@@ -519,8 +425,6 @@ int main()
 
 	// --- settlement shape: post-clamp value, id echo, machine failure codes ---
 	{
-		// The reply carries the authoritative post-clamp value, so the caller
-		// can tell clamped from accepted without a re-fetch...
 		g_sent.clear();
 		Request(bridge, "osfui/settings", "settings.set", "q1",
 			{ { "mod", "t.alpha" }, { "key", "scale" }, { "value", 1.75 } });
@@ -530,8 +434,6 @@ int main()
 			CHECK(replies.size() == 1 && replies[0].id == "q1");
 			CHECK(KindTo("osfui/settings", "error").empty());
 		}
-		// ...including a CLAMPED commit, which is a success carrying the stored
-		// value, not a refusal.
 		g_sent.clear();
 		Request(bridge, "osfui/settings", "settings.set", "q2",
 			{ { "mod", "t.alpha" }, { "key", "scale" }, { "value", 99.0 } });
@@ -608,11 +510,6 @@ int main()
 		}
 	}
 
-	// --- a late document boots: one greeting hands it everything -------------
-	// t.alpha/other has been quiet since the top of the file and has therefore
-	// missed every event and every republish. It needs no catch-up protocol: the
-	// hello replay is authoritative by construction, which is exactly what
-	// subscribe-on-read could not promise after a mid-session F5.
 	g_sent.clear();
 	Send(bridge, "t.alpha/other", "osfui.hello");
 	{
@@ -638,25 +535,17 @@ int main()
 		CHECK(guarded.Store().GetValue("t.scan", "enabled") != nullptr);
 		const auto generation = guarded.Store().Generation();
 
-		// Missing/unreadable is a failed scan: preserve the loaded mod and the
-		// last complete mtime snapshot.
 		fs::rename(scanSchemas, unavailable);
 		guarded.PumpSchemaHotReload(1.0);
 		CHECK(guarded.Store().GetValue("t.scan", "enabled") != nullptr);
 		CHECK(guarded.Store().Generation() == generation);
 
-		// An existing directory scanned successfully with no files is genuinely
-		// empty, so deletion is now authoritative.
 		fs::create_directories(scanSchemas);
 		guarded.PumpSchemaHotReload(2.0);
 		CHECK(guarded.Store().GetValue("t.scan", "enabled") == nullptr);
 		CHECK(guarded.Store().Generation() > generation);
 	}
 
-	// Mirror the runtime's teardown order: the bridge (declared after `module`)
-	// destructs FIRST, and ~SettingsStore's final flush fires the persist
-	// listeners — without this, dirty mods left by the sections above would
-	// push into a dangling bridge pointer.
 	module.OnBridgeDown();
 
 	// ---------------------------------------------------------------------------

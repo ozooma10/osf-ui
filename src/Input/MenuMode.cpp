@@ -9,13 +9,7 @@ namespace OSFUI
 {
 	bool MenuMode::AnyGameMenuOpen()
 	{
-		// The dev console is a gameplay-context menu (kModal clear — the world keeps
-		// running behind it), so the flag walk below misses it, yet every keystroke
-		// typed into it is a key-down edge that would fire mods' bindings. Two
-		// independent detectors, either blocks: the open/close edge tracked by
-		// MenuEventSink, and a name check in the admitted-array walk.
-		// RE::UI::IsMenuOpen("Console") returned false with the console open
-		// (2026-07-18 live run), so the engine helper is not trusted here.
+		// The console is kModal-clear, so block from its tracked edge or admitted name instead of IsMenuOpen.
 		if (MenuEventSink::ConsoleOpen()) {
 			return true;
 		}
@@ -23,9 +17,7 @@ namespace OSFUI
 		if (!ui) {
 			return true;
 		}
-		// UI+0x430 is the active (admitted) menu array — the same one the engine's
-		// top-modal selector walks (see FocusMenu.cpp, Route A). Flag bits + the
-		// interned +0xB0 name only; no dynamic_cast, no vfuncs.
+		// Walk UI+0x430 using flags and the interned +0xB0 name only.
 		for (const auto& menu : ui->menuArray) {
 			if (!menu) {
 				continue;

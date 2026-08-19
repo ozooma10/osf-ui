@@ -24,21 +24,14 @@ namespace OSFUI
 		const RE::MenuOpenCloseEvent& a_event,
 		RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
 	{
-		// Console edge for the hotkey gameplay gate (MenuMode). INFO on purpose:
-		// rare, and the decisive line when triaging "my hotkey fired / didn't
-		// fire while the console was up" from a default (non-dev) log — DEBUG
-		// does not appear in the default user log.
+		// Keep the rare console edge visible in the default log for hotkey diagnosis.
 		if (std::string_view{ a_event.menuName } == "Console") {
 			s_consoleOpen.store(a_event.opening, std::memory_order_relaxed);
 			REX::INFO("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
 		}
 
 		if (a_event.opening) {
-			// Force-hide on transition / system menus: the overlay must not
-			// linger over a loading screen or the main menu (where the game
-			// device and state we read may be invalid), and hiding releases
-			// input capture so the game is not left input-frozen across a
-			// transition. The user re-opens with the toggle key.
+			// Force-hide on system transitions to release input before game state becomes invalid.
 			const std::string_view name = a_event.menuName;
 			if ((name == "LoadingMenu" || name == "MainMenu") && Runtime::Get().IsVisible()) {
 				REX::DEBUG("MenuEventSink: '{}' opened -> closing all OSF UI views", name);

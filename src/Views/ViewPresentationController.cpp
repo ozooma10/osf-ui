@@ -76,8 +76,7 @@ namespace OSFUI
 
 	void ViewPresentationController::CloseAll()
 	{
-		// Clears BOTH so DesiredVisible() goes false; a lingering shown HUD would
-		// otherwise keep the overlay up across a save/load or main-menu transition.
+		// Clear menus and HUDs so transitions cannot leave the overlay visible.
 		_activeMenu.reset();
 		_hudShown.clear();
 	}

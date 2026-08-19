@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { composeHelper } from '../scripts/compose-helper.mjs';
 import type { GameInputContextClassification, VanillaContextClassification } from '@sdk';
 
-// Compile and exercise the deprecated SDK spelling only in this compatibility
-// suite; current Keybindings tests use GameInputContextClassification.
 const legacyClassification: VanillaContextClassification =
   'core' satisfies GameInputContextClassification;
 

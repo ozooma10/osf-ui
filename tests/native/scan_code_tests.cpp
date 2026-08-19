@@ -1,9 +1,3 @@
-// Native desktop tests for the physical key identity core: ComposeScanCode's
-// message-quirk normalization (Input/ScanCode.h), the kNamedScans name table
-// (Input/KeyNames.cpp — full-table round-trip and the ≤16-char name
-// constraint), the W3C KeyboardEvent.code alias
-// vocabulary, and the frozen legacy VK resolver the values migration depends
-// on. Assert-style; process exit code is the failure count.
 
 #include "Input/KeyNames.h"
 #include "Input/ScanCode.h"
@@ -14,8 +8,6 @@ namespace
 
 }
 
-// KeyNames.cpp references the Log seam; provide the standard test stub
-// (same shape as the other suites).
 namespace OSFUI::Log
 {
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message)
@@ -43,25 +35,14 @@ int main()
 		// RCtrl vs LCtrl differ only by the extended bit.
 		CHECK(ComposeScanCode(0xA2 /*VK_LCONTROL*/, 0x1D, false) == 0x1D);
 		CHECK(ComposeScanCode(0xA3 /*VK_RCONTROL*/, 0x1D, true) == 0x9D);
-		// Pause reports raw 0x45 with the extended bit CLEAR — colliding with
-		// NumLock's fields; only the VK disambiguates. DIK_PAUSE = 0xC5.
 		CHECK(ComposeScanCode(0x13 /*VK_PAUSE*/, 0x45, false) == 0xC5);
 		// NumLock pins to DIK_NUMLOCK 0x45 even when a path sets the ext bit.
 		CHECK(ComposeScanCode(0x90 /*VK_NUMLOCK*/, 0x45, true) == 0x45);
-		// PrintScreen pins to DIK_SYSRQ 0xB7 regardless of message fields —
-		// including a zero raw scan.
 		CHECK(ComposeScanCode(0x2C /*VK_SNAPSHOT*/, 0x37, true) == 0xB7);
 		CHECK(ComposeScanCode(0x2C /*VK_SNAPSHOT*/, 0x00, false) == 0xB7);
-		// No scan fields at all (SendInput-synthesized): invalid, caller falls
-		// back to the platform VK->scan mapping.
 		CHECK(ComposeScanCode(0x41 /*VK A*/, 0x00, false) == OSFUI::kInvalidScanCode);
 	}
 
-	// ---- Full-table sweep: every nameable code round-trips, names ≤16 ------
-	// KeyName returns the FIRST kNamedScans row per code (the canonical
-	// spelling); ResolveKeyName must turn that exact string back into the same
-	// code — the property every saved binding depends on. The 16-char bound is
-	// the persisted key-value constraint.
 	{
 		int named = 0;
 		for (unsigned code = 1; code <= 0xFF; ++code) {
@@ -73,8 +54,6 @@ int main()
 			CHECK(ResolveKeyName(name) == code);
 			CHECK(name.size() <= 16);
 		}
-		// Letters + digits + F1-F24 + punctuation + nav + numpad + the rest:
-		// the table is substantial. Guard against accidental mass deletion.
 		CHECK(named >= 100);
 	}
 
@@ -136,10 +115,6 @@ int main()
 		CHECK(ResolveKeyName("NotAKey") == OSFUI::kInvalidScanCode);
 	}
 
-	// ---- Frozen legacy VK resolver (migration input) ------------------------
-	// Pins the pre-2.x semantics the one-time values migration interprets:
-	// VK-anchored, arithmetic F-keys and alnum, US ANSI OEM meanings. Never
-	// extended — new names deliberately do NOT resolve here.
 	{
 		using OSFUI::Legacy::ResolveKeyNameVk;
 		CHECK(ResolveKeyNameVk("Semicolon") == 0xBA);

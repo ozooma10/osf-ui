@@ -1,23 +1,3 @@
-// The Mod Settings view: two-pane master/detail, and the overlay's front door (the
-// toggle key opens this view directly).
-//
-// The rail is topped by Home, a card grid of every catalog-visible menu and HUD view
-// across all mods. Below it, every installed mod — OSF UI listed first, then the
-// union of settings schemas (`osfui/settings`) and catalog views (`osfui/views`).
-// The right pane renders the selected mod's views, then its typed settings
-// controls on the shared kit.
-//
-// Everything the schema adds beyond bool/int/float/enum/flags/string/key is
-// presentation: widget hints, number formatting, visibleWhen/enabledWhen, note
-// and image blocks, action buttons, requires badges, presets, the rail icon. The
-// native SettingsStore trusts none of it — a hidden or disabled control is still
-// validated on write, and a settings-action request endpoint is refused unless it is namespaced
-// to the owning mod. Untrusted schema text only reaches the DOM as a text child.
-//
-// No data-i18n in this view: `osfui.localize()` mutates text in place and caches
-// originals in element-keyed WeakMaps, which a Preact re-render reverts and a
-// remount forgets. Strings go through the @lib/i18n translator at render time.
-// `osfui.localize` stays in the shared kit for third-party views.
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { windowBridge, type Bridge } from '@lib/bridge';
@@ -67,62 +47,24 @@ import { useCapture } from './useCapture';
 import { useSettingsRegistry } from './useSettingsRegistry';
 import type { PresetRecord } from './Presets';
 
-/**
- * Filter debounce. Every keystroke would otherwise re-scan every mod's schema
- * for the cross-mod result list and rebuild the rail.
- */
 const FILTER_DEBOUNCE_MS = 120;
 /** How long a search-jump target stays highlighted. */
 const FLASH_MS = 1200;
 
 export interface AppProps {
-  /**
-   * Defaults to the real bridge so the dev harness — which mounts `<App />`
-   * with no props — gets the mock-decorated `window.osfui` it installed.
-   */
   bridge?: Bridge;
-  /**
-   * Mod-id -> asset-root overrides for schema `icon` / `image` paths. The dev
-   * harness serves this page from a directory where the shipped "../../<modId>"
-   * assumption is false and passes its map here. Production passes nothing, so
-   * the shipped path cannot be redirected by anything that sets a global — the
-   * reason this is a prop and not a window lookup.
-   */
   assetRoots?: AssetRoots;
 }
 
 export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const tr = useMemo(() => makeTranslator(bridge, 'chrome.settings'), [bridge]);
 
-  /**
-   * Optimistic HUD switch positions, keyed by view id. `menu.open`/`menu.close`
-   * are fire-and-forget, so the switch flips locally and the next `osfui/views`
-   * state update (which the runtime sends on every open/focus change) is authoritative
-   * — that push clears the whole map.
-   *
-   * Declared before the registry because the registry's `osfui/views` callback
-   * clears it.
-   */
   const [hudOverride, setHudOverride] = useState<Record<string, boolean>>({});
 
-  /**
-   * In-flight `osfui.setViewAutoStart` choices, keyed by view id. Presence
-   * means "saving": the switch shows the requested position but is disabled. A
-   * success republishes `osfui/views` (which clears the map, authoritative); a
-   * rejection deletes the entry so the switch falls back to the server value.
-   */
   const [autoStartPending, setAutoStartPending] = useState<Record<string, boolean>>({});
 
-  /**
-   * The registries the pane paints from, and the bridge subscriptions that keep
-   * them current. Everything below this line is instead about what the user is
-   * doing right now — where they are, what they typed, what is expanded — none
-   * of which survives a fresh visit.
-   */
   const registry = useSettingsRegistry({
     bridge,
-    // An `osfui/views` state update is the authority on HUD open state and startup
-    // policy; drop the optimistic switch positions when one lands.
     onViewsData: () => {
       setHudOverride({});
       setAutoStartPending({});
@@ -146,16 +88,11 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
   const [selectedId, setSelectedId, selectedIdRef] = useStateRef<string | null>(null);
 
-  // `filter` is what the input shows (immediate); `query` is what the rail and
-  // the detail pane consume (debounced, trimmed, lowercased — both consumers
-  // take it pre-normalised).
   const [filter, setFilter, filterRef] = useStateRef('');
   const [query, setQuery] = useState('');
   const queryRef = useLatest(query);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  // Selected page tab per mod (schemas with `pages`). Like `collapsed`, this
-  // is sticky per page load rather than reset on each visit.
   const [activePages, setActivePages] = useState<Record<string, string>>({});
   const [undoOpen, setUndoOpen] = useState(false);
   const [flash, setFlash] = useState<{ modId: string; key: string } | null>(null);
@@ -177,12 +114,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
   const padRef = useRef<PadButtonState>(initialPadButtonState);
 
-  /**
-   * `#mod=<entry id>` preselects a rail entry (harness deep links, headless
-   * screenshots). In game the view loads without a fragment, so it is inert.
-   * Held pending until the entry exists: `osfui/settings` and `osfui/views` arrive in
-   * either order, and the default-selection fallback must not eat it.
-   */
   const pendingHashSelect = useRef<string | null>(null);
   const hashRead = useRef(false);
   if (!hashRead.current) {
@@ -192,23 +123,14 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       try {
         pendingHashSelect.current = decodeURIComponent(m[1]);
       } catch {
-        // Malformed escape in a hand-typed fragment: ignore rather than taking
-        // the view down before the first paint.
         pendingHashSelect.current = null;
       }
     }
   }
 
   const toasts = useToasts();
-  // Reaches `push` from the long-lived bridge closures. Belt-and-braces rather
-  // than strictly required: `useToasts` hands back a fresh `push` each render,
-  // but every one of them reads through the hook's own `stateRef`, so even a
-  // captured stale `push` behaves correctly. The mirror keeps that an internal
-  // detail of `useToasts` instead of something this file depends on.
   const toastRef = useLatest(toasts);
   const toast = (message: string, kind?: 'warn' | 'danger') => {
-    // `exactOptionalPropertyTypes` forbids passing an explicit undefined where
-    // the absence is what suppresses the modifier.
     if (kind === undefined) toastRef.current.push(message);
     else toastRef.current.push(message, kind);
   };
@@ -220,11 +142,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     if (bridge.available()) bridge.send(endpoint, fields);
   };
 
-  /**
-   * A request endpoint whose failure the player should see. View operations
-   * report real failures ("unknown-view", "forbidden"), and sending them
-   * one-way would silently swallow exactly the case worth showing.
-   */
   const requestOp = (endpoint: string, payload?: Record<string, unknown>) => {
     if (!bridge.available()) return;
     void bridge.request(endpoint, payload).catch((err: unknown) => {
@@ -235,11 +152,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     });
   };
 
-  /**
-   * Push one value. The availability check must come before `saveStatePending`:
-   * marking pending with no bridge leaves the standalone harness at "Saving…"
-   * forever, with nothing that can clear it.
-   */
   const setValue = (
     modId: string,
     key: string,
@@ -248,9 +160,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   ) => {
     if (!bridge.available()) return;
     applySave(saveStatePending(saveRef.current, modId));
-    // The ack resolves with the authoritative post-clamp value; a refusal
-    // rejects with the machine code (unknown-setting / read-only /
-    // invalid-value).
     bridge.request('settings.set', { mod: modId, key, value }).catch((err: unknown) => {
       const code = codeOf(err);
       toast(
@@ -261,20 +170,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         'danger',
       );
       applySave(saveStateAbandon(saveRef.current, modId));
-      // No re-read, but DO undo the optimistic write. A commit republishes
-      // `osfui/settings` and fires `settings.changed`, so the authoritative
-      // value is already on its way — a REFUSAL does neither: the store is
-      // never touched, so nothing arrives to correct the pane and it would go
-      // on showing a value the store rejected.
       onRejected?.();
     });
   };
 
-  /**
-   * Local-first write: show the value immediately, then push it, and put the
-   * previous one back if the store refuses. Snapshotting has to happen before
-   * `applyLocal`, so the pairing lives here rather than at each call site.
-   */
   const pushValues = (modId: string, entries: Array<[string, SettingValue]>) => {
     const values = modsRef.current.find((m) => m.id === modId)?.values || {};
     const previous = new Map(entries.map(([key]) => [key, values[key]]));
@@ -290,8 +189,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   const requestReset = (modId: string, key: string | null) => {
     if (!bridge.available()) return;
     applySave(saveStatePending(saveRef.current, modId));
-    // Resolves empty: the refreshed registry reaches every view through the
-    // `osfui/settings` state key, so the reply says only "the reset happened".
     bridge
       .request('settings.reset', key ? { mod: modId, key } : { mod: modId })
       .catch((err: unknown) => {
@@ -323,11 +220,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     setSelectedId(HEALTH_ID);
   };
 
-  /**
-   * Default selection, re-run whenever the entry set changes: `osfui/settings` and
-   * `osfui/views` arrive in either order, and a mod that disappears mid-visit must
-   * not leave the pane pointed at nothing.
-   */
   useEffect(() => {
     const nodes = railNodes({ mods, views }, '');
     const ids = nodes.filter((n) => n.kind === 'entry').map((n) => (n as { entry: { id: string } }).entry.id);
@@ -350,8 +242,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     return () => clearTimeout(t);
   }, [filter]);
 
-  // Localized keycap lookup for `type:"key"` rows (KeyField shows "Ö", commits
-  // "Semicolon"); the no-map labeler falls back to raw names everywhere.
   const labeler = useMemo(() => makeLabeler(keyboard), [keyboard]);
 
   const capture = useCapture({
@@ -362,20 +252,11 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     tr,
   });
 
-  // Bridge subscriptions for what the user is DOING. The registry hook owns the
-  // state updates (`osfui/settings` / `osfui/views` / `osfui/diagnostics` / `osfui/i18n` /
-  // settings.changed) and the catalog reads; both blocks register once per
-  // bridge and read everything else through refs.
 
   useEffect(() => {
-    // Backstop alongside the useCapture promise: catches a reply that lost its
-    // correlation (an older OSF UI runtime that does not echo requestId). `finish` is
-    // idempotent — a second delivery no-ops.
     const offCaptured = bridge.on('settings.captured', (p) => capture.finish(p as never));
 
     const offPersisted = bridge.on('settings.persisted', (p) => {
-      // The mod's values file write landed (write-behind flush) — distinct from
-      // settings.changed, which is the immediate in-memory commit.
       applySave(saveStatePersisted(saveRef.current, p.mod));
     });
 
@@ -385,9 +266,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         p,
       );
       if (!intent.clearBaseline) return; // hide edge
-      // Fresh visit: the undo scope is "since you opened settings". Without
-      // this the view — which keeps running while hidden — accumulates every
-      // change of the whole game session.
       registry.clearBaseline();
       if (intent.reselect) {
         // "Open the deck", not "resume where a past visit left off".
@@ -396,19 +274,11 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         setSelectedId(intent.state.selectedId);
       }
       setFocusIssueId(null);
-      // Closing with the undo panel open would otherwise latch modalOpen and
-      // kill LB/RB rail cycling for the rest of the session.
       setUndoOpen(false);
-      // Outside the reselect guard: a visit that lands back on an
-      // already-selected Home still forgets the gamepad resume point.
       const padnav = (window as { padnav?: { reset?: () => void } }).padnav;
       if (padnav && padnav.reset) padnav.reset();
     });
 
-    // LB / RB step the rail selection. Raw `ui.gamepad` events ride alongside
-    // the runtime's default mapping: we do not assert `osfui.gamepadRaw`, so
-    // D-pad/A/B keep their native arrows/Enter/close behaviour. On OSF UI runtimes
-    // without gamepad routing these never arrive.
     const offGamepad = bridge.on('ui.gamepad', (p) => {
       const nodes = railNodes(
         { mods: modsRef.current, views: viewsRef.current },
@@ -433,9 +303,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       if (intent.select !== null) selectMod(intent.select);
     });
 
-    // The runtime delegates the back action (Esc / pad-B) as a synthetic
-    // Escape instead of closing the overlay, so the keydown handler below can
-    // peel the undo panel first. Sticky per page load.
     if (bridge.available()) sendEndpoint('osfui.handleBack', { handle: true });
 
     return () => {
@@ -445,7 +312,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       offGamepad();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- registered once
-    // per bridge.
   }, [bridge]);
 
   // `undoOpen` is read from the gamepad subscription's stale closure.
@@ -462,9 +328,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
         }
         return;
       }
-      // `keyCode` is a fallback for synthetic key events where `e.key` is not
-      // reliably "Escape". Swallowed while a capture is armed — the press
-      // belongs to the rebind.
       if ((e.key === 'Escape' || e.keyCode === 27) && !e.defaultPrevented && !capture.isCapturing()) {
         // Peel the undo panel first; only a bare Escape closes the view.
         if (undoOpenRef.current) {
@@ -477,17 +340,8 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads only refs
-    // and `bridge`.
   }, [bridge]);
 
-  // Scroll the search-jump target into view, then clear the highlight. Without
-  // the scroll the row flashes off-screen when the jump lands below the fold.
-  // Must run here rather than in the onJump handler: the owning mod was just
-  // selected and its group just expanded, so the row only exists in the DOM
-  // after that render commits — which is when a `flash`-keyed effect fires. The
-  // row is found by walking `.row[data-key]` and matching the attribute rather
-  // than building a selector string, so a key containing a quote or bracket
-  // needs no escaping. `scrollIntoView` is guarded because jsdom omits it.
   useEffect(() => {
     if (!flash) return;
     const detail = document.getElementById('detail');
@@ -505,8 +359,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     return () => clearTimeout(t);
   }, [flash]);
 
-  // Timers outlive a render; an unmount mid-flight must not fire into a
-  // torn-down tree.
   useEffect(
     () => () => {
       if (fadeTimer.current !== null) clearTimeout(fadeTimer.current);
@@ -521,8 +373,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
       .filter((v) => v.targetVersion)
       .map((v) => ({
         targetVersion: v.targetVersion,
-        // Views name themselves by their owning mod's title when one is loaded,
-        // then the raw manifest `mod` string, then the view id.
         label: homeModCaption(v, mods) || v.mod || v.id,
       })),
     mods.map((m) => ({ targetVersion: m.targetVersion, label: titleOf(m) })),
@@ -544,11 +394,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   };
   const autoStartBusy = (v: ViewRecord): boolean => autoStartPending[v.id] !== undefined;
 
-  /**
-   * Persist a HUD's automatic start for the next launch. Availability is
-   * checked before marking pending for the same reason as `setValue`: a
-   * pending switch with no bridge would stay disabled forever.
-   */
   const setViewAutoStart = (viewId: string, enabled: boolean) => {
     if (!bridge.available()) return;
     setAutoStartPending((p) => ({ ...p, [viewId]: enabled }));
@@ -572,8 +417,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
     const entries: Array<[string, SettingValue]> = [];
     for (const key in preset.values) entries.push([key, preset.values[key] as SettingValue]);
     pushValues(mod.id, entries);
-    // Native does not republish `osfui/settings` on a set; the controls repaint
-    // from the local model change alone, and group collapse survives.
     toast(
       tr.plural(
         'presetApplied',
@@ -586,18 +429,10 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
   };
 
   const revertOne = (c: { modId: string; key: string; old: SettingValue | undefined }) => {
-    // A baseline of `undefined` means the key had no stored value when the
-    // visit began. It goes through to `settings.set` as-is: JSON.stringify
-    // drops the field and native refuses the write. Inventing a value here
-    // would write something the visit never had.
     pushValues(c.modId, [[c.key, c.old as SettingValue]]);
   };
 
   const runAction = (requestEndpoint: string, modId: string, key: string | undefined) =>
-    // A schema `action` targets the mod's own REQUEST endpoint, so the plugin
-    // answers with its own payload and any failure arrives as a typed rejection
-    // — there is no ok:false document to inspect. Timeout / unknown-endpoint /
-    // wrong-endpoint-kind / no-bridge all reject too.
     bridge
       .request<{ message?: unknown }>(requestEndpoint, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
       .then((payload) => {
@@ -763,9 +598,6 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
           onBeginCapture={capture.begin}
           onApplyPreset={applyPreset}
           onJump={(r) => {
-            // Clearing the filter is what switches the detail pane back to the
-            // settings page; then select the owner, raise the page tab the
-            // group lives on (paged mods), expand the group, and flash the row.
             setFilter('');
             setQuery('');
             setSelectedId(r.modId);

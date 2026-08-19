@@ -1,7 +1,3 @@
-// Post-build gates on build/frontend/views. Run from `npm run build` so a bad build
-// never reaches the tree, and again from frontend/test/build.*.test.ts so CI
-// reports them as tests. Each gate catches a constraint that would otherwise
-// only fail in game, as a blank overlay plus a console error nobody reads.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,8 +22,6 @@ export function verifyOutput() {
   for (const f of actual) {
     if (!expected.includes(f)) fail(`unexpected file in views output: ${f} (add it to expectedOutputs() or stop emitting it)`);
   }
-  // Nothing in package.ps1 or CI excludes by extension, so a stray .map would
-  // ship in every archive.
   for (const f of actual) if (f.endsWith('.map')) fail(`source map in shipped output: ${f}`);
 
   const helper = join(OUT, 'shared/osfui.js');
@@ -53,9 +47,6 @@ export function verifyOutput() {
     const css = join(dir, 'style.css');
     const js = join(dir, 'main.js');
 
-    // Classic scripts only: the built-in views stay on one stable classic IIFE
-    // bundle to hold the load-order contract — shared/osfui.js must execute
-    // before main.js and owns osfui.onMessage. Modules are deferred.
     if (existsSync(html)) {
       const h = readFileSync(html, 'utf8');
       if (/type\s*=\s*["']module["']/.test(h)) fail(`${v.name}/index.html uses type="module" (built-in bundles must remain classic IIFEs)`);
@@ -66,27 +57,15 @@ export function verifyOutput() {
       if (kit >= 0 && main >= 0 && kit > main) fail(`${v.name}/index.html loads main.js before the shared kit`);
     }
 
-    // Network-free and self-contained: the browser host default-denies network
-    // egress and all three --osf-font-* stacks resolve to Windows system faces.
     if (existsSync(css)) {
       const c = readFileSync(css, 'utf8');
       if (/@font-face/.test(c)) fail(`${v.name}/style.css contains @font-face (views must ship zero webfont binaries)`);
       if (/url\(\s*["']?https?:/i.test(c)) fail(`${v.name}/style.css loads a remote URL`);
-      // The D3D12 compositor expects premultiplied BGRA; the page's transparent
-      // body is what supplies it. An opaque html/body background renders the
-      // overlay as a black rectangle over the game.
-      // The Oxc minifier rewrites `background: transparent` to the shorthand
-      // `background: 0 0` (position 0 0, everything else initial — initial
-      // background-color is transparent), so bare `0` must pass. The target is a
-      // colour: #hex, rgb()/hsl(), or a named colour.
       if (/\b(html|body)\s*\{[^}]*background(-color)?\s*:\s*(?!none\b|transparent\b|inherit\b|0[\s;}])(#|rgba?\(|hsla?\(|[a-z])/i.test(c)) {
         fail(`${v.name}/style.css sets an opaque background on html/body (would black out the overlay)`);
       }
     }
 
-    // No dev-only code survived into the bundle. Every view is Vite-built, so
-    // every view is subject to this — `import.meta.env.DEV` elimination failing
-    // is what would let a mock fixture or a devWarn reach a shipped archive.
     if (existsSync(js)) {
       const j = readFileSync(js, 'utf8');
       for (const s of DEV_SENTINELS) {

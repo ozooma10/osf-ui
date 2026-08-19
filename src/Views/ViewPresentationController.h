@@ -7,8 +7,7 @@
 
 namespace OSFUI
 {
-	// Instantiated views (menus + HUDs) and their open state. One menu may occupy
-	// the active-menu slot while any number of HUDs remain shown.
+	// Track one active menu and any number of shown HUDs among instantiated views.
 	class ViewPresentationController
 	{
 	public:
@@ -24,14 +23,10 @@ namespace OSFUI
 		// Add (or replace) an instantiated view by qualified id. Idempotent.
 		void AddInstantiated(const InstantiatedView& a_view);
 
-		// Remove a view entirely (closing it first if open). Returns true if the
-		// open-state changed (caller must re-apply policy). Called when a view is torn
-		// down at runtime (crash-recovery exhaustion) so nothing can reopen a view
-		// whose renderer view no longer exists.
+		// Remove the view and report whether closing it requires policy reapplication.
 		bool RemoveInstantiated(std::string_view a_id);
 
-		// State transitions; each returns true if the open-state changed. Unknown ids return false.
-		// Open: a menu replaces the current menu; a HUD is added to the shown set.
+		// State transitions report changes; opening a menu replaces the active one while HUDs accumulate.
 		bool Open(std::string_view a_id);
 		bool Close(std::string_view a_id);
 		bool CloseActiveMenu();                       // HUDs untouched
@@ -45,8 +40,7 @@ namespace OSFUI
 		[[nodiscard]] bool IsOpen(std::string_view a_id) const;
 		[[nodiscard]] bool IsInstantiated(std::string_view a_id) const;
 
-		// One entry per instantiated view with its hidden flag and composite z.
-		// HUD band [0..999] = clamp(order); the active menu sits at 1000 above every HUD.
+		// Return each view's visibility and z, with HUDs at 0..999 and the active menu at 1000.
 		struct Layer
 		{
 			std::string id;

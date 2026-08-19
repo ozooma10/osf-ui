@@ -8,8 +8,7 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Main thread only (driven from Runtime::Tick). Mirrors our own reference
-		// on MenuCursor::freeCursorRefCount; strictly balanced.
+		// Main-thread only; balance this owner's free-cursor reference.
 		bool g_engaged{ false };
 	}
 
@@ -20,9 +19,7 @@ namespace OSFUI
 		}
 		auto* cursor = RE::MenuCursor::GetSingleton();
 		if (!cursor) {
-			// Too early (boot); retry next tick. A release edge cannot strand a
-			// reference: an increment could only have come through this same
-			// path, which needed the singleton.
+			// Retry at boot; no reference can be stranded before the singleton exists.
 			static bool warned = false;
 			if (a_desired && !warned) {
 				warned = true;
@@ -33,8 +30,7 @@ namespace OSFUI
 		if (a_desired) {
 			++cursor->freeCursorRefCount;
 		} else if (cursor->freeCursorRefCount > 0) {
-			// Guarded like the engine's own decrement: don't drive it negative
-			// if external state was perturbed (e.g. a load screen reset).
+			// Never drive the engine counter negative after external resets.
 			--cursor->freeCursorRefCount;
 		}
 		g_engaged = a_desired;

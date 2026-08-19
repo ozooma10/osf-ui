@@ -1,22 +1,3 @@
-// The Keybindings view: a keyboard map (mod-bound keys accent, game-bound steel,
-// collisions warn), a holders panel for the selected key, and a searchable list.
-//
-// Mod key settings come from `osfui/settings`; the game's read-only binding
-// catalog comes from `osfui/keybindings`. Rebinds reuse the generic capture
-// machinery (`settings.captureKey` -> `settings.captured` -> echoed
-// `settings.set`), including the capture-time conflict live-warn. `ui.hotkey`
-// pushes flash the pressed key on the board.
-//
-// Grouping is by key name with the same alias folding as native
-// (Tilde/Backtick/Console -> Grave, Return -> Enter), so the board agrees with
-// the store's vk-resolved conflict data without re-resolving VKs in JS.
-//
-// No data-i18n here: `osfui.localize()` mutates text and attributes in place and
-// caches the originals in element-keyed WeakMaps, so a Preact re-render reverts
-// localised strings to the authored English and remounted nodes lose the cache
-// entirely. Every string resolves through the @lib/i18n translator at render
-// time instead. `osfui.localize` itself is untouched in the shared kit —
-// third-party views still use it.
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { windowBridge, type Bridge } from '@lib/bridge';
@@ -40,10 +21,6 @@ import { Board, type FlashState } from './Board';
 import { DetailPanel } from './DetailPanel';
 import { matchesQuery } from './search';
 
-/**
- * Back to Mod Settings rather than dismissing the overlay: single-menu policy
- * means opening Mod Settings replaces this menu, so no explicit close is needed.
- */
 const MOD_SETTINGS_VIEW = 'osfui/settings';
 
 /** The armed rebind. `instanceId` is the rendered row — see HolderRowProps. */
@@ -54,33 +31,21 @@ interface Capture {
 }
 
 export interface AppProps {
-  /**
-   * Defaulted because the dev harness mounts `<App />` with no props, so an
-   * undefined bridge would be dereferenced by the translator before the first
-   * render. Production passes it explicitly.
-   */
   bridge?: Bridge;
 }
 
 export function App({ bridge = windowBridge }: AppProps) {
   const tr = useMemo(() => makeTranslator(bridge, 'chrome.keybinds'), [bridge]);
 
-  // `mods` is mirrored into a ref because bridge subscriptions are registered
-  // once and their closures would otherwise read the first render's values.
   const [mods, setMods, modsRef] = useStateRef<ModEntry[]>([]);
   const [liveKeys, setLiveKeys] = useState<KeybindingsData | null>(null);
   const [engineInputContext, setEngineInputContext] = useState<EngineInputContextState | null>(null);
-  // Localized keycap labels for the player's layout (additive; undefined on
-  // older OSF UI runtimes and in the preview — everything falls back to names/US glyphs).
   const [keyboard, setKeyboard] = useState<SettingsData['keyboard']>(undefined);
 
   const [selectedKey, setSelectedKey] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [loaded, setLoaded] = useState(false);
-  // Bumped on every `osfui/i18n` state update so the memo below re-runs: the model
-  // carries translated strings, so a locale change has to rebuild it, not just
-  // repaint.
   const [i18nSeq, setI18nSeq] = useState(0);
   const [flash, setFlash] = useState<FlashState>({ name: '', seq: 0 });
 
@@ -101,9 +66,6 @@ export function App({ bridge = windowBridge }: AppProps) {
   // Both consumers take this pre-normalised — see matchesQuery().
   const query = search.trim().toLowerCase();
   const shownBindingNames = useMemo<ReadonlySet<string> | null>(() => {
-    // With no list scope, the board's normal mod/game/conflict language already
-    // describes every occupied key. Search or a non-All filter turns the list
-    // into a subset, so publish that exact subset to the map as a visual layer.
     if (!query && filter === 'all') return null;
     const queryMatches = matchesQuery(query);
     const names = new Set<string>();
@@ -124,11 +86,6 @@ export function App({ bridge = windowBridge }: AppProps) {
     if (bridge.available()) bridge.send(endpoint, fields);
   };
 
-  /**
-   * Esc / pad-B and the header button. If the Mod Settings view was not discovered
-   * (`unknown-view`) fall back to a plain close, so Esc can never strand the
-   * user in a menu they cannot leave.
-   */
   const goBack = () => {
     if (!bridge.available()) return;
     bridge
@@ -142,8 +99,6 @@ export function App({ bridge = windowBridge }: AppProps) {
       const others = [...new Set(conflicts.map((conflict) => conflict.title || conflict.mod))];
       toastRef.current.push(
         tr('alsoBoundBy', '{key} is also bound by: {others}', {
-          // The localized keycap when known — the toast names what the player
-          // just pressed, and their keycap says "Ö", not "Semicolon".
           key: labeler(canonicalName(name)) ?? name,
           others: others.join(', '),
         }),
@@ -165,8 +120,6 @@ export function App({ bridge = windowBridge }: AppProps) {
             tr('rebindRejected', 'Rebind rejected{code}', { code: code ? ` (${code})` : '' }),
             'danger',
           );
-          // No re-read: the refused value never committed, and the store
-          // republishes `osfui/settings` on any real change anyway.
         });
       }
 
@@ -191,8 +144,6 @@ export function App({ bridge = windowBridge }: AppProps) {
     setSelectedKey((current) => (name === current ? '' : name));
   };
 
-  // Registered once. Each state handler runs immediately with the current
-  // value, so there is no read to issue and nothing to re-issue after a reload.
   useEffect(() => {
     const offData = bridge.state('osfui/settings', (data) => {
       setMods(Array.isArray(data?.mods) ? data.mods : []);
@@ -215,9 +166,6 @@ export function App({ bridge = windowBridge }: AppProps) {
     });
 
     const offChanged = bridge.on('settings.changed', (p) => {
-      // Only key-typed settings matter here (the schema says which); other
-      // traffic is ignored. The board derives collisions itself by key-name
-      // grouping, so the pushed `conflicts` list needs no separate handling.
       const mod = modsRef.current.find((m) => m && m.id === p.mod);
       if (!mod) return;
       const isKey = ((mod.schema && mod.schema.groups) || []).some((g) =>
@@ -236,28 +184,16 @@ export function App({ bridge = windowBridge }: AppProps) {
       setLoaded(true);
     });
 
-    // Belt-and-braces alongside the beginCapture promise: catches a reply that
-    // lost its correlation (older OSF UI runtime without requestId echo). capture.finish
-    // is idempotent.
     const offCaptured = bridge.on('settings.captured', (p) => capture.finish(p as KeyCapturePayload));
 
     const offHotkey = bridge.on('ui.hotkey', (p) => {
       const b = bindingsRef.current.find(
         (x) => x.kind === 'mod' && x.mod === p.mod && x.key === p.key,
       );
-      // Nothing to flash for an unbound key; Board itself no-ops when no cell
-      // carries the name.
       if (!b) return;
       setFlash((f) => ({ name: b.name, seq: f.seq + 1 }));
     });
 
-    // The OSF UI runtime delegates the back action (Esc / pad-B) as a synthetic
-    // Escape instead of closing the overlay, so the keydown handler below can
-    // return to Mod Settings. Sticky per page load — re-asserted on every boot.
-    // Asserted unconditionally rather than behind `ready`: the grant is
-    // per-document and the OSF UI runtime drops it when this page reloads, so the
-    // right moment to re-assert it is "whenever this component mounts".
-    // Nothing here reads settings — the registry arrives as replayed state.
     if (bridge.available()) sendEndpoint('osfui.handleBack', { handle: true });
 
     return () => {
@@ -283,10 +219,6 @@ export function App({ bridge = windowBridge }: AppProps) {
         }
         return;
       }
-      // `keyCode` is the fallback for synthetic key events where `e.key` is not
-      // reliably "Escape". Swallowed while a capture is armed: the press belongs
-      // to the rebind. (The standalone capture path also preventDefaults it in
-      // the capture phase, which `defaultPrevented` catches independently.)
       if ((e.key === 'Escape' || e.keyCode === 27) && !e.defaultPrevented && !capture.isCapturing()) {
         goBack();
       }
@@ -296,13 +228,9 @@ export function App({ bridge = windowBridge }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- goBack only reads `bridge`.
   }, [bridge]);
 
-  // Standalone preview: sample data so the view works in a plain browser. Dev-only,
-  // and the production OSF UI runtime always injects a bridge, so this branch never ships.
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     if (bridge.available()) return;
-    // Cast: hand-written fixture, not a wire payload; spelling out every
-    // optional field of SettingsSchema would obscure what it is testing.
     setMods([
       {
         id: 'osfui',

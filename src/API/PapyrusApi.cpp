@@ -21,13 +21,10 @@ namespace OSFUI::API::Papyrus
 		using PapVM = RE::BSScript::IVirtualMachine;
 		using VM = RE::BSScript::Internal::VirtualMachine;
 
-		// Script type the natives bind to — data/Scripts/OSFUI.pex, shipped with
-		// the mod. Keep in lockstep with data/Scripts/Source/OSFUI.psc.
+		// Keep this binding name in lockstep with data/Scripts/Source/OSFUI.psc.
 		constexpr std::string_view kScriptName = kPlatformScriptName;
 
-		// Callback registry: generational slots, token = (generation << 16) |
-		// slot, token 0 = failure. One table for all kinds so Unregister needs
-		// no kind argument.
+		// Tokens pack a generation and slot; zero is failure.
 
 		enum class Kind : std::uint8_t
 		{
@@ -46,11 +43,6 @@ namespace OSFUI::API::Papyrus
 			RE::BSFixedString                         fn;
 			std::string                               modId;  // settings: empty = every mod; hotkey: required
 			std::string                               key;    // hotkey only: empty = every key-typed setting of modId
-			// kAction only, and always true in practice: 2.0 removed the
-			// scalar-arg registration shape, so every listener now takes
-			// OnOSFUIViewAction(string, string[]). Always assigned explicitly by
-			// AddEntry, and kept rather than folded away because the dispatch
-			// fork it drives is where a second callback shape would attach.
 			bool wantsArgs{ false };
 		};
 
@@ -62,11 +54,7 @@ namespace OSFUI::API::Papyrus
 			bool           reset{ false };
 		};
 
-		// One pending SetView*. Forms are captured as FormIDs (stable values) on
-		// the VM thread — never TESForm* — and serialized at drain time on the
-		// main thread, where form field reads are safe. has_value() on formIds
-		// marks a forms value even when the array is empty ("the list is now
-		// empty").
+		// Queue FormIDs, never TESForm pointers; serialize them on the main thread.
 		struct QueuedState
 		{
 			std::string                               mod;
@@ -75,10 +63,7 @@ namespace OSFUI::API::Papyrus
 			std::optional<std::vector<std::uint32_t>> formIds;
 		};
 
-		// One pending SendViewEvent. Deliberately carries no forms: a form
-		// identity is session-scoped and only readable on the main thread, and an
-		// event is never replayed, so the pairing buys nothing — publish a formId
-		// through a state key instead.
+		// Events carry no session-scoped forms; publish form identity as retained state.
 		struct QueuedEvent
 		{
 			std::string              mod;
@@ -99,11 +84,7 @@ namespace OSFUI::API::Papyrus
 			nlohmann::json                            value;
 			std::optional<std::vector<std::uint32_t>> formIds;
 		};
-		// This registry contains VM smart pointers and interned engine strings.
-		// Windows may tear the VM down before DLL static destruction, so releasing
-		// these objects from process detach is unsafe. The registry intentionally
-		// has process lifetime; game-load handling clears session-scoped entries
-		// while the process and its VM threads are still operational.
+		// Leak this VM-owned state intentionally because process-detach destruction is unsafe.
 		struct ProcessState
 		{
 			std::mutex                                          lock;
@@ -114,10 +95,7 @@ namespace OSFUI::API::Papyrus
 			std::vector<QueuedEvent>                            events;
 			std::unordered_map<std::string, PendingViewRequest> viewRequests;
 			std::uint64_t                                       nextViewRequest{ 1 };
-			// Set by the game-load sink, consumed by Runtime::Tick: Papyrus state
-			// holds session-scoped form identities and must not cross a load. The
-			// retained cache itself now lives in RetainedStateStore, which the runtime
-			// owns, so the sink raises a flag instead of reaching across layers.
+			// Raised on game load so Runtime::Tick purges session-scoped retained state.
 			bool                                                sessionReset{ false };
 		};
 
@@ -127,10 +105,7 @@ namespace OSFUI::API::Papyrus
 			return *state;
 		}
 
-		// Fold ASCII case before validating/matching: the
-		// string arrived through BSFixedString interning, which hands back the
-		// first-seen casing process-wide, so the script's literal spelling does
-		// not survive reliably.
+		// BSFixedString preserves process-first casing, so normalize before matching.
 		using StringUtil::ToLowerAscii;
 
 		constexpr std::int32_t MakeToken(std::uint16_t a_gen, std::uint16_t a_slot)
@@ -138,8 +113,7 @@ namespace OSFUI::API::Papyrus
 			return (static_cast<std::int32_t>(a_gen) << 16) | a_slot;
 		}
 
-		// Slot allocation + token mint. a_receiver XOR a_scriptName. Caller
-		// validated the inputs; requires the process-state lock held.
+		// Caller holds the process-state lock and supplies exactly one target kind.
 		std::int32_t AddEntry(Kind a_kind, const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver,
 			RE::BSFixedString a_scriptName, std::string_view a_fn, std::string_view a_modId, std::string_view a_key,
 			bool a_wantsArgs = false)
@@ -187,8 +161,7 @@ namespace OSFUI::API::Papyrus
 			return token;
 		}
 
-		// A two-argument (modId, key) call. Capturing the strings by value keeps
-		// them alive until the async VM stack consumes them.
+		// Capture strings by value until the asynchronous VM consumes them.
 		auto MakeArgs(RE::BSFixedString a_mod, RE::BSFixedString a_key)
 		{
 			return [mod = std::move(a_mod), key = std::move(a_key)](RE::BSScrapArray<RE::BSScript::Variable>& a_args) -> bool {
@@ -199,25 +172,20 @@ namespace OSFUI::API::Papyrus
 			};
 		}
 
-		// The args-list action shape: OnUIAction(string asAction, string[] asArgs).
-		// The Papyrus string[] is built when the closure runs on the VM thread
-		// (PackVariable self-serves the VM); the value vector is copied per target.
+		// Build the Papyrus string array when the closure runs on the VM thread.
 		auto MakeArgsArray(RE::BSFixedString a_action, std::vector<RE::BSFixedString> a_args)
 		{
 			return [action = std::move(a_action), args = std::move(a_args)](RE::BSScrapArray<RE::BSScript::Variable>& a_out) -> bool {
 				a_out.resize(2);
 				a_out[0] = action;
-				// PackVariable's array overload needs a non-const lvalue (its
-				// concept can't form a const uninitialized probe object), and the
-				// captured vector is const in this non-mutable functor — copy it.
+				// PackVariable requires a non-const lvalue, so copy the const capture.
 				std::vector<RE::BSFixedString> values = args;
 				RE::BSScript::PackVariable(a_out[1], values);
 				return true;
 			};
 		}
 
-		// Correlated request callback shape:
-		// OnOSFUIViewRequest(string request, string[] args, string replyToken).
+		// Callback shape: OnOSFUIViewRequest(string, string[], string).
 		auto MakeRequestArgs(RE::BSFixedString a_request, std::vector<RE::BSFixedString> a_args,
 			RE::BSFixedString a_replyToken)
 		{
@@ -239,9 +207,7 @@ namespace OSFUI::API::Papyrus
 			bool                                      wantsArgs{ false };  // kAction: string[] shape
 		};
 
-		// Snapshot the registrations of a_kind matching (a_modId, a_key) under
-		// the lock; the caller dispatches outside it, since a callback may
-		// re-enter Register/Unregister.
+		// Snapshot under the lock and dispatch outside it to permit re-entry.
 		std::vector<Target> CollectTargets(Kind a_kind, std::string_view a_modId, std::string_view a_key)
 		{
 			std::vector<Target> targets;
@@ -250,9 +216,7 @@ namespace OSFUI::API::Papyrus
 				if (e.generation == 0 || e.kind != a_kind) {
 					continue;
 				}
-				// Case-insensitive: registration filters arrived through
-				// BSFixedString interning, which hands back whatever casing
-				// was interned first process-wide.
+				// BSFixedString casing is process-global, so match filters case-insensitively.
 				if (!e.modId.empty() && !Ids::EqualsCaseInsensitiveAscii(e.modId, a_modId)) {
 					continue;
 				}
@@ -264,10 +228,6 @@ namespace OSFUI::API::Papyrus
 			return targets;
 		}
 
-		// Queue one already-built args functor to one target — a static call when
-		// it registered by script name, a method call otherwise. The functor (from
-		// MakeArgs/MakeArgsArray) is built per call so it captures that dispatch's
-		// BSFixedStrings.
 		template <class Args>
 		bool DispatchOne(VM* a_vm, const Target& a_target, Args&& a_args)
 		{
@@ -292,9 +252,7 @@ namespace OSFUI::API::Papyrus
 			};
 		}
 
-		// Queue the two-string call (a_arg1, a_arg2) to every target.
-		// DispatchMethodCall/DispatchStaticCall only queue onto the VM, so this
-		// is any-thread, though today every caller is the main thread.
+		// Any-thread because VM dispatch only queues the call.
 		void DispatchToTargets(const std::vector<Target>& a_targets, std::string_view a_arg1, std::string_view a_arg2)
 		{
 			if (a_targets.empty()) {
@@ -318,10 +276,7 @@ namespace OSFUI::API::Papyrus
 			DispatchToTargets(CollectTargets(a_kind, a_modId, a_key), a_modId, a_key);
 		}
 
-		// Action shape: filter on a_modId, call each target in its declared form.
-		// Scalar-arg registrants get OnUIAction(action, args[0]-or-"") — identical
-		// to the pre-args behaviour; args-list registrants get the whole vector as
-		// a Papyrus string[]. Both shapes can be registered for one mod at once.
+		// Preserve both legacy scalar and current string-array action callbacks.
 		void DispatchAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args)
 		{
 			const auto targets = CollectTargets(Kind::kAction, a_modId, {});
@@ -335,8 +290,7 @@ namespace OSFUI::API::Papyrus
 			}
 
 			const RE::BSFixedString action{ std::string(a_action).c_str() };
-			// Legacy scalar: the first list element (empty when the list is empty),
-			// so a migrated view sending args[] still drives an unmigrated script.
+			// Legacy scalar callbacks receive the first array element or an empty string.
 			const RE::BSFixedString scalar{ a_args.empty() ? "" : a_args.front().c_str() };
 			std::vector<RE::BSFixedString> argv;
 			argv.reserve(a_args.size());
@@ -438,9 +392,7 @@ namespace OSFUI::API::Papyrus
 				return;
 			}
 			std::lock_guard l{ State().lock };
-			// Drop-newest cap: with the runtime disabled via config the drain
-			// never runs, and a scripted Set loop must not grow memory forever.
-			// Far above any legitimate burst — the drain empties this per tick.
+			// Bound this undrained queue when the runtime is disabled.
 			constexpr std::size_t kMaxPendingOps = 1024;
 			if (State().ops.size() >= kMaxPendingOps) {
 				REX::WARN("PapyrusApi: pending settings-op queue full; dropping Set/Reset for {}.{}", mod, key ? key : "");
@@ -449,10 +401,7 @@ namespace OSFUI::API::Papyrus
 			State().ops.push_back({ mod, key ? key : "", std::move(a_value), a_reset });
 		}
 
-		// Shared SetView*/SendViewEvent target validation (VM tasklet
-		// thread). Fold ASCII case before validating: BSFixedString's interned
-		// casing is arbitrary, and delivery compares mod ids case-insensitively. Returns
-		// the folded mod id, or nullopt after logging the refusal.
+		// VM thread; normalize BSFixedString casing before validating the target.
 		std::optional<std::string> FoldTarget(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key, std::string_view a_native)
 		{
 			auto        mod = ToLowerAscii(a_mod.c_str());
@@ -465,15 +414,11 @@ namespace OSFUI::API::Papyrus
 			return mod;
 		}
 
-		// Queue a validated value for Runtime::Tick's DrainViewState — same
-		// queue-on-VM-thread / drain-on-main-thread shape as QueueOp. Values are
-		// already JSON-safe on the VM thread; forms take the FormID path because
-		// their identity fields may only be read on the main thread.
+		// Queue on the VM thread and resolve any form identity on the main thread.
 		void EnqueueState(QueuedState a_state)
 		{
 			std::lock_guard l{ State().lock };
-			// Same drop-newest cap as the settings-op queue, for the same
-			// reason: with the runtime disabled the drain never runs.
+			// Bound this undrained queue when the runtime is disabled.
 			constexpr std::size_t kMaxPendingStates = 1024;
 			if (State().states.size() >= kMaxPendingStates) {
 				REX::WARN("PapyrusApi: pending view-state queue full; dropping {}.{}", a_state.mod, a_state.key);
@@ -490,10 +435,7 @@ namespace OSFUI::API::Papyrus
 			EnqueueState(QueuedState{ std::move(*mod), a_key.c_str(), std::move(a_value), std::nullopt });
 		}
 
-		// FormType -> 4-char record signature ("KYWD", "WEAP", ...) via the
-		// game's own table. Main thread (the table is relocated game data).
-		// Unknown types fall back to the numeric enum value so the field is
-		// always present and stable for JS to switch on.
+		// Main thread; unknown form types fall back to their numeric value.
 		std::string FormTypeSignature(RE::FormType a_type)
 		{
 			for (const auto& entry : RE::FORM_ENUM_STRING::GetFormEnumString()) {
@@ -504,10 +446,7 @@ namespace OSFUI::API::Papyrus
 			return std::to_string(static_cast<std::uint32_t>(a_type));
 		}
 
-		// One element of the data.push `forms` array: an identity-only object,
-		// or JSON null when the input was None or the form vanished between queue
-		// and drain, so a parallel values
-		// push stays index-aligned. Main thread only — reads form fields.
+		// Main thread; missing forms serialize as null to preserve array alignment.
 		nlohmann::json SerializeForm(std::uint32_t a_formId)
 		{
 			if (a_formId == 0) {
@@ -533,12 +472,7 @@ namespace OSFUI::API::Papyrus
 			return out;
 		}
 
-		// GetFormById/GetFormsById body (VM tasklet thread — LookupByID is the
-		// same any-thread lookup every Papyrus native uses; no field reads).
-		// Accepts the two spellings a view echo can arrive in: decimal (the
-		// OSF UI runtime's number->string arg coercion) and "0x..." hex (authors quoting
-		// a formId for display). None on garbage or an id that resolves to
-		// nothing. Runtime FormIDs are session-scoped, so a stored ID may be stale.
+		// VM thread; accepts decimal or 0x-prefixed session-scoped FormIDs.
 		RE::TESForm* ResolveFormId(std::string_view a_text)
 		{
 			const bool  hex = a_text.size() > 2 && a_text[0] == '0' && (a_text[1] == 'x' || a_text[1] == 'X');
@@ -558,14 +492,11 @@ namespace OSFUI::API::Papyrus
 			return nullptr;
 		}
 
-		// Natives. All run on VM tasklet threads: getters read the any-thread
-		// SettingsMirror (never SettingsStore), mutations queue for the main
-		// thread. Signatures follow BSScriptUtil's global-function shape.
+		// VM tasklets read the mirror and queue mutations for the main thread.
 
 		std::int32_t GetVersion(PapVM&, std::uint32_t, std::monostate)
 		{
-			// Packed for cheap compares. 0 (native unbound, call failed) means
-			// OSF UI absent — the documented feature-detect.
+			// Zero remains the documented unavailable sentinel.
 			return static_cast<std::int32_t>(kOsfuiReleaseVersionMajor * 10000 +
 				kOsfuiReleaseVersionMinor * 100 + kOsfuiReleaseVersionPatch);
 		}
@@ -587,8 +518,7 @@ namespace OSFUI::API::Papyrus
 			if (!BridgeApi::Get().Mirror().GetInt(a_mod.c_str(), a_key.c_str(), &v)) {
 				return a_default;
 			}
-			// Papyrus int is 32-bit; clamp rather than truncate if a schema
-			// range ever exceeds it.
+			// Clamp schema values to the 32-bit Papyrus integer range.
 			return static_cast<std::int32_t>(std::clamp<std::int64_t>(v, INT32_MIN, INT32_MAX));
 		}
 
@@ -683,10 +613,7 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kHotkey, {}, a_script, a_fn.c_str(), a_modId.c_str(), a_key.c_str());
 		}
 
-		// Fold a script-supplied action mod id to stable ASCII casing and accept
-		// only a safe, non-reserved one (nullopt = reject). Action registration is the
-		// only Kind that validates the id up front: kSettings takes it raw as a
-		// filter, kHotkey only requires it non-empty.
+		// Normalize and validate action mod ids before registration.
 		std::optional<std::string> ValidateActionModId(const RE::BSFixedString& a_modId)
 		{
 			auto modId = ToLowerAscii(a_modId.c_str());
@@ -696,9 +623,6 @@ namespace OSFUI::API::Papyrus
 			return modId;
 		}
 
-		// The two action-registration bodies behind the four natives below.
-		// a_wantsArgs picks the callback shape; a_native names the caller so a
-		// rejection still logs the exact native the script called.
 		std::int32_t RegisterActionInstance(const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver,
 			const RE::BSFixedString& a_fn, const RE::BSFixedString& a_modId, bool a_wantsArgs, const char* a_native)
 		{
@@ -723,8 +647,7 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kAction, {}, a_script, a_fn.c_str(), *modId, {}, a_wantsArgs);
 		}
 
-		// The strict 2.0 action registration. The frozen v1 adapter binds the
-		// old four-shape `RegisterForViewActions*` family separately below.
+		// The frozen v1 adapter binds its legacy action shapes separately.
 		std::int32_t ListenForViewActions(PapVM&, std::uint32_t, std::monostate,
 			RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId)
 		{
@@ -771,12 +694,7 @@ namespace OSFUI::API::Papyrus
 			return AddEntry(Kind::kRequest, {}, a_script, "OnOSFUIViewRequest", *modId, {});
 		}
 
-		// The Papyrus event channel: a one-shot happening delivered to the mod's
-		// instantiated views as `on("<mod>.<name>")`. Never cached and never replayed —
-		// which is exactly why it has to exist. Without it, an author with
-		// something momentary to announce ("the scan finished", "the player took
-		// a hit") had only retained state to say it with, and state replays on
-		// every reload, so the "event" re-fired.
+		// Deliver one-shot events to instantiated views without caching or replay.
 		void SendViewEvent(PapVM&, std::uint32_t, std::monostate,
 			RE::BSFixedString a_mod, RE::BSFixedString a_name, std::vector<RE::BSFixedString> a_args)
 		{
@@ -1020,10 +938,7 @@ namespace OSFUI::API::Papyrus
 			return false;
 		}
 
-		// Forget every registration without releasing receiver refs: on a game
-		// load the VM tears down first, so cached Object pointers may already
-		// dangle. The generation stays monotonic so a pre-load token cannot validate
-		// against a slot reused after the load.
+		// Clear after VM teardown without releasing stale receivers or reusing old tokens.
 		void ClearRegistrations()
 		{
 			std::lock_guard l{ State().lock };
@@ -1033,10 +948,7 @@ namespace OSFUI::API::Papyrus
 				std::construct_at(std::addressof(e.receiver));  // overwrite ptr = null, skip Release
 			}
 			State().slots.clear();
-			// Queued state/events carry session-scoped form identities and must
-			// never cross a game load. The retained copy lives in the runtime's
-			// RetainedStateStore now, so raise a flag the next tick consumes rather
-			// than reaching across layers from a VM-thread event sink.
+			// Drop queued session identities and signal the runtime to clear retained copies.
 			State().viewRequests.clear();
 			State().states.clear();
 			State().events.clear();
@@ -1046,9 +958,7 @@ namespace OSFUI::API::Papyrus
 			}
 		}
 
-		// Game-load backstop: the VM is rebuilt across loads, so re-bind the
-		// natives and drop the stale script registrations before the new
-		// session's scripts run.
+		// Rebind natives and clear stale registrations before the new session runs.
 		class LoadGameSink final : public RE::BSTEventSink<RE::TESLoadGameEvent>
 		{
 		public:
@@ -1116,11 +1026,6 @@ namespace OSFUI::API::Papyrus
 		Dispatch(Kind::kHotkey, a_modId, a_key);
 	}
 
-	// A schema-owned hotkey callback is just a two-string GLOBAL call, so it
-	// forwards rather than repeating the dispatch: PackVariable routes every
-	// string type through BSFixedString, which makes the packed arguments
-	// identical either way. One dispatcher = one place for any future guard on
-	// VM entry.
 	StaticDispatchResult DispatchStaticHotkey(std::string_view a_script,
 		std::string_view a_function, std::string_view a_modId, std::string_view a_key)
 	{
@@ -1205,9 +1110,7 @@ namespace OSFUI::API::Papyrus
 		for (auto& queued : states) {
 			ViewState out{ std::move(queued.mod), std::move(queued.key), std::move(queued.value) };
 			if (queued.formIds) {
-				// Serialize here, on the main thread: the queue held FormIDs, and
-				// a form that vanished since keeps its slot as null so a parallel
-				// values key stays index-aligned.
+				// Serialize on main and keep vanished forms as null to preserve alignment.
 				auto forms = nlohmann::json::array();
 				for (const auto id : *queued.formIds) {
 					forms.push_back(SerializeForm(id));
@@ -1246,20 +1149,14 @@ namespace OSFUI::API::Papyrus
 			ops.swap(State().ops);
 		}
 		for (auto& op : ops) {
-			// Canonicalize to the authored spelling before hitting the
-			// case-exact store: the names arrived through BSFixedString
-			// interning with arbitrary casing. An unresolvable op keeps its raw
-			// names so the refusal log shows what the script actually sent.
+			// Restore authored casing before the case-exact store lookup.
 			std::string mod;
 			std::string key;
 			if (BridgeApi::Get().Mirror().ResolveNames(op.mod, op.key, mod, key)) {
 				op.mod = std::move(mod);
 				op.key = std::move(key);
 			}
-			// Enum values need the same tolerance as names: "fast" can arrive
-			// as "Fast" (seen in-game 2026-07-17) and enum validation is exact.
-			// Canonicalize to the authored option; a real mismatch passes
-			// through unchanged and refuses normally.
+			// Canonicalize enum casing altered by BSFixedString interning.
 			if (!op.reset && op.value.is_string()) {
 				if (auto canon = a_store.CanonicalEnumValue(op.mod, op.key, op.value.get_ref<const std::string&>())) {
 					op.value = std::move(*canon);

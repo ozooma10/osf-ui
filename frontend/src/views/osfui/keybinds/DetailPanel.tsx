@@ -1,8 +1,3 @@
-// Everything bound to the selected key.
-//
-// Takes no `query` prop: typing in the search box must not re-scope this panel,
-// and the missing prop is what enforces that. Layer does reach the panel, but
-// only to prioritize its matches; holders from other layers remain visible.
 
 import { holdersOf, keyState } from '@lib/keybinds/conflicts';
 import { prioritizeBindingsForFilter } from '@lib/keybinds/filter';
@@ -69,8 +64,6 @@ export function DetailPanel(props: DetailPanelProps) {
             {tr('selectKeyHint', 'Click any key on the board to see what holds it.')}
           </p>
         ) : !holders.length ? (
-          // Reachable: a selected key can lose its last holder to a rebind, and
-          // `settings.changed` repaints without clearing the selection.
           <p class="kb-hint">{tr('nothingBound', 'Nothing is bound here.')}</p>
         ) : (
           holders.map((b) => {

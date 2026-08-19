@@ -21,15 +21,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run native suites
-        # Compiles the real store/module/bridge/api/hotkey sources on clang and runs them; 
-        # exit code = number of failing checks (see tests/native/run.sh).
+        # The suite returns its failing-check count as the process exit code.
         run: bash tests/native/run.sh
         env:
           CXX: clang++
 
       - name: Check protocol version lockstep
-        # Keep the public type contract and machine-readable schemas aligned with
-        # kBridgeProtocolVersion in src/Core/Version.h.
+        # Keep public types and schemas aligned with kBridgeProtocolVersion.
         run: |
           set -e
           V=$(sed -n 's/.*kBridgeProtocolVersion = "\([0-9.]*\)".*/\1/p' src/Core/Version.h)
@@ -43,21 +41,7 @@ jobs:
           exit $fail
 
       - name: Check every JSON read and write goes through the wrapper
-        # src/Core/Json.h is the only place nlohmann is touched directly, and
-        # each rule below was a real defect before it was a rule:
-        #   dump()   - defaults to error_handler_t::strict, which THROWS on
-        #              malformed UTF-8; most dump sites sit on the game tick or a
-        #              pipe writer with no handler above them, so that is a
-        #              std::terminate. Json::Dump substitutes U+FFFD.
-        #   parse()  - the raw call skips ignore_comments, so a settings schema
-        #              with // comments loaded from disk but was rejected over
-        #              the C ABI. Json::Parse passes it everywhere.
-        #   .value() - throws type_error.302 on a wrong-typed key and .306 on a
-        #              non-object receiver, on those same threads. Json::Get
-        #              falls back to the caller's default and cannot throw.
-        # sdk/ is exempt: the public plugin header is standalone by design and
-        # cannot include src/. Comments are stripped before matching so the
-        # explanations above can name the very calls they forbid.
+        # Raw nlohmann calls can throw or parse inconsistently; production code uses Core/Json.h.
         run: |
           set -e
           fail=0

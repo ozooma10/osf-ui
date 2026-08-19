@@ -12,9 +12,7 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Owning wrappers over the shared ASCII primitives: NormalizeLocale mutates
-		// the trimmed string in place, and ReadIniLanguage returns it, so both need
-		// std::string rather than the non-owning TrimAscii view.
+		// Use owning strings where normalized or returned data outlives TrimAscii views.
 		std::string Trim(std::string_view a_text)
 		{
 			return std::string(StringUtil::TrimAscii(a_text));

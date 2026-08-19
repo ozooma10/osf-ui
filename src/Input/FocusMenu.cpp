@@ -109,15 +109,10 @@ namespace OSFUI
 
 		// Construction constants, RE-verified on 1.16.244 (OSF RE ui.menu_flags).
 
-		// Engine IMenu base-init: void(IMenu* this). Installs the engine's vtables,
-		// refcount=1, uiMovie=null. Not named in CommonLibSF (the RE::ID::IMenu IDs
-		// are {0} placeholders), so it lives here with provenance.
+		// RE 1.16.244 engine IMenu base initializer (ID 130615).
 		constexpr std::uint64_t kID_IMenuBaseInit = 130615;  // 0x1425516b0
 
-		// Over-allocate the base IMenu (~0x138) and zero it. The engine takes
-		// ownership; we pin the refcount so it is never freed through the Scaleform
-		// allocator (an intentional single per-session leak — the menu lives for the
-		// whole session like every native menu).
+		// Engine owns this session-lifetime buffer; pin its refcount to avoid allocator mismatch.
 		constexpr std::size_t kAllocSize = 0x200;
 		constexpr std::size_t kVtblSlots = 32;  // covers IMenu vfuncs 0x00..0x1A
 
@@ -129,18 +124,11 @@ namespace OSFUI
 		constexpr std::size_t kOffFlagsUpd = 0x0D2;  // bool flagsUpdated
 
 		std::atomic_bool   g_vtblBuilt{ false };
-		// MSVC stores the RTTICompleteObjectLocator* at vtable[-1] (the 8 bytes
-		// before slot 0). The engine dynamic_cast's live menus (__RTDynamicCast),
-		// which reads that COL; if it is garbage the cast AVs and is rethrown as
-		// "Access violation - no RTTI data!" (exception E06D7363). Reserve one
-		// leading slot for a copy of the engine's COL and hand the object a vtable
-		// pointer of &g_vtableStore[1]. Only matters once the menu is admitted to
-		// the active array (Route A); before that the engine never casts us.
+		// Preserve the engine RTTI locator at vtable[-1] because admitted menus are dynamic_cast.
 		void*              g_vtableStore[kVtblSlots + 1]{};
 		void** const       g_vtable = &g_vtableStore[1];
 
-		// Engine IMenu base ProcessMessage (primary vtable slot 8, captured in
-		// BuildVtable before the slot is patched).
+		// Capture engine IMenu ProcessMessage from primary vtable slot 8 before patching.
 		using ProcessMessageFn = std::int64_t (*)(void*, void*);
 		ProcessMessageFn g_baseProcessMessage{ nullptr };
 
@@ -150,24 +138,10 @@ namespace OSFUI
 		std::uint64_t Thunk_GetUnk05(void*) { return 0; }
 		bool          Thunk_LoadMovie(void*, bool, bool) { return true; }  // success, no Scaleform movie
 
-		// Handle kShow ourselves; delegate every other message to the engine base.
-		//
-		// The base must run the hide path: it is what removes the menu from the
-		// active array (UI+0x430 count / +0x438 data). Not a return-code issue — the
-		// base also returns 0/kHandled for kHide, exactly what an earlier blanket
-		// no-op thunk returned; the skipped part was its side effects. A no-op kHide
-		// left a desynced array (stale count / dangling slot), and the next menu
-		// event's top-modal walk (dynamic_cast<GameMenuBase*>) hit the bad slot and
-		// AV'd on RTTI (E06D7363, ~48s later; dump-confirmed 2026-07-02, OSF RE
-		// ui.imenu_dynamic_cast).
-		//
-		// kShow must not be delegated: the base returns 1/kIgnore for a movie-less
-		// menu, which makes the pump reject admission; Route A needs 0/kHandled.
-		// Show-path base side effects aren't needed on the movie-less path.
+		// Handle kShow locally for movie-less admission; delegate kHide so the base removes the active entry.
 		std::int64_t Thunk_ProcessMessage(void* a_this, void* a_msg)
 		{
-			// UIMessageData: vptr @0x00, UI_MESSAGE_TYPE @0x08 (CommonLibSF
-			// UIMessageQueue.h). kShow=0, kUpdate=1, kHide=2.
+			// UIMessageData stores UI_MESSAGE_TYPE at +0x08; kShow=0, kUpdate=1, kHide=2.
 			const auto type = a_msg
 			                      ? *reinterpret_cast<const std::uint32_t*>(
 			                            reinterpret_cast<const std::uint8_t*>(a_msg) + 0x08)
@@ -184,20 +158,10 @@ namespace OSFUI
 			}
 			return 0;
 		}
-		// 0x0A (+0x50): the show pump's stack-admission predicate. The engine base
-		// (REL::ID 130619) is `return uiMovie != nullptr`, and the pump (130449)
-		// calls it before inserting the menu into the active array (UI+0x430) — so a
-		// movie-less menu was never admitted (no input dispatch, IsMenuOpen false).
-		// Forcing true is the fix ("Route A", no .swf asset needed; OSF RE
-		// ui.menu_movie_load). After insertion the engine sets bit6/kAdvancesMovie
-		// via vf 0x10, so IsMenuOpen then reflects real array membership.
+		// Force vf 0x0A true so the movie-less menu is admitted to UI+0x430.
 		bool          Thunk_CanShow(void*) { return true; }
 
-		// Build the patched vtable once: a copy of the engine IMenu primary vtable
-		// so every engine vfunc lands on engine code, with only the six slots we own
-		// redirected to our thunks (03/04/05/06/08 + the 0x0A admission predicate).
-		// The C++ FocusMenu vtable can't be used: it routes engine calls through
-		// CommonLibSF's {0}-ID relocation thunks => image+0 jump => crash.
+		// Patch a copied engine vtable because CommonLibSF's zero-ID IMenu thunks are invalid here.
 		void BuildVtable()
 		{
 			if (g_vtblBuilt.load(std::memory_order_acquire)) {
@@ -205,15 +169,12 @@ namespace OSFUI
 			}
 			static REL::Relocation<std::uintptr_t> engineVtbl{ RE::VTABLE::IMenu[0] };
 			const auto* src = reinterpret_cast<void* const*>(engineVtbl.address());
-			// Carry the engine's RTTICompleteObjectLocator* (at src[-1]) so a
-			// dynamic_cast through our copied vtable resolves to the engine IMenu
-			// type instead of AV'ing on missing RTTI.
+			// Copy the engine RTTI locator into the leading vtable slot.
 			g_vtableStore[0] = src[-1];
 			for (std::size_t i = 0; i < kVtblSlots; ++i) {
 				g_vtable[i] = src[i];
 			}
-			// Capture the base ProcessMessage before patching slot 8 — the thunk
-			// delegates all non-show messages to it.
+			// Save base ProcessMessage for every non-show message.
 			g_baseProcessMessage = reinterpret_cast<ProcessMessageFn>(src[8]);
 			g_vtable[3] = reinterpret_cast<void*>(&Thunk_GetName);        // 03 GetName
 			g_vtable[4] = reinterpret_cast<void*>(&Thunk_GetRootPath);    // 04 GetRootPath
@@ -227,8 +188,7 @@ namespace OSFUI
 
 	RE::Scaleform::Ptr<RE::IMenu>* FocusMenu::Creator(RE::Scaleform::Ptr<RE::IMenu>* a_out)
 	{
-		// Builds a fully engine-initialised menu so the engine's name-keyed menu walk
-		// (`mov rcx,[rcx+0xB0]`) always reads a live menuName, never null.
+		// Build an engine-initialized menu with a live +0xB0 name for keyed dispatch.
 		BuildVtable();
 
 		auto* obj = std::calloc(1, kAllocSize);
@@ -238,8 +198,7 @@ namespace OSFUI
 			return a_out;
 		}
 
-		// Engine IMenu base-init: installs the engine's own vtables, refcount=1,
-		// uiMovie=null. The headless make_shared path skipped this.
+		// Engine base initialization installs vtables, refcount, and null uiMovie.
 		static REL::Relocation<void (*)(void*)> baseInit{ REL::ID(kID_IMenuBaseInit) };
 		baseInit(obj);
 
@@ -247,37 +206,24 @@ namespace OSFUI
 
 		*reinterpret_cast<void**>(bytes + 0) = &g_vtable[0];
 
-		// Web-backed: keep uiMovie null. The per-frame movie sites all null-guard
-		// +0x88, so movie work is skipped rather than dereferenced.
+		// Keep uiMovie null; engine movie sites guard +0x88 before use.
 		*reinterpret_cast<void**>(bytes + kOffMovie) = nullptr;
 
-		// Construct a valid menuName in place at +0xB0 so the engine's name-keyed
-		// dispatch reads a live BSFixedString, not garbage.
+		// Construct the interned menuName in place at +0xB0.
 		new (bytes + kOffName) RE::BSFixedString(MENU_NAME.data());
 
-		// No flags: no ShowCursor (bit 3, see the ctor), no kModal (world-render
-		// suppression), no pause bits (Input/SimPause). This is the write that
-		// takes effect — the C++ ctor never runs for this raw engine-built object,
-		// so flag changes must be made here. A ctor-only "revert" shipped wrong
-		// flags once.
+		// Set flags on the raw engine object; the C++ constructor never runs for it.
 		constexpr std::uint32_t flags = 0;
 		*reinterpret_cast<std::uint32_t*>(bytes + kOffFlags) = flags;
 		*(bytes + kOffFlagsUpd) = 1;
 
-		// Pin the refcount high so the engine never frees our calloc buffer through
-		// the Scaleform allocator (allocator mismatch). Intentional leak: the focus
-		// menu lives for the whole session, like every native menu.
+		// Pin the session object so the engine never frees calloc memory through Scaleform.
 		*reinterpret_cast<std::uint32_t*>(bytes + kOffRefCount) = 0x10000000;
 
-		// Level-2 observer: replace the +0x10 BSInputEventUser
-		// vtable with the patched copy so the engine's per-menu input dispatch is
-		// visible to us. Additive — base-init already
-		// installed the real receiver vtable and the enabled byte (+0x38=1); we only
-		// redirect the six observed slots.
+		// Redirect only the observed BSInputEventUser slots after engine base initialization.
 		InstallInputReceiver(obj);
 
-		// Store the raw object into the out-Ptr without going through Ptr(Y*), which
-		// would AddRef via our vtable. Scaleform::Ptr is { T* }.
+		// Store directly into Scaleform::Ptr to avoid AddRef through the patched vtable.
 		*reinterpret_cast<void**>(a_out) = obj;
 
 		REX::DEBUG("FocusMenu: creator built engine-initialised menu obj=0x{:016X} flags=0x{:08X} (uiMovie=null, name@+0xB0 set)",
@@ -296,9 +242,7 @@ namespace OSFUI
 			return false;
 		}
 
-		// Resolve the construction addresses up front so a missing binding fails
-		// registration cleanly instead of at first open. RE-verified on 1.16.244;
-		// re-verify after any game patch (POST_PATCH_CHECKLIST in OSF RE).
+		// Resolve all 1.16.244 construction addresses during registration and fail closed after patches.
 		BuildVtable();
 
 		if (ui->IsMenuRegistered(MenuName())) {
@@ -328,9 +272,7 @@ namespace OSFUI
 		if (!ui) {
 			return false;
 		}
-		// UI+0x430 admitted-array walk (as in MenuMode::AnyGameMenuOpen). The
-		// runtime object's +0xB0 name is interned by the creator, so the
-		// BSFixedString compare is valid for it.
+		// Walk UI+0x430 and compare the creator-interned name at +0xB0.
 		for (const auto& menu : ui->menuArray) {
 			if (menu && menu->menuName == MENU_NAME) {
 				return true;

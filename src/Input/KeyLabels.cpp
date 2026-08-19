@@ -14,11 +14,7 @@ namespace OSFUI
 			std::string_view english;
 		};
 
-		// Non-printing keys: label from our own short forms (localizable via
-		// chrome.keys.<Name> catalog addresses), never from the layout DLL —
-		// the layout's language is not the player's UI language, and its
-		// spellings ("UMSCHALT", "RÜCK") are inconsistent across layouts. The
-		// English defaults match the board's historical keycaps.
+		// Label non-printing keys in the player's UI locale, not the keyboard-layout language.
 		constexpr FixedLabel kFixedLabels[] = {
 			{ "Escape", "Esc" }, { "Backspace", "Bksp" }, { "Tab", "Tab" },
 			{ "CapsLock", "Caps" }, { "Enter", "Enter" }, { "Space", "Space" },
@@ -77,8 +73,7 @@ namespace OSFUI
 			} else if (IsFunctionKeyName(name)) {
 				label = name;  // F1-F24: universal, never a glyph
 			} else {
-				// Printable key: the layout's keycap glyph, with the layout-DLL
-				// name and finally the key name as fallbacks — never empty.
+				// Printable keys fall back from layout glyph to layout name to canonical key name.
 				if (a_source.glyph) {
 					label = a_source.glyph(scan);
 				}

@@ -1,24 +1,9 @@
-// Transient-notice list, as a pure state machine.
-//
-// The two timers are independent and both measured from insertion — removal is
-// not chained off the fade. The 400ms difference is the CSS transition window
-// for the `.leaving` class; changing either number desynchronises the fade-out
-// from the unmount, so they must move together with osfui.css.
 
 /** Milliseconds from insertion until the `leaving` class is applied. */
 export const TOAST_LEAVING_MS = 2600;
 /** Milliseconds from insertion until the entry is removed. */
 export const TOAST_REMOVE_MS = 3000;
 
-/**
- * Rendered as `toast--<kind>` alongside the base `toast` class; an omitted kind
- * renders the base class alone (no `toast--undefined`), which is why this is
- * optional rather than defaulted.
- *
- * These are the only kinds the settings and keybinds stylesheets define (both
- * set only `border-left-color`). A new kind must land in both stylesheets
- * first, or it renders identically to a plain toast.
- */
 export type ToastKind = 'warn' | 'danger';
 
 export interface ToastEntry {
@@ -52,16 +37,8 @@ export interface ToastAddResult {
   readonly timers: readonly ToastTimer[];
 }
 
-/**
- * Append a toast. Newest goes last, so toasts stack downward in arrival order.
- * No cap and no de-duplication — a burst of rejected writes shows one toast
- * each.
- */
 export function addToast(state: ToastState, message: string, kind?: ToastKind): ToastAddResult {
   const id = state.nextId;
-  // Built conditionally: `exactOptionalPropertyTypes` forbids assigning an
-  // explicit `undefined` to an optional property, and the absent/undefined
-  // distinction is what suppresses the `toast--` modifier class.
   const entry: ToastEntry = kind === undefined
     ? { id, message, leaving: false }
     : { id, message, kind, leaving: false };
@@ -76,13 +53,6 @@ export function addToast(state: ToastState, message: string, kind?: ToastKind): 
   };
 }
 
-/**
- * Mark a toast as leaving (the TOAST_LEAVING_MS timer).
- *
- * Unknown id is a no-op returning the same state reference, so a component
- * driven by identity does not re-render. An id-keyed model can race a removal,
- * so this tolerates a miss rather than throwing.
- */
 export function expireToast(state: ToastState, id: number): ToastState {
   const target = state.entries.find((e) => e.id === id);
   if (!target || target.leaving) return state;

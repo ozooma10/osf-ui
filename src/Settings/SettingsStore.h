@@ -11,10 +11,10 @@ namespace OSFUI
 	class SettingsStore
 	{
 	public:
-		// Fired for every committed value - on Set, Reset, once per current value via NotifyAll/NotifyMod, and on per-mod replay after schema hot reload.
+		// Fired for commits plus startup and schema-reload replays.
 		using ChangeListener = std::function<void(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)>;
 
-		// Fired after the published settings document changes post-load: schema hot reload/removal or a load-error change. 
+		// Fired when the published document changes after load.
 		using RegistryListener = std::function<void()>;
 
 		using KeyNameResolver = std::function<std::uint32_t(std::string_view a_name)>;
@@ -51,7 +51,7 @@ namespace OSFUI
 		SettingsStore(const SettingsStore&) = delete;
 		SettingsStore& operator=(const SettingsStore&) = delete;
 
-		// Loads every `<schemaDir>/*.json` as a mod schema; each mod's values persist to `<valuesDir>/<id>.json`. 
+		// Loads schema drop-ins and their per-mod persisted values.
 		void LoadAll(const std::filesystem::path& a_schemaDir, const std::filesystem::path& a_valuesDir);
 
 		void AddChangeListener(ChangeListener a_listener) { _listeners.push_back(std::move(a_listener)); }
@@ -68,7 +68,7 @@ namespace OSFUI
 
 		[[nodiscard]] std::optional<std::string> CanonicalEnumValue(std::string_view a_modId, std::string_view a_key, std::string_view a_value) const;
 		[[nodiscard]] std::vector<KeySetting> KeySettings() const;
-		// Validated schema-owned static Papyrus target for one key. Invalid metadata is ignored here and surfaced through HotkeyTargetIssues().
+		// Returns a validated schema-owned Papyrus target for one key.
 		[[nodiscard]] std::optional<PapyrusHotkeyTarget> GetHotkeyTarget(std::string_view a_modId, std::string_view a_key) const;
 		[[nodiscard]] std::vector<HotkeyTargetIssue> HotkeyTargetIssues() const;
 
@@ -95,7 +95,7 @@ namespace OSFUI
 			std::string   event;    // conflict entry `key` ("QuickSave")
 			std::string   title;    // conflict entry `title` ("Starfield (Quicksave)")
 			std::uint32_t code;     // physical scan code (DIK convention)
-			// Display key name ("F5", canonical KeyName spelling). The public Keybindings view consumes the richer osfui/keybindings state.
+			// Canonical display key name, such as "F5".
 			std::string   name;
 			std::string   engineInputContextName;  // Starfield ControlMap context name ("Workshop")
 			std::string   slot;
@@ -178,7 +178,7 @@ namespace OSFUI
 			nlohmann::json        schema;  // read-only
 			nlohmann::json        values;  // { key: current value }
 			nlohmann::json        preserved;  // { key: opaque saved value }
-			// OSF UI release version this schema was authored against 
+			// OSF UI release targeted by this schema.
 			std::string              targetVersion;
 			std::int64_t             formatVersion{ 2 };
 			std::filesystem::path valuesPath;

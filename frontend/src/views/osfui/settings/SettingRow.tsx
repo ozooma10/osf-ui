@@ -1,24 +1,3 @@
-// One `.row` of a settings group: label line, hint, and the typed control.
-//
-// Structural rules:
-//
-// 1. Row ids are mod-prefixed (`ctl-<mod.id>-<setting.key>`). Two mods both
-//    declaring a key "enabled" would otherwise mint the same DOM id and
-//    `label[for]` would bind one mod's label to the other mod's control.
-//
-// 2. A setting with no usable key is skipped, not rendered: the store keeps
-//    schemas verbatim, so a keyless setting arrives intact but can neither be
-//    committed nor labelled. Dropped with a devWarn.
-//
-// 3. Control cell order is `[reset ↺][optional readout][control]`. Reset leads
-//    so the control stays flush with the row's right edge, in line with the form
-//    and action rows, which have no reset slot. Only the slider contributes a
-//    readout; the stepper carries its own (see Stepper.tsx).
-//
-// `enabledWhen` greys the row (class `disabled`) but only disables the control
-// subtree — the per-setting reset stays live, so a setting you have gated
-// yourself out of is still resettable. The `.pending` exclusion lives in
-// ActionButton.
 
 import { Row } from '@ui/Row';
 import { Badge } from '@ui/Badge';
@@ -78,9 +57,6 @@ export function SettingRow(props: SettingRowProps) {
   const id = rowId(mod.id, setting.key);
   const control = renderControl(props, id);
 
-  // An unknown/newer type renders read-only so a stale runtime degrades
-  // cleanly. It takes no part in visibleWhen/enabledWhen, carries no modified
-  // dot, and has no `data-key`, so a search result cannot jump to it.
   if (control === null) {
     return (
       <div class="row row--unknown">
@@ -177,12 +153,6 @@ export function SettingRow(props: SettingRowProps) {
   );
 }
 
-/**
- * The typed control, or null when this OSF UI runtime predates the type.
- *
- * `int` and `float` share one builder; the int/float split lives inside
- * `stepperFor`, not here.
- */
 function renderControl(props: SettingRowProps, id: string) {
   const { mod, setting, value, enabled, tr } = props;
   const disabled = !enabled;
@@ -193,8 +163,6 @@ function renderControl(props: SettingRowProps, id: string) {
       return (
         <Switch
           id={id}
-          // Strictly `=== true`: undefined, or a truthy non-boolean that
-          // slipped past the store, renders off.
           on={value === true}
           disabled={disabled}
           onToggle={commit}
@@ -203,9 +171,6 @@ function renderControl(props: SettingRowProps, id: string) {
 
     case 'int':
     case 'float': {
-      // A step of 0, a negative, or a NaN would divide-by-zero inside the
-      // stepper's snap and commit NaN over the bridge. `step: null` is nullish
-      // and silently takes the type default, without a warning.
       if (hasInvalidStep(setting)) {
         devWarn(`"${setting.key}" has invalid step ${String(setting.step)}`);
       }
@@ -260,8 +225,6 @@ function renderControl(props: SettingRowProps, id: string) {
         <KeyField
           id={id}
           value={typeof value === 'string' ? value : undefined}
-          // The player's keycap for the stored name ("Ö" for "Semicolon");
-          // the commit path still writes the layout-independent name.
           label={
             typeof value === 'string' && value
               ? props.labeler?.(canonicalName(value))
@@ -271,8 +234,6 @@ function renderControl(props: SettingRowProps, id: string) {
           listening={props.listening}
           disabled={disabled}
           onRebind={() => props.onBeginCapture(setting.key)}
-          // The ✕ commits the unbound state; the store accepts "" only because
-          // `allowUnbound` gates the button's existence.
           onUnbind={() => commit('')}
           listeningLabel={tr('pressKey', 'Press a key…')}
           unbindTitle={tr('unbind', 'Unbind')}
@@ -283,8 +244,6 @@ function renderControl(props: SettingRowProps, id: string) {
       );
 
     default:
-      // Unknown to this OSF UI runtime. `mod` is unused on this path but the parameter
-      // keeps the signature uniform.
       void mod;
       return null;
   }

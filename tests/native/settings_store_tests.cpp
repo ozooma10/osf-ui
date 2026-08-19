@@ -1,7 +1,3 @@
-// Native desktop unit tests for SettingsStore: the REAL
-// src/Settings/SettingsStore.cpp + Json.cpp compiled against stubs/pch.h, run
-// on the developer's desktop toolchain — the native mirror of the web
-// devtools/harness. Assert-style; process exit code is the failure count.
 
 #include "Settings/SettingsStore.h"
 
@@ -11,10 +7,6 @@
 namespace
 {
 
-	// Does a STRICT dump of this value succeed? nlohmann's default handler throws
-	// type_error.316 on an incomplete UTF-8 sequence, and the store's own paths
-	// (settings.ack, the subscriber push, Persist) dump where nothing catches, so
-	// "strictly serializable" is the real invariant a stored value must hold.
 	[[nodiscard]] bool StrictDumpOk(const nlohmann::json& a_value)
 	{
 		try {
@@ -50,8 +42,6 @@ namespace
 	};
 }
 
-// Core/Log.h declarations (real impl lives in src/Core/Log.cpp, which pulls
-// game deps — stub it here instead).
 namespace OSFUI::Log
 {
 	static bool g_debugEnabled = true;
@@ -92,8 +82,6 @@ int main()
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "count", "type": "int", "default": 3, "min": 0, "max": 10 }
 		] } ] })json");
-	// A drop-in claiming another mod's id: the id MUST equal the filename stem,
-	// so it registers as "zeta" (warned) and cannot hijack "beta".
 	WriteFile(schemaDir / "t.zeta.json", R"json({
 		"id": "t.beta", "title": "Impostor Beta",
 		"groups": [ { "label": "G", "settings": [
@@ -110,8 +98,6 @@ int main()
 		"groups": [ { "label": "G", "settings": [
 			{ "key": "x", "type": "bool", "default": true }
 		] } ] })json");
-	// The platform id is reserved case-insensitively; only its canonical shipped
-	// osfui.json is accepted as a built-in drop-in.
 	WriteFile(schemaDir / "OSFUI.json", R"json({ "id": "OSFUI", "title": "Impostor" })json");
 	// Persisted values: clamped on load, unknown keys ignored.
 	WriteFile(valuesDir / "t.alpha.json", R"json({ "scale": 9.0, "mode": "full", "junk": 5 })json");
@@ -139,8 +125,6 @@ int main()
 	CHECK(store.GetValue("plainmod", "x") != nullptr);
 	CHECK(store.GetValue("nope", "x") == nullptr);
 
-	// Localization is applied only to the emitted schema copy. Authors write
-	// English; stable structural addresses drive community overrides.
 	store.SetTextResolver([](std::string_view mod, std::string_view address, std::string_view english) {
 		if (mod == "t.alpha" && address == "settings.title") return std::string("Alpha übersetzt");
 		if (mod == "t.alpha" && address == "groups.0.label") return std::string("Allgemein");
@@ -219,8 +203,6 @@ int main()
 		CHECK(store.Set("t.unbindy", "hot", "\"F7\""));       // bind
 		CHECK(store.Set("t.unbindy", "hot", "\"\""));         // deliberate unbind
 		CHECK(*store.GetValue("t.unbindy", "hot") == "");
-		// The unbound value enumerates as "" (HotkeyService/conflicts skip it
-		// downstream via ResolveKeyName("") == invalid).
 		for (const auto& ks : store.KeySettings()) {
 			if (ks.modId == "t.unbindy") {
 				CHECK(ks.name.empty());
@@ -380,8 +362,6 @@ int main()
 			"id": "t.retry", "groups": [ { "settings": [
 				{ "key": "n", "type": "int", "default": 1 }
 			] } ] })json");
-		// A regular file where the values directory belongs makes the first
-		// atomic write fail without relying on platform permissions.
 		WriteFile(blockedValues, "not a directory");
 
 		SettingsStore retry;
@@ -415,8 +395,6 @@ int main()
 			"groups": [ { "settings": [
 				{ "key": "speed", "type": "int", "default": 5, "min": 0, "max": 10 }
 			] } ] })json");
-		// A regular file where the values directory belongs makes PersistNow fail
-		// deterministically without depending on platform permissions.
 		WriteFile(blockedValues, "not a directory");
 
 		SettingsStore guarded;
@@ -428,9 +406,6 @@ int main()
 		CHECK(guarded.Set("t.replace-guard", "speed", "8"));
 		const auto generationBefore = guarded.Generation();
 
-		// The replacement would adopt `speed` through the alias, but it may not
-		// begin until the dirty v1 value is durable. A failed prerequisite flush
-		// must leave the complete old Mod in place for the normal retry pump.
 		WriteFile(schemaPath, R"json({
 			"id": "t.replace-guard", "title": "Replace Guard v2",
 			"groups": [ { "settings": [
@@ -448,8 +423,6 @@ int main()
 		CHECK(guarded.GetValue("t.replace-guard", "added") == nullptr);
 		CHECK(guarded.DataView()["mods"][0]["title"] == "Replace Guard v1");
 
-		// Storage recovery lands the still-dirty v1 value. Retrying the schema
-		// operation can then adopt it under the v2 alias without data loss.
 		std::error_code ec;
 		fs::remove(blockedValues, ec);
 		CHECK(!ec);
@@ -497,8 +470,6 @@ int main()
 		CHECK(guarded.GetValue("t.remove-guard", "n") &&
 		      *guarded.GetValue("t.remove-guard", "n") == 2);
 
-		// Once storage recovers, the existing dirty Mod remains available to the
-		// persistence pump; a second removal request can then complete normally.
 		std::error_code ec;
 		fs::remove(blockedValues, ec);
 		CHECK(!ec);
@@ -543,9 +514,6 @@ int main()
 				{ "key": "n", "type": "int",  "default": 3 },
 				{ "key": "b", "type": "bool", "default": false }
 			] } ] })json");
-		// Legacy FULL file: "n" frozen at the (still-current) default, plus an
-		// unknown key — pruned to sparse, but the unknown key is PRESERVED
-		// (api-freeze-plan item 2), not wiped like it used to be.
 		WriteFile(valuesDir2 / "t.delta.json", R"json({ "n": 3, "b": true, "junk": 1 })json");
 
 		{
@@ -574,8 +542,6 @@ int main()
 				{ "key": "size",    "type": "int", "default": 10, "aliases": ["scale"] },
 				{ "key": "plain",   "type": "int", "default": 1 }
 			] } ] })json");
-		// Old file uses the FIRST alias for opacity, a LATER alias for size,
-		// and an alias whose value won't validate should never be adopted.
 		WriteFile(vd / "t.ren.json", R"json({ "alpha": 80, "scale": 25 })json");
 
 		SettingsStore s;
@@ -592,8 +558,6 @@ int main()
 			CHECK((saved == nlohmann::json{ { "opacity", 80 }, { "size", 25 }, { "$formatVersion", 1 } }));  // no "alpha"/"scale" left
 		}
 
-		// The current key present wins over any alias; an alias that fails
-		// validation (wrong type) falls through to default, not adopted.
 		WriteFile(vd / "t.ren.json", R"json({ "opacity": 30, "alpha": 99, "scale": "nope" })json");
 		SettingsStore s2;
 		s2.LoadAll(sd, vd);
@@ -627,30 +591,20 @@ int main()
 			CHECK((ver == nlohmann::json{ { "$schemaVersion", 3 }, { "n", 5 }, { "$formatVersion", 1 } }));  // stamp advanced, value kept
 		}
 
-		// v0 mod: fresh install, all-default -> no file churn beyond none, and
-		// crucially NO $schemaVersion key.
 		SettingsStore su;
 		su.LoadAll(sd, vd);
 		su.FlushPersistence();
 		{
 			std::error_code ec;
-			// unver never diverged from sparse-empty, so no file need exist;
-			// if one does (defensive), it must not carry a version stamp.
 			if (fs::exists(vd / "t.unver.json", ec)) {
 				auto un = nlohmann::json::parse(std::ifstream(vd / "t.unver.json"), nullptr, false);
 				CHECK(!un.contains("$schemaVersion"));
 			}
 		}
 
-		// No perpetual re-dirty: a versioned file already at the current
-		// version + sparse form must load CLEAN (no rewrite scheduled). Prove
-		// it by loading, immediately flushing, and checking the byte content
-		// is unchanged even though we never pumped a rewrite window.
 		WriteFile(vd / "t.ver.json", R"json({"$schemaVersion":3,"n":5})json");
 		SettingsStore sc;
 		sc.LoadAll(sd, vd);
-		// A clean load leaves the mod not-dirty; FlushPersistence is then a
-		// no-op and the (compact, hand-written) file keeps its exact bytes.
 		sc.FlushPersistence();
 		{
 			std::ifstream f(vd / "t.ver.json");
@@ -680,10 +634,6 @@ int main()
 		std::size_t registryFires = 0;
 		s.AddRegistryListener([&] { ++registryFires; });
 
-		// Reload with a retitled schema + an added setting + a key RENAME via
-		// §11 aliases. The dirty value must survive: the reload flushes the
-		// write-behind window first, then overlays from the file it just wrote
-		// — and the alias carries it across the rename.
 		WriteFile(sd / "t.hot.json", R"json({
 			"id": "t.hot", "title": "Hot v2",
 			"groups": [ { "settings": [
@@ -728,8 +678,6 @@ int main()
 			"groups": [ { "settings": [
 				{ "key": "widgets", "type": "flags", "options": ["clock", "compass", "o2"], "default": ["clock"] }
 			] } ] })json");
-		// Saved value: out of declared order, with a removed option and a dupe —
-		// resolved (filtered + deduped + canonical declared order), like clamping.
 		WriteFile(vd / "t.flaggy.json", R"json({ "widgets": ["o2", "zzz", "clock", "o2"] })json");
 
 		SettingsStore s;
@@ -748,16 +696,12 @@ int main()
 	{
 		const auto sd = root / "settings-fwd";
 		const auto vd = root / "values-fwd";
-		// A NEWER mod's schema on this OSF UI runtime: one setting of an unknown type
-		// (with an alias carrying a rename), one known setting.
 		WriteFile(sd / "t.future.json", R"json({
 			"id": "t.future", "title": "Future",
 			"groups": [ { "settings": [
 				{ "key": "vec", "type": "vector3", "default": [0,0,0], "aliases": ["oldvec"] },
 				{ "key": "n",   "type": "int", "default": 1 }
 			] } ] })json");
-		// Saved: an unknown-typed value, a value under the unknown setting's old
-		// alias, a plain unknown key, and a sparse known value.
 		WriteFile(vd / "t.future.json", R"json({ "vec": [1,2,3], "oldvec": [9,9,9], "mystery": {"a":1}, "n": 5 })json");
 
 		SettingsStore s;
@@ -768,18 +712,12 @@ int main()
 		CHECK(s.GetValue("t.future", "mystery") == nullptr);  // never served
 		// Writing an unknown-typed setting is refused (read-only until upgrade).
 		CHECK(!s.Set("t.future", "vec", "[4,5,6]"));
-		// The file is already in sparse+preserved form: the load must be CLEAN —
-		// no rewrite window, byte content untouched (no churn on every boot).
 		s.FlushPersistence();
 		{
 			std::ifstream f(vd / "t.future.json");
 			std::string   contents((std::istreambuf_iterator<char>(f)), {});
 			CHECK(contents == R"json({ "vec": [1,2,3], "oldvec": [9,9,9], "mystery": {"a":1}, "n": 5 })json");
 		}
-		// A real user change rewrites the file — every opaque rides along verbatim
-		// (this is the round-trip that used to WIPE them), and the rewrite now
-		// carries the values-format stamp (item 8; it was NOT the thing that
-		// dirtied the file — the byte-identical clean load above proved that).
 		CHECK(s.Set("t.future", "n", "9"));
 		s.FlushPersistence();
 		{
@@ -804,8 +742,6 @@ int main()
 	{
 		const auto sd = root / "settings-target";
 		const auto vd = root / "values-target";
-		// Newer than the installed OSF UI release: loads best-effort anyway, values served; the
-		// declared target rides in Data() for the "needs update" badge.
 		WriteFile(sd / "t.future2.json", R"json({
 			"id": "t.future2", "title": "Future", "targetVersion": "99.0.0",
 			"groups": [ { "settings": [ { "key": "y", "type": "bool", "default": false } ] } ] })json");
@@ -861,8 +797,6 @@ int main()
 		// Clamp is SUCCESS (the ack carries the post-clamp value, not a code).
 		CHECK(s.SetWithResult("t.coded", "n", "99").ok);
 		CHECK(*s.GetValue("t.coded", "n") == 10);
-		// A caller that already parsed a containing message commits directly,
-		// and invalidates the cached settings document.
 		CHECK(s.DataView()["mods"][0]["values"]["n"] == 10);
 		CHECK(s.SetValueWithResult("t.coded", "n", nlohmann::json(4)).ok);
 		CHECK(*s.GetValue("t.coded", "n") == 4);
@@ -887,8 +821,6 @@ int main()
 			std::string   contents((std::istreambuf_iterator<char>(f)), {});
 			CHECK(contents == R"json({"$formatVersion":1,"n":5})json");
 		}
-		// A NEWER OSF UI release's stamp round-trips (never downgraded by our rewrite),
-		// and a foreign $-meta key is preserved like any unknown.
 		WriteFile(vd / "t.fmt.json", R"json({ "$formatVersion": 7, "$futureMeta": "x", "n": 5 })json");
 		{
 			SettingsStore s;
@@ -903,13 +835,6 @@ int main()
 		}
 	}
 
-	// --- values format v1 -> v2: one-time legacy key re-anchor ---------------------
-	// Pre-2.x key names were VK-anchored; v2 names denote physical keys. With a
-	// LegacyKeyMigrator wired (Runtime does: legacy VK resolve -> VK->scan ->
-	// KeyName), a v1 file's key-typed values are rewritten under the layout
-	// active at first load, stamped v2, and flushed EAGERLY — an unflushed
-	// migration re-running under a different layout would move keys twice.
-	// Without the migrator (this suite's default), v1 files defer untouched.
 	{
 		const auto sd = root / "settings-keymig";
 		const auto vd = root / "values-keymig";
@@ -921,19 +846,12 @@ int main()
 				{ "key": "n", "type": "int", "default": 3 }
 			] } ] })json");
 
-		// A fake German-flavoured migrator: the stored VK-era spellings move to
-		// the physical keys they sat on under that layout. Unknown = unchanged
-		// (mirrors the real chain, where any failed step keeps the spelling).
 		const auto qwertz = [](const std::string& a_name) -> std::string {
 			if (a_name == "Z") return "Y";
 			if (a_name == "Semicolon") return "Grave";
 			return a_name;
 		};
 
-		// v1 file (unstamped = v1; stamping and versioning are coeval): key
-		// values re-anchor — including one living under a declared alias — the
-		// unbound "" and the int stay untouched, and the rewrite lands eagerly
-		// (no Set, no explicit flush trigger beyond the pump).
 		WriteFile(vd / "t.mig.json", R"json({ "hot": "Z", "alt": "", "oldname": "Semicolon", "n": 5 })json");
 		{
 			SettingsStore s;
@@ -950,8 +868,6 @@ int main()
 			CHECK(saved["renamed"] == "Grave");  // adopted under the NEW key
 			CHECK(saved["n"] == 5);
 		}
-		// Idempotency: the stamp is the guard. A second load under a DIFFERENT
-		// layout (a migrator that would move "Y" again) must not touch a v2 file.
 		{
 			SettingsStore s;
 			s.SetLegacyKeyMigrator([](const std::string& a_name) -> std::string {
@@ -960,8 +876,6 @@ int main()
 			s.LoadAll(sd, vd);
 			CHECK(s.GetValue("t.mig", "hot") && *s.GetValue("t.mig", "hot") == "Y");
 		}
-		// Eager stamp even when no key value changes: a v1 file holding only
-		// non-key values still moves to v2 so the migration never re-arms.
 		WriteFile(vd / "t.mig.json", R"json({ "n": 5 })json");
 		{
 			SettingsStore s;
@@ -972,8 +886,6 @@ int main()
 			CHECK(saved["$formatVersion"] == 2);
 			CHECK(saved["n"] == 5);
 		}
-		// No migrator: DEFERRED. The value loads untouched and even a real user
-		// change rewrites under the OLD stamp, so a later session still migrates.
 		WriteFile(vd / "t.mig.json", R"json({ "hot": "Z" })json");
 		{
 			SettingsStore s;
@@ -985,8 +897,6 @@ int main()
 			CHECK(saved["$formatVersion"] == 1);
 			CHECK(saved["hot"] == "Z");
 		}
-		// US identity: a migrator that maps everything to itself stamps v2 and
-		// leaves every value byte-identical.
 		WriteFile(vd / "t.mig.json", R"json({ "hot": "F6" })json");
 		{
 			SettingsStore s;
@@ -996,8 +906,6 @@ int main()
 			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.mig.json"), nullptr, false);
 			CHECK((saved == nlohmann::json{ { "hot", "F6" }, { "$formatVersion", 2 } }));
 		}
-		// A fresh mod with NO values file gets no migration churn: nothing on
-		// disk until a real change, which then lands already stamped v2.
 		{
 			const auto vdFresh = root / "values-keymig-fresh";
 			SettingsStore s;
@@ -1013,10 +921,6 @@ int main()
 		}
 	}
 
-	// --- keycap labels: the additive `keyboard` block ------------------------------
-	// SetKeyboardLabels publishes { layout, labels } at the document top level;
-	// empty = omitted (older OSF UI releases / preview fall back to raw names). Display
-	// only — nothing else in the store consumes it.
 	{
 		SettingsStore s;
 		CHECK(!s.DataView().contains("keyboard"));
@@ -1135,9 +1039,6 @@ int main()
 		CHECK(s.LoadErrors().size() == 2);
 	}
 
-	// --- CanonicalEnumValue: the Papyrus write path's casing tolerance -------
-	// (BSFixedString interning mangles script string casing; the drain
-	// canonicalizes enum values to the authored option spelling before Set.)
 	{
 		OSFUI::SettingsStore s;
 		const auto sd = root / "ce-schemas";
@@ -1154,11 +1055,6 @@ int main()
 		CHECK(!s.CanonicalEnumValue("t.nope", "mode", "fast").has_value());  // unknown mod
 	}
 
-	// --- UTF-8 boundary safety on every byte-counted cap --------------------
-	// The caps count BYTES but the values are arbitrary player text (IME/CJK/
-	// emoji). A raw resize() at the cap left an incomplete UTF-8 sequence, and
-	// every later dump() of that value threw type_error.316 on a path with no
-	// handler — a std::terminate from typing CJK into any mod's text setting.
 	{
 		OSFUI::SettingsStore s;
 		const auto sd = root / "u8-schemas";
@@ -1192,8 +1088,6 @@ int main()
 			CHECK(false);
 		}
 
-		// The store-wide 256-byte hard cap, with no maxLength at all: 86 CJK
-		// chars = 258 bytes, so byte 256 falls inside the 86th.
 		std::string wide;
 		for (int i = 0; i < 86; ++i) wide += "\xE4\xB8\xAD";
 		CHECK(wide.size() == 258);
@@ -1221,10 +1115,6 @@ int main()
 		CHECK(!s.DataJson().empty());
 	}
 
-	// --- restart-latched developer-mode bootstrap values --------------------
-	// Runtime reads this through the already-loaded authoritative store. A
-	// missing or invalid persisted value must therefore resolve to the schema's
-	// fail-closed false default, while a valid true survives for startup latch.
 	{
 		const auto bootRoot = root / "developer-mode-bootstrap";
 		const auto bootSchemas = bootRoot / "settings";

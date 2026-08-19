@@ -1,8 +1,3 @@
-// Native desktop unit tests for the native ABI settings mirror:
-// the REAL src/API/SettingsMirror.cpp — plus its integration with the real
-// SettingsStore, wired exactly like Runtime::BuildModules does — compiled
-// against stubs/pch.h on the desktop toolchain. Assert-style; process exit
-// code is the failure count.
 
 #include "API/SettingsMirror.h"
 #include "Settings/SettingsStore.h"
@@ -20,8 +15,6 @@ namespace
 	}
 }
 
-// Core/Log.h declarations (real impl pulls game deps — stub, as in the other
-// suites).
 namespace OSFUI::Log
 {
 	static bool g_debugEnabled = true;
@@ -189,8 +182,6 @@ int main()
 		CHECK(mirror.GetString("t.beta", "mode", buf, sizeof(buf)) == 8);
 		CHECK(std::string(buf) == "compact");
 
-		// A Set lands the CLAMPED value in the mirror — the reconciled truth,
-		// not the caller's raw input.
 		CHECK(store.Set("t.beta", "scale", "9.9"));
 		CHECK(mirror.GetFloat("t.beta", "scale", &f) && f == 2.0);
 
@@ -205,13 +196,6 @@ int main()
 		fs::remove_all(root);
 	}
 
-	// --- LookupMod / LookupKey: exact-then-case-insensitive -------------------
-	// The shared lookup behind ResolveNames and Find. Papyrus interns strings as
-	// BSFixedString, which hands back the FIRST-seen casing process-wide, so a
-	// script's literal spelling is unreliable and the mirror has to fall back to
-	// an ASCII-case-insensitive scan. Both properties below are load-bearing and
-	// were previously unexercised: an exact match must beat a case-variant
-	// sibling, and an empty key must resolve the mod alone (whole-mod Reset).
 	{
 		SettingsMirror mirror;
 		mirror.Update("t.gamma", "Speed", 1);
@@ -220,10 +204,6 @@ int main()
 
 		std::string mod, key;
 
-		// Empty key resolves the mod ONLY: a_outKey is CLEARED, and this must
-		// succeed even though no key lookup happens. Both outputs are seeded with
-		// a sentinel first — `key` starts empty, so asserting key.empty() against a
-		// default-constructed string would pass even if clear() were never called.
 		mod = "SENTINEL";
 		key = "SENTINEL";
 		CHECK(mirror.ResolveNames("t.gamma", "", mod, key) && mod == "t.gamma" && key.empty());
@@ -232,29 +212,19 @@ int main()
 		key = "SENTINEL";
 		CHECK(mirror.ResolveNames("T.Gamma", "", mod, key) && mod != "SENTINEL" && key.empty());
 
-		// Exact beats case-variant, in BOTH directions — neither spelling may be
-		// shadowed by the other's CI match.
 		CHECK(mirror.ResolveNames("t.gamma", "Speed", mod, key) && mod == "t.gamma" && key == "Speed");
 		CHECK(mirror.ResolveNames("T.GAMMA", "Speed", mod, key) && mod == "T.GAMMA" && key == "Speed");
 		CHECK(mirror.ResolveNames("t.gamma", "speed", mod, key) && mod == "t.gamma" && key == "speed");
 
-		// A case-variant with no exact twin falls back and folds to the authored
-		// spelling — the whole point of the fallback.
 		CHECK(mirror.ResolveNames("t.gamma", "SPEED", mod, key) && mod == "t.gamma" &&
 			(key == "Speed" || key == "speed"));
 
-		// Unknown mod and unknown key both fail. Sentinels again: a false return
-		// must not be accompanied by a half-written output the caller might read.
 		mod = "SENTINEL";
 		key = "SENTINEL";
 		CHECK(!mirror.ResolveNames("t.nope", "Speed", mod, key) && mod == "SENTINEL" && key == "SENTINEL");
-		// An unknown key fails even though the MOD resolved — and in that case
-		// a_outMod has legitimately been written, so only a_outKey must remain unchanged.
 		key = "SENTINEL";
 		CHECK(!mirror.ResolveNames("t.gamma", "nosuchkey", mod, key) && key == "SENTINEL");
 
-		// The same exact-then-CI path through the typed getters (which go via
-		// Find, the const char* entry point).
 		std::int64_t got{};
 		CHECK(mirror.GetInt("t.gamma", "Speed", &got) && got == 1);
 		CHECK(mirror.GetInt("T.GAMMA", "Speed", &got) && got == 3);

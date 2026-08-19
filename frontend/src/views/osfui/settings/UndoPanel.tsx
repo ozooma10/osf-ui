@@ -1,14 +1,3 @@
-// UndoPanel.tsx — "changed this visit", with a revert per row.
-//
-// Not an unsaved-changes dialog: persistence is write-behind, so everything
-// listed here is already on disk. This is undo scoped to "since you opened
-// settings this time", which is why the baseline is dropped on every
-// `ui.visibility` open edge. There is no Save button to point users at.
-//
-// The overlay carries `data-nav-modal="1"` via @ui/Overlay: while it is in the
-// document, padnav enumerates candidates only inside it and drops an `active`
-// element outside it. That attribute is the focus trap; there is no other
-// mechanism.
 
 import { Overlay } from '@ui/Overlay';
 import { titleOf } from '@lib/settings/rail';
@@ -27,9 +16,6 @@ export function UndoPanel({ changes, tr, onRevert, onRevertAll, onClose }: UndoP
   // The chip that opens this is hidden at zero anyway; belt to that braces.
   if (!changes.length) return null;
 
-  // Click-outside closes: the handler is on the overlay and tests
-  // `e.target === e.currentTarget`, so a click landing on the panel bubbles up
-  // without matching and the panel stays put.
   return (
     <Overlay
       class="session-overlay"

@@ -4,9 +4,7 @@
 
 namespace OSFUI
 {
-	// Converts the analogue left stick into one digital navigation direction.
-	// A direction stays latched through release jitter, and only a deliberate
-	// hold reaches repeat. Pure state keeps the policy independently testable.
+	// Convert the analogue stick to one latched digital direction with deliberate hold repeat.
 	class GamepadNavigation
 	{
 	public:
@@ -35,8 +33,7 @@ namespace OSFUI
 				_nextRepeat = 0.0;
 			}
 
-			// Pick one axis so a diagonal deflection cannot inject two arrows in
-			// the same frame. Ties favor vertical list navigation.
+			// Choose one axis per frame; diagonal ties favor vertical navigation.
 			const float absX = a_lx < 0.0f ? -a_lx : a_lx;
 			const float absY = a_ly < 0.0f ? -a_ly : a_ly;
 			if (absX < kEngageThreshold && absY < kEngageThreshold) {
@@ -59,8 +56,7 @@ namespace OSFUI
 		}
 
 	private:
-		// The separate engage/release thresholds prevent a slowly returning or
-		// slightly noisy stick from looking like several fresh presses.
+		// Separate engage and release thresholds suppress noisy repeat presses.
 		static constexpr float  kEngageThreshold = 0.55f;
 		static constexpr float  kReleaseThreshold = 0.35f;
 		static constexpr double kInitialRepeatDelay = 0.55;

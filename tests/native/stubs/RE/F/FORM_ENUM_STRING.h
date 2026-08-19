@@ -1,10 +1,5 @@
 #pragma once
 
-// Desktop-test stand-in for CommonLibSF's FORM_ENUM_STRING: the real one is a
-// span over a relocated game-memory table mapping FormType -> the 4-char
-// record signature. Here it is a static table with the few rows the tests
-// serialize; every other slot is {nullptr, kNONE}, which exercises the
-// numeric-fallback path for unmapped types.
 
 #include <array>
 #include <span>

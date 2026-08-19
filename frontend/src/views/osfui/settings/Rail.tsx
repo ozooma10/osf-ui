@@ -1,9 +1,3 @@
-// Rail.tsx — the left-hand list of things you can configure. The painted order
-// comes from @lib/settings/rail's `railNodes` so this file and the LB/RB
-// `cycleRail` walk cannot drift apart; the order itself is argued there.
-//
-// System Health is fixed above the installed-mod list and never filtered. The
-// modified-count badge and health severity markers are derived on every render.
 
 import { modifiedCount } from '@lib/settings/modified';
 import { modIconSrc, type AssetRoots } from '@lib/settings/assets';
@@ -49,8 +43,6 @@ export function Rail(props: RailProps) {
       {nodes.map((node, i) => {
         switch (node.kind) {
           case 'health':
-            // App paints the fixed destination in the rail head. Retaining the
-            // node here keeps controller cycle order sourced from railNodes.
             return null;
           case 'home':
             return (
@@ -82,9 +74,6 @@ export function Rail(props: RailProps) {
           case 'entry':
             return (
               <RailItem
-                // Entry ids are unique across the rail (mods by id, view-only
-                // entries behind a "view:" prefix), so each item's icon-failed
-                // state stays with the right mod when the filter reorders.
                 key={node.entry.id}
                 entry={node.entry}
                 selected={node.entry.id === selectedId}
@@ -108,11 +97,6 @@ export function Rail(props: RailProps) {
 }
 
 
-/**
- * Sub-line text: "Framework" for OSF UI itself, the mod id for a settings mod,
- * a view-kind count for a view-only entry (whose id is synthetic, so not worth
- * showing).
- */
 function railSub(entry: RailEntry, tr: Translator): string {
   if (entry.id === FRAMEWORK_ID) return tr('framework', 'Framework');
   if (entry.mod) return entry.mod.id;
@@ -122,8 +106,6 @@ function railSub(entry: RailEntry, tr: Translator): string {
   // Compatibility catalog addresses retain the former terminal/overlay nouns.
   if (menus) parts.push(tr.plural('terminal', menus, 'Menu', '{count} menus'));
   if (huds) parts.push(tr.plural('overlay', huds, 'HUD', '{count} HUDs'));
-  // A view-only entry is built from views, so zero views is unreachable; the
-  // fallback is defence only.
   return parts.join(' · ') || tr('mod', 'Mod');
 }
 
@@ -150,9 +132,6 @@ function RailItem({ entry, selected, severity, tr, assetRoots, onSelect }: RailI
       <Mark
         class="rail-item-mark"
         iconClass="rail-item-mark--icon"
-        // The SDK `SettingsSchema` type omits `icon` (advisory field, read as
-        // `unknown` by modIconSrc); the cast bridges that without loosening the
-        // lib's signature.
         src={modIconSrc(entry.mod as Parameters<typeof modIconSrc>[0], assetRoots)}
         color=""
         // Glyph rather than initials: "OU" would read as just another mod.

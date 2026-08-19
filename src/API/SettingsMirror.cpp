@@ -65,8 +65,7 @@ namespace OSFUI::API
 	{
 		std::lock_guard lock(_mutex);
 		const auto* value = Find(a_modId, a_key);
-		// Any number: a float-typed setting can hold integral JSON (the user
-		// typed "1"), and the mirror has no schema to say otherwise.
+		// Accept integral JSON because the mirror has no schema-level numeric type.
 		if (!value || !value->is_number() || !a_out) {
 			return false;
 		}
@@ -82,15 +81,12 @@ namespace OSFUI::API
 			return 0;
 		}
 		const auto& str = value->get_ref<const std::string&>();
-		// Contract (OSFUI_API.h): return required length incl. NUL; copy at most
-		// a_bufLen, always NUL-terminated. A null/empty buffer is the size probe.
+		// A null or empty buffer is the required-size probe.
 		if (a_buf && a_bufLen > 0) {
 			const auto copied = std::min<std::size_t>(a_bufLen - 1, str.size());
 			std::memcpy(a_buf, str.data(), copied);
 			a_buf[copied] = '\0';
 		}
-		// Store caps strings at 4096, so this can't overflow in practice; the
-		// mirror doesn't rely on that.
 		const std::uint64_t required = static_cast<std::uint64_t>(str.size()) + 1;
 		return required > std::numeric_limits<std::uint32_t>::max()
 		           ? std::numeric_limits<std::uint32_t>::max()
@@ -135,10 +131,7 @@ namespace OSFUI::API
 
 	const nlohmann::json* SettingsMirror::Find(const char* a_modId, const char* a_key) const
 	{
-		// LOAD-BEARING null check: these are raw C-ABI pointers from third-party
-		// plugin code, unlike BSFixedString::c_str(), which can never be null
-		// (it falls back to an interned EMPTY). Check before any string_view is
-		// built from them.
+		// Validate raw third-party C ABI pointers before constructing string_views.
 		if (!a_modId || !a_key) {
 			return nullptr;
 		}
@@ -155,8 +148,7 @@ namespace OSFUI::API
 		if (const auto it = _mods.find(std::string(a_modId)); it != _mods.end()) {
 			return &*it;
 		}
-		// Case-insensitive fallback: Papyrus cannot control BSFixedString casing
-		// (see header).
+		// Papyrus cannot control BSFixedString casing.
 		for (const auto& entry : _mods) {
 			if (Ids::EqualsCaseInsensitiveAscii(entry.first, a_modId)) {
 				return &entry;

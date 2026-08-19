@@ -1,11 +1,3 @@
-// The pure reducers behind the Mod Settings view's lifecycle: the overlay open edge,
-// gamepad button edges, and rail cycling. No bridge stub anywhere — these are
-// functions over a payload, which is exactly why they are testable at all.
-//
-// `ui.visibility` and `ui.gamepad` are still EVENTS in protocol 2.0, and
-// deliberately so: both are happenings. Replaying a visibility edge to a
-// reloaded document would re-run the whole visit reset, and replaying a held
-// button would fire an edge that never physically happened.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -55,8 +47,6 @@ describe('reduceVisibility', () => {
     const out = reduceVisibility(state, { visible: true });
     expect(out.state).toBe(state);
     expect(out.reselect).toBe(false);
-    // ...but the baseline and padnav reset still happen: the undo scope is the
-    // visit, and the gamepad resume point starts over regardless.
     expect(out.clearBaseline).toBe(true);
     expect(out.resetPadnav).toBe(true);
   });
@@ -102,8 +92,6 @@ describe('padButtonEdge', () => {
   });
 
   it('survives a malformed native push instead of throwing', () => {
-    // Ill-typed on purpose: a bridge frame that doesn't match its declared
-    // shape must be ignored, not throw and kill the subscription.
     for (const bad of [null, undefined, {}, { kind: 'button' }]) {
       const out = padButtonEdge(initialPadButtonState, bad as unknown as UiGamepadPayload);
       expect(out.pressed).toBeNull();
@@ -131,8 +119,6 @@ describe('cycleRail', () => {
   });
 
   it('falls to the FIRST entry regardless of direction when the selection is gone', () => {
-    // indexOf -> -1 is treated as index 0 *before* delta is applied, so LB and
-    // RB both land on ids[0].
     expect(cycleRail(ids, 'filtered-away', 1)).toBe(HOME_ID);
     expect(cycleRail(ids, 'filtered-away', -1)).toBe(HOME_ID);
   });
@@ -181,8 +167,6 @@ describe('reduceGamepad', () => {
       ctx({ modalOpen: true }),
     );
     expect(out.select).toBeNull();
-    // The edge is still consumed, so re-pressing after the modal closes works
-    // but holding through the close does not fire.
     expect(out.state.down).toContain(PAD_RSHOULDER);
     expect(reduceGamepad(out.state, button(PAD_RSHOULDER, true), ctx()).select).toBeNull();
   });

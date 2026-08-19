@@ -14,12 +14,7 @@ namespace OSFUI
 		RE::BSInputEnableLayer* g_layer{ nullptr };
 		bool                    g_engaged{ false };
 
-		// Flags cleared while the overlay is open, to freeze the player. `Menu`
-		// stays enabled so the engine cursor/menu path keeps working (notably
-		// alongside FocusMenu). These bits are runtime-proven on 1.16.244:
-		// Looking(b1) is the mouse-look/camera bit, so OTHER::CamSwitch is not
-		// needed for camera and is absent below. TabMenuMaybe/Console stayed out
-		// (inconclusive / disproven).
+		// Keep Menu enabled while disabling the 1.16.244-proven player-control masks.
 		constexpr RE::USER_EVENT_FLAG kUserDisable =
 			RE::USER_EVENT_FLAG::Movement |     // Walking | Jumping
 			RE::USER_EVENT_FLAG::Looking |      // mouse-look / camera (proven)
@@ -38,15 +33,13 @@ namespace OSFUI
 			RE::OTHER_EVENT_FLAG::FastTravel |
 			RE::OTHER_EVENT_FLAG::GravJump |
 			RE::OTHER_EVENT_FLAG::Takeoff |
-			// Gamepad-reachable verbs that leaked with the overlay open
-			// (2026-07-02: LB opened the hand scanner under the menu):
+			// Disable gamepad-reachable verbs that bypass the window hook.
 			RE::OTHER_EVENT_FLAG::HandScanner |  // LB
 			RE::OTHER_EVENT_FLAG::Journal |      // Start
 			RE::OTHER_EVENT_FLAG::Inventory |
 			RE::OTHER_EVENT_FLAG::FarTravel;
 
-		// Allocates the session layer on first use. Returns false when the manager
-		// isn't ready yet (main menu); the caller retries next tick.
+		// Allocate on first use and retry next tick while the manager is unavailable.
 		bool EnsureLayer()
 		{
 			if (g_layer) {
@@ -83,9 +76,7 @@ namespace OSFUI
 			REX::DEBUG("ControlLayer: player controls disabled (layer {})", g_layer->GetLayerID());
 		} else {
 			if (g_layer) {
-				// Re-enable exactly what we disabled. The layer is held for the
-				// session and its mask toggled rather than DecRef-on-close:
-				// holding it avoids re-claiming a pool slot on every toggle.
+				// Restore exactly this retained layer's disabled masks.
 				g_layer->EnableUserEvent(kUserDisable, true);
 				g_layer->EnableOtherEvent(kOtherDisable, true);
 			}

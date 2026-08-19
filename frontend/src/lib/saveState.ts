@@ -1,29 +1,10 @@
-// Write-behind save indicator.
-//
-// Native persistence is write-behind: `settings.changed` is the immediate
-// in-memory commit, `settings.persisted` is the disk write landing ~0.5s later,
-// coalesced per mod and guaranteed on menu close. The indicator shows "Saving…"
-// from the moment a write is sent until every mod this view touched has
-// confirmed, then a fading "Saved". Persisted pushes for writes this view did not
-// make (a sibling DLL or another view) are ignored — that is what the
-// pending set is for.
-//
-// The three transitions are asymmetric on purpose; see each function.
 
 /** Milliseconds the "Saved" state stays up before its classes are removed. */
 export const SAVE_FADE_MS = 1800;
 
-/**
- * Which string the indicator shows. A token, not translated text, so this module
- * stays pure — the component maps it through its translator.
- */
 export type SaveLabel = 'saving' | 'saved';
 
 export interface SaveState {
-  /**
-   * Mod ids with an in-flight write. The indicator is a function of this set
-   * draining, not of any single write completing.
-   */
   readonly pending: ReadonlySet<string>;
   /** Current label, or null before the first write. */
   readonly label: SaveLabel | null;
@@ -49,13 +30,6 @@ function withPending(state: SaveState, pending: ReadonlySet<string>): SaveState 
   return { ...state, pending };
 }
 
-/**
- * A write was sent for `modId` (settings.set, settings.reset, a preset entry).
- *
- * Unconditionally re-shows "Saving…", cancels a pending fade, and drops "done",
- * so a second write while a "Saved" fade is in flight reverts the indicator
- * instead of letting the stale fade win.
- */
 export function saveStatePending(state: SaveState, modId: string): SaveTransition {
   const pending = new Set(state.pending);
   pending.add(modId);
@@ -66,23 +40,6 @@ export function saveStatePending(state: SaveState, modId: string): SaveTransitio
   };
 }
 
-/**
- * `settings.persisted` arrived for `modId` — its values file write landed.
- *
- * Two behaviours that look like bugs and are not:
- *
- *  1. It shows "Saved" only when the set drains to empty. With writes to other
- *     mods still outstanding the entry is removed but the indicator keeps saying
- *     "Saving…", because the visit is not fully persisted yet.
- *
- *  2. It does not clear the indicator — it swaps the text to "Saved" and adds
- *     "visible done"; both classes come off later via the 1800ms timer. Clearing
- *     is `saveStateAbandon`'s job. So there is a window where the indicator reads
- *     "Saved" while `pending` is empty.
- *
- * The set is mutated even on the early-return path: the delete runs before the
- * `size` short-circuit, so an unknown/late mod id is still consumed.
- */
 export function saveStatePersisted(state: SaveState, modId: string): SaveTransition {
   const pending = new Set(state.pending);
   const wasPending = pending.delete(modId);
@@ -99,18 +56,6 @@ export function saveStatePersisted(state: SaveState, modId: string): SaveTransit
   };
 }
 
-/**
- * A write for `modId` was rejected (settings.set / settings.reset rejected).
- *
- * The one transition that clears the indicator: a rejected write never persists,
- * so "Saving…" would otherwise stick forever. If other changes to the same mod
- * are still pending the entry is gone, so its eventual persisted push finds
- * nothing — losing the confirmation, never showing a false one.
- *
- * Quirks: `label` is left as-is, so the hidden element still reads "Saving…"
- * underneath. And unlike the other two transitions this does not cancel an armed
- * fade timer — harmless, since that timer removes the classes just removed here.
- */
 export function saveStateAbandon(state: SaveState, modId: string): SaveTransition {
   const pending = new Set(state.pending);
   const wasPending = pending.delete(modId);
@@ -126,15 +71,6 @@ export function saveStateAbandon(state: SaveState, modId: string): SaveTransitio
   };
 }
 
-/**
- * The fade timer firing: drop "visible" and "done" together. `label` is
- * untouched, so the hidden element still reads "Saved" underneath — same quirk
- * as `saveStateAbandon`, and for the same reason: the label is only ever seen
- * through the classes.
- *
- * Unlike the three transitions above this returns a bare state, because a timer
- * firing can neither cancel nor arm another one.
- */
 export function saveStateFaded(state: SaveState): SaveState {
   if (!state.classes.length) return state;
   return { ...state, classes: [] };

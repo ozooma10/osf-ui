@@ -1,9 +1,3 @@
-// Frozen OSF UI 1.x helper compatibility facade.
-//
-// This file is appended to the authored 2.0 helper at build/package time. It
-// replaces the page-visible object only when native navigation explicitly adds
-// `osfui-api=1`; modern pages keep the exact 2.0 helper surface. Its maintained
-// compatibility contract is the guarded surface implemented below.
 
 "use strict";
 
@@ -91,9 +85,6 @@
       return;
     }
 
-    // Retained state was introduced in 1.5 with one exact shape for every
-    // scalar/array/form type. Keep arrays in `value`; only transient
-    // PushToView/PushFormsToView messages use `values` / `forms`.
     const payload = { mod: message.mod, key: message.key, value: message.value };
     const legacy = { type: "data.state", payload: payload };
     rememberData(payload, legacy);
@@ -164,9 +155,6 @@
     const state = registryReads[command];
     if (state) return readState(state);
     if (command === "settings.reset") {
-      // 1.x answered reset with the refreshed settings.data document. In 2.0
-      // the request ack and registry state are intentionally separate; wait
-      // for both without changing the modern endpoint.
       return new Promise(function (resolve, reject) {
         let subscribing = true;
         let refreshed;
@@ -181,8 +169,6 @@
           resolve(refreshed || {});
         }
         off = core.state.on("osfui/settings", function (value) {
-          // state.on replays cached state synchronously. Ignore only that
-          // replay, not the first future publication when no cache existed.
           if (subscribing) return;
           refreshed = value;
           hasRefresh = true;
@@ -289,8 +275,6 @@
   ]);
 
   const legacy = {
-    // Keep the transport members visible for old pages which probed or wrapped
-    // them, while all message parsing remains owned by the 2.0 helper.
     postMessage: typeof core.postMessage === "function" ? core.postMessage.bind(core) : core.postMessage,
     onMessage: function (json) {
       let message;

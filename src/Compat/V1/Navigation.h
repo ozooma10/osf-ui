@@ -6,8 +6,7 @@
 
 namespace OSFUI::Compat::V1
 {
-	// URL-aware insertion for the frozen helper selector. The entry remains
-	// otherwise byte-for-byte authored, including an existing query and fragment.
+	// Insert the frozen helper selector without changing the authored URL, query, or fragment.
 	[[nodiscard]] inline std::string WithLegacyApiQuery(std::string_view a_entry)
 	{
 		const auto hashAt = a_entry.find('#');

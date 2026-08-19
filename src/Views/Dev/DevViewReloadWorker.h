@@ -10,9 +10,7 @@
 
 namespace OSFUI
 {
-	// Dev-only background worker: metadata polling, debounce and MO2 mirror
-	// synchronization stay off Starfield's main thread. Runtime supplies the
-	// current instantiated targets and drains completed mirror refreshes on Tick.
+	// Dev worker polls, debounces, and mirrors off-thread; Runtime drains completions on Tick.
 	class DevViewReloadWorker
 	{
 	public:

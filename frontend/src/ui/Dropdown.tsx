@@ -1,10 +1,3 @@
-// A select-only combobox rendered entirely inside the document.
-//
-// Native <select> pickers are separate Chromium/Win32 popup windows. They are
-// not part of OSF UI's captured composition visual, so they can escape the game
-// window and fight the OSF UI runtime's focus/mouse-capture handoff. This component keeps
-// the trigger and list in DOM; the list is portalled to <body> only to escape
-// scrolling panel overflow, and is still painted into the same WebView texture.
 
 import { createPortal } from 'preact/compat';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
@@ -38,10 +31,6 @@ export interface DropdownPlacement {
   opensUp: boolean;
 }
 
-/**
- * Fit a menu to the CSS viewport. Prefer down, flip up when that side has more
- * usable room, and clamp horizontally so the portal never leaves the texture.
- */
 export function dropdownPlacement(
   anchor: DropdownAnchorRect,
   viewportWidth: number,
@@ -81,8 +70,6 @@ export interface DropdownProps {
 
 function selectedIndex(options: readonly DropdownOption[], value: string | undefined): number {
   const found = options.findIndex((option) => option.value === value);
-  // Match native select's graceful handling of an invalid/missing value: show
-  // the first declared option without committing it behind the user's back.
   return found >= 0 ? found : options.length ? 0 : -1;
 }
 
@@ -203,8 +190,6 @@ export function Dropdown(props: DropdownProps) {
         event.stopPropagation();
         openAt('last');
       }
-      // Enter/Space use the button's normal click path, including padnav's
-      // synthetic active.click(), so there is only one toggle implementation.
       return;
     }
 
@@ -254,8 +239,6 @@ export function Dropdown(props: DropdownProps) {
       ? next
       : firstEnabled(props.options, 0, 1));
     measure();
-    // options is intentionally a dependency: dynamic filters can add/remove
-    // categories while their dropdown is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, props.options, props.value]);
 
@@ -269,8 +252,6 @@ export function Dropdown(props: DropdownProps) {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' && event.keyCode !== 27) return;
       event.preventDefault();
-      // The built-in views listen on document too. This Escape peels the
-      // dropdown; it must not continue and close the entire Mod Settings view.
       event.stopImmediatePropagation();
       close(true);
     };
@@ -285,14 +266,8 @@ export function Dropdown(props: DropdownProps) {
       document.removeEventListener('scroll', reposition, true);
       window.removeEventListener('resize', reposition);
     };
-    // `measure` reads current props and refs; re-registering is harmless and
-    // keeps the portal aligned when a dynamic option set changes.
   }, [open, props.options]);
 
-  // Initial placement uses the trigger width and shared row-height estimate so
-  // the first render is already bounded. Before paint, widen to the longest
-  // rendered option (including a vertical scrollbar) and close any upward gap
-  // left by views that use more compact option rows.
   useLayoutEffect(() => {
     if (!open || !placement) return;
     const trigger = triggerRef.current;
@@ -303,8 +278,6 @@ export function Dropdown(props: DropdownProps) {
     const optionWidth = Array.from(
       menu.querySelectorAll<HTMLElement>('.osf-dropdown__option'),
     ).reduce((widest, option) => Math.max(widest, option.scrollWidth), 0);
-    // clientWidth includes padding but excludes borders and the scrollbar. The
-    // menu has one CSS pixel of padding on each side, so add those separately.
     const chromeWidth = Math.max(4, menu.offsetWidth - menu.clientWidth + 2);
     const desiredHeight = Math.min(
       MAX_MENU_HEIGHT,

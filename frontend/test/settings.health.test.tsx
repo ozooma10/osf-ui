@@ -1,14 +1,4 @@
 // @vitest-environment jsdom
-//
-// The System Health destination end to end through the settings App: the fixed rail
-// entry, the summary states, card rendering, contextual actions, technical
-// disclosure, copy-report, deep links from failed cards, and clipboard-failure
-// degradation.
-//
-// The snapshot is the `osfui/diagnostics` STATE key: replayed to every fresh
-// document and republished whole whenever a condition is raised, recurs or
-// clears. There is no `diagnostics.get`, and nothing here waits for a reply
-// before it can paint.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { makeBridge, mount, unmount, flush } from './helpers/settingsHarness';
@@ -48,9 +38,6 @@ function openHealth(el: HTMLElement) {
 
 describe('subscription + rail', () => {
   it('subscribes rather than reading, and keeps the fixed rail entry before any snapshot', async () => {
-    // No System Health state at all: the destination remains fixed, because
-    // it is where load failures are explained and a player must be able to reach
-    // it even when the subsystem that would report them never spoke.
     const bridge = makeBridge({ state: { 'osfui/settings': WIDGETS } });
     const el = await mount(bridge);
     await flush();
@@ -158,8 +145,6 @@ describe('cards', () => {
     expect(rows.map((r) => r.getAttribute('data-issue'))).toEqual(['w1', 'w2']);
     expect(rows.every((r) => r.querySelector('.health-card-impact') === null)).toBe(true);
 
-    // Opening one row reveals the same body an error card shows, and leaves
-    // the other row shut — the tier is not an all-or-nothing disclosure.
     rows[0]!.querySelector<HTMLButtonElement>('.health-row-head')!.click();
     await flush();
     expect(rows[0]!.querySelector('.health-card-impact')).not.toBeNull();
@@ -177,8 +162,6 @@ describe('cards', () => {
     )!;
     retry.click();
     await flush();
-    // The payload is the issue's own subject — a view id the runtime already
-    // knows. Nothing free-text ever reaches an endpoint.
     const open = bridge.outbound.find((m) => m.name === 'menu.open');
     expect(open?.payload).toEqual({ view: 'broken/panel' });
   });
@@ -231,8 +214,6 @@ describe('reporting boundary', () => {
     const writeText = vi.fn().mockRejectedValue(new Error('denied'));
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     const { el } = await mountHealth([
-      // An error, so this stays a full card and the test is about the
-      // clipboard degrading rather than about the warning tier.
       ISSUE({
         id: 'e',
         severity: 'error',
@@ -272,10 +253,6 @@ describe('deep links', () => {
   });
 
   it('scrolls the linked card into view', async () => {
-    // The summary, the action bar and the warning-tier header all sit above the
-    // list, so expanding alone routinely leaves the target below the fold and
-    // the jump reads as "nothing happened". jsdom omits scrollIntoView (which is
-    // why the pane guards the call), so stub it to observe.
     const scrolled: string[] = [];
     const proto = window.HTMLElement.prototype as unknown as {
       scrollIntoView?: (this: HTMLElement) => void;
@@ -301,19 +278,12 @@ describe('deep links', () => {
   });
 
   it('opens the history block when the linked issue RESOLVES while you are on it', async () => {
-    // Deep links only ever name an ACTIVE issue (issueForSubject skips resolved
-    // ones), so the reachable case is this one: you follow a failed view's card
-    // here and the condition then clears underneath you. The card moves into the
-    // history disclosure, which is collapsed — without opening it, the issue the
-    // link was pointing at simply vanishes off the pane.
     const { bridge, el } = await mountFailedPanel();
 
     failedTile(el).click();
     await flush();
     expect(el.querySelector('#health-resolved')).toBeNull(); // history still shut
 
-    // A withdrawal republishes the whole snapshot with the record marked
-    // resolved; the record survives for the rest of the session.
     bridge.publish('osfui/diagnostics', {
       system: {},
       issues: [

@@ -34,8 +34,6 @@ describe('safeAssetSrc — every rejection', () => {
   });
 
   it('rejects ".." after DECODING', () => {
-    // WebKit resolves the URL again after this check, turning these back into
-    // "../". The bare "%" rule below also catches them.
     expect(safeAssetSrc(MOD, '%2e%2e%2fsecret.png')).toBeNull();
     expect(safeAssetSrc(MOD, '%2E%2E/secret.png')).toBeNull();
   });

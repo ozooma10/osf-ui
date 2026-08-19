@@ -30,10 +30,7 @@ namespace OSFUI::UiPass
 		std::atomic<bool> g_installed{ false };
 		std::atomic<bool> g_installOk{ false };
 
-		// ------------------------------------------------ D3D12 draw hooks
-		// This is the known-good pre-b8e3643 implementation. It hooks only the
-		// hand-off barrier and descriptor heaps; root-signature/PSO interception
-		// is intentionally absent.
+		// Hook only the handoff barrier and descriptor heaps.
 		constexpr std::size_t kSlotResourceBarrier = 26;
 		constexpr std::size_t kSlotSetDescriptorHeaps = 28;
 
@@ -45,32 +42,17 @@ namespace OSFUI::UiPass
 		std::atomic<ResourceBarrierFn> g_origResourceBarrier{ nullptr };
 		std::atomic<SetDescriptorHeapsFn> g_origSetDescriptorHeaps{ nullptr };
 
-		// The last SetDescriptorHeaps the ENGINE issued on this thread's command
-		// list, so the overlay draw can put it back after binding its own heap.
-		// "Engine" is load-bearing: see tl_inOverlayDraw.
+		// Track the engine's last heap binding so overlay recording can restore it.
 		thread_local ID3D12GraphicsCommandList* tl_heapList = nullptr;
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
 
-		// True while RecordOverlayIntoUIBuffer is recording our overlay onto the
-		// engine's list. The compositor binds its own SRV heap through the
-		// *virtual* ID3D12GraphicsCommandList::SetDescriptorHeaps, and that vtable
-		// is the one patched below — so without this flag the tracker above would
-		// record OUR heap as if the engine had bound it. The restore that follows
-		// calls the original directly and therefore never corrects it, leaving
-		// {srvHeap}, count=1 latched. A second qualifying hand-off in the same
-		// ScaleformEnd region (tl_handoffDrawsLeft starts at 2) would then
-		// "restore" our 9-descriptor SRV heap onto the engine's list and drop its
-		// sampler heap, so the engine's next root-descriptor-table resolve reads
-		// our heap and any sampler table hits an unbound one.
+		// Suppress tracking of the compositor's heap or the next handoff restores the wrong engine state.
 		thread_local bool tl_inOverlayDraw = false;
 		std::atomic<detail::CommandListHookState> g_hookInstallState{
 			detail::CommandListHookState::Uninitialized
 		};
-		// Gates RecordOverlayAtHandoff. Set from Install() and cleared by
-		// EnsureDrawHooksInstalled on any failure path — declared up here (rather
-		// than beside its first reader) precisely so that lazy installer, which
-		// runs long after Install() returned true, can turn it back off.
+		// The lazy hook self-test can disable drawing after Install() succeeds.
 		std::atomic<bool> g_drawEnabled{ false };
 		detail::FrameGenerationTargetPolicy g_fgTargetPolicy;
 		std::atomic_bool g_fgLayerOnlyLogged{ false };
@@ -245,18 +227,8 @@ namespace OSFUI::UiPass
 							vtbl, kSlotSetDescriptorHeaps,
 							reinterpret_cast<void*>(origHeaps));
 					}
-					// Deliberately NOT nulling g_origResourceBarrier /
-					// g_origSetDescriptorHeaps here. The vtable restore above
-					// already stops new entries; a thunk call that is already past
-					// its entry check still needs the original to forward to, and
-					// dropping a ResourceBarrier on the floor would leave a
-					// resource in the wrong state. Nothing treats these pointers
-					// as an "installed" flag — g_hookInstallState and
-					// g_drawEnabled do that.
+					// Keep original targets alive for thunks already in flight after vtable restoration.
 					g_selfTestList.store(nullptr, std::memory_order_release);
-					// The log said "draw disabled" while leaving it enabled, so
-					// the compositor kept the UI-pass draw on with nothing able
-					// to draw: an invisible overlay reported as healthy.
 					MarkDrawHooksFailed();
 					REX::ERROR("[UiPass] draw hook self-test FAILED "
 							   "(patch b/h={}/{} seen b/h={}/{}); "
@@ -306,12 +278,7 @@ namespace OSFUI::UiPass
 			const bool heapKnown =
 				engineHeapCount > 0 && tl_heapList == a_list;
 
-			// Suppress heap tracking for the duration of our own recording, so
-			// the snapshot above still describes the engine's binding when the
-			// next hand-off in this region reads it. Scoped rather than a bare
-			// pair of assignments because every exit from the draw has to clear
-			// it — a stuck flag would make the tracker miss the engine's next
-			// real bind, which is the same corruption one step removed.
+			// Scope compositor-heap suppression so every exit restores engine tracking.
 			struct OverlayDrawScope
 			{
 				OverlayDrawScope() { tl_inOverlayDraw = true; }
@@ -322,9 +289,7 @@ namespace OSFUI::UiPass
 				return RecordOverlayIntoUIBuffer(a_list, a_buffer, target.firstDrawInRegion);
 			}();
 			if (!drew) {
-				// Every early-out in RecordOverlayIntoUIBuffer precedes its
-				// SetDescriptorHeaps, so nothing was rebound and there is
-				// nothing to put back.
+				// Early-outs occur before the compositor rebinds descriptor heaps.
 				return;
 			}
 			if (heapKnown) {
@@ -451,8 +416,7 @@ namespace OSFUI::UiPass
 		g_installOk.store(ok, std::memory_order_release);
 		g_drawEnabled.store(ok, std::memory_order_release);
 		if (!ok) {
-			// The three entrypoints form one protocol. Leaving only a subset
-			// patched lets their thread-local hand-off state drift indefinitely.
+			// Install all three entrypoints atomically so their thread-local protocol stays coherent.
 			RestoreExecuteSlot("ScaleformBegin",
 				RE::VTABLE::CreationRendererPrivate____ScaleformBeginRenderPass[0],
 				origBegin, &BeginThunk);

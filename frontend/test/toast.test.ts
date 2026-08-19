@@ -14,11 +14,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/**
- * Drives the state machine the way a component would: arms each returned timer
- * with `setTimeout`, then lets fake timers advance, so the 2600/3000
- * assertions are measured rather than restated.
- */
 function driver(): { get: () => ToastState; add: (m: string) => number } {
   let state = initialToastState;
   return {
@@ -38,8 +33,6 @@ function driver(): { get: () => ToastState; add: (m: string) => number } {
 
 describe('timings', () => {
   it('pins the exact millisecond constants', () => {
-    // Paired with the .leaving CSS transition in osfui.css; the 400ms gap
-    // between them is the fade window. Do not change one alone.
     expect(TOAST_LEAVING_MS).toBe(2600);
     expect(TOAST_REMOVE_MS).toBe(3000);
   });

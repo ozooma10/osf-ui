@@ -1,44 +1,18 @@
 <#
 .SYNOPSIS
     First-time setup for building OSF UI on a fresh machine.
-
 .DESCRIPTION
-    Fetches the build-time dependencies that are NOT checked into the repo, so a
-    fresh clone can build. Currently that is one thing: the Microsoft.Web.WebView2
-    SDK package, which the WebView2 web renderer links its static loader from.
-    `external/` is gitignored (a local SDK drop, not source), so every new clone
-    starts without it and `xmake build` fails with:
-
-        OSFUI WebView2 browser host: unpack Microsoft.Web.WebView2 into external/webview2
-        or set WEBVIEW2_SDK_DIR to the NuGet package root
-
-    This script downloads that NuGet package (the SAME version CI pins) and
-    unpacks it to external/webview2, then verifies the header and static loader
-    are present. It is idempotent: re-running with the SDK already in place is a
-    no-op unless -Force is passed.
-
-    What this does NOT do (intentionally): install xmake, the Edge WebView2
-    Evergreen runtime, or Node. This script only stages the repo-local SDK drop.
-
+    Downloads and verifies the pinned WebView2 SDK; reruns are no-ops unless -Force is passed.
 .PARAMETER Version
-    Microsoft.Web.WebView2 NuGet version to fetch. Defaults to the version CI
-    pins; override only to match a different toolchain.
-
+    Microsoft.Web.WebView2 NuGet version to fetch.
 .PARAMETER Dest
-    Where to unpack the SDK. Defaults to external/webview2 (what the build looks
-    for by default). If you keep the SDK in a shared location instead, unpack it
-    there and set WEBVIEW2_SDK_DIR rather than using this script.
-
+    SDK destination; defaults to external/webview2.
 .PARAMETER Force
-    Re-download and overwrite even if the SDK already appears present.
-
+    Re-download and overwrite an existing SDK.
 .EXAMPLE
     pwsh tools/setup.ps1
-    # fetch + unpack the WebView2 SDK into external/webview2
-
 .EXAMPLE
     pwsh tools/setup.ps1 -Force
-    # re-fetch even if already present
 #>
 [CmdletBinding()]
 param(
@@ -59,7 +33,6 @@ function Die($m)  { Write-Host "XX  $m" -ForegroundColor Red; exit 1 }
 
 Step "OSF UI setup: staging build-time dependencies"
 
-# --- WebView2 SDK ----------------------------------------------------------
 $native    = Join-Path $Dest 'build\native'
 $header    = Join-Path $native 'include\WebView2.h'
 $staticLib = Join-Path $native 'x64\WebView2LoaderStatic.lib'

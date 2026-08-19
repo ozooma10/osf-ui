@@ -1,18 +1,3 @@
-// Native desktop tests for form references across the bridge (protocol 2.0):
-// the REAL API/PapyrusApi.cpp compiled
-// against stubs/RE (recording VM + a TESForm test registry), driven through
-// the same natives the game binds. Covers SetViewForms' capture-ids/
-// serialize-at-drain split (identity fields, null-slot preservation, empty
-// values, shared validation and cap), the GetFormById/GetFormsById resolvers
-// (decimal + hex parse matrix, stale references), and the session scope that
-// serialized form identities force on retained Papyrus state.
-//
-// 2.0 renamed the channel (`PushFormsToView` -> `SetViewForms`, a transient
-// push -> retained state) but NOT the threading rule that makes it work: the
-// native captures FormIDs on the VM tasklet thread and the identity fields are
-// read at drain time on the main thread, because a form field read is
-// main-thread-only while a FormID is just a number.
-// Assert-style; process exit code is the failure count.
 
 #include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
@@ -39,8 +24,6 @@ namespace
 		return n;
 	}
 
-	// A named form, the way real game forms carry the component: TESFullName
-	// multiple-inherited next to TESForm, found via starfield_cast.
 	struct NamedForm :
 		RE::TESForm,
 		RE::TESFullName
@@ -71,8 +54,6 @@ namespace
 	};
 }
 
-// Core/Log.h declarations (real impl pulls game deps — stub, as in
-// papyrus_action_tests.cpp; SettingsStore references these).
 namespace OSFUI::Log
 {
 	void WarnOnce(std::once_flag& a_flag, std::string_view a_message)
@@ -139,8 +120,6 @@ int main()
 		const auto& s = drained[0];
 		CHECK(s.mod == "t.forms");  // folded to canonical lowercase, like every SetView*
 		CHECK(s.key == "catalog");
-		// The forms ARE the key's complete value now — there is no second
-		// channel and no parallel `values` field to keep in step.
 		CHECK(s.value.is_array());
 		CHECK(s.value.size() == 2);
 		if (s.value.is_array() && s.value.size() == 2) {
@@ -153,9 +132,6 @@ int main()
 		}
 	}
 
-	// The echo path: what a view sends back resolves to the same form. Decimal
-	// is what the OSF UI runtime's number-to-string argument coercion produces; both hex
-	// spellings are accepted for authors quoting a display id.
 	CHECK(getFormById(*vm, 0, {}, std::to_string(0x0014E8D2u).c_str()) == &keyword);
 	CHECK(getFormById(*vm, 0, {}, "0x0014E8D2") == &keyword);
 	CHECK(getFormById(*vm, 0, {}, "0X0014e8d2") == &keyword);
@@ -173,10 +149,6 @@ int main()
 		CHECK(drained[0].value[1].at("formType").get<std::string>() == "200");
 	}
 
-	// --- null slots: None inputs and forms deleted between queue and drain --------
-	// The queue holds FormIDs, so a form can vanish in between; its slot is kept
-	// as a JS null rather than collapsing the array, which is what keeps a
-	// parallel key (labels, counts) index-aligned with this one.
 	setViewForms(*vm, 0, {}, "t.forms", "inv", { &keyword, nullptr, &weapon });
 	RE::TESForm::Registry().erase(weapon.GetFormID());  // vanishes pre-drain
 	drain();
@@ -189,16 +161,10 @@ int main()
 	CHECK(LogCount("vanished before serialization") == 1);
 	RE::TESForm::Registry()[weapon.GetFormID()] = &weapon;  // restore for later sections
 
-	// --- an empty forms value still delivers ---------------------------------------
-	// It is the complete value for the key and it means "the list is now empty",
-	// which a view must be able to render — the setter is not a no-op.
 	setViewForms(*vm, 0, {}, "t.forms", "catalog", {});
 	drain();
 	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.empty());
 
-	// Only SetViewForms serializes identities: every other setter's value
-	// travels verbatim, so a string that happens to look like a form id stays a
-	// string.
 	setViewStrings(*vm, 0, {}, "t.forms", "labels", { Str{ "a" } });
 	drain();
 	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 1);
@@ -250,12 +216,6 @@ int main()
 		CHECK(forms[2] == &weapon);
 	}
 
-	// --- session scope: form identities must not cross a game load -------------------
-	// Runtime FormIDs are session-scoped, which is the whole reason retained
-	// PAPYRUS state is session-scoped while the native ABI's is not. The load
-	// drops what is still queued, and TakeSessionReset is the one-shot signal
-	// Runtime::Tick reads to drop what it already retained (RetainedStateStore::
-	// ClearSessionScoped) before the new session's scripts publish again.
 	CHECK(!API::Papyrus::TakeSessionReset());  // nothing to report before a load
 	setViewForms(*vm, 0, {}, "t.forms", "catalog", { &keyword });
 	RE::TESLoadGameEvent::GetEventSource()->Notify(RE::TESLoadGameEvent{});

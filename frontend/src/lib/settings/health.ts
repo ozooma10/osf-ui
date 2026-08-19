@@ -1,16 +1,3 @@
-// The System Health model: what the `osfui/diagnostics` state snapshot means, and how
-// a stable machine code becomes something a player can act on.
-//
-// The split is deliberate. Native decides WHAT is wrong — it owns the stable
-// `code`, the severity, and the bounded technical context. This file decides how
-// that READS and what buttons it offers, because copy has to be localizable and
-// because the set of actions the shell is willing to expose must be a closed
-// list here rather than anything a payload can name. A code this build has never
-// heard of still renders: it degrades to a generic issue with its technical
-// details shown, never to a blank one.
-//
-// The wire is treated as untrusted/version-skewed once, here. Everything after
-// readHealth receives a complete internal record and does not repeat defaults.
 
 import type { DiagnosticIssue, DiagnosticsData } from '@sdk';
 
@@ -32,10 +19,6 @@ export interface HealthModel {
 
 export const EMPTY_HEALTH: HealthModel = { system: {}, issues: [] };
 
-/**
- * The Health destination's rail id. Same ':' boundary as HOME_ID: filesystem-
- * backed mod ids cannot contain it, so no mod can shadow the destination.
- */
 export const HEALTH_ID = ':health';
 
 /** Normalise an untrusted `osfui/diagnostics` state payload into the model. */
@@ -113,11 +96,6 @@ export interface HealthCounts {
   resolved: number;
 }
 
-/**
- * Counts for the badge and the summary header. ACTIVE ONLY for errors and
- * warnings — a resolved error is history, and counting it would leave the rail
- * badge red long after the condition cleared.
- */
 export function countIssues(issues: readonly IssueRecord[]): HealthCounts {
   let errors = 0;
   let warnings = 0;
@@ -141,11 +119,6 @@ export function overallSeverity(counts: HealthCounts): Severity | null {
   return null;
 }
 
-/**
- * Active issues in paint order: errors first, then warnings, newest first
- * within each. Mirrors the order native already emits, but the view must not
- * depend on that — the OSF UI runtime is free to reorder an additive payload.
- */
 export function sortIssues(issues: readonly IssueRecord[]): IssueRecord[] {
   return issues.slice().sort((a, b) => {
     const sa = severityOf(a) === 'error' ? 0 : 1;
@@ -168,11 +141,6 @@ export function resolvedIssues(model: HealthModel): IssueRecord[] {
   return sortResolved(model.issues.filter(isResolved));
 }
 
-/**
- * The worst ACTIVE severity attributable to one mod, for the rail's severity
- * marker. An issue belongs to a mod when its `subject` is that mod id or a view
- * id owned by it ("<modId>/<viewName>", the qualified-view-id shape).
- */
 export function severityForMod(
   issues: readonly IssueRecord[],
   modId: string,
@@ -182,9 +150,6 @@ export function severityForMod(
   for (const issue of issues) {
     if (isResolved(issue)) continue;
     const subject = issue.subject;
-    // `source` is the authority for a mod's OWN reports (ABI 1.7): those name
-    // whatever the mod cares about as the subject — a pack, a file, an actor —
-    // so subject-matching alone would leave them off that mod's rail marker.
     const mine =
       issue.source === modId ||
       (!!subject &&
@@ -208,16 +173,7 @@ export function issueForSubject(
   return mine[0] ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Codes -> copy and actions
-// ---------------------------------------------------------------------------
 
-/**
- * Actions a card may offer. A CLOSED list on purpose: everything here maps to a
- * local action. `retry-view` takes its argument from the issue's own `subject`
- * (a view id the runtime already knows), never from free text. `copy-details`
- * writes only the already-visible technical disclosure to the clipboard.
- */
 export type ActionKind = 'retry-view' | 'copy-details';
 
 export interface IssueCopy {
@@ -232,12 +188,6 @@ export interface IssueCopy {
   actions: ActionKind[];
 }
 
-/**
- * Copy and offered actions per stable code. Adding a code here is how a new
- * native producer becomes legible; until then it renders through
- * {@link GENERIC_COPY} with its technical details visible, which is a worse
- * card but never a broken one.
- */
 const COPY: Record<string, IssueCopy> = {
   'input.control-map-unavailable': {
     title: ['issueControlMapTitle', "Starfield's key map is unavailable"],
@@ -332,12 +282,6 @@ const COPY: Record<string, IssueCopy> = {
     ],
     actions: ['copy-details'],
   },
-  // NOTE: there is deliberately no `host.focus-stranded` entry. The renderer no
-  // longer reports that condition — the focus watchdog corrects it within a tick
-  // or two, so the card described an internal mechanism the player cannot act on
-  // and which had usually already cleared by the time they read it. It stays a
-  // log-only WARN. An OSF UI runtime older than this build that still emits the code falls
-  // through to GENERIC_COPY, which is the intended degradation.
   'host.ring-truncated': {
     title: ['issueRingTruncatedTitle', 'The browser host does not match this OSF UI'],
     impact: [
@@ -350,10 +294,6 @@ const COPY: Record<string, IssueCopy> = {
     ],
     actions: ['copy-details'],
   },
-  // NOTE: there is deliberately no `render.framegen-fallback` entry either, and
-  // for a sharper reason than the one above: that card could only ever be ACTIVE
-  // in the exact state where the overlay suspends its draws, so the pane meant to
-  // show it was itself invisible. See the note in src/Runtime/Runtime.h.
   'compat.needs-newer-osfui': {
     title: ['issueNeedsNewerTitle', 'Something installed expects a newer OSF UI'],
     impact: [
@@ -388,16 +328,6 @@ export const GENERIC_COPY: IssueCopy = {
   actions: ['copy-details'],
 };
 
-/**
- * Fallback for a condition another mod reported through the ABI (1.7). It is
- * separate from {@link GENERIC_COPY} because the honest next step is different:
- * an unknown PLATFORM code means this build is behind and updating may help,
- * whereas an unknown MOD code means the report is simply not one OSF UI knows —
- * updating OSF UI would change nothing, and the mod's author is the right
- * destination. The mod is named rather than quoted: `{mod}` is substituted with
- * the id from `source`, which the OSF UI runtime assigns from the calling plugin, never a
- * payload field, so no mod can author the words on its own card.
- */
 export const MOD_COPY: IssueCopy = {
   title: ['issueModTitle', '{mod} reported a problem'],
   impact: [
@@ -411,25 +341,11 @@ export const MOD_COPY: IssueCopy = {
   actions: ['copy-details'],
 };
 
-/**
- * The mod that reported this issue, or null when it came from OSF UI itself.
- * Mod ids are opaque, so attribution is explicit on the wire rather than
- * inferred from punctuation in `source`.
- */
 export function modIdOf(issue: IssueRecord): string | null {
   const source = issue.source;
   return issue.sourceKind === 'mod' && source ? source : null;
 }
 
-/**
- * Copy for one issue: an exact code match wins, then the mod-reported fallback,
- * then the platform generic.
- *
- * This is the only entry point. A bare code->copy lookup used to sit beside it
- * and could not distinguish "this build does not know that code" from "a mod
- * reported it", which is the difference between telling the player to update
- * OSF UI and telling them to contact the mod author.
- */
 export function copyForIssue(issue: IssueRecord): IssueCopy {
   const exact = COPY[issue.code];
   if (exact) return exact;

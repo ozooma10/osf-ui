@@ -36,8 +36,7 @@ namespace OSFUI::API
 
 	void SettingsSubscriptions::OnChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
 	{
-		// Drop early when nobody listens, so the queue never grows with no
-		// subscribers. Serialization happens outside the lock.
+		// Skip serialization and queueing when nobody listens.
 		{
 			std::lock_guard lock(_mutex);
 			const bool anySubscriber = std::any_of(_subs.begin(), _subs.end(),
@@ -70,10 +69,7 @@ namespace OSFUI::API
 			std::string      modId;
 		};
 
-		// Resolve all work under one lock: replays consume their one-shot flag
-		// even when the mod is unknown (late registration then replays through
-		// the store change feed, not the snapshot); events resolve against the
-		// subscriber set as of this Pump.
+		// Consume each replay once; unknown mods receive later values through the change feed.
 		std::vector<Replay> replays;
 		std::vector<Call>   eventCalls;
 		{
@@ -94,8 +90,6 @@ namespace OSFUI::API
 			_events.clear();
 		}
 
-		// Replays first (see header), expanded unlocked: the mirror has its own
-		// mutex and dumps each value in SnapshotMod.
 		std::vector<Call> calls;
 		for (auto& r : replays) {
 			for (auto& [key, valueJson] : a_mirror.SnapshotMod(r.modId)) {
@@ -105,9 +99,7 @@ namespace OSFUI::API
 		calls.insert(calls.end(),
 			std::make_move_iterator(eventCalls.begin()), std::make_move_iterator(eventCalls.end()));
 
-		// Invoke unlocked, re-checking liveness per call so an Unsubscribe —
-		// including one from an earlier callback in this Pump — stops delivery
-		// immediately.
+		// Invoke unlocked and recheck liveness before every call.
 		for (const auto& c : calls) {
 			{
 				std::lock_guard lock(_mutex);

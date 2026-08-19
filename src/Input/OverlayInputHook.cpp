@@ -6,8 +6,7 @@
 #include "Platform/WindowsPlatform.h"
 #include "Runtime/Runtime.h"
 
-// Keep <Windows.h> confined to this file. NOGDI stops wingdi's ERROR macro
-// from clobbering REX::ERROR.
+// Keep <Windows.h> here with NOGDI to avoid wingdi's ERROR macro.
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #define NOMINMAX
@@ -22,11 +21,7 @@ namespace OSFUI::OverlayInputHook
 		HWND    g_hwnd{ nullptr };
 		std::atomic_bool g_chainCycleLogged{ false };
 
-		// Physical identity of a WM_(SYS)KEY* message: make code from lParam
-		// bits 16-23, extended flag from bit 24, composed into the DIK
-		// convention. SendInput-synthesized input can carry no scan code at
-		// all; fall back to the layout's VK->scan mapping so remapper-driven
-		// presses still bind.
+		// Normalize WM key identity to DIK, falling back from absent synthetic scan codes to VK mapping.
 		ScanCode MessageScanCode(std::uint32_t a_vk, LPARAM a_lparam)
 		{
 			const auto rawScan = static_cast<std::uint8_t>((a_lparam >> 16) & 0xFF);
@@ -39,9 +34,7 @@ namespace OSFUI::OverlayInputHook
 		}
 		thread_local bool g_forwardingOriginal{ false };
 
-		// Whether the hardware (OS) pointer is engaged. Capture flips on the game
-		// main thread (ApplyViewPresentationPolicy); WndProc only observes the edge.
-		// Window-message thread only.
+		// Window-thread cursor state observes capture edges published by the main thread.
 		bool g_hwCursorActive{ false };
 
 		struct FindWindowData
@@ -88,14 +81,7 @@ namespace OSFUI::OverlayInputHook
 			}
 		}
 
-		// Route a WM_INPUT mouse packet into the overlay. The only mouse source:
-		// the game's raw-input registration suppresses the legacy WM_MOUSE*
-		// stream (verified in-game 2026-07-01 — clicks routed from legacy
-		// messages never arrived).
-		//
-		// The visible OS pointer is authoritative: read GetCursorPos and sync the
-		// runtime's view-space cursor to it so buttons/hover land where the user
-		// sees it. Raw deltas are intentionally ignored.
+		// Route WM_INPUT using the visible OS pointer; legacy mouse messages are suppressed by the game.
 		void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam)
 		{
 			UINT size = 0;
@@ -112,11 +98,9 @@ namespace OSFUI::OverlayInputHook
 			auto& runtime = Runtime::Get();
 			const auto& mouse = raw.data.mouse;
 
-			// The engine may re-hide/re-clip the pointer at any time; heal it on
-			// the packet the user would notice it on.
+			// Heal engine cursor changes on the next visible input packet.
 			HardwareCursor::Reassert(a_hwnd);
-			// Sync from the live OS pointer on every packet, not just moves, so a
-			// click without a preceding move still lands correctly.
+			// Sync every packet so clicks without prior movement land correctly.
 			POINT pt{};
 			RECT  client{};
 			if (::GetCursorPos(&pt) && ::ScreenToClient(a_hwnd, &pt) &&
@@ -144,9 +128,7 @@ namespace OSFUI::OverlayInputHook
 				runtime.OnGameWindowMouseButton(2, false);
 			}
 
-			// usButtonData is a USHORT carrying a signed WHEEL_DELTA (120)
-			// multiple, so reinterpret as short before widening
-			// (positive = rotated forward/up).
+			// Reinterpret unsigned usButtonData as signed WHEEL_DELTA units.
 			if (buttons & RI_MOUSE_WHEEL) {
 				const auto wheelDelta = static_cast<short>(mouse.usButtonData);
 				if (wheelDelta != 0) {
@@ -173,8 +155,7 @@ namespace OSFUI::OverlayInputHook
 
 			auto& runtime = Runtime::Get();
 
-			// Capture flips on the game main thread, so this is where the
-			// open/close edge becomes visible to the window thread.
+			// Reconcile the main-thread capture edge on the window thread.
 			const bool wantHwCursor = runtime.IsInputCaptured();
 			if (wantHwCursor != g_hwCursorActive) {
 				g_hwCursorActive = wantHwCursor;
@@ -197,8 +178,7 @@ namespace OSFUI::OverlayInputHook
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
 				const bool repeat = (a_lparam & 0x40000000) != 0;
-				// Drive toggle/web-routing on the initial press only so key
-				// auto-repeat can't re-toggle the overlay.
+				// Route only the initial press so auto-repeat cannot retrigger toggles.
 				const bool consume = repeat ? runtime.IsInputCaptured() :
 					                              runtime.OnGameWindowKey(vk, MessageScanCode(vk, a_lparam), true);
 				if (consume) {
@@ -216,20 +196,15 @@ namespace OSFUI::OverlayInputHook
 				break;
 			}
 			case WM_INPUTLANGCHANGE:
-				// Keyboard layout switched (Alt+Shift / Win+Space) while the game
-				// window has focus: keycap labels must recompute. Flag only —
-				// the rebuild runs on the main thread's tick. Never consumed.
+				// Flag layout changes for a main-thread keycap rebuild without consuming them.
 				runtime.NotifyKeyboardLayoutChanged();
 				break;
 			case WM_CHAR:
-				// Chromium receives text and IME through its focused native child
-				// window. Swallow the game's duplicate character stream while the
-				// overlay owns input.
+				// Chromium receives native text and IME; swallow the game's duplicate stream while captured.
 				if (runtime.IsInputCaptured()) return 0;
 				break;
 			case WM_UNICHAR:
-				// Answer the capability probe and swallow duplicate text only while
-				// the overlay owns input; Chromium receives the original stream.
+				// Answer WM_UNICHAR probes and swallow duplicates only while captured.
 				if (!runtime.IsInputCaptured()) {
 					break;
 				}
@@ -238,18 +213,13 @@ namespace OSFUI::OverlayInputHook
 				}
 				return 0;
 			case WM_DEADCHAR:
-				// Dead key (accent): no finished character yet, the composed
-				// result arrives as a later WM_CHAR. Block it from the game
-				// while captured.
+				// Block dead-key prefixes from the game while Chromium awaits the composed WM_CHAR.
 				if (runtime.IsInputCaptured()) {
 					return 0;
 				}
 				break;
 			case WM_SETCURSOR:
-				// Rarely delivered (raw-input registration suppresses the legacy
-				// mouse stream), but if it arrives, apply the page's requested
-				// shape and keep the game's proc from resetting/hiding the
-				// pointer. Reassert covers the shape on the WM_INPUT path.
+				// Apply the page cursor and prevent engine reset if legacy WM_SETCURSOR arrives.
 				if (g_hwCursorActive) {
 					HardwareCursor::ApplyShape();
 					return TRUE;
@@ -257,17 +227,14 @@ namespace OSFUI::OverlayInputHook
 				break;
 			case WM_INPUT:
 				if (runtime.IsInputCaptured()) {
-					// Route into the overlay, then skip the game's proc so its
-					// camera/movement gets nothing. WM_INPUT must still reach
-					// DefWindowProc to release the raw input buffer.
+					// Route to the overlay and use DefWindowProc only to release the raw-input buffer.
 					RouteRawMouse(a_hwnd, a_lparam);
 					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 				}
 				break;
 			default:
 				if (IsLegacyMouseMessage(a_msg) && runtime.IsInputCaptured()) {
-					// Everything already routes from WM_INPUT; block any legacy
-					// duplicates from the game.
+					// Block legacy duplicates because WM_INPUT is authoritative.
 					return 0;
 				}
 				break;
@@ -307,9 +274,7 @@ namespace OSFUI::OverlayInputHook
 
 		g_originalProc = reinterpret_cast<WNDPROC>(
 			::SetWindowLongPtrW(g_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WndProc)));
-		// Per-window subclasses do not change the class procedure. Keep this
-		// stable route to Starfield so a poorly behaved overlay that re-hooks
-		// above us cannot turn two otherwise valid chains into a recursion loop.
+		// Call the stable class procedure so later subclass chains cannot recurse through ours.
 		g_gameProc = reinterpret_cast<WNDPROC>(::GetClassLongPtrW(g_hwnd, GCLP_WNDPROC));
 		if (!g_gameProc) {
 			REX::WARN("OverlayInputHook: could not read the game window's class WndProc; "

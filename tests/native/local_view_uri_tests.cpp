@@ -1,7 +1,3 @@
-// Default-deny egress policy's single decision point: everything the host's
-// WebResourceRequested filter does NOT 403 must be the view virtual host or a
-// path under it. A wrong "true" here is a network egress hole, so the lookalike
-// cases matter more than the happy paths.
 
 #include "../../tools/webview2_shared/Wv2LocalUri.h"
 
@@ -21,8 +17,6 @@ int main()
 	// Scheme and host are case-insensitive.
 	assert(IsLocalViewUri(L"HTTPS://OSFUI.LOCAL/Views/App.JS", host));
 
-	// Lookalike hosts that merely START with the virtual host must be remote:
-	// the boundary is base + '/'.
 	assert(!IsLocalViewUri(L"https://osfui.local.evil.com/", host));
 	assert(!IsLocalViewUri(L"https://osfui.localhost/", host));
 	// A port or userinfo re-scopes the authority.

@@ -1,20 +1,3 @@
-// Fake bridge + mount helpers shared by the settings-view test suites.
-// Test only.
-//
-// Bridge protocol 2.0. The fake keeps the four verbs apart exactly as the real
-// bridge does, because that split is most of what these suites now pin:
-//
-//   send(name, payload)    one-way. Recorded in `sent`; never settles.
-//   request(name, payload) recorded in `requests`; settled BY INDEX through
-//                          settle() / reject().
-//   on(event, fn)          one-shot happenings, fired with deliver(). NEVER
-//                          replayed to a later subscriber.
-//   state(key, fn)         named values: the handler runs IMMEDIATELY with the
-//                          current value and again on every publish().
-//
-// Seeding `makeBridge({ state: { ... } })` models the OSF UI runtime replaying state to a
-// fresh document — the reason a 2.0 view issues no reads and needs no
-// lifecycle code. Publishing afterwards models a later change push.
 
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
@@ -37,13 +20,6 @@ export interface FakeBridge extends Bridge {
   publish(key: string, value: unknown): void;
   sent: OutboundMessage[];
   requests: Array<OutboundMessage & { opts?: unknown }>;
-  /**
-   * Every outbound message in issue order, sends and requests alike.
-   *
-   * Mod Settings drives both send and request endpoints. These suites
-   * assert which endpoint was addressed and with what payload, while dedicated
-   * request assertions below also verify settlement behavior.
-   */
   outbound: OutboundMessage[];
   settle(index: number, value: unknown): void;
   reject(index: number, err: unknown): void;
@@ -55,15 +31,7 @@ export interface FakeBridge extends Bridge {
 export interface MakeBridgeOptions {
   version?: string;
   available?: boolean;
-  /**
-   * State the OSF UI runtime has already replayed to this document, present before the
-   * first paint. Keys are absolute ("osfui/settings", "osfui/views", ...).
-   */
   state?: Record<string, unknown>;
-  /**
-   * Never settle `ready()`. Nothing but the OSF UI release-version badge may depend on the
-   * handshake — the data arrives as replayed state either way.
-   */
   readyNeverResolves?: boolean;
   /** Reject `ready()`, as the 2.0 helper does with no bridge underneath it. */
   readyRejects?: boolean;
@@ -200,12 +168,6 @@ export const flushDebounce = async () => {
   });
 };
 
-/**
- * Type into the filter box and settle both the input state and the 120ms
- * debounce. The input dispatch must land in its own `act` before the debounce
- * timer is waited on, or Preact has not processed the value change when the
- * debounce window opens and `query` never updates.
- */
 export async function typeFilter(el: HTMLElement, value: string): Promise<void> {
   const input = el.querySelector('#filter') as HTMLInputElement;
   await act(async () => {

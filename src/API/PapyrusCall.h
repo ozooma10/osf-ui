@@ -8,18 +8,10 @@
 #include "Core/Json.h"
 #include "API/PapyrusNames.h"
 
-// Validation and JS->Papyrus marshalling for the `papyrus.call` endpoint.
-//
-// Split out of the endpoint lambda so it is reachable from the native unit-test
-// suite: this is the one endpoint that lets untrusted view content name an
-// arbitrary script and GLOBAL function, and every guard on it (the platform
-// script refusal, the argument cap, the int range, the float finiteness) is
-// only as good as the test that pins it. The endpoint in Runtime keeps the
-// transport half — reading the source view and surfacing the failure.
+// Validates untrusted papyrus.call payloads before JS-to-Papyrus marshalling.
 namespace OSFUI::PapyrusCall
 {
-	// Papyrus itself has no hard parameter limit; this is a bound on untrusted
-	// input, sized well past any plausible signature.
+	// Bound untrusted argument arrays even though Papyrus has no fixed limit.
 	inline constexpr std::size_t kMaxArgs = 32;
 
 	struct Parsed
@@ -39,8 +31,7 @@ namespace OSFUI::PapyrusCall
 			return Parsed{ .ok = false, .code = std::move(a_code), .message = std::move(a_message) };
 		}
 
-		// Papyrus floats are 32-bit. A value JS can hold but the VM cannot is a
-		// refusal, not a silent inf.
+		// Reject values outside the finite 32-bit Papyrus float range.
 		[[nodiscard]] inline bool AppendFloat(std::vector<API::Papyrus::StaticCallArg>& a_out, double a_number)
 		{
 			if (!std::isfinite(a_number) || std::abs(a_number) > std::numeric_limits<float>::max()) {
@@ -60,15 +51,7 @@ namespace OSFUI::PapyrusCall
 		if (!PapyrusNames::IsScriptName(out.script) || !PapyrusNames::IsIdentifier(out.function)) {
 			return detail::Fail("invalid-request", "papyrus.call requires valid 'script' and 'function' names");
 		}
-		// OSF UI's own natives are not a callable mod backend. They take the
-		// target mod id as an ARGUMENT and trust their caller (Papyrus is a
-		// mod's own code), so reaching them from a page would hand it a trusted
-		// alias for settings.set / settings.reset / state publishing WITHOUT the
-		// Ids::ResolveWritableMod authority check those endpoints enforce —
-		// rebinding OSF UI's own toggleKey, resetting a neighbour's settings, or
-		// publishing state under another mod's identity. Case-insensitive:
-		// Papyrus identifiers are, and BSFixedString interning does not preserve
-		// the caller's spelling.
+		// Reject OSFUI natives so untrusted pages cannot bypass per-view authority.
 		if (StringUtil::EqualsCaseInsensitiveAscii(out.script, API::Papyrus::kPlatformScriptName)) {
 			return detail::Fail("forbidden",
 				"papyrus.call cannot target OSF UI's own script — use the osfui.* endpoints");
@@ -91,10 +74,7 @@ namespace OSFUI::PapyrusCall
 			} else if (value.is_boolean()) {
 				out.args.emplace_back(value.get<bool>());
 			} else if (value.is_number_unsigned()) {
-				// BEFORE is_number_integer(), which is true for unsigned too:
-				// reading a > INT64_MAX literal as int64 is a modular cast, so
-				// the refusal below would never fire and the value would reach
-				// Papyrus as a small negative int.
+				// Check unsigned first because nlohmann integer conversion can wrap large values.
 				const auto integer = value.get<std::uint64_t>();
 				if (integer > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
 					return detail::Fail("invalid-request", "papyrus.call integer arguments must fit Papyrus int");
@@ -114,9 +94,7 @@ namespace OSFUI::PapyrusCall
 			} else if (value.is_object() && value.size() == 2 &&
 				Json::Get(value, "$papyrus", "") == "float" && value.contains("value") &&
 				value["value"].is_number()) {
-				// JSON erases the difference between 3 and 3.0. The helper's
-				// tagged float keeps whole-valued Papyrus float parameters
-				// expressible.
+				// Tagged floats preserve whole-valued Papyrus float arguments.
 				if (!detail::AppendFloat(out.args, value["value"].get<double>())) {
 					return detail::Fail("invalid-request", "papyrus.call float arguments must be finite Papyrus floats");
 				}

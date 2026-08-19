@@ -513,10 +513,7 @@ namespace OSFUI
 
 	bool Runtime::BeginViewOpen(std::string_view a_id)
 	{
-		// Both halves: Install() only proves the vtable hooks were taken, while
-		// the command-list hooks are self-tested lazily on a render worker and
-		// can disable the draw path afterwards. Gating on the install alone admits an
-		// invisible overlay that still holds focus and input.
+		// Require both installation and the lazy render-worker self-test before allowing input capture.
 		if (!OverlayCanDraw()) {
 			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable",
 				a_id);
@@ -607,8 +604,7 @@ namespace OSFUI
 			return;
 		}
 		if (!_renderer) {
-			// Overlay disabled or never came up: drop loudly rather than
-			// queueing forever.
+			// Drop requests when the overlay has no viable renderer.
 			for (const auto& id : ids) {
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — overlay not running", id);
 			}
@@ -616,8 +612,7 @@ namespace OSFUI
 		}
 		bool catalogChanged = false;
 		for (const auto& id : ids) {
-			// Idempotent: re-registering an instantiated view (or a repeat
-			// call) would blow away its page state.
+			// Do not re-register instantiated views and discard their page state.
 			if (_presentation.IsInstantiated(id)) {
 				REX::DEBUG("Runtime: plugin RegisterView('{}') — already instantiated, left untouched", id);
 				continue;
@@ -634,8 +629,7 @@ namespace OSFUI
 				BeginViewOpen(id);
 				catalogChanged = true;
 			} else {
-				// Discovery already made this id catalogued and RequestMenu-openable.
-				// RegisterView now validates intent while deferring page creation.
+				// Discovery catalogues the view; registration validates intent without creating the page.
 				REX::DEBUG("Runtime: plugin RegisterView('{}') accepted; creation deferred until first open", id);
 			}
 		}

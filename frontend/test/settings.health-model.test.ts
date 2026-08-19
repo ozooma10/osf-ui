@@ -1,5 +1,3 @@
-// The System Health model: counting, severity precedence, sorting, per-mod
-// attribution, and code->copy mapping.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -134,8 +132,6 @@ describe('severityForMod — rail marker attribution', () => {
   });
 
   it("attributes a mod's OWN reports by source, whatever their subject", () => {
-    // A native report names the thing the mod cares about — a pack, a file —
-    // which is never the mod id, so source is the only link back to the rail.
     const own = [issue({ id: 'r', severity: 'error', source: 'acme.kit', subject: 'highlights' })];
     expect(severityForMod(own, 'acme.kit')).toBe('error');
     expect(severityForMod(own, 'other.mod')).toBeNull();
@@ -188,8 +184,6 @@ describe('copyForIssue', () => {
     expect(copyForIssue(issue({ id: 'a', code: 'future.unknown', source: 'host' }))).toBe(
       GENERIC_COPY,
     );
-    // Mod source: updating OSF UI would change nothing, so the card names the
-    // mod and points at its author instead.
     const mod = copyForIssue(
       issue({ id: 'b', code: 'osf.animation:catalog.parse-failed', source: 'osf.animation', sourceKind: 'mod' }),
     );

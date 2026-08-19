@@ -4,14 +4,11 @@
 
 namespace OSFUI
 {
-	// Discovers and owns view manifests found under
-	// <data>/views/<modId>/<viewName>/manifest.json (frozen public path).
+	// Own manifests discovered at the frozen views/<modId>/<viewName>/manifest.json path.
 	class ViewManager
 	{
 	public:
-		// Scans a_viewsDir (two-level). Missing dir or bad manifests are
-		// logged, not fatal; unsafe or reserved mod-id folders are hard-rejected
-		// with an ERROR.
+		// Scan two levels; reject unsafe mod ids while logging other discovery failures.
 		void DiscoverAll(const std::filesystem::path& a_viewsDir);
 
 		// a_id is the qualified "<modId>/<viewName>" id.

@@ -11,12 +11,6 @@ import {
 
 const pendingIds = (s: SaveState): string[] => [...s.pending].sort();
 
-/**
- * Is the indicator on screen? A local helper rather than a lib export: "visible"
- * is a class the stylesheet acts on, and the component asks that question by
- * rendering `save.classes`, never by calling a predicate. Kept here because
- * these cases read better for it.
- */
 const isVisible = (s: SaveState): boolean => s.classes.includes('visible');
 
 describe('saveStatePending', () => {
@@ -68,8 +62,6 @@ describe('saveStatePersisted', () => {
   });
 
   it('does NOT clear the indicator — it swaps the text and adds classes', () => {
-    // "persisted" is a success announcement, not a teardown: only the 1800ms
-    // fade (or an abandon) hides it.
     const s = saveStatePending(initialSaveState, 'a').state;
     const out = saveStatePersisted(s, 'a');
     expect(isVisible(out.state)).toBe(true);
@@ -121,8 +113,6 @@ describe('saveStateAbandon', () => {
   });
 
   it('does not cancel an armed fade timer', () => {
-    // Quirk: unlike pending/persisted, abandon never clears the fade timer.
-    // Harmless — the timer removes exactly the classes abandon just removed.
     const s = saveStatePending(initialSaveState, 'a').state;
     expect(saveStateAbandon(s, 'a').cancelFade).toBe(false);
   });

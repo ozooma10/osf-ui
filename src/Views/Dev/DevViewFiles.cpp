@@ -52,8 +52,7 @@ namespace OSFUI::DevViewFiles
 				continue;
 			}
 			const auto relative = it->path().lexically_relative(a_viewDir).generic_string();
-			// Any depth: the scope is the mod folder, so every view's manifest
-			// sits one level down. Manifest edits stay restart-only.
+			// Exclude manifests at every depth because their discovery is restart-only.
 			if (it->path().filename() == "manifest.json")
 				continue;
 			const auto size = it->file_size(ec);
@@ -124,9 +123,7 @@ namespace OSFUI::DevViewFiles
 		if (ec)
 			return Fail(a_error, a_source, ec);
 
-		// Deterministic order also puts the conventional assets/ sibling before
-		// each view's entry HTML. A rebuilt index can therefore never point at a
-		// hashed bundle that has not landed yet.
+		// Deterministic order places assets before entry HTML that references them.
 		std::ranges::sort(sourceEntries, {}, [](const SourceEntry& a_entry) {
 			return a_entry.relative.generic_string();
 		});
@@ -144,9 +141,7 @@ namespace OSFUI::DevViewFiles
 			if (ec)
 				return Fail(a_error, destination, ec);
 
-			// A file/directory rename needs its old shape removed first, but
-			// ordinary stale bundles remain available until every replacement
-			// has copied successfully.
+			// Remove path-type conflicts first but retain ordinary stale bundles through copying.
 			if (destinationExists && destinationDirectory != entry.directory) {
 				std::filesystem::remove_all(destination, ec);
 				if (ec)
@@ -167,10 +162,7 @@ namespace OSFUI::DevViewFiles
 				return Fail(a_error, entry.source, ec);
 		}
 
-		// Only after all current files are safely present may removed/renamed
-		// paths disappear. The former stale-first order deleted the browser's
-		// working bundle and then left the view disconnected when USVFS rejected
-		// the following recursive copy.
+		// Prune stale paths only after every current file is safely present.
 		std::vector<std::filesystem::path> stale;
 		for (std::filesystem::recursive_directory_iterator
 				 it(a_destination, std::filesystem::directory_options::skip_permission_denied, ec),

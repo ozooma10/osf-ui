@@ -1,8 +1,5 @@
 #include "pch.h"
 
-// The out-of-process WebView2 renderer shares its pipe/broker-launch code with
-// the standalone host tools (tools/webview2_shared). Those sources are pch-free;
-// including them through this wrapper satisfies the plugin's /Yu requirement
-// without forking them.
+// Compile the shared pch-free WebView2 transport sources through the plugin's /Yu wrapper.
 #	include "../../tools/webview2_shared/Wv2Pipe.cpp"
 #	include "../../tools/webview2_shared/Wv2BrokerLaunch.cpp"

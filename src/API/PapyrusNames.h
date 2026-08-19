@@ -23,8 +23,7 @@ namespace OSFUI::PapyrusNames
 		       std::all_of(a_name.begin() + 1, a_name.end(), isAlnum);
 	}
 
-	// Starfield Papyrus script names may include namespace separators, with
-	// every component following the ordinary identifier grammar.
+	// Papyrus script names may contain namespace-separated identifiers.
 	inline bool IsScriptName(std::string_view a_name)
 	{
 		if (a_name.empty() || a_name.size() > kMaxTargetLen) {

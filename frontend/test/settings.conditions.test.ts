@@ -56,8 +56,6 @@ describe('evalCondition — fail-CLOSED on an unknown key', () => {
   });
 
   it('QUIRK: `in` walks the prototype chain, so "toString" reads as KNOWN', () => {
-    // Presence uses `cond.key in values`. Documented, not desired — the
-    // regression to watch for is a fail-closed case flipping open.
     expect(evalCondition({ key: 'toString', truthy: true }, {})).toBe(true);
     expect(evalCondition({ key: 'toString', truthy: false }, {})).toBe(false);
   });
@@ -105,8 +103,6 @@ describe('evalCondition — leaf operators', () => {
     expect(evalCondition({ key: 'enabled', truthy: false }, values)).toBe(false);
     expect(evalCondition({ key: 'zero', truthy: false }, values)).toBe(true);
     expect(evalCondition({ key: 'empty', truthy: false }, values)).toBe(true);
-    // An empty array is truthy in JS — a flags setting with nothing selected
-    // still reads as "truthy".
     expect(evalCondition({ key: 'flags', truthy: true }, { flags: [] })).toBe(true);
   });
 

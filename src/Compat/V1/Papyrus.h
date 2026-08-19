@@ -11,8 +11,7 @@
 
 namespace OSFUI::API::Papyrus
 {
-	// Narrow hooks into the current registry/form serializer. These are the only
-	// unavoidable core contacts for the frozen v1 Papyrus adapter.
+	// Only the frozen v1 Papyrus adapter may use these registry and form-serializer hooks.
 	std::int32_t RegisterLegacyActionInstance(
 		const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver,
 		const RE::BSFixedString& a_fn, const RE::BSFixedString& a_mod,

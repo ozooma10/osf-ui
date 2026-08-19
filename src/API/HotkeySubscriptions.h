@@ -5,46 +5,24 @@
 
 namespace OSFUI::API
 {
-	// Redeclares sdk/OSFUI_API.h's HotkeyFn (an identical alias is a legal
-	// redeclaration) so this compiles in native tests without the SDK header's REX/W32
-	// dependency. BridgeApi.cpp sees both headers, so drift is a compile error
-	// there.
+	// Redeclared here so native tests avoid SDK dependencies; BridgeApi.cpp catches drift.
 	using HotkeyFn = void (*)(const char* a_modId,
 	                          const char* a_key,
 	                          void*       a_user) noexcept;
 
-	// SubscribeHotkey bookkeeping, factored out of BridgeApi
-	// so the native unit tests can exercise it without MessageBridge's game
-	// dependencies — same split as SettingsSubscriptions. Subscribe/Unsubscribe
-	// are any-thread; OnFired and Pump run on the main thread. Consumer
-	// callbacks are invoked only from Pump, never with the lock held (a callback
-	// may re-enter Subscribe/Unsubscribe).
-	//
-	// No replay, unlike SettingsSubscriptions: a hotkey is an event, not state,
-	// so subscribing only reports future presses. Subscriptions are
-	// per-(mod, key) and are themselves the delivery opt-in — every key-typed
-	// setting participates in dispatch; only subscribed ones reach native code.
+	// Subscribe is any-thread; main-thread Pump invokes callbacks unlocked and never replays hotkeys.
 	class HotkeySubscriptions
 	{
 	public:
-		// Any thread. Registers a per-(mod, key) subscription. Subscribing to a
-		// not-(yet-)existing or non-key setting is legal — it just never fires
-		// until such a binding dispatches. Returns a nonzero token, or 0 on
-		// null/empty a_modId or a_key, or null a_fn.
+		// Any thread; returns 0 for invalid inputs and permits bindings that do not exist yet.
 		std::uint32_t Subscribe(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user);
-		// Any thread. Once this returns no callback for the token is still
-		// running or can start. Self-unsubscribe from inside a callback is safe.
+		// Any thread; completion guarantees the callback stopped, and self-unsubscribe is safe.
 		void Unsubscribe(std::uint32_t a_token);
 
-		// Main thread: a dispatched hotkey (Runtime::DrainHotkeys). Queued for
-		// the next Pump; dropped when no subscriber matches (mod, key).
+		// Main thread; queues a fire only when a subscriber currently matches.
 		void OnFired(std::string_view a_modId, std::string_view a_key);
 
-		// Main thread: deliver queued fires FIFO to the subscriber set as of
-		// this Pump — a subscriber added from a callback mid-Pump starts with
-		// the next fire. Invoked unlocked, re-checking token liveness per call
-		// so an Unsubscribe (including from an earlier callback this Pump) stops
-		// delivery immediately.
+		// Main thread; delivers FIFO while rechecking token liveness before each unlocked call.
 		void Pump();
 
 	private:

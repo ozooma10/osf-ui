@@ -16,10 +16,7 @@ namespace OSFUI
 			return;
 		}
 
-		// Two-level scan: views/<modId>/<viewName>/manifest.json. The mod folder
-		// is the opaque mod namespace. Top-level dirs without view subfolders are
-		// skipped naturally; the generated shared-kit files can coexist directly
-		// under a mod id named "shared" because only child manifests are views.
+		// Scan views/<modId>/<viewName>/manifest.json; only child manifests define views.
 		std::filesystem::directory_iterator modIt(
 			a_viewsDir, std::filesystem::directory_options::skip_permission_denied, ec);
 		const std::filesystem::directory_iterator end;
@@ -61,9 +58,7 @@ namespace OSFUI
 				}
 			}
 		}
-		// Directory iteration order is filesystem-dependent; sort by qualified id
-		// so discovery (and everything keyed to it: boot creation order, catalog
-		// listings, z tie-breaks between equal-`order` HUDs) is deterministic.
+		// Sort qualified ids so creation, catalogs, and equal-order z ties are deterministic.
 		std::ranges::sort(_views, {}, &ViewManifest::id);
 		REX::INFO("ViewManager: {} view(s) discovered under {}", _views.size(), a_viewsDir.string());
 	}

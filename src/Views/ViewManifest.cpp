@@ -17,10 +17,7 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		// `manifestVersion` is accepted but not required — the nested
-		// views/<modId>/<viewName>/ layout is itself the v2 discriminator. Unknown keys
-		// are the normal compatible case (a newer mod on an older OSF UI release), so they
-		// report as developer-mode INFO, never a warning.
+		// Nested paths identify v2; unknown keys remain forward-compatible developer INFO.
 		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: [content] " + a_path.string());
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
@@ -31,10 +28,7 @@ namespace OSFUI
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
 
-		// The path is the identity: the manifest lives at
-		// views/<modId>/<viewName>/manifest.json and the qualified view id is
-		// "<modId>/<viewName>". Declared fields are consistency checks, not
-		// sources of truth — a manifest can't claim another mod's namespace.
+		// Derive view identity from views/<modId>/<viewName>, never declared fields.
 		const auto viewName = a_path.parent_path().filename().string();
 		const auto modId = a_path.parent_path().parent_path().filename().string();
 		if (!Ids::IsAcceptedModId(modId) || !Ids::IsValidViewName(viewName)) {
@@ -48,12 +42,7 @@ namespace OSFUI
 		manifest.id = modId + "/" + viewName;
 		manifest.mod = modId;
 
-		// A declared `id` is ignored and no longer accepted: the folder name
-		// already is the id, so one reports as an unknown key in dev mode like
-		// any other field this runtime does not read. `mod` stays accepted
-		// though equally underived-from — the frontend build cross-checks it
-		// against the source directory (frontend/scripts/config.mjs), which
-		// catches a manifest copied into the wrong folder at authoring time.
+		// Ignore declared id; retain mod only as an authoring consistency check.
 
 		manifest.title = Json::Get(*json, "title", manifest.id);
 		manifest.description = Json::Get(*json, "description", "");
@@ -67,9 +56,7 @@ namespace OSFUI
 		// Json has no enum helper, so `kind` is parsed manually; unknown values fall back to Menu.
 		const auto kindStr = Json::Get(*json, "kind", "menu");
 		manifest.kind = (kindStr == "hud") ? ViewKind::Hud : ViewKind::Menu;
-		// `interactive` is derived, not author-facing: focus eligibility follows the active
-		// menu (ApplyViewPresentationPolicy), so menu => true, hud => false. Was a manifest
-		// field pre-1.0; now ignored.
+		// Derive interactivity from active-menu policy; ignore the pre-1.0 manifest field.
 		manifest.menuInputEligible = manifest.kind == ViewKind::Menu;
 		manifest.capturesInput = Json::Get(*json, "capturesInput", manifest.capturesInput);
 		manifest.pausesGame = Json::Get(*json, "pausesGame", manifest.pausesGame);
@@ -78,9 +65,7 @@ namespace OSFUI
 		manifest.catalogVisible = Json::Get(*json, "hub", manifest.catalogVisible);
 		manifest.debugOnly = Json::Get(*json, "debugOnly", manifest.debugOnly);
 
-		// A newer target remains advisory and badges "needs update". An explicitly
-		// pre-2.0 target is retained so the frozen v1 navigation façade and its
-		// matching compatibility helper can be selected deterministically.
+		// Retain pre-2.0 targets only to select the frozen v1 compatibility facade.
 		if (auto target = Json::Get(*json, "targetVersion", ""); !target.empty()) {
 			if (const auto targetParts = ParseDottedVersion(target)) {
 				manifest.targetVersion = std::move(target);
@@ -94,8 +79,7 @@ namespace OSFUI
 			}
 		}
 
-		// Views may only reference their own local assets; reject entries that
-		// escape the view folder.
+		// Reject entry paths that escape the view's asset folder.
 		const auto entryPath = std::filesystem::path(manifest.entry);
 		if (entryPath.is_absolute() ||
 			std::ranges::any_of(entryPath, [](const auto& part) { return part == ".."; })) {
@@ -104,9 +88,7 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		// A HUD is passive: it draws over live gameplay but never captures input,
-		// pauses, or becomes the focused view. Forced here so a mis-authored
-		// manifest can't create a HUD that steals input.
+		// Force HUDs passive so malformed manifests cannot capture input or pause.
 		if (manifest.kind == ViewKind::Hud) {
 			if (manifest.capturesInput || manifest.pausesGame) {
 				REX::WARN("ViewManifest: [content] HUD '{}' cannot capture input or pause; forcing both off", manifest.id);

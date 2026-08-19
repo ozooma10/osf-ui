@@ -48,8 +48,6 @@ int main()
 	assert(manifest->id == "demo.mod/terminal");
 	assert(manifest->title == "Cargo terminal");
 
-	// The legacy "id" field — even a stale one from a copied manifest — is
-	// ignored, not rejected.
 	Write(path, R"({
 		"id": "some-old-name"
 	})");
@@ -57,8 +55,6 @@ int main()
 	assert(manifest);
 	assert(manifest->id == "demo.mod/terminal");
 
-	// During 2.0.x a valid pre-2.0 declaration remains in the catalog and keeps
-	// its exact target so navigation and diagnostics can select the v1 adapter.
 	Write(path, R"({
 		"entry": "index.html?mode=compact#inventory",
 		"targetVersion": "1.8.0"

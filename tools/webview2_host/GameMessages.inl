@@ -16,9 +16,6 @@
 					log.Error("init without userDataDir");
 					return;
 				}
-				// PRESENCE, not value: an absent LUID means "pick any adapter",
-				// which a zeroed msg::Init field cannot express. That is the one
-				// reason this reads off the raw document.
 				std::optional<LUID> requestedAdapter;
 				if (a_raw.contains("adapterLuidLow") && a_raw.contains("adapterLuidHigh")) {
 					LUID luid{};
@@ -200,8 +197,6 @@
 			void HandleGameMessage(const json& a_msg)
 			{
 				using Handler = void (App::*)(const json&);
-				// Type strings come from the shared message structs, so the game
-				// side cannot rename one without breaking this build too.
 				static constexpr std::pair<std::string_view, Handler> handlers[]{
 					{ msg::Init::kType, &App::HandleInit },
 					{ msg::Navigate::kType, &App::HandleNavigate },

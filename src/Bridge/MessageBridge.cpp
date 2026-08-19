@@ -9,38 +9,19 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Correlation ids are caller-chosen opaque strings, echoed back
-		// verbatim. Bounded because the inbound payload is untrusted. Unlike
-		// 1.x, an over-long or non-string id is NOT demoted to fire-and-forget:
-		// silent demotion turned a client bug into a request that never
-		// settles. It is a hard `invalid-request` instead.
+		// Reject invalid caller-supplied correlation ids rather than silently demoting requests.
 		constexpr std::size_t kMaxRequestIdLength = 64;
 
-		// Endpoint names are view-supplied and get echoed back inside error
-		// payloads and debug events. Bound them on a codepoint boundary: they
-		// are dumped by the encoders, and dump() throws type_error.316 on a
-		// split UTF-8 sequence — the caller here is the web-message callback,
-		// which runs with no handler between it and std::terminate.
+		// Bound view-supplied endpoint names on a UTF-8 codepoint boundary before encoding.
 		constexpr std::size_t kMaxEndpointNameLength = 128;
 
-		// Events emitted before a document greets the bridge are held per view.
-		// This is what preserves the native ABI's message-before-first-paint
-		// guarantee (RegisterView -> SendToWeb -> RequestMenu in one tick) now
-		// that the handshake is page-initiated. Overflow drops the OLDEST: an
-		// event is a one-shot happening, and the newest are the ones still
-		// worth delivering.
+		// Bound pre-hello events per view and drop the oldest on overflow.
 		constexpr std::size_t kMaxQueuedEventsPerView = 64;
 
-		// Concurrent deferred requests one view may own. A page looping on
-		// request() against a slow endpoint handler hits `request-capacity`
-		// instead of growing OSF UI runtime memory without bound.
+		// Bound concurrent deferred requests owned by one view.
 		constexpr std::size_t kMaxPendingRequestsPerView = 64;
 
-		// OSF UI runtime-side deadline for a deferred request. Longer than the helper's
-		// 10 s client timer on purpose: the two are distinguishable failures
-		// (`timeout` is "the page gave up", `no-response` is "the endpoint
-		// handler never answered"), and collapsing them would hide which side
-		// is broken.
+		// Keep the runtime deadline longer than the page timer so timeout and no-response stay distinct.
 		constexpr auto kRequestDeadline = std::chrono::seconds(30);
 
 		[[nodiscard]] std::string BoundedEcho(std::string_view a_s)
@@ -67,11 +48,7 @@ namespace OSFUI
 			return Json::Dump(nlohmann::json(std::string(a_s)));
 		}
 
-		// Outbound trace allowlist for UNSOLICITED pushes only: the boot
-		// handshake plus platform state. Settlements of an in-flight message
-		// never reach this — they fold into that message's own trace line.
-		// Deliberately not every name: ui.gamepad and friends push far too
-		// often to log.
+		// Trace only low-volume unsolicited pushes; settlements fold into their inbound trace.
 		bool IsTracedState(std::string_view a_key)
 		{
 			return a_key == "settings" || a_key == "views" || a_key == "diagnostics" || a_key == "i18n" ||
@@ -82,10 +59,6 @@ namespace OSFUI
 	MessageBridge::MessageBridge(SendFn a_send) :
 		_send(std::move(a_send))
 	{}
-
-	// -----------------------------------------------------------------------
-	// registry
-	// -----------------------------------------------------------------------
 
 	void MessageBridge::RegisterSend(std::string a_name, SendHandler a_handler)
 	{
@@ -102,8 +75,7 @@ namespace OSFUI
 			REX::WARN("MessageBridge: [content] refused request endpoint '{}' — name already registered", a_name);
 			return false;
 		}
-		// BridgeApi owns public first-wins policy. Re-application here replaces
-		// the internal trampoline after an explicit unregister/re-register.
+		// BridgeApi owns public first-wins policy; this internal trampoline is replaceable.
 		_requests[std::move(a_name)] = std::move(a_handler);
 		return true;
 	}
@@ -133,10 +105,6 @@ namespace OSFUI
 		_commands.erase(std::string(a_name));
 	}
 
-	// -----------------------------------------------------------------------
-	// inbound
-	// -----------------------------------------------------------------------
-
 	void MessageBridge::HandleWebMessage(std::string_view a_viewId, std::string_view a_json)
 	{
 		// Remember the source so settlements route back to it.
@@ -160,8 +128,7 @@ namespace OSFUI
 
 		const auto msg = Json::Parse(a_json);
 		if (!msg || !msg->is_object()) {
-			// Unparseable: there is no id to correlate an error to, so the only
-			// honest channel is the log plus the offending view's own console.
+			// Unparseable input has no correlation id, so report through logs and the view console.
 			ReportProtocolFault(a_viewId, "invalid-request", "malformed message", {});
 			NoteTracedReply("invalid-request");
 			return;
@@ -208,9 +175,7 @@ namespace OSFUI
 		const auto idIt = msg->find("id");
 
 		if (kind == "send") {
-			// `id` is forbidden on a send: a caller that supplied one expects a
-			// settlement it will never get, and answering one would resurrect
-			// the 1.x auto-ack.
+			// A send cannot carry an id because it never settles.
 			if (idIt != msg->end()) {
 				ReportProtocolFault(a_viewId, "invalid-request", "send messages carry no id — use a request",
 					{ { "name", name } });
@@ -253,9 +218,7 @@ namespace OSFUI
 			it->second(a_payload, *this);
 			return;
 		}
-		// Kind enforcement: executing a mutation whose kind the caller got
-		// wrong invites worse bugs, so the send is dropped. Dropping SILENTLY
-		// is the part 1.x got wrong — report it.
+		// Drop and report wrong-kind sends rather than executing the mutation.
 		if (_requests.contains(a_name)) {
 			ReportProtocolFault(_currentSource, "wrong-endpoint-kind",
 				std::format("'{}' is a request endpoint — use request(), not send()", a_name),
@@ -263,9 +226,7 @@ namespace OSFUI
 			NoteTracedReply("wrong-endpoint-kind");
 			return;
 		}
-		// Pages retry unregistered endpoints (polling), so warn once per name
-		// to avoid flooding the log. The page-side protocol-fault event still fires every
-		// time — the page needs it.
+		// Deduplicate log warnings while still reporting every fault to the page.
 		constexpr std::size_t kMaxWarnedEndpoints = 512;
 		if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
 			_warnedUnknownEndpoints.insert(a_name).second) {
@@ -294,11 +255,7 @@ namespace OSFUI
 			}
 			if (const auto send = _sends.find(a_name);
 				send != _sends.end() && IsLegacyApiView(_currentSource)) {
-				// A 1.x request could correlate any ui.command, including a
-				// command which is a strict send in 2.0. Keep that behavior only
-				// for explicitly legacy documents; the same handler and source
-				// authority checks still run, followed by the old uniform ack when
-				// the handler produced no reply of its own.
+				// Explicit legacy documents retain the 1.x uniform command acknowledgement.
 				send->second(a_payload, *this);
 				if (!_settled) {
 					Respond(nlohmann::json{ { "ok", true }, { "command", a_name } });
@@ -320,8 +277,7 @@ namespace OSFUI
 			return;
 		}
 
-		// Capacity is checked before dispatch so a saturated view cannot make
-		// the OSF UI runtime do the handler's work as well.
+		// Refuse saturated views before invoking the endpoint handler.
 		std::size_t owned = 0;
 		for (const auto& [_, req] : _pending) {
 			if (req.view == _currentSource) {
@@ -337,9 +293,7 @@ namespace OSFUI
 
 		it->second(a_payload, *this);
 		if (!_settled) {
-			// A request endpoint that neither settled nor deferred is a
-			// platform bug, and the one failure mode the caller cannot
-			// distinguish from a hang. Make it loud on both sides.
+			// An endpoint returning without settlement is a platform bug, not a silent hang.
 			REX::ERROR("MessageBridge: request endpoint '{}' returned without settling", a_name);
 			Reject("internal", "the endpoint did not answer");
 		}
@@ -347,30 +301,16 @@ namespace OSFUI
 
 	void MessageBridge::HandleHello(std::string_view a_viewId)
 	{
-		// The queue is NOT cleared here. What it holds are the events emitted
-		// between this view's creation and its document greeting us — which is
-		// exactly the native ABI's message-before-first-paint guarantee
-		// (RegisterView -> SendToWeb -> RequestMenu in one tick). Dropping them
-		// as "stale from the previous document" would break that guarantee and
-		// make the flush below dead code; a genuine re-greeting cannot have a
-		// backlog anyway, because its gate was open and its events went
-		// straight out. OnViewCreated is the only thing that discards a queue.
+		// Preserve pre-hello events here; only OnViewCreated discards an old queue.
 		_gates[std::string(a_viewId)].greeted = true;
 
 		// 1. `ready`, before anything else this document will see.
 		SendReady(a_viewId);
-		// 2. every current state value: platform keys plus the owning mod's.
-		//    PublishState only reaches a greeted view, which is why `greeted`
-		//    is set above rather than here — the replay is the reason the gate
-		//    exists at all.
+		// Mark greeted before replay so PublishState can deliver current values.
 		if (_onHello) {
 			_onHello(a_viewId);
 		}
-		// 3. events resume, oldest first. `eventsOpen` is still false through
-		//    the replay, so anything a replay listener raised appended to the
-		//    queue behind the pre-greet backlog instead of overtaking it: the
-		//    page sees ready, then all state, then every event in the order it
-		//    actually happened.
+		// Open events only after replay so listener-raised events cannot overtake the backlog.
 		auto& live = _gates[std::string(a_viewId)];
 		auto queued = std::move(live.queued);
 		live.queued.clear();
@@ -383,10 +323,6 @@ namespace OSFUI
 		REX::DEBUG("MessageBridge: view '{}' greeted — ready, state replay, {} queued event(s), events open",
 			a_viewId, queued.size());
 	}
-
-	// -----------------------------------------------------------------------
-	// settlement
-	// -----------------------------------------------------------------------
 
 	void MessageBridge::Respond(const nlohmann::json& a_payload)
 	{
@@ -408,9 +344,7 @@ namespace OSFUI
 	void MessageBridge::Reject(std::string_view a_code, std::string_view a_message)
 	{
 		if (_currentRequestId.empty()) {
-			// A send endpoint reporting failure has no one to report to. Its
-			// own WARN log records it; wanting an outcome means it should be a
-			// request endpoint.
+			// Send endpoints have no settlement channel; use a request for outcomes.
 			REX::WARN("MessageBridge: Reject('{}') outside a request ('{}')", a_code, _currentName);
 			return;
 		}
@@ -432,8 +366,7 @@ namespace OSFUI
 			return {};
 		}
 		_settled = true;
-		// OSF UI runtime-minted, never the page's id: see the header. Two documents both
-		// numbering their first request "q1" must not share a slot.
+		// Use a runtime token because page correlation ids are only document-local.
 		auto token = "d" + std::to_string(_nextDeferToken++);
 		_pending[token] = Pending{
 			.view = _currentSource,
@@ -455,11 +388,7 @@ namespace OSFUI
 	{
 		const auto it = _pending.find(std::string(a_token));
 		if (it == _pending.end()) {
-			// Late or duplicate: the request already settled, expired, or went
-			// away with its view. Never deliver twice — but say so, because an
-			// endpoint handler answering just after the OSF UI runtime deadline is otherwise
-			// invisible, and it looks identical to a handler that never
-			// answered at all.
+			// Never deliver late or duplicate settlements, but keep them visible in logs.
 			REX::DEBUG("MessageBridge: dropped a reply for '{}' — already settled, expired, or its view is gone",
 				a_token);
 			return;
@@ -489,10 +418,6 @@ namespace OSFUI
 		}
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
-
-	// -----------------------------------------------------------------------
-	// outbound pushes
-	// -----------------------------------------------------------------------
 
 	void MessageBridge::Emit(std::string_view a_viewId, std::string_view a_name, const nlohmann::json& a_payload)
 	{
@@ -554,9 +479,7 @@ namespace OSFUI
 		if (!_send || a_viewId.empty()) {
 			return;
 		}
-		// A document that has not greeted the bridge gets every current value
-		// through the hello replay, so there is nothing to queue here — and
-		// queueing would risk delivering a stale value after a newer one.
+		// Pre-hello documents receive state through replay; do not queue stale values.
 		const auto it = _gates.find(std::string(a_viewId));
 		if (it == _gates.end() || !it->second.greeted) {
 			return;
@@ -599,9 +522,7 @@ namespace OSFUI
 		if (!_send || _gates.empty()) {
 			return;
 		}
-		// Only greeted views: an event is a one-shot happening, and queueing it
-		// for a document that has not asked for anything yet would deliver a
-		// happening it could not have been present for.
+		// Broadcast one-shot events only to documents already present and greeted.
 		const auto encoded = EncodeEvent(a_name, Json::Dump(a_payload));
 		for (const auto& [view, gate] : _gates) {
 			if (gate.eventsOpen) {
@@ -616,12 +537,7 @@ namespace OSFUI
 		if (!_send || a_viewId.empty()) {
 			return;
 		}
-		// `version` is the running OSF UI release version — the reference point every
-		// advisory `targetVersion` (view manifests, settings schemas) and any
-		// view-side newer-OSF-UI check compares against. `bridgeVersion` is the
-		// protocol version, informational. `view`/`mod` tell the document who
-		// it is, which is what makes a state key like "<mod>/<key>" writable
-		// without the page hardcoding its own id.
+		// Ready identifies the runtime release, bridge protocol, view, and owning mod.
 		const nlohmann::json payload{
 			{ "game", "Starfield" },
 			{ "plugin", kPluginName },
@@ -640,15 +556,9 @@ namespace OSFUI
 		REX::DEBUG("MessageBridge: ready -> view '{}'", a_viewId);
 	}
 
-	// -----------------------------------------------------------------------
-	// view lifecycle
-	// -----------------------------------------------------------------------
-
 	void MessageBridge::OnViewCreated(std::string_view a_viewId, bool a_legacyApi)
 	{
-		// Arm a CLOSED gate: everything emitted between here and the new
-		// document's hello is queued rather than shouted at a page that has no
-		// listener installed yet.
+		// Arm a closed gate so events wait for the new document's hello.
 		auto& gate = _gates[std::string(a_viewId)];
 		gate.greeted = false;
 		gate.eventsOpen = false;
@@ -659,9 +569,7 @@ namespace OSFUI
 	void MessageBridge::OnViewDestroyed(std::string_view a_viewId)
 	{
 		_gates.erase(std::string(a_viewId));
-		// Reap the view's deferred requests: nothing can be delivered to a page
-		// that is gone, and leaving them pending would hold the view's capacity
-		// for the process lifetime.
+		// Reap deferred requests whose destination view no longer exists.
 		std::vector<DeferredDropHandler> dropped;
 		for (auto it = _pending.begin(); it != _pending.end();) {
 			if (it->second.view == a_viewId) {
@@ -700,21 +608,15 @@ namespace OSFUI
 			if (req.onDropped) req.onDropped();
 			REX::WARN("MessageBridge: '{}' from view '{}' missed the {}s OSF UI runtime deadline",
 				req.name, req.view, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count());
-			// The PAGE's id, not the map key: a token the page never saw would
-			// settle nothing and the expiry would read as a hang.
+			// Settle with the page's correlation id, not the runtime map token.
 			if (_send && !req.view.empty()) {
 				_send(req.view, EncodeError(req.requestId, "no-response", "the endpoint handler never answered"));
 			}
-			// Not the view's fault: it asked correctly and the endpoint handler went
-			// quiet. Reported to the page, never counted against it.
+			// Handler silence is reported to the page but never counted against the view.
 			ReportProtocolFault(req.view, "no-response", "the endpoint handler never answered", { { "name", req.name } },
 				/*a_viewFault*/ false);
 		}
 	}
-
-	// -----------------------------------------------------------------------
-	// protocol-fault reporting
-	// -----------------------------------------------------------------------
 
 	void MessageBridge::ReportProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
 		const nlohmann::json& a_detail, bool a_viewFault)
@@ -730,8 +632,7 @@ namespace OSFUI
 		if (!_inMessage) {
 			return;  // unsolicited push: not part of any message's trace
 		}
-		// Bounded: a handler answering in a loop must not grow this without
-		// limit. Past the cap the line ends in an ellipsis rather than growing.
+		// Bound trace growth from handlers that attempt repeated settlement.
 		constexpr std::size_t kMaxTraceLength = 160;
 		if (_trace.size() >= kMaxTraceLength) {
 			if (!_trace.ends_with("...")) {
@@ -745,14 +646,7 @@ namespace OSFUI
 		_trace.append(a_what);
 	}
 
-	// -----------------------------------------------------------------------
-	// encoders
-	//
-	// The payload/value is already serialized, so it is spliced into the
-	// envelope rather than deep-copied into a temporary json object. Key order
-	// is fixed here (not nlohmann's) so the wire output is stable and readable
-	// in a trace.
-	// -----------------------------------------------------------------------
+	// Splice serialized payloads into fixed-key-order envelopes without a deep copy.
 
 	std::string MessageBridge::EncodeEvent(std::string_view a_name, std::string_view a_payloadJson)
 	{
@@ -800,8 +694,7 @@ namespace OSFUI
 	{
 		const auto id = Quote(a_requestId);
 		const auto code = Quote(BoundedEcho(a_code));
-		// Handler messages are author text: bound on a codepoint boundary so a
-		// split UTF-8 sequence can never reach dump().
+		// Bound author text on a UTF-8 codepoint boundary before dump().
 		const auto message = Quote(BoundedEcho(a_message));
 		std::string out;
 		out.reserve(id.size() + code.size() + message.size() + 56);

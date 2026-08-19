@@ -1,8 +1,3 @@
-// model.ts — flatten the `osfui/settings` state into keybinding rows.
-//
-// One row per bound key, from two retained-state documents: mod key settings
-// from `osfui/settings`, and the game's live bindings from
-// `osfui/keybindings`.
 
 import type {
   GameplayMode,
@@ -25,10 +20,6 @@ interface BindingRowBase {
   owner: string;
   /** Canonical key name, already alias-folded by canonicalName(). */
   name: string;
-  /**
-   * The current layout's keycap for `name` ("Ö"), falling back to the name
-   * itself when no label map was supplied. Display only.
-   */
   keyLabel: string;
   /** null is legacy/unscoped and overlaps every semantic mode. */
   gameplayModes?: GameplayMode[] | null;
@@ -66,11 +57,6 @@ export interface GameBindingRow extends BindingRowBase {
 /** One flattened binding, discriminated by its domain owner. */
 export type BindingRow = ModBindingRow | GameBindingRow;
 
-/**
- * The view's `tr()` shape: a structural address (without the "chrome.keybinds."
- * prefix, which the view's own wrapper adds) plus the authored English
- * fallback. Injected to keep this module pure.
- */
 export type Translate = (address: string, english: string) => string;
 
 const defaultTranslate: Translate = (_address, english) => english;
@@ -85,20 +71,6 @@ function isKeySetting(item: SettingsItem | null | undefined): item is Extract<
   return s.type === 'key' && typeof s.key === 'string';
 }
 
-/**
- * Build the flat binding list.
- *
- * Mod rows come first, in schema order (mod, then group, then setting); game
- * rows are appended after. That order is load-bearing for the detail panel,
- * which renders holders in list order, and for the stable tie-break in
- * compareBindings().
- *
- * A row exists only for a key setting whose value is a non-empty string. An
- * unbound key — the `allowUnbound` state, stored as "" — produces no row at
- * all, so it cannot conflict with anything and never appears on the board or in
- * the list; the list count can therefore be lower than the number of key
- * settings.
- */
 export function buildModel(
   mods: readonly ModEntry[] | null | undefined,
   gameActions: readonly KeybindingsData['actions'][number][] | null | undefined,
@@ -109,14 +81,6 @@ export function buildModel(
   const osfui = (mods || []).find((m) => m?.id === 'osfui');
   const gameBindingWarnings = osfui?.values?.vanillaKeyConflicts !== false;
 
-  // `||` rather than `??` throughout: a schema whose `groups` is any falsy
-  // non-nullish value (0, "", false — a hand-edited or hostile manifest)
-  // degrades to [] here, where `??` would let it through to the for-of and
-  // throw. Same for `settings` and `values`.
-  //
-  // The `if (!mod)` / `if (!v)` guards skip a null entry rather than letting a
-  // TypeError escape buildModel and take the whole render with it. Native never
-  // sends one.
   for (const mod of mods || []) {
     if (!mod) continue;
     for (const g of mod.schema?.groups || []) {
@@ -124,17 +88,12 @@ export function buildModel(
         if (!isKeySetting(s)) continue;
         const value = (mod.values || {})[s.key];
         if (typeof value !== 'string' || !value) continue; // unbound => no row
-        // Shared resolver (@lib/settings/hotkeyContext) — same grammar, dedupe
-        // and fallbacks as Mod Settings. The injected gameplay label keeps
-        // the implicit-context badge localized like the game rows below.
         const context = resolveHotkeyContext(mod.schema, s, translate('gameplay', 'Gameplay'));
         const name = canonicalName(value);
         rows.push({
           kind: 'mod',
           mod: mod.id,
           key: s.key,
-          // An absent or empty label degrades to the raw setting key, so a row
-          // is never blank in the UI.
           label: s.label || s.key,
           owner: mod.title || mod.id,
           name,
@@ -161,9 +120,6 @@ export function buildModel(
         const chord = Array.isArray(binding.chord)
           ? binding.chord.filter((x): x is string => typeof x === 'string' && !!x).map(canonicalName)
           : [];
-        // Chords and unbound actions deliberately live off the physical board:
-        // the board groups single-key identity only, while the list still shows
-        // the exact engine slot.
         const name = !binding.unbound && chord.length === 1 ? chord[0] || '' : '';
         const modes = [...(v.modes?.definite || []), ...(v.modes?.possible || [])];
         rows.push({

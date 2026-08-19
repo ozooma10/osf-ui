@@ -5,9 +5,7 @@
 
 namespace OSFUI
 {
-	// Main-thread-only retry policy for a terminal browser-host connection
-	// failure. Transport teardown/restart stays in the web renderer; this class owns
-	// only bounded timing and the manual retry escape hatch.
+	// Main-thread retry timing for terminal browser-host failures; transport ownership stays in the renderer.
 	class BrowserHostRecovery
 	{
 	public:
@@ -73,8 +71,7 @@ namespace OSFUI
 			return true;
 		}
 
-		// An explicit open after the automatic budget is spent starts a fresh
-		// cycle immediately. It does not itself reopen the overlay.
+		// Manual retry resets the exhausted budget but does not reopen the overlay.
 		[[nodiscard]] bool RequestManualRetry(double a_now)
 		{
 			if (_phase != Phase::Exhausted) {

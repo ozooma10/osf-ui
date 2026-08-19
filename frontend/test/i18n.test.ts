@@ -1,22 +1,8 @@
-// The per-view translator: address resolution, interpolation and two-form
-// plurals, over the `t` capability alone.
-//
-// Layering, since 2.0 moved the mirror: the shipped helper now carries
-// translation in a namespace (`osfui.i18n.t`), fed by the `osfui/i18n` state
-// key rather than by an `i18n.get` request, and the typed façade forwards its
-// top-level `Bridge.t` to it. `makeTranslator` sits above that façade and takes
-// only `{ t }`, so it is unaffected by where the helper keeps the function —
-// which is exactly why these tests can stay pure.
 
 import { describe, it, expect } from 'vitest';
 import { makeTranslator, isAbsoluteAddress, type TranslatorHost } from '@lib/i18n';
 import { nullBridge } from '@lib/bridge';
 
-/**
- * Stand-in for `osfui.i18n.t` in shared-kit/osfui.js: catalog hit or authored
- * English, then `{name}` interpolation over the result. Records every address
- * it was asked for — that is what the prefixing assertions check.
- */
 function catalogHost(strings: Record<string, string> = {}): TranslatorHost & {
   asked: string[];
 } {
@@ -60,8 +46,6 @@ describe('makeTranslator address resolution', () => {
   });
 
   it('passes a dotted (absolute) address through UNPREFIXED', () => {
-    // Blind prefixing would ask for "chrome.keybinds.chrome.common.loading",
-    // which no catalog carries.
     const host = catalogHost({ 'chrome.common.loading': 'Chargement…' });
     const tr = makeTranslator(host, 'chrome.keybinds.');
     expect(tr('chrome.common.loading', 'Loading…')).toBe('Chargement…');
@@ -95,9 +79,6 @@ describe('interpolation', () => {
 
   it('leaves an unmatched placeholder LITERAL rather than blanking it', () => {
     const tr = makeTranslator(catalogHost(), 'chrome.settings.');
-    // Only names present in `vars` are replaced; anything else survives
-    // verbatim, so a stale catalog string degrades visibly instead of
-    // silently losing text.
     expect(tr('alsoBoundBy', 'Also bound by: {others}')).toBe('Also bound by: {others}');
     expect(tr('x', '{a} and {b}', { a: '1' })).toBe('1 and {b}');
   });
@@ -142,8 +123,6 @@ describe('two-form plural selection', () => {
   it('selects the Other form for any count that is not exactly 1', () => {
     const host = catalogHost();
     const tr = makeTranslator(host, 'chrome.settings.');
-    // The catalog address remains `terminal*` for translation-pack compatibility;
-    // only the authored fallback vocabulary is canonicalized.
     expect(tr.plural('terminal', 3, 'Menu', '{count} menus')).toBe('3 menus');
     // Zero and negatives take Other — English-shaped, not CLDR.
     expect(tr.plural('terminal', 0, 'Menu', '{count} menus')).toBe('0 menus');

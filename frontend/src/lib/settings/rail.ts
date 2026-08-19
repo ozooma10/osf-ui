@@ -1,15 +1,3 @@
-// The left-hand mod rail: which entries exist, and in what order the destination
-// paints them.
-//
-// An entry is the union of two independent state registries: settings schemas
-// (`osfui/settings`) and catalog views (`osfui/views`). A view attaches to a
-// settings mod when its manifest `mod` matches that mod's id; every other view
-// groups into a synthetic "view-only" entry. A mod may ship settings with no
-// views, views with no settings, or both.
-//
-// The model records here are looser than `SettingsData['mods'][number]`
-// / `ViewsData['views'][number]`: every field may be absent, since the
-// renderer also runs against harness mocks and older OSF UI runtimes.
 
 import type { SettingsSchema, SettingValue, ViewsData } from '@sdk';
 import { railMatches } from './search';
@@ -27,9 +15,6 @@ export interface ModRecord {
 /** An `osfui/views` catalog entry, every field optional but `id`. */
 export type ViewRecord = Partial<ViewsData['views'][number]> & { id: string };
 
-// `osfui/settings` still carries `loadErrors`, but System Health is the single
-// visible representation: its issues add severity, occurrence counts and
-// recovery context without painting the same failure twice.
 
 /** Re-exported so rail consumers need only one import for fixed destination ids. */
 export { HEALTH_ID } from './health';
@@ -62,9 +47,6 @@ export function railEntries(mods: ModRecord[], views: ViewRecord[]): RailEntry[]
     title: titleOf(m),
   }));
 
-  // Orphans: a view whose `mod` names no loaded settings mod, or which declares
-  // no `mod` at all. They group by that string, falling back to the view's own
-  // id so a standalone view still gets a rail entry of its own.
   const orphans = new Map<string, ViewRecord[]>();
   for (const v of views) {
     if (v.mod && mods.some((m) => sameMod(m.id, v.mod!))) continue;
@@ -74,9 +56,6 @@ export function railEntries(mods: ModRecord[], views: ViewRecord[]): RailEntry[]
     else orphans.set(key, [v]);
   }
   for (const [key, group] of orphans) {
-    // A view-only mod has no schema title; borrow its first menu view's title
-    // (a menu reads like a product name; a HUD often does not). Falls back to
-    // the first view of any kind, then to the grouping key.
     const lead = group.find((v) => v.kind === 'menu') || group[0];
     entries.push({
       // "view:" keeps synthetic ids out of the mod-id namespace, as HOME_ID does.
@@ -98,10 +77,6 @@ export function findEntry(
   return railEntries(mods, views).find((e) => e.id === id);
 }
 
-/**
- * One painted element of the rail, in order. Modelled as data so rendering and
- * `cycleRail` walk the same source.
- */
 export type RailNode =
   | { kind: 'health' }
   | { kind: 'home' }
@@ -115,22 +90,6 @@ export interface RailModel {
   views: ViewRecord[];
 }
 
-/**
- * The rail in paint order:
- *
- *  1. System Health, fixed above everything and never filtered. App paints it
- *     in the rail head, while this node keeps controller cycle order aligned;
- *  2. Home, only when no filter is active — while filtering the rail scopes to
- *     matching mods and the launcher steps aside, as the framework does. Home,
- *     not Health, remains the landing page;
- *  3. the framework entry (if it matches), with no header of its own — it
- *     self-labels as "Framework";
- *  4. the "Mods" section header, always emitted, even when the list below it is
- *     empty;
- *  5. every other matching entry, title-sorted case-insensitively.
- *
- * `query` must arrive pre-trimmed and pre-lowercased.
- */
 export function railNodes(model: RailModel, query: string): RailNode[] {
   const nodes: RailNode[] = [];
   nodes.push({ kind: 'health' });
@@ -156,8 +115,5 @@ export function railNodes(model: RailModel, query: string): RailNode[] {
 function sortedMods(entries: RailEntry[], query: string): RailEntry[] {
   return entries
     .filter((e) => e.id !== FRAMEWORK_ID && railMatches(e, query))
-    // sensitivity "base" is case- and accent-insensitive, so "acme" and "Acme"
-    // sort adjacently rather than in two ASCII blocks. Undefined locale = the
-    // browser document's, which in game is whatever WebView2 reports.
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 }

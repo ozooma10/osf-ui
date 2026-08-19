@@ -32,8 +32,7 @@
 
 using nlohmann::json;
 
-// The browser host posts this on an unsolicited focus grab outside an input-capturing
-// menu session; both sides must agree on the value.
+// Private message used to return unsolicited browser focus to the game window.
 static_assert(OSFUI::OverlayInputHook::kRestoreGameFocusMessage ==
 	osfui::wv2::kRestoreGameFocusMessage);
 
@@ -57,9 +56,7 @@ namespace OSFUI
 			return out / "OSFUI";
 		}
 
-		// Next to "OSF UI.log": one folder covers the plugin and browser host. The
-		// SFSE log dir is a real (never VFS-virtualized) path, so the unhooked
-		// browser host can write there.
+		// Use the real SFSE log directory shared by the plugin and unhooked browser host.
 		std::filesystem::path BrowserHostLogPath()
 		{
 			if (const auto dir = SFSE::log::log_directory()) {
@@ -94,9 +91,7 @@ namespace OSFUI
 			return found;
 		}
 
-		// Last lines of the browser host's own log, for embedding into this log when it
-		// fails before/at the handshake — one shared file then tells the
-		// whole story.
+		// Read the browser-host log tail for pre-handshake failure diagnostics.
 		std::vector<std::string> ReadLogTail(const std::filesystem::path& a_file,
 			std::size_t a_maxLines)
 		{
@@ -153,26 +148,7 @@ namespace OSFUI
 			return data.result;
 		}
 
-		// ---- Outbound browser-host messages -------------------------------
-		//
-		// Shapes live in tools/webview2_shared/Wv2Messages.h and are compiled by
-		// BOTH binaries, so a renamed field is a build error on both sides rather
-		// than a key the peer silently defaults. Construct with designated
-		// initializers at the call site: the positional builders these replaced
-		// carried a documented hazard — AccelState's `captured` and `captureArmed`
-		// are adjacent bools, so a swapped argument compiled clean and changed the
-		// wire. Named fields make that a compile error too.
-		//
-		// PRIMITIVE / VIEW VALUES ONLY — never a `const ViewRec&`. The setter send
-		// paths run OUTSIDE stateMutex by design and read their own by-value
-		// parameters; `views` reallocates, so a ViewRec reference dereferenced
-		// there would be a new data race. string_view arguments are COPIED into
-		// the message before it is serialized: never store one, never defer. The
-		// connect-time snapshot binds them to ViewRec fields while it still holds
-		// stateMutex, on the worker thread.
-		//
-		// Building only: send-gating (Send vs SendOrQueue vs the raw pipe write)
-		// and every state side-effect stay in the callers.
+		// Build shared wire structs from copied values; never retain ViewRec or string_view across stateMutex.
 		namespace msg = osfui::wv2::msg;
 	}
 
@@ -193,8 +169,7 @@ namespace OSFUI
 
 		WebView2HostConfig    config;
 		std::filesystem::path viewsRoot, mappedViewsRoot, userData;
-        // Initial MO2 mirroring and later dev refreshes can run on different
-        // threads; serialize the live real-path tree and its activation flag.
+        // Serialize initial and dev-refresh writes to the real-path mirror.
         std::mutex            viewsMirrorMutex;
         bool                  usesViewsMirror{ false };
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
@@ -212,9 +187,7 @@ namespace OSFUI
 		// Game-thread only (Drain/setters).
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
-		// State the worker snapshots at connect time; later changes are sent
-		// as diffs from the calling thread (WriteMessage is thread-safe).
-		// Record order is creation order — the browser host's z tie-break.
+		// Preserve creation order for z ties; the worker snapshots state and callers send later diffs.
 		struct ViewRec
 		{
 			std::string id;
@@ -222,18 +195,14 @@ namespace OSFUI
 			bool        legacyApi{ false };
 			bool        hidden{ true };
 			int         order{ 0 };
-			// Manifest (authoring) height. The browser host divides output height by this
-			// for the rasterization scale, so the page lays out at logical size
-			// and CSS px scale up to output pixels.
+			// Authoring height defines browser rasterization scale against output height.
 			std::uint32_t logicalHeight{ kDefaultViewHeight };
 		};
 		std::mutex           stateMutex;
 		std::vector<ViewRec> views;
 		std::string          inputTargetId;
 		bool                 allHidden{ true };  // no visible view => Render() is never called
-		// Every all-hidden -> visible transition starts a new presentation. Host
-		// frames from before its reveal completes must not satisfy Runtime's
-		// fresh-frame gate (closed capture frames are transparent).
+		// Each hidden-to-visible presentation requires a post-reveal frame.
 		std::uint64_t        presentationEpoch{ 0 };
 		std::uint32_t        width{ 1 }, height{ 1 };
 		// accelState mirror (SetAcceleratorKeys diffs against this)
@@ -266,15 +235,7 @@ namespace OSFUI
 		std::mutex sessionMutex;
 		BrowserHostSession session;
 
-		// Focus watchdog (game thread only — SetNativeFocus and Update
-		// both run there). Input-capturing menus grant real Win32 focus to a
-		// cross-process Chromium child; HUD-only/closed states keep Starfield
-		// focused. The revoke-time restore (posted kRestoreGameFocusMessage
-		// -> SetFocus) races Chromium's asynchronous MoveFocus: an in-flight
-		// focus grab can land after the restore and strand focus in the child,
-		// leaving the game with no keyboard, no raw mouse input (WM_INPUT is
-		// focus-gated) — and no gamepad, WGI being focus-gated too. Update()
-		// detects that and re-asserts.
+		// Game-thread watchdog repairs Chromium MoveFocus races without stealing focus while alt-tabbed.
 		std::atomic_bool focusRequested{ false };  // last SetNativeFocus argument
 		double focusCheckAccum{ 0.0 };
 		bool   focusFixWarned{ false };  // one WARN per strand episode
@@ -291,9 +252,7 @@ namespace OSFUI
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;
-		// Page traffic and forwarded logs can arrive while the game-thread drain is
-		// paused. Lifecycle notifications have natural rates; untrusted Web/Console
-		// and page-provokable Log entries do not, so cap them independently.
+		// Independently bound page-provokable queues while game-thread draining is paused.
 		static constexpr std::size_t kMaxPendingWeb = 64;
 		static constexpr std::size_t kMaxPendingConsole = 64;
 		static constexpr std::size_t kMaxPendingLogs = 256;
@@ -423,16 +382,13 @@ namespace OSFUI
 
 		void Send(const json& a_msg) { Enqueue(a_msg, false); }
 
-		// Bridge events cannot be reconstructed from state. Keep them bounded
-		// before the on-demand browser host starts, then place the connection snapshot ahead
-		// of them atomically so no caller can overtake initialization.
+		// Atomically place the connection snapshot before bounded queued events.
 		void SendOrQueue(const json& a_msg) { Enqueue(a_msg, true); }
 
 		bool PublishConnected(std::vector<osfui::wv2::BoundedQueue<std::string>::Item> a_bootstrap)
 		{
 			{
-				// Publication and shutdown's connected exchange share this lock:
-				// Stop cannot miss a connection that races its startup.
+				// Share the lock with shutdown so Stop cannot miss a racing connection.
 				std::scoped_lock lock(writerGateMutex);
 				if (stopRequested.load(std::memory_order_acquire) ||
 					!outbound.Prepend(std::move(a_bootstrap))) {
@@ -513,10 +469,7 @@ namespace OSFUI
 
 		// Startup (worker thread)
 
-		// Mod Organizer 2 presents the mod folder only inside USVFS-hooked
-		// processes, and the browser host and its browser children are unhooked: both
-		// the views tree and the browser-host executable must live at real paths before
-		// anything outside the game can use them.
+		// Mirror views and the host executable to real paths visible outside MO2's USVFS.
 		void ResolveMappedViewsRoot()
 		{
             std::scoped_lock mirrorLock(viewsMirrorMutex);
@@ -524,13 +477,7 @@ namespace OSFUI
             usesViewsMirror = false;
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return;
 			std::error_code ec;
-			// A fresh path per game process is deliberate. Reusing the stable
-			// `views-mirror` folder allowed a stale browser-host process (or a
-			// failed recursive delete) to leave old shared-kit files in place.
-			// The view bundles could then be current while shared/osfui.js was
-			// old enough to lack APIs they call, making every native request a
-			// silent no-op. Separate renderer instances still need distinct
-			// names within the same game process.
+			// Use a per-process, per-renderer mirror so stale hosts cannot mix shared-kit versions.
 			auto mirrorName = std::format("views-mirror-{}", ::GetCurrentProcessId());
 			const auto mirror = LocalOsfuiDir() / mirrorName;
 			std::filesystem::remove_all(mirror, ec);
@@ -557,19 +504,14 @@ namespace OSFUI
 				ToUtf8(mirror.native()));
 		}
 
-        // The unhooked browser cannot see MO2's VFS. Refresh exactly one live
-        // real-path view on the dev worker before Runtime navigates it.
+        // Refresh the real-path mod mirror before navigating an unhooked browser.
         bool RefreshViewFiles(std::string_view a_viewId)
         {
             if (!config.devMode) return true;
             std::scoped_lock mirrorLock(viewsMirrorMutex);
             if (!usesViewsMirror) return true;
 
-            // Mirror the whole mod folder. The view folder alone holds only the
-            // entry HTML: its hashed bundles are emitted to the sibling
-            // views/<modId>/assets/ and reached through "../assets/...", so a
-            // view-scoped sync copies a fresh index.html over a stale assets
-            // directory and the reload 404s on a chunk that was never mirrored.
+            // Mirror the whole mod folder because view entries load sibling hashed assets.
             const auto modFolder = std::filesystem::path(DevViewFiles::ModFolder(a_viewId));
             const auto source = viewsRoot / modFolder;
             const auto destination = mappedViewsRoot / modFolder;
@@ -582,9 +524,7 @@ namespace OSFUI
             return true;
         }
 
-		// The browser-host executable ships inside the mod folder (VFS-only under MO2) but is
-		// launched by Explorer/the task scheduler, which cannot see the VFS.
-		// Mirror it to a real, version-stamped path first.
+		// Mirror the VFS-only host executable to a real versioned path before external launch.
 		bool MirrorHostExe()
 		{
 			const auto mirrorDir = LocalOsfuiDir() / "bin" / kOsfuiReleaseVersion;
@@ -611,8 +551,7 @@ namespace OSFUI
 					std::filesystem::copy_options::overwrite_existing, ec);
 				if (ec) {
 					if (sameSize) {
-						// In use by a previous session's browser host but content
-						// matches the shipped binary — reuse it.
+						// Reuse an in-use mirror only when its content matches the shipped host.
 						REX::WARN("WebView2HostWebRenderer: browser-host executable mirror busy; "
 								  "reusing existing copy ({})", ec.message());
 					} else {
@@ -622,9 +561,7 @@ namespace OSFUI
 					}
 				}
 			}
-			// CopyFileW carries the Zone.Identifier stream from a downloaded
-			// zip onto the mirror, and Explorer launching a Mark-of-the-Web exe
-			// can hit a SmartScreen block nobody sees behind a fullscreen game.
+			// Strip the copied Zone.Identifier so a hidden SmartScreen prompt cannot block launch.
 			if (HasMarkOfTheWeb(browserHostExeMirror)) {
 				if (::DeleteFileW((browserHostExeMirror.native() + L":Zone.Identifier").c_str())) {
 					REX::INFO("WebView2HostWebRenderer: stripped Mark-of-the-Web from the "
@@ -646,8 +583,7 @@ namespace OSFUI
 				return expected == Lifecycle::Starting || expected == Lifecycle::Running;
 			}
 
-			// The browser host must create its D3D11 capture textures on the same adapter
-			// as Starfield's D3D12 device.
+			// Browser capture textures must use Starfield's adapter.
 			if (!adapterLuidKnown) {
 				auto engine = LocateEngineD3D12();
 				if (!engine) {
@@ -698,10 +634,7 @@ namespace OSFUI
 			REX::DEBUG("WebView2HostWebRenderer: starting browser-host transport threads");
 			return true;
 		}
-		// Worker thread, after the browser host failed to launch/handshake: narrow "it
-		// never connected" down to which stage died, using only what this
-		// process can see, and embed the browser host's own log tail so one shared
-		// "OSF UI.log" carries the whole story.
+		// After launch failure, report the failed stage and browser-host log tail.
 		void LogBrowserHostStartFailureDiagnostics(std::filesystem::file_time_type a_launchTime)
 		{
 			std::error_code ec;
@@ -781,8 +714,7 @@ namespace OSFUI
 			auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
 				pipeName, ::GetCurrentProcessId(), browserHostLog.native());
 
-			// Claim the first server instance before launching the browser host. This
-			// removes the name-squatting window between launch and CreateNamedPipe.
+			// Claim the first pipe instance before launch to prevent name squatting.
 			if (!pipe.CreateServer(pipeName)) {
 				SignalDead("could not create the private browser-host pipe: " + pipe.LastErrorText());
 				return;
@@ -820,9 +752,7 @@ namespace OSFUI
 				return;
 			}
 
-			// Startup diagnostics may precede hello, but the entire handshake has
-			// one deadline. A connected browser host can no longer hold this worker
-			// forever without identifying itself.
+			// Apply one deadline to startup diagnostics and hello.
 			const auto helloDeadline = ::GetTickCount64() +
 				osfui::wv2::kHelloTimeoutMs;
 			std::string payload;
@@ -854,9 +784,7 @@ namespace OSFUI
 				break;
 			}
 
-			// FromJson is total, so a non-object or wrong-typed field lands on the
-			// declared defaults (pid 0, protocolVersion 0) and fails the gate below
-			// exactly as the explicit is_object() guards used to.
+			// Wrong-typed hello fields fall back to defaults and fail this gate.
 			const auto greeting = msg::FromJson<msg::Hello>(hello);
 			if (Json::Get(hello, "type", "") != msg::Hello::kType ||
 				greeting.protocolVersion != osfui::wv2::kBrowserHostProtocolVersion ||
@@ -961,12 +889,7 @@ namespace OSFUI
 				const auto parsed = Json::Parse(payload);
 				if (!parsed) continue;
 				const json& message = *parsed;
-				// No try/catch here any more: every read goes through msg::FromJson,
-				// whose accessors fall back to the message's declared defaults and
-				// cannot throw. The guard existed because .value() throws
-				// (type_error.302 on a wrong-typed key, .306 on a non-object) and an
-				// exception escaping this worker thread is a std::terminate. A
-				// malformed field now costs that field, not the whole message.
+				// Total message decoding prevents malformed page fields from escaping this worker thread.
 				const auto type = Json::Get(message, "type", "");
 				if (type == msg::Heartbeat::kType) {
 					heartbeatDeadline = ::GetTickCount64() +
@@ -1027,8 +950,7 @@ namespace OSFUI
 
 		void OnTexturesMessage(const msg::Textures& a_msg)
 		{
-			// Ring depth comes from the announcement, not a compiled constant —
-			// the browser host may retune it as long as it fits our capacity.
+			// Accept announced ring depths only within the plugin's fixed capacity.
 			static_assert(osfui::wv2::kRingSlots <= SharedRingDesc::kMaxSlots);
 			SharedRingDesc desc{};
 			const auto& slots = a_msg.slots;
@@ -1038,10 +960,7 @@ namespace OSFUI
 				++desc.slotCount;
 			}
 			for (std::size_t i = SharedRingDesc::kMaxSlots; i < slots.size(); ++i) {
-				// Announced more than we can hold (mismatched builds — the
-				// launcher's versioned mirror should prevent this). Close the
-				// already-duplicated handles so they don't leak; frames landing
-				// in those slots will not be drawn.
+				// Close duplicated handles when a mismatched host exceeds ring capacity.
 				::CloseHandle(reinterpret_cast<HANDLE>(
 					static_cast<std::uintptr_t>(slots[i])));
 			}
@@ -1085,17 +1004,12 @@ namespace OSFUI
 				if (w != ringWidth || h != ringHeight) {
 					ackNew = true;  // stale ring — release the slot immediately
 				} else if (allHidden || presentation != presentationEpoch) {
-					// Frames captured while closed, before the browser host completed
-					// this reveal, or from an earlier open are not renderable.
-					// Invalidate the cached frame as well: otherwise the next
-					// open can mistake transparent closed-state pixels for its
-					// required post-open frame.
+					// Reject pre-reveal frames and invalidate cached closed-state pixels.
 					haveFrame = false;
 					ackNew = true;
 				} else {
 					if (haveFrame && frameSerial != submittedSerial) {
-						// The previous frame never reached the compositor, so
-						// nothing will signal its consumption — ack it.
+						// Acknowledge superseded frames that never reached the compositor.
 						ackSerial = frameSerial;
 					}
 					frameSlot = slot;
@@ -1151,11 +1065,7 @@ namespace OSFUI
 							std::scoped_lock lock(stateMutex);
 							knownView = FindView(value.view) != nullptr;
 						}
-						// Guarded for the same reason the ReadLoop below is: this
-						// runs on the game thread's drain with no handler above it,
-						// so anything escaping the bridge — a json throw on
-						// view-supplied text, a handler bug — is a std::terminate.
-						// One bad message must not take the process with it.
+						// Contain page/handler exceptions at the game-thread drain boundary.
 						try {
 							if (onWebMessage && knownView) onWebMessage(value.view, value.text);
 						} catch (const std::exception& e) {
@@ -1241,11 +1151,7 @@ namespace OSFUI
 			if (found == consoleHandlers.end() || !found->second) return;
 			int         level = 0;
 			std::string text = a_payload;
-			// Chromium's Runtime.consoleAPICalled params: arbitrary page-authored
-			// shape, so every read is lenient and the whole block is total. The
-			// try/catch this replaced was load-bearing — json::parse throws and
-			// .value() throws on a wrong-typed key, on a thread where an escape
-			// is a std::terminate.
+			// Parse arbitrary page-authored console payloads leniently without worker-thread escapes.
 			if (const auto parsed = Json::Parse(a_payload)) {
 				const auto type = Json::Get(*parsed, "type", "log");
 				level = type == "warning" ? 1 : type == "error" ? 2 :
@@ -1296,8 +1202,7 @@ namespace OSFUI
 
 			outbound.Close();
 			writerGate.notify_all();
-			// Close cancels pending accept/read/write calls before either join.
-			// No game-thread pipe operation is allowed to wait indefinitely.
+			// Close cancels pipe I/O before joins so the game thread cannot wait indefinitely.
 			pipe.Close();
 			if (worker.joinable()) worker.join();
 			if (writer.joinable()) writer.join();
@@ -1320,8 +1225,7 @@ namespace OSFUI
 			}
 
 			lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
-			// The browser host and its browser processes are gone, so their per-run real-path view tree
-			// is no longer needed.
+			// Remove the per-run real-path view tree after browser processes exit.
 			{
 				std::scoped_lock mirrorLock(viewsMirrorMutex);
 				if (usesViewsMirror && mappedViewsRoot != viewsRoot) {
@@ -1337,10 +1241,7 @@ namespace OSFUI
 		}
 		void ResetAfterFailure()
 		{
-			// The failure notification is drained from Update after ReadLoop has
-			// ended, so this forced stop normally joins an already-finished worker.
-			// If a stranded browser host kept running after the pipe died, do not stall
-			// Starfield's main thread waiting for a graceful process exit.
+			// Never stall Starfield's main thread waiting for a stranded host after pipe failure.
 			Stop(true);
 
 			if (ringSlotsReported > SharedRingDesc::kMaxSlots) {
@@ -1387,9 +1288,7 @@ namespace OSFUI
 				submittedSerial = 0;
 				ringWidth = ringHeight = 0;
 				announcedGeneration = 0;
-				// Keep ringGeneration monotonic across browser-host processes so a new
-				// shared ring is unambiguously newer than the compositor's retired
-				// generation.
+				// Keep ring generations monotonic across browser-host processes.
 			}
 			{
 				std::scoped_lock lock(stateMutex);
@@ -1425,10 +1324,7 @@ namespace OSFUI
 
 	bool WebView2HostWebRenderer::Initialize(const WebView2HostConfig& a_config)
 	{
-		// No Evergreen-runtime probe here: detecting it in-process would link the
-		// WebView2 SDK loader into this GPL'd plugin for one symbol. The browser-host executable
-		// already links the SDK and reports the WebView2 Runtime version in its hello, so
-		// a missing runtime is diagnosed there.
+		// Let the SDK-linked browser host diagnose a missing Evergreen runtime in hello.
 		_impl->config = a_config;
 		_impl->viewsRoot = a_config.dataDir / "views";
 		_impl->userData = LocalOsfuiDir() / "WebView2";
@@ -1455,8 +1351,7 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::CreateOrNavigateView(const ViewManifest& a_manifest)
 	{
-		// One expression for the clamp, so the stored value and the sent value
-		// cannot drift.
+		// Derive stored and sent scale from the same clamp.
 		const auto logicalHeight = (std::max)(1u, a_manifest.height);
 		{
 			std::scoped_lock lock(_impl->stateMutex);
@@ -1468,14 +1363,12 @@ namespace OSFUI
 			view->entry = a_manifest.entry;
 			view->legacyApi = IsPre2Target(a_manifest.targetVersion);
 			view->logicalHeight = logicalHeight;
-			// The first instantiated view receives input until the runtime says
-			// otherwise.
+			// Default input to the first instantiated view until runtime policy arrives.
 			if (_impl->inputTargetId.empty()) {
 				_impl->inputTargetId = a_manifest.id;
 			}
 		}
-		// A repeat call for an instantiated view id re-navigates it (developer reload / crash
-		// recovery).
+		// Re-registering an instantiated view navigates it for dev or crash recovery.
 		_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
 			.legacyApi = IsPre2Target(a_manifest.targetVersion),
 			.logicalHeight = logicalHeight }));
@@ -1514,9 +1407,7 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::Update(double a_deltaSeconds)
 	{
-		// Start the browser host once a view is configured: mirror copies, broker launch,
-		// environment creation and navigation all happen while the overlay is
-		// still hidden.
+		// Start and initialize the browser host while the overlay remains hidden.
 		if (_impl->lifecycle.load(std::memory_order_acquire) ==
 			Impl::Lifecycle::Stopped && !_impl->dead.load()) {
 			bool wantsView = false;
@@ -1528,11 +1419,7 @@ namespace OSFUI
 		}
 		_impl->DrainNotifications();
 
-		// Focus watchdog (see the Impl member note for the race this heals).
-		// GetGUIThreadInfo(0) reports the foreground thread's focus window: while
-		// the user is alt-tabbed away that window is outside the game window's
-		// tree, so both branches no-op and focus is never stolen from another
-		// application.
+		// Repair focus only while the foreground focus window remains in the game tree.
 		const auto browserHostSession = _impl->BrowserHostSessionSnapshot();
 		if (browserHostSession.topLevel && _impl->connected.load(std::memory_order_acquire)) {
 			_impl->focusCheckAccum += a_deltaSeconds;
@@ -1548,9 +1435,7 @@ namespace OSFUI
 											::IsChild(browserHostSession.topLevel, info.hwndFocus) != FALSE;
 					const bool focusInHost = focusPid != ::GetCurrentProcessId();
 					if (!_impl->focusRequested && inGameTree && focusInHost) {
-						// No input-capturing menu session is live, but focus is stranded in
-						// the browser host's Chromium child: keyboard, raw mouse AND gamepad
-						// (WGI) are all dead for the game.
+						// Return stranded Chromium focus when no input-capturing session is live.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
@@ -1561,9 +1446,7 @@ namespace OSFUI
 						::PostMessageW(browserHostSession.topLevel,
 							OverlayInputHook::kRestoreGameFocusMessage, 0, 0);
 					} else if (_impl->focusRequested && info.hwndFocus == browserHostSession.topLevel) {
-						// Input-capturing menu session live but Chromium never took
-						// focus (MoveFocus lost): input and foreground scheduling
-						// would remain on the wrong process.
+						// Retry Chromium focus when MoveFocus loses an active capture request.
 						healthy = false;
 						if (!_impl->focusFixWarned) {
 							_impl->focusFixWarned = true;
@@ -1576,13 +1459,11 @@ namespace OSFUI
 				if (healthy) {
 					_impl->focusFixWarned = false;
 				}
-				// Self-correcting within a tick or two; the WARN above remains for
-				// log-based diagnosis.
+				// Clear the warning latch after focus self-corrects.
 			}
 		}
 
-		// Ring-depth edge, moved off the reader thread. A truncated ring still
-		// renders, so this is a degradation rather than a complete failure.
+		// Report truncated ring depth as a game-thread degradation, not total failure.
 		if (const auto announced = _impl->ringSlotsAnnounced.exchange(0, std::memory_order_relaxed);
 			announced != 0 && announced != _impl->ringSlotsReported) {
 			_impl->ringSlotsReported = announced;
@@ -1600,8 +1481,7 @@ namespace OSFUI
 		std::scoped_lock lock(_impl->frameMutex);
 		if (!_impl->haveFrame ||
 			_impl->sharedRingGeneration != _impl->announcedGeneration) {
-			// No frame, or its ring is not yet announced to the compositor
-			// (the Ring notification dispatches from Update()).
+			// Wait until Update announces the frame's ring to the compositor.
 			return std::nullopt;
 		}
 		_impl->submittedSerial = _impl->frameSerial;
@@ -1695,9 +1575,7 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
 	{
-		// Dispatched into the input-target page as a DOM KeyboardEvent by the browser-host shim.
-		// Used for gamepad nav taps and Esc back-delegation; physical keyboard and
-		// IME input route natively while the input-capturing menu owns focus.
+		// Synthetic page keys cover gamepad navigation and Esc; physical keyboard and IME stay native.
 		_impl->Send(ToJson(msg::Key{ .vk = a_vkCode, .down = a_down }));
 	}
 

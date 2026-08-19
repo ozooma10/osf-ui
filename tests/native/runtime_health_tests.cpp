@@ -20,9 +20,6 @@ namespace
 	nlohmann::json IssueById(const OSFUI::HealthRegistry& a_healthRegistry,
 		std::string_view a_id)
 	{
-		// Bind the snapshot: at("issues") returns a reference into the returned
-		// temporary, and range-for lifetime extension (P2718) is not implemented
-		// by every supported C++23 toolchain.
 		const auto snapshot = a_healthRegistry.Snapshot();
 		for (const auto& issue : snapshot.at("issues")) {
 			if (issue.value("id", "") == a_id) return issue;

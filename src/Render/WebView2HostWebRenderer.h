@@ -14,23 +14,7 @@ namespace OSFUI
 		std::filesystem::path dataDir;
 	};
 
-	// Out-of-process WebView2 web renderer (renderer id "webview2"), and the only
-	// production implementation. The browser stack lives in osfui_webview2_host.exe,
-	// launched outside the game's process tree (Wv2BrokerLaunch) so MO2's
-	// USVFS never injects into msedgewebview2.exe — that injection is what
-	// made the removed in-process variant fail controller creation with
-	// E_UNEXPECTED unless the user added an MO2 blacklist entry by hand.
-	//
-	// The plugin is a thin client: one named pipe carries control/input/bridge
-	// traffic (Wv2Protocol.h), and frames arrive as GPU shared textures the
-	// D3D12 compositor samples directly (no CPU readback). Keyboard uses the
-	// real-focus model: the host parents its browser HWND beneath the game
-	// window (window tree != process tree) and framework keys come back over
-	// the pipe.
-	//
-	// Multi-view: the host keeps one composition controller + child visual per
-	// view under a single captured root, so all views composite through the
-	// same shared-texture ring; this client just routes per-view ids.
+	// Out-of-process WebView2 client using a named pipe and shared-texture ring to avoid MO2 injection.
 	class WebView2HostWebRenderer
 	{
 	public:
@@ -68,9 +52,7 @@ namespace OSFUI
 			std::function<bool(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down)>;
 		using SharedRingHandler = std::function<void(const SharedRingDesc& a_desc)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
-		// Web/load/failure/health/ring callbacks are drained by Update on the game
-		// thread. Cursor and accelerator callbacks run on the transport thread and
-		// must remain cheap and thread-safe.
+		// Update drains game-thread callbacks; cursor and accelerator callbacks run on the transport thread.
 
 		WebView2HostWebRenderer();
 		~WebView2HostWebRenderer();

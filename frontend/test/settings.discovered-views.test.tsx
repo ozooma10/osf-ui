@@ -1,7 +1,4 @@
 // @vitest-environment jsdom
-//
-// The OSF UI framework detail is the escape hatch for every mod-provided
-// view, including entries deliberately omitted from normal navigation.
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { flush, makeBridge, mount, unmount } from './helpers/settingsHarness';

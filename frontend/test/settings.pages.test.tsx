@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-//
-// Schema `pages`: the tab row a paged mod renders instead of one long group
-// column, the implicit General tab, degradation to the flat list, and the
-// search jump raising the owning tab.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';
@@ -57,10 +53,6 @@ describe('pageBuckets (model)', () => {
   });
 
   it('a declared page whose id collides with the implicit General bucket is refused', () => {
-    // GENERAL_PAGE_ID's leading underscores keep it outside the authored-id
-    // grammar — but only if the grammar is actually applied. Unfiltered, a
-    // declared "__general" page produced a second bucket with the same id,
-    // aliasing tab selection between them.
     const buckets = pageBuckets({
       pages: [{ id: GENERAL_PAGE_ID, label: 'Impostor' }, { id: 'real' }],
       groups: [

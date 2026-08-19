@@ -1,21 +1,7 @@
-// Identity glyphs shared by the rail and the Home launcher: title initials, the
-// derived card accent, and the icon-with-fallback avatar (three states: schema
-// icon, broken icon, no icon).
-//
-// The Home patch/monogram variant keeps its own copy in Home.tsx because its
-// fallback sits inside an SVG frame rather than replacing the whole node.
 
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 
-/**
- * Up to two letters standing in for a title. Two words -> their initials
- * ("Ship Almanac" -> "SA"); one word -> its first two alphanumeric characters,
- * so "acme.shipworks" reads "AC" without the stray dot.
- *
- * The branches are asymmetric: the two-word path does not strip punctuation, so
- * ".x y" yields ".Y" — unreachable for any title the schema validator accepts.
- */
 export function initials(title: unknown): string {
   const words = String(title).trim().split(/\s+/);
   const first = words[0] || '';
@@ -26,11 +12,6 @@ export function initials(title: unknown): string {
   return first.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
 }
 
-/**
- * Home card palette. Muted and not the kit accent: these tint unbranded
- * third-party views and must read as assigned automatically, not as a mod's
- * own colour choice.
- */
 export const HOME_PALETTE = [
   '#6f93b0',
   '#7a9a5e',
@@ -42,11 +23,6 @@ export const HOME_PALETTE = [
   '#a8846a',
 ] as const;
 
-/**
- * djb2-ish string hash; `>>> 0` keeps it unsigned 32-bit. Only stability
- * matters: the same view id must pick the same colour across sessions, so no
- * randomness and no ordering dependence.
- */
 export function hashId(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
@@ -70,11 +46,6 @@ export interface MarkProps {
   fallback: ComponentChildren;
 }
 
-/**
- * A mod's schema `icon` when it has one, its initials otherwise. The `onError`
- * fallback matters: a schema can name a file that was removed, renamed or never
- * shipped, and a stale path must leave initials rather than a broken-image hole.
- */
 export function Mark({ class: base, iconClass, src, color, fallback }: MarkProps) {
   const [failed, setFailed] = useState(false);
   const showIcon = !!src && !failed;

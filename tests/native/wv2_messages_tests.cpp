@@ -1,12 +1,3 @@
-// Wire-message round-trips for the game <-> browser-host pipe.
-//
-// This path had no coverage at all before: the shapes lived in a prose comment,
-// were hand-built with json{{...}} on one side and hand-read with
-// .value("key", default) on the other, and nothing checked that the two agreed.
-// Every case below is therefore about the CONTRACT, not the plumbing —
-// round-trip fidelity, the defaults a peer sees when a field is absent, and the
-// three ways a hostile or version-skewed document used to be able to throw out
-// of a reader thread (which is a std::terminate there).
 
 #include "Wv2Messages.h"
 
@@ -112,8 +103,6 @@ int main()
 		Check(got.reason == "終了 — done ✅", "utf-8 payload survives");
 	}
 
-	// ---- absent fields fall back to the DECLARED defaults, which are the
-	// values the old .value(key, default) call sites passed.
 	{
 		const auto got = msg::FromJson<msg::Navigate>(json{ { "type", "navigate" } });
 		Check(got.entry == "index.html", "navigate.entry defaults to index.html");
@@ -144,9 +133,6 @@ int main()
 			"mouse numerics default to 0");
 	}
 
-	// ---- a wrong-typed field costs THAT field, not the message, and never throws.
-	// Under .value() each of these raised type_error.302 and the reader dropped
-	// the whole message (game side) or shut the process down (host side).
 	{
 		const auto got = msg::FromJson<msg::Navigate>(json{
 			{ "type", "navigate" },
@@ -162,8 +148,6 @@ int main()
 			"wrong-typed number falls back to default");
 	}
 	{
-		// A non-object document (array, string, null) must read as all-defaults
-		// rather than throwing type_error.306.
 		Check(msg::FromJson<msg::Focus>(json::array({ 1, 2 })).focused == false,
 			"array document reads as defaults");
 		Check(msg::FromJson<msg::Bye>(json("nope")).reason.empty(),
@@ -171,15 +155,11 @@ int main()
 		Check(msg::FromJson<msg::Cursor>(json()).id == 0, "null document reads as defaults");
 	}
 	{
-		// Unknown fields are ignored, per Wv2Protocol.h's forward-compat rule:
-		// a NEWER peer adding a field must not break an older reader.
 		const auto got = msg::FromJson<msg::Cursor>(json{
 			{ "type", "cursor" }, { "id", 5u }, { "shapeHint", "beam" }, { "future", { 1, 2 } } });
 		Check(got.id == 5, "unknown fields ignored, known field still read");
 	}
 	{
-		// A negative into an unsigned field must NOT wrap. `.value("width", 1u)`
-		// on -1 silently produced 4294967295.
 		const auto got = msg::FromJson<msg::Resize>(json{
 			{ "type", "resize" }, { "width", -1 }, { "height", 1080 } });
 		Check(got.width == 1, "negative into unsigned keeps the default, no wrap");
@@ -199,8 +179,6 @@ int main()
 			"wrong-typed slots reads empty");
 	}
 
-	// ---- the hello gate: the one message whose contents decide whether we
-	// talk to this peer at all.
 	{
 		const auto got = RoundTrip(msg::Hello{
 			.protocolVersion = osfui::wv2::kBrowserHostProtocolVersion,

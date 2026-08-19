@@ -35,9 +35,7 @@ namespace OSFUI
 			if (_targets == a_targets)
 				return;
 			_targets = std::move(a_targets);
-			// Without this flag the notify below was a no-op: wait_for's
-			// predicate returned false, so a wake just re-waited to the same
-			// deadline and new targets waited out the full scan interval.
+			// Mark targets dirty before notifying the predicate-based wait.
 			_targetsChanged = true;
 		}
 		_wake.notify_all();
@@ -68,10 +66,7 @@ namespace OSFUI
 			std::unordered_set<std::string> watched;
 			for (const auto& target : targets) {
 				watched.insert(target.id);
-				// Mod scope, not view scope: the hashed bundles the entry HTML
-				// points at live in views/<modId>/assets/, and settling on the
-				// view folder alone would fire the reload while that sibling
-				// was still being written.
+				// Settle the whole mod because view entries load sibling hashed assets.
 				const auto fingerprint =
 					DevViewFiles::Fingerprint(_viewsRoot / DevViewFiles::ModFolder(target.id));
 				if (!fingerprint)

@@ -29,8 +29,6 @@ describe('versionLess', () => {
   });
 
   it('ignores a FOURTH component entirely', () => {
-    // Only three components are compared, so a build-number suffix can't
-    // make one version newer than another.
     expect(versionLess('1.0.0.1', '1.0.0.9')).toBe(false);
     expect(versionLess('1.0.0', '1.0.0.9')).toBe(false);
   });
@@ -78,8 +76,6 @@ describe('deriveNeedsUpdate', () => {
   });
 
   it('suppresses the badge entirely when the OSF UI release version is unknown', () => {
-    // Pre-handshake state shows no badge even though versionLess("", "1.2.0")
-    // is true. Re-derived once the bridge `ready` handshake lands.
     expect(versionLess('', '1.2.0')).toBe(true);
     expect(deriveNeedsUpdate('', [view('Star Atlas', '1.2.0')], [])).toEqual({
       outdated: false,

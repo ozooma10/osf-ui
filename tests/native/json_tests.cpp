@@ -1,19 +1,3 @@
-// The lenient accessor contract (src/Core/Json.h).
-//
-// Json::Get is now the single reader for every JSON field in the plugin and the
-// browser host — ~90 former Json::Get{String,Bool,Int} call sites plus ~90
-// former nlohmann .value() sites. That makes its edge behaviour load-bearing in
-// a way neither predecessor's was, and the host/renderer half had no test
-// coverage at all. Each case below pins a promise Json.h makes:
-//
-//   - a missing key, a wrong-typed value, and a non-object receiver all yield
-//     the caller's default, and none of them throws (.value() threw
-//     type_error.302 / .306, on threads where an escape is a std::terminate);
-//   - a negative never wraps into an unsigned target (.value("w", 1u) on -1
-//     silently produced 4294967295);
-//   - integral and floating targets differ on purpose: JSON erases 2 vs 2.0, so
-//     schema bounds must accept both, while an int field must not silently
-//     truncate a float.
 
 #include "Core/Json.h"
 
@@ -70,8 +54,6 @@ int main()
 	Check(Json::Get(obj, "nope", 99) == 99, "missing int");
 	Check(Json::Get(obj, "nope", 1.5) == 1.5, "missing double");
 
-	// ---- a WRONG-TYPED value yields the default too. This is the half
-	// .value() did not do: it threw.
 	Check(Json::Get(obj, "i", "fallback") == "fallback", "number where string expected");
 	Check(Json::Get(obj, "s", 99) == 99, "string where int expected");
 	Check(Json::Get(obj, "s", false) == false, "string where bool expected");
@@ -81,11 +63,7 @@ int main()
 	Check(Json::Get(obj, "obj", 99) == 99, "object where int expected");
 	Check(Json::Get(obj, "null", "fallback") == "fallback", "null reads as absent");
 
-	// ---- integral vs floating targets are deliberately different.
-	// A float into an int field must NOT silently truncate...
 	Check(Json::Get(obj, "f", 0) == 0, "2.5 into an int target keeps the default");
-	// ...but an integer into a float field must be accepted, because JSON
-	// erases the difference and schema bounds are authored both ways.
 	Check(Json::Get(obj, "whole", 0.0) == 2.0, "integer into a double target is accepted");
 	Check(Json::Get(obj, "f", 0.0) == 2.5, "double into a double target");
 
@@ -104,8 +82,6 @@ int main()
 		Check(Json::Get(notAnObject, "k", true), "non-object receiver, bool");
 	}
 
-	// ---- const char* defaults deduce to std::string, so `Get(o, "k", "")`
-	// works exactly as `.value("k", "")` used to.
 	{
 		const auto s = Json::Get(obj, "s", "");
 		static_assert(std::is_same_v<decltype(s), const std::string>,
@@ -115,8 +91,6 @@ int main()
 		Check(Json::Get(obj, "nope", fallback) == "owned", "std::string default");
 	}
 
-	// ---- GetArray / GetObject: present-and-right-kind in one step, null
-	// otherwise. Same lenient rule — a wrong type reads as absent.
 	Check(Json::GetArray(obj, "arr") != nullptr && Json::GetArray(obj, "arr")->size() == 2,
 		"GetArray returns the array");
 	Check(Json::GetArray(obj, "obj") == nullptr, "GetArray on an object is null");
@@ -134,16 +108,12 @@ int main()
 		Check(Json::GetStringArray(obj, "s").empty(), "non-array reads empty");
 	}
 
-	// ---- Parse: comments allowed (the drop-in schema contract), malformed
-	// input is std::nullopt rather than an exception.
 	Check(Json::Parse(R"({"a":1})").has_value(), "plain object parses");
 	Check(Json::Parse("{\n// a comment\n\"a\":1}").has_value(), "line comments are accepted");
 	Check(Json::Parse("{/* block */\"a\":1}").has_value(), "block comments are accepted");
 	Check(!Json::Parse("{ nope }").has_value(), "malformed input is nullopt, not a throw");
 	Check(!Json::Parse("").has_value(), "empty input is nullopt");
 
-	// ---- Dump: malformed UTF-8 is replaced, never thrown. A strict dump()
-	// throws type_error.316 here, and most dump sites have no handler above them.
 	{
 		Value broken;
 		broken["k"] = std::string("ok\xC3");  // truncated 2-byte sequence

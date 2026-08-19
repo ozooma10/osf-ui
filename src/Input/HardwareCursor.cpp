@@ -12,22 +12,19 @@ namespace OSFUI::HardwareCursor
 {
 	namespace
 	{
-		// Written by SetShape (renderer worker thread), read on the window-message
-		// thread when applying.
+		// Renderer workers write the shape; the window thread applies it.
 		std::atomic<CursorShape> g_shape{ CursorShape::kArrow };
 
 		// Window-message thread only.
 		bool g_active{ false };
 		int  g_showRaises{ 0 };  // net ShowCursor(TRUE) calls, undone on Deactivate
 
-		// The game may have hidden the pointer several counter-levels deep; cap
-		// the raises in case visibility is held by something we shouldn't override.
+		// Bound ShowCursor raises in case another owner holds visibility.
 		constexpr int kMaxShowRaises = 8;
 
 		[[nodiscard]] HCURSOR SystemCursor(CursorShape a_shape)
 		{
-			// IDC_* are integer resource ordinals; this build is not UNICODE, so
-			// they expand to LPSTR — use the A variant (identical cursors).
+			// Use the A variant because non-UNICODE IDC_* expands to LPSTR ordinals.
 			LPCSTR id = IDC_ARROW;
 			switch (a_shape) {
 			case CursorShape::kCross:      id = IDC_CROSS; break;
@@ -115,9 +112,7 @@ namespace OSFUI::HardwareCursor
 		}
 		RaiseUntilShowing();
 		ApplyShape();
-		// Re-fence if the engine re-clipped (or a resolution change moved the
-		// client area). Compare against the live clip (::GetClipCursor below):
-		// the engine changing it out from under us is the case to heal.
+		// Heal engine or resolution changes against the live cursor clip.
 		RECT want{};
 		if (!ClientRectOnScreen(static_cast<HWND>(a_hwnd), want)) {
 			return;
@@ -133,8 +128,7 @@ namespace OSFUI::HardwareCursor
 	void ApplyShape()
 	{
 		const auto shape = g_shape.load(std::memory_order_relaxed);
-		// kNone = the page asked to hide the pointer (CSS `cursor: none`); a null
-		// cursor hides it without touching the show counter.
+		// A null cursor implements CSS cursor:none without changing the show counter.
 		::SetCursor(shape == CursorShape::kNone ? nullptr : SystemCursor(shape));
 	}
 

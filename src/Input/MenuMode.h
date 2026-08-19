@@ -2,21 +2,10 @@
 
 namespace OSFUI
 {
-	// Menu-mode query over the engine's active menu array (used by the mod-hotkey
-	// gameplay gate). kModal is the engine's own gameplay/menu
-	// discriminator (RE-proven, see FocusMenu.cpp): gameplay-context menus
-	// (HUDMenu, CursorMenu, FaderMenu, ...) have it clear; menus that take the
-	// player out of gameplay (PauseMenu, ContainerMenu, DataMenu, dialogue,
-	// MainMenu, ...) have it set. Our FocusMenu never sets it, so the OSF UI
-	// overlay itself does not read as a game menu here.
+	// Treat admitted kModal menus as non-gameplay; FocusMenu deliberately remains kModal-clear.
 	namespace MenuMode
 	{
-		// Game MAIN thread only: walks RE::UI's active menu array. Runtime::Tick
-		// satisfies this by draining through RE::BSService::TaskQueue.
-		// True while any admitted kModal menu is open, i.e. not plain gameplay.
-		// Also true while the dev console is open: it is kModal-clear (gameplay
-		// keeps running) but console typing must not fire hotkeys.
-		// A null UI singleton (boot) also reads as true: nothing is gameplay yet.
+		// Main-thread only; fail closed at boot and treat the kModal-clear console as non-gameplay.
 		[[nodiscard]] bool AnyGameMenuOpen();
 	}
 }

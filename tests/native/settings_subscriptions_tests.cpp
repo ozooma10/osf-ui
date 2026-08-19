@@ -1,9 +1,3 @@
-// Native desktop unit tests for the SubscribeSettings bookkeeping: the REAL
-// src/API/SettingsSubscriptions.cpp — replay on
-// subscribe, queued change dispatch, unsubscribe semantics, and its
-// integration with the real SettingsStore + SettingsMirror wired exactly like
-// Runtime::BuildModules does — compiled against stubs/pch.h on the desktop
-// toolchain. Assert-style; process exit code is the failure count.
 
 #include "API/SettingsSubscriptions.h"
 #include "Settings/SettingsStore.h"
@@ -53,8 +47,6 @@ namespace
 		call.cv.wait(lock, [&] { return call.release; });
 	}
 
-	// The (key -> valueJson) view of a trace slice, for order-insensitive
-	// replay assertions (mirror iteration order is unspecified).
 	std::unordered_map<std::string, std::string> ByKey(const Trace& a_trace, std::size_t a_first = 0, std::size_t a_count = SIZE_MAX)
 	{
 		std::unordered_map<std::string, std::string> out;
@@ -65,8 +57,6 @@ namespace
 	}
 }
 
-// Core/Log.h declarations (real impl pulls game deps — stub, as in the other
-// suites).
 namespace OSFUI::Log
 {
 	static bool g_debugEnabled = true;
@@ -141,9 +131,6 @@ int main()
 		subs.Pump(mirror);
 		CHECK(trace.empty());  // ...so the late subscriber never sees it
 
-		// The snapshot replay does NOT re-arm when the mod appears later in
-		// the mirror alone — late registration is delivered by the store's
-		// per-mod replay through OnChanged (integration test below).
 		mirror.Update("ghost", "k", 2);
 		subs.Pump(mirror);
 		CHECK(trace.empty());
@@ -179,15 +166,10 @@ int main()
 		Trace trace;
 		CHECK(subs.Subscribe("t.alpha", Recorder, &trace) != 0);
 
-		// A commit lands between Subscribe and Pump — Runtime wiring updates
-		// the mirror FIRST, then queues the event.
 		mirror.Update("t.alpha", "b", 2);
 		subs.OnChanged("t.alpha", "b", 2);
 
 		subs.Pump(mirror);
-		// Replay of the CURRENT values (a=1, b=2) first, then the queued
-		// event — b arrives twice with the identical value (documented benign
-		// duplicate).
 		CHECK(trace.size() == 3);
 		const auto replayed = ByKey(trace, 0, 2);
 		CHECK(replayed.size() == 2);
@@ -314,8 +296,6 @@ int main()
 		SettingsStore store;
 		SettingsMirror mirror;
 		SettingsSubscriptions subs;
-		// Exactly the Runtime::BuildModules wiring (mirror first, then the
-		// subscriber feed).
 		store.AddChangeListener([&](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
 			mirror.Update(a_mod, a_key, a_value);
 			subs.OnChanged(a_mod, a_key, a_value);
@@ -339,8 +319,6 @@ int main()
 			] } ] })json");
 		CHECK(store.ReloadDropInFile(schemaDir / "t.beta.json"));
 
-		// The store's per-mod file-discovery replay flowed through OnChanged —
-		// the load-order-insurance replay, no snapshot involved.
 		subs.Pump(mirror);
 		CHECK(early.size() == 3);
 		const auto initial = ByKey(early);

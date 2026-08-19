@@ -1,6 +1,3 @@
-// Overlay-visit reset and LB/RB rail cycling as pure state transitions. Touches
-// neither `document`, `window` nor `padnav` — it returns the intent and the
-// caller applies the effects.
 
 import type { UiGamepadPayload, UiVisibilityPayload } from '@sdk';
 
@@ -18,23 +15,8 @@ export interface LifecycleState {
 
 export interface VisibilityIntent {
   readonly state: LifecycleState;
-  /**
-   * Drop the undo baseline. Undo scope is "since you opened settings", not the
-   * whole game session — the view keeps running while hidden, so without this it
-   * accumulates every change ever made.
-   */
   readonly clearBaseline: boolean;
-  /**
-   * Re-select Home and re-render. False when already sitting on Home with an
-   * empty filter, so the no-op case skips the rail+detail rebuild instead of
-   * tearing down and re-creating the pane on every show edge.
-   */
   readonly reselect: boolean;
-  /**
-   * Call `padnav.reset()`. Unconditional on the show edge — it sits outside the
-   * `reselect` guard, so a visit landing back on an already-selected Home still
-   * forgets the gamepad resume point.
-   */
   readonly resetPadnav: boolean;
 }
 
@@ -43,22 +25,12 @@ function inert(state: LifecycleState): VisibilityIntent {
   return { state, clearBaseline: false, reselect: false, resetPadnav: false };
 }
 
-/**
- * Reduce a `ui.visibility` push.
- *
- * Only the closed->open edge does anything; `visible: false` is ignored, so the
- * view keeps its selection while hidden and loses it on the next open. A
- * `reason: 'focus'` edge is a focus switch within one visit, not a new visit,
- * so it resets nothing.
- */
 export function reduceVisibility(
   state: LifecycleState,
   payload: UiVisibilityPayload,
 ): VisibilityIntent {
   if (!payload.visible || payload.reason === 'focus') return inert(state);
 
-  // Every visit lands on the launcher with the filter cleared: the toggle key
-  // means "open the deck", not "resume where a past visit left off".
   const needsReselect = state.selectedId !== HOME_ID || state.filter !== '';
 
   return {
@@ -74,12 +46,6 @@ export const PAD_LSHOULDER = 0x0100;
 /** XInput RB. Steps the rail selection forwards. */
 export const PAD_RSHOULDER = 0x0200;
 
-/**
- * Which buttons are currently held. `ui.gamepad` is a raw firehose — a held
- * button can be reported `down: true` on every poll — so the reducer keeps its
- * own memory to fire once per press. The runtime only emits on transitions
- * today; this makes the once-per-press guarantee local rather than assumed.
- */
 export interface PadButtonState {
   readonly down: readonly number[];
 }
@@ -92,18 +58,7 @@ export interface PadEdge {
   readonly pressed: number | null;
 }
 
-/**
- * Track press/release and report the down edge only.
- *
- * A `down: false` report clears the memory so the next press registers again.
- * Stick events pass through untouched — this view does not read the axes; the
- * runtime's default mapping already turns the stick into arrow keys.
- */
 export function padButtonEdge(state: PadButtonState, payload: UiGamepadPayload): PadEdge {
-  // The declared type says `button` is always present on a button payload, but
-  // this is an untrusted native push crossing the bridge as JSON. Dropping the
-  // guard would turn a malformed frame from an ignored event into a TypeError
-  // that kills the whole `ui.gamepad` subscription for the rest of the visit.
   if (!payload || payload.kind !== 'button' || !payload.button) return { state, pressed: null };
   const { id, down } = payload.button;
   const held = state.down.includes(id);
@@ -118,28 +73,11 @@ export function padButtonEdge(state: PadButtonState, payload: UiGamepadPayload):
 }
 
 export interface RailCycleContext {
-  /**
-   * Rail entry ids in the exact order `renderRail` paints them: Home (only when
-   * no filter is active), the framework, then title-sorted mods — all scoped by
-   * the current filter. Built by the caller because it needs the live mod list.
-   */
   readonly railIds: readonly string[];
   readonly selectedId: string;
-  /**
-   * True while the undo/revert panel is up (a `.session-overlay` element). The
-   * modal owns input, so shoulder presses must not move the rail underneath it.
-   */
   readonly modalOpen: boolean;
 }
 
-/**
- * The id `delta` steps to, wrapping — or the current id when nothing moves.
- *
- * Quirk: when the current selection is not in the list (`indexOf` -> -1) the
- * result is `railIds[0]` whatever the direction, so LB and RB both jump to the
- * first entry rather than to opposite ends. That is the recovery path after a
- * filter hid the selection.
- */
 export function cycleRail(railIds: readonly string[], selectedId: string, delta: number): string {
   if (!railIds.length) return selectedId;
   const i = railIds.indexOf(selectedId);
@@ -155,12 +93,6 @@ export interface GamepadIntent {
   readonly select: string | null;
 }
 
-/**
- * Reduce a `ui.gamepad` push into (new edge state, rail selection to apply).
- *
- * The edge is consumed even when a modal is open, so releasing and re-pressing
- * after the modal closes still reads as a fresh press.
- */
 export function reduceGamepad(
   state: PadButtonState,
   payload: UiGamepadPayload,
@@ -173,7 +105,5 @@ export function reduceGamepad(
   if (ctx.modalOpen) return { state: edge.state, select: null };
 
   const next = cycleRail(ctx.railIds, ctx.selectedId, edge.pressed === PAD_LSHOULDER ? -1 : 1);
-  // `selectMod` is only called when the id actually changes (a single-entry
-  // rail must not re-render on every shoulder tap).
   return { state: edge.state, select: next === ctx.selectedId ? null : next };
 }

@@ -1,5 +1,3 @@
-// Bounded browser-host restart policy: automatic backoff, response timeout,
-// terminal-disable behavior, and the explicit-open retry escape hatch.
 
 #include "Render/BrowserHostRecovery.h"
 
@@ -32,8 +30,6 @@ int main()
 	assert(recovery.BeginDueAttempt(134.0));
 	assert(recovery.Attempts() == 2);
 
-	// An explicit failure uses the same schedule. Attempt 3 exhausts the
-	// automatic budget after its own failure.
 	recovery.OnRetryableFailure(134.5);
 	assert(!recovery.BeginDueAttempt(144.49));
 	assert(recovery.BeginDueAttempt(144.5));
@@ -42,8 +38,6 @@ int main()
 	assert(recovery.PhaseValue() == Phase::Exhausted);
 	assert(recovery.CanAcceptResponse());
 
-	// The next explicit open grants a fresh immediate cycle, but success is what
-	// returns the policy to idle.
 	assert(recovery.RequestManualRetry(200.0));
 	assert(recovery.BeginDueAttempt(200.0));
 	assert(recovery.Attempts() == 1);

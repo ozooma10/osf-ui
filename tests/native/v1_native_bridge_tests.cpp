@@ -5,8 +5,6 @@
 
 namespace
 {
-	// Exact frozen ABI 1.8 prefix. Calling the current BridgeApi through this
-	// independently declared vtable proves that all published slots stayed put.
 	struct FrozenAbi18Bridge
 	{
 		virtual std::uint32_t GetInterfaceVersion() = 0;
@@ -59,8 +57,6 @@ namespace
 		requestCommand = a_request.command ? a_request.command : "";
 		requestPayload = nlohmann::json::parse(a_request.payloadJson ? a_request.payloadJson : "{}");
 		requestSource = a_request.sourceViewId ? a_request.sourceViewId : "";
-		// The pointer fields are callback-scoped in the frozen ABI; the copied
-		// token/thunks remain valid for a later asynchronous response.
 		request = a_request;
 	}
 
@@ -124,9 +120,6 @@ int main()
 	api.PumpMainThread();
 	CHECK(outbox.back()["kind"] == "event" && outbox.back()["name"] == "acme.widgets.notice");
 
-	// In 1.x request() could correlate any ui.command. A strict send endpoint
-	// therefore still executes and auto-acks for a legacy document, while the
-	// same wrong-kind request from a 2.0 document remains rejected.
 	std::size_t strictSendCalls = 0;
 	web.RegisterSend("acme.widgets.strict-send", [&](const nlohmann::json& payload, MessageBridge&) {
 		++strictSendCalls;
@@ -174,9 +167,6 @@ int main()
 	CHECK(outbox.back()["payload"]["__osfuiV1Reply"]["type"] == "legacy.result");
 	CHECK(outbox.back()["payload"]["__osfuiV1Reply"]["payload"]["accepted"] == true);
 
-	// The retired 1.7 registration slots remain in place for binary safety.
-	// Legacy callers now receive false/no-op; every later frozen slot must still
-	// dispatch correctly.
 	CHECK(!bridgeVtable->RegisterSettingsSchema(
 		R"({"id":"acme.widgets","groups":[{"settings":[{"key":"enabled","type":"bool","default":true}]}]})"));
 	api.Mirror().Update("acme.widgets", "enabled", true);

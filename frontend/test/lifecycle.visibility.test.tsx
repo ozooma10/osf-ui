@@ -1,17 +1,4 @@
 // @vitest-environment jsdom
-//
-// The overlay open-edge reset. A `ui.visibility` event with `visible: true`
-// means a fresh visit began (see @lib/lifecycle):
-//   * the undo baseline is dropped (undo scopes to one visit);
-//   * the filter is cleared and the selection returns to Home, but only when it
-//     was not already there;
-//   * padnav.reset() fires even on that no-op path;
-//   * a `visible: false` event changes nothing.
-//
-// Visibility stays an EVENT in protocol 2.0, and that is the point of this
-// file: it is a happening, not a value. Replaying it to a reloaded document
-// would re-fire the whole reset and throw away a visit's undo history for
-// nothing. The registries it resets against are state, and arrive replayed.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { makeBridge, mount, unmount, flush, typeFilter } from './helpers/settingsHarness';
@@ -82,10 +69,6 @@ describe('ui.visibility open edge', () => {
     await flush();
     expect(el.querySelector('.session-overlay')).not.toBeNull();
 
-    // F10-close then reopen. The panel hides itself anyway once the baseline
-    // drop empties its change list, so the DOM alone cannot show the bug; the
-    // symptom is `modalOpen` staying latched, which swallows LB/RB. Prove the
-    // rail cycles again on the new visit.
     bridge.deliver('ui.visibility', { visible: true });
     await flush();
     expect(el.querySelector('.session-overlay')).toBeNull();

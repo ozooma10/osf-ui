@@ -18,9 +18,6 @@
 
 #include <format>
 
-// shellapi.h (via shlobj.h) macro-renames ShellExecute -> ShellExecuteW, which
-// would mangle the IShellDispatch2::ShellExecute method name below. The COM
-// method has no A/W variants — undo the macro.
 #ifdef ShellExecute
 #	undef ShellExecute
 #endif
@@ -35,8 +32,6 @@ namespace osfui::wv2
 	{
 		struct ComApartment
 		{
-			// The caller may already be in an STA (renderer worker) or have no
-			// apartment at all (tool thread); accept both.
 			HRESULT hr;
 			ComApartment() : hr(::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) {}
 			~ComApartment()
@@ -53,9 +48,6 @@ namespace osfui::wv2
 			return std::format("0x{:08X}", static_cast<unsigned>(a_hr));
 		}
 
-		// Hop out of our process tree: desktop shell view -> automation object ->
-		// IShellDispatch2, which lives in explorer.exe, so its ShellExecute makes
-		// explorer the parent.
 		HRESULT ExplorerShellExecute(const std::wstring& a_exe, const std::wstring& a_args,
 			std::string& a_detail)
 		{
@@ -135,12 +127,6 @@ namespace osfui::wv2
 			return hr;
 		}
 
-		// One-shot scheduled task, run immediately in the caller's interactive
-		// session, then deleted. The spawned process is a child of svchost's
-		// task host — also outside the game's tree. a_elevated runs the task at
-		// the interactive token's highest level so the child can open an
-		// elevated game process; registering HIGHEST requires the caller to be
-		// elevated itself, which is exactly the case where it's needed.
 		HRESULT TaskSchedulerExecute(const std::wstring& a_exe, const std::wstring& a_args,
 			bool a_elevated, std::string& a_detail)
 		{
@@ -175,8 +161,6 @@ namespace osfui::wv2
 					settings->put_DisallowStartIfOnBatteries(VARIANT_FALSE);
 					settings->put_StopIfGoingOnBatteries(VARIANT_FALSE);
 					settings->put_StartWhenAvailable(VARIANT_TRUE);
-					// No execution time cap: this "task" is a long-lived host
-					// process ("PT0S" disables the 72h default limit).
 					settings->put_ExecutionTimeLimit(_bstr_t(L"PT0S"));
 				}
 				ComPtr<IPrincipal> principal;
@@ -222,8 +206,6 @@ namespace osfui::wv2
 
 			ComPtr<IRunningTask> running;
 			hr = registered->Run(_variant_t{}, &running);
-			// Delete right away in every case: the already-running process
-			// survives its task's deletion.
 			root->DeleteTask(_bstr_t(taskName.c_str()), 0);
 			if (FAILED(hr)) {
 				a_detail += "IRegisteredTask::Run=" + Hr(hr) + "; ";
@@ -266,9 +248,6 @@ namespace osfui::wv2
 	{
 		LaunchResult result;
 		if (a_preferBroker) {
-			// Elevated caller: Explorer's children are always unelevated and
-			// cannot open this process afterwards — the elevated task-scheduler
-			// route goes first, Explorer stays as a (log-visible) last resort.
 			const bool elevated = osfui::win32::IsProcessElevated();
 			if (elevated) {
 				result.detail += "caller elevated, task-scheduler(highest) first; ";

@@ -35,11 +35,6 @@ export function matchesBindingFilter(
   return true;
 }
 
-/**
- * Keep every selected-key holder visible, but bring the rows belonging to the
- * selected Layer to the front. The two buckets preserve their source order so
- * changing Layer never causes unrelated rows to shuffle among themselves.
- */
 export function prioritizeBindingsForFilter(
   bindings: readonly BindingRow[],
   filter: string,

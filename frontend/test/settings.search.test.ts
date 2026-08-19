@@ -101,9 +101,6 @@ describe('searchResults — cross-mod scan', () => {
     });
   });
 
-  // The view paints the "›" separator only when there is a group label to put
-  // after it, so an unlabelled group has to be reported as "" rather than
-  // omitted or filled in.
   it('reports an unlabelled group as an empty groupLabel', () => {
     const hits = searchResults([demo], 'fuel');
     expect(hits[0]?.modTitle).toBe('Ship Works');

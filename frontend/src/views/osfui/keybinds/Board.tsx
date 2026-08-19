@@ -1,5 +1,3 @@
-// The visual keyboard map. A render is the whole paint; the `cells` Map exists
-// only for the hotkey flash.
 
 import { useLayoutEffect, useRef } from 'preact/hooks';
 import { holdersOf, keyState } from '@lib/keybinds/conflicts';
@@ -9,11 +7,6 @@ import type { BindingRow } from '@lib/keybinds/model';
 import type { Translator } from '@lib/i18n';
 import { matchesQuery } from './search';
 
-/**
- * The `ui.hotkey` flash. `seq` is a monotonic counter, not a timestamp: pressing
- * the same hotkey twice must restart the animation, and only a changed
- * dependency triggers the restart effect below.
- */
 export interface FlashState {
   name: string;
   /** 0 means nothing has flashed yet — no cell is animated at boot. */
@@ -24,23 +17,11 @@ export interface BoardProps {
   bindings: readonly BindingRow[];
   /** Already trimmed + lowercased by the caller, per matchesQuery(). */
   query: string;
-  /**
-   * Physical keys represented by the rows currently shown in the binding
-   * list. null means the list has no active search/filter scope.
-   */
   shownBindingNames?: ReadonlySet<string> | null;
   selectedKey: string;
   flash: FlashState;
   tr: Translator;
-  /**
-   * False until the first render that had data: the `#keyboard` div stays empty
-   * until `osfui/settings` arrives, then fills in. Sibling panels gate the same way.
-   */
   loaded: boolean;
-  /**
-   * Localized keycap lookup (labels.ts). undefined per name = fall back to the
-   * cell's authored US glyph; the whole prop is optional for the preview.
-   */
   labeler?: KeyLabeler;
   onSelect: (name: string) => void;
 }
@@ -58,16 +39,8 @@ export function Board(props: BoardProps) {
   } = props;
   const labeler: KeyLabeler = props.labeler ?? (() => undefined);
 
-  // Canonical key name -> cell node. Only consumer is the flash restart below,
-  // which can't be expressed declaratively.
   const cells = useRef(new Map<string, HTMLButtonElement>());
 
-  // The forced reflow is load-bearing: re-adding a class the element already has
-  // does not restart a CSS animation, and re-rendering the same class string is a
-  // no-op to the diff. So the dance runs here on every `seq` change.
-  //
-  // The class also appears in the computed class string below, so a re-render
-  // mid-animation does not tear it off again.
   useLayoutEffect(() => {
     if (!flash.seq) return;
     const cell = cells.current.get(flash.name);
@@ -84,9 +57,6 @@ export function Board(props: BoardProps) {
 
     const name = item.n;
     if (!name) {
-      // Dead cell: drawn, not bindable, `disabled` so padnav's candidate scan
-      // skips it. Esc gets its own reason string — it is resolvable, but the
-      // capture flow reads a press of it as cancel.
       return (
         <button
           key={`dead${index}:${item.d}`}
@@ -109,19 +79,11 @@ export function Board(props: BoardProps) {
     const hasMod = holders.some((b) => b.kind === 'mod');
     const hasGame = holders.some((b) => b.kind === 'game');
     const state = keyState(bindings, name);
-    // The player's keycap when the runtime published a labels map; the
-    // authored US glyph otherwise (browser preview, older OSF UI runtime).
     const face = labeler(name) ?? item.d;
 
-    // Toggle order is fixed: the emitted class attribute must match the shipped
-    // one token for token.
     let className = 'kb-key';
-    // A single holder gets the flat mod/game tint; two or more fall through to
-    // the shared/conflict styling below — hence `holders.length === 1` on both.
     if (hasMod && holders.length === 1) className += ' is-mod';
     if (hasGame && !hasMod && holders.length === 1) className += ' is-game';
-    // `shared && !conflict`: a key that is both (three holders, one expected
-    // share plus a real collision) paints as the louder conflict.
     if (state.shared && !state.conflict) className += ' is-shared';
     if (state.possible && !state.conflict) className += ' is-possible';
     if (state.conflict) className += ' is-conflict';
@@ -130,13 +92,9 @@ export function Board(props: BoardProps) {
     );
     if (shownBindingNames !== null) {
       if (shownBindingNames.has(name)) className += ' is-prioritized';
-      // Preserve the existing physical-key search affordance: "f11" keeps an
-      // unbound F11 readable even though it cannot have a row in the list.
       else if (!bareKeyMatchesQuery) className += ' is-dim';
     }
     if (name === selectedKey) className += ' is-selected';
-    // Standalone Board consumers that do not provide the list subset retain
-    // the original search-only behavior.
     if (shownBindingNames === null &&
       query &&
       !holders.some(matchesQuery(query)) &&
@@ -154,8 +112,6 @@ export function Board(props: BoardProps) {
         key={`key:${name}`}
         type="button"
         class={className}
-        // Nothing in-tree reads this (cell lookup goes through the `cells` ref),
-        // but it is part of the shipped DOM shape.
         data-name={name}
         style={{ flexGrow: item.w, flexBasis: 0 }}
         title={who || face}
@@ -187,9 +143,6 @@ export function Board(props: BoardProps) {
     </div>
   );
 
-  // The container is always present; its contents appear only once data lands.
-  // The main block grows the ISO `<>` key exactly when the current layout
-  // labels it (labels map carries IntlBackslash) — ANSI boards are unchanged.
   return (
     <div id="keyboard" class="kb-board" aria-label="Keyboard map">
       {loaded ? (

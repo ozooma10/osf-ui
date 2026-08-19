@@ -1,19 +1,3 @@
-// The right-hand pane, and the dispatcher for its six mutually exclusive
-// modes. Dispatch order is the behaviour:
-//   1. System Health    the fixed destination, which clears search on selection
-//   2. search results   a non-empty filter replaces the pane, whatever is selected
-//   3. Home             the launcher
-//   4. not found        a selection that names no entry
-//   5. view-only        an entry with views but no settings schema
-//   6. settings page    the normal case
-// Search wins over Home, so typing while on the launcher shows results rather
-// than a filtered card grid. "Not found" precedes the view-only test because
-// `entry.mod` cannot be read off an entry that does not exist.
-//
-// Accent: a mod's schema `accent` drives the kit's whole linked accent set on
-// this subtree. Modes 1, 3 and 5 clear it, so one mod's colour cannot leak onto
-// System Health, the launcher, or a mod that ships none. Modes 2 and 4 leave it
-// untouched, so searching from a red mod keeps a red-tinted result list.
 
 import { Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -43,12 +27,6 @@ import type { CaptureTarget } from './useCapture';
 import { devWarn } from './warn';
 import { OPEN_COOLDOWN_MS } from './openCooldown';
 
-// `groupSlug`/`groupKey` are exported because App.tsx needs the same strings
-// when a search jump has to expand (and page-select) the group it lands in —
-// it works from the schema rather than from a rendered Group. Both prefer the
-// group's stable `id`: the index-keyed collapse fallback goes stale when a
-// schema update reorders groups, and a label-derived anchor collides when two
-// pages reuse a heading.
 
 /** The anchor a section-index button jumps to. Only called on labelled groups. */
 export function groupSlug(group: SettingsGroup): string {
@@ -56,8 +34,6 @@ export function groupSlug(group: SettingsGroup): string {
   return 'grp-' + base.toLowerCase().replace(/\s+/g, '-');
 }
 
-/** Stable identity for a group's collapse state. The `gi:`/`g` prefixes keep
- * an id that looks like a number from aliasing another group's index key. */
 export function groupKey(ownerId: string, group: SettingsGroup, index: number): string {
   return typeof group.id === 'string' && group.id
     ? `${ownerId}::gi:${group.id}`
@@ -146,7 +122,6 @@ export function Detail(props: DetailProps) {
     if (!el || accentIntent === undefined) return;
     props.applyAccent(el, accentIntent);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-running on
-    // anything but a change of intent fights the kit's own transitions.
   }, [accentIntent]);
 
   return (
@@ -189,8 +164,6 @@ export function Detail(props: DetailProps) {
 // Mode 5: a mod with discovered views but no settings schema.
 function ViewOnly(props: DetailProps & { entry: NonNullable<ReturnType<typeof findEntry>> }) {
   const { entry, tr } = props;
-  // Same lead-view rule as the rail title: prefer a menu, which reads like a
-  // product name where a HUD often does not.
   const lead = entry.views.find((v) => v.kind === 'menu') || entry.views[0];
 
   return (
@@ -225,10 +198,6 @@ function SettingsPage(props: SettingsPageProps) {
   const values = mod.values || {};
   const isFramework = mod.id === FRAMEWORK_ID;
 
-  // A schema with usable `pages` renders a tab row and only the active tab's
-  // groups; without one, every group renders in one column as always. Either
-  // way `pageGroups` carries the original schema index — collapse identity
-  // and the search jump are keyed on it.
   const buckets = pageBuckets(schema);
   const wanted = buckets ? props.activePages[mod.id] : undefined;
   const activePageId = buckets
@@ -238,9 +207,6 @@ function SettingsPage(props: SettingsPageProps) {
     ? buckets.find((b) => b.id === activePageId)!.groups
     : (schema.groups || []).map((group, index) => ({ group, index }));
 
-  // The section index appears only above 4 labelled groups (of the page in
-  // view, when paged); below that it is longer than the content it indexes.
-  // Unlabelled groups do not count (no anchor to jump to) but still render.
   const labelled = pageGroups.filter(({ group }) => group.label);
   const autoIndex = labelled.length > 4;
 
@@ -342,12 +308,6 @@ function SettingsPage(props: SettingsPageProps) {
   );
 }
 
-/**
- * How many changed-from-default settings are flagged `requires:"restart"`.
- *
- * Only settings with a usable key count: keyless and unknown-type rows are not
- * rendered, and a row you cannot see the value of must not claim a restart.
- */
 function countRestartChanges(mod: ModRecord): number {
   const values = mod.values || {};
   let n = 0;
@@ -363,11 +323,6 @@ function countRestartChanges(mod: ModRecord): number {
   return n;
 }
 
-/**
- * The tab row a paged schema renders in place of piling every group into one
- * column. The implicit General bucket has no authored label; it translates
- * here, at the last moment, like every other chrome string.
- */
 function PageTabs({
   buckets,
   activeId,
@@ -411,8 +366,6 @@ function SectionIndex({ groups, mod, onToggleGroup }: SectionIndexProps) {
             type="button"
             class="section-index-item"
             onClick={() => {
-              // The target may be collapsed — expand it first, or the scroll
-              // lands on a heading with nothing under it.
               onToggleGroup(groupKey(mod.id, g, index), false);
               const target = document.getElementById(groupSlug(g));
               if (target) target.scrollIntoView({ block: 'start' });
@@ -435,9 +388,6 @@ interface GroupProps extends SettingsPageProps {
 function Group(props: GroupProps) {
   const { group, index, values, mod, collapsed, onToggleGroup } = props;
   const key = groupKey(mod.id, group, index);
-  // The schema's `collapsed` is only the default; a user toggle overrides it
-  // and persists across re-renders, so applying a preset no longer snaps every
-  // group back to its schema default.
   const isCollapsed = collapsed[key] ?? group.collapsed === true;
   const visible = evalGate(group.visibleWhen, values, (k) =>
     devWarn(`condition references unknown key "${k}"`),
@@ -463,12 +413,6 @@ function Group(props: GroupProps) {
   );
 }
 
-/**
- * Reconciliation identity for a group item. Must be stable across re-renders
- * (else a control remounts mid-edit, losing an in-flight text edit or an open
- * action confirmation) and unique within the group (else Preact reuses the
- * wrong instance). Notes and images have no key, so they fall back to the index.
- */
 function itemKey(item: SettingsItem, index: number): string {
   const it = item as { type?: unknown; key?: unknown; id?: unknown };
   if (typeof it.key === 'string' && it.key) return `k:${it.key}`;
@@ -501,9 +445,6 @@ function Item(props: ItemProps) {
     const img = item as { src?: unknown; caption?: unknown; height?: unknown; visibleWhen?: unknown };
     return (
       <ImageRow
-        // Resolved with the harness roots the App was given, not from a global.
-        // In production `assetRoots` is undefined and the path can only resolve
-        // inside ../../<modId>/.
         src={safeAssetSrc(mod.id, img.src, props.assetRoots)}
         caption={typeof img.caption === 'string' ? img.caption : ''}
         height={typeof img.height === 'number' ? img.height : undefined}
@@ -577,14 +518,6 @@ function Item(props: ItemProps) {
   );
 }
 
-/**
- * Complete OSF UI runtime discovery inventory for mod-provided views. Unlike the launcher
- * and per-mod view sections this intentionally includes `hub:false`,
- * debug-only and uninstantiated entries: its purpose is to let a user prove that a
- * mod view was discovered and drive the exact same open path without first making
- * it visible in normal menus. Framework-owned views are implementation detail,
- * so they do not crowd this list.
- */
 function DiscoveredViews({
   views,
   tr,
@@ -655,9 +588,6 @@ function DiscoveredViews({
     </div>
   );
 }
-// Views: the catalog entries attached to this mod, rendered above its settings
-// groups. A Menu gets an Open button (single-menu policy means it replaces this
-// view); a HUD gets a visibility toggle.
 
 interface ViewsSectionProps extends DetailProps {
   views: ViewRecord[];
@@ -717,10 +647,6 @@ function ViewsSection(props: ViewsSectionProps) {
   );
 }
 
-/**
- * The label/hint pair every view row renders. Action rows keep their own copy —
- * they label from `label`/`key` and hint from `hint`, a different shape.
- */
 function ViewRowText({ view }: { view: ViewRecord }) {
   return (
     <div class="row-text">
@@ -774,9 +700,6 @@ function MenuRow({
           {...(failed ? { title: tr('viewFailed', 'The view failed to load; see OSF UI.log.') } : {})}
           onClick={() => {
             onOpen(v.id);
-            // The opened menu replaces this view, so this state is normally
-            // discarded with the page. The timer covers the open never
-            // happening (failed registration), which would strand the button.
             setOpening(true);
             setTimeout(() => setOpening(false), OPEN_COOLDOWN_MS);
           }}
@@ -807,12 +730,6 @@ function HudRow({
   );
 }
 
-/**
- * The per-HUD startup-policy switch (protocol 1.6), rendered as its own row
- * under the HUD's visibility row so the two switches stay unambiguous. Only
- * views the OSF UI runtime marks `autoStartMutable` get one; the choice applies at the
- * next game launch, so the row deliberately does not touch `hud.show`/`hide`.
- */
 function AutoStartRow({
   view: v,
   tr,

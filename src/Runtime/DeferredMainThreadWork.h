@@ -4,9 +4,7 @@
 
 namespace OSFUI
 {
-	// Cross-thread notification for work that must be consumed at a proven
-	// main-thread checkpoint. Multiple requests coalesce; a request racing with
-	// Take() is either consumed by that call or remains pending for the next one.
+	// Coalesced cross-thread work consumed only at the main-thread checkpoint.
 	class DeferredMainThreadWork
 	{
 	public:

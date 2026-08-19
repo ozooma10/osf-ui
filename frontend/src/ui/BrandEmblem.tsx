@@ -1,10 +1,3 @@
-// The OSF UI emblem: "Nested Frame with Signal". Shared verbatim by every view
-// header, so the mark cannot drift between built-in views.
-//
-// Only the glyph lives here — not the surrounding `.brand` block, because the
-// views differ around it (Mod Settings pairs it with a version stack that Keybindings
-// has no counterpart for). `aria-hidden` because the wordmark beside it already
-// names the product.
 
 export function BrandEmblem() {
   return (
