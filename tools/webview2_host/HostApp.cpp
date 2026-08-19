@@ -132,31 +132,23 @@ namespace osfui::wv2
 			void Error(const std::string& a_text) { Log(2, a_text); }
 		};
 
-		constexpr wchar_t kRuntimeDownloadUrl[] =
-			L"https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+		constexpr wchar_t kRuntimeDownloadUrl[] = L"https://go.microsoft.com/fwlink/p/?LinkId=2124703";
 
 		void PromptInstallWebView2Runtime(Logger& a_log)
 		{
 			static std::atomic_bool prompted{ false };
 			if (prompted.exchange(true)) return;
-			a_log.Error(
-				"the WebView2 Evergreen Runtime is not installed — showing the "
-				"install dialog (download: "
-				"https://go.microsoft.com/fwlink/p/?LinkId=2124703)");
+			a_log.Error("the WebView2 Evergreen Runtime is not installed — showing the install dialog (download: https://go.microsoft.com/fwlink/p/?LinkId=2124703)");
 			std::thread([] {
 				const auto choice = ::MessageBoxW(nullptr,
-					L"OSF UI cannot start because the Microsoft Edge WebView2 "
-					L"Runtime is not installed on this PC.\n\n"
-					L"The in-game overlay, including Mod Settings, will not "
-					L"appear without it.\n\n"
-					L"Open the download in your browser now? Run the downloaded "
-					L"\"MicrosoftEdgeWebview2Setup.exe\", then restart the game.",
+					L"OSF UI cannot start because the Microsoft Edge WebView2 Runtime is not installed on this PC.\n\n"
+					L"The in-game overlay, including Mod Settings, will not appear without it.\n\n"
+					L"Open the download in your browser now? Run the downloaded \"MicrosoftEdgeWebview2Setup.exe\", then restart the game.",
 
 					L"OSF UI - WebView2 Runtime missing",
 					MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
 				if (choice == IDYES) {
-					::ShellExecuteW(nullptr, L"open", kRuntimeDownloadUrl,
-						nullptr, nullptr, SW_SHOWNORMAL);
+					::ShellExecuteW(nullptr, L"open", kRuntimeDownloadUrl, nullptr, nullptr, SW_SHOWNORMAL);
 				}
 			}).detach();
 		}
