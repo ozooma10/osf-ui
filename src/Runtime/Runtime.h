@@ -112,6 +112,9 @@ namespace OSFUI
 		void BeginColdOpenTiming(std::string_view a_viewId);
 		void CancelColdOpenTiming(std::string_view a_viewId);
 		void FinishColdOpenTiming(std::string_view a_viewId);
+		void BeginHiddenPrewarmTiming(std::string_view a_viewId);
+		void CancelHiddenPrewarmTiming(std::string_view a_viewId);
+		void FinishHiddenPrewarmTiming(std::string_view a_viewId, std::chrono::steady_clock::time_point a_loadedAt);
 
 		void DrainViewRegistrations(std::vector<std::string> a_ids);
 		void DrainSchemaOps(std::vector<API::BridgeApi::SchemaOp> a_ops);
@@ -204,16 +207,23 @@ namespace OSFUI
 
 		std::optional<std::string> _pendingViewOpen;
 
-		using ColdOpenClock = std::chrono::steady_clock;
+		using ViewTimingClock = std::chrono::steady_clock;
 		struct ColdOpenTiming
 		{
 			std::string                              viewId;
-			ColdOpenClock::time_point                requestedAt;
-			std::optional<ColdOpenClock::time_point> instantiatedAt;
-			std::optional<ColdOpenClock::time_point> loadedAt;
+			ViewTimingClock::time_point                requestedAt;
+			std::optional<ViewTimingClock::time_point> instantiatedAt;
+			std::optional<ViewTimingClock::time_point> loadedAt;
+		};
+		struct HiddenPrewarmTiming
+		{
+			std::string                              viewId;
+			ViewTimingClock::time_point              requestedAt;
+			std::optional<ViewTimingClock::time_point> instantiatedAt;
 		};
 		std::atomic<std::int64_t>     _lastToggleRequestNanos{ 0 };
 		std::optional<ColdOpenTiming> _coldOpenTiming;
+		std::optional<HiddenPrewarmTiming> _hiddenPrewarmTiming;
 
 		bool _nativeFocusGranted{ false };
 		std::atomic_bool _nativeFocusRefreshRequested{ false };

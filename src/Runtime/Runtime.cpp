@@ -403,6 +403,14 @@ namespace OSFUI
 			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
 			return;
 		}
+
+		if (const auto* settings = _views.Find(Ids::kSettingsViewId);
+			settings && !_presentation.IsInstantiated(settings->id)) {
+			BeginHiddenPrewarmTiming(settings->id);
+			if (!InstantiateView(*settings, "for hidden startup prewarm")) {
+				CancelHiddenPrewarmTiming(settings->id);
+			}
+		}
 	}
 
 	void Runtime::EnqueuePresentationRequest(ViewPresentationRequest a_req)
@@ -447,7 +455,7 @@ namespace OSFUI
 		}
 		if (!_pendingViewOpen && !_presentation.ActiveMenu() &&
 			std::ranges::find(a_work.local, ViewPresentationRequest::ToggleDefault) != a_work.local.end()) {
-			if (!_presentation.IsInstantiated(Ids::kSettingsViewId)) {
+			if (m_viewLoads.GetState(Ids::kSettingsViewId) != ViewLoadState::Finished) {
 				BeginColdOpenTiming(Ids::kSettingsViewId);
 			}
 			prepare(Ids::kSettingsViewId, "for the default-menu toggle");
@@ -588,11 +596,11 @@ namespace OSFUI
 
 	void Runtime::BeginColdOpenTiming(std::string_view a_viewId)
 	{
-		const auto now = ColdOpenClock::now();
+		const auto now = ViewTimingClock::now();
 		const auto requestedNanos = _lastToggleRequestNanos.exchange(0, std::memory_order_acq_rel);
 		auto requestedAt = now;
 		if (requestedNanos > 0) {
-			const auto candidate = ColdOpenClock::time_point(std::chrono::nanoseconds(requestedNanos));
+			const auto candidate = ViewTimingClock::time_point(std::chrono::nanoseconds(requestedNanos));
 			if (candidate <= now) {
 				requestedAt = candidate;
 			}
@@ -601,6 +609,9 @@ namespace OSFUI
 			.viewId = std::string(a_viewId),
 			.requestedAt = requestedAt,
 		};
+		if (_presentation.IsInstantiated(a_viewId)) {
+			_coldOpenTiming->instantiatedAt = now;
+		}
 	}
 
 	void Runtime::CancelColdOpenTiming(std::string_view a_viewId)
@@ -619,12 +630,47 @@ namespace OSFUI
 
 		const auto timing = std::move(*_coldOpenTiming);
 		_coldOpenTiming.reset();
-		const auto revealedAt = ColdOpenClock::now();
-		const auto milliseconds = [](ColdOpenClock::time_point a_begin, ColdOpenClock::time_point a_end) {
+		const auto revealedAt = ViewTimingClock::now();
+		const auto milliseconds = [](ViewTimingClock::time_point a_begin, ViewTimingClock::time_point a_end) {
 			return std::chrono::duration_cast<std::chrono::milliseconds>(a_end - a_begin).count();
 		};
 		REX::INFO("Runtime: cold-open timing '{}': {} ms total (input->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)", 
 			timing.viewId, milliseconds(timing.requestedAt, revealedAt), milliseconds(timing.requestedAt, *timing.instantiatedAt), milliseconds(*timing.instantiatedAt, *timing.loadedAt), milliseconds(*timing.loadedAt, revealedAt));
+	}
+
+	void Runtime::BeginHiddenPrewarmTiming(std::string_view a_viewId)
+	{
+		_hiddenPrewarmTiming = HiddenPrewarmTiming{
+			.viewId = std::string(a_viewId),
+			.requestedAt = ViewTimingClock::now(),
+		};
+	}
+
+	void Runtime::CancelHiddenPrewarmTiming(std::string_view a_viewId)
+	{
+		if (_hiddenPrewarmTiming && _hiddenPrewarmTiming->viewId == a_viewId) {
+			_hiddenPrewarmTiming.reset();
+		}
+	}
+
+	void Runtime::FinishHiddenPrewarmTiming(std::string_view a_viewId, ViewTimingClock::time_point a_loadedAt)
+	{
+		if (!_hiddenPrewarmTiming || _hiddenPrewarmTiming->viewId != a_viewId ||
+			!_hiddenPrewarmTiming->instantiatedAt) {
+			return;
+		}
+		// If the player opened settings before prewarm completed, the cold-open summary owns the one useful timing line and includes the eventual presentable frame.
+		if (_coldOpenTiming && _coldOpenTiming->viewId == a_viewId) {
+			_hiddenPrewarmTiming.reset();
+			return;
+		}
+
+		const auto timing = std::move(*_hiddenPrewarmTiming);
+		_hiddenPrewarmTiming.reset();
+		const auto milliseconds = [](ViewTimingClock::time_point a_begin, ViewTimingClock::time_point a_end) {
+			return std::chrono::duration_cast<std::chrono::milliseconds>(a_end - a_begin).count();
+		};
+		REX::INFO("Runtime: hidden-prewarm timing '{}': {} ms total (request->instantiate {} ms, instantiate->load {} ms)", timing.viewId, milliseconds(timing.requestedAt, a_loadedAt), milliseconds(timing.requestedAt, *timing.instantiatedAt), milliseconds(*timing.instantiatedAt, a_loadedAt));
 	}
 
 	void Runtime::DrivePendingOpen()
@@ -899,6 +945,7 @@ namespace OSFUI
 			REX::ERROR("Runtime: renderer failed at '{}' for view '{}' (0x{:08X}): {} - closing the overlay and disabling it for this session", a_event.stage, a_event.viewId, a_event.errorCode, a_event.description);
 		}
 		m_viewRecovery.ClearAll();
+		_hiddenPrewarmTiming.reset();
 
 		CancelPendingOpen();
 		_presentation.CloseAll();

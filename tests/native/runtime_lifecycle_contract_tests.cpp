@@ -272,7 +272,7 @@ int main()
 		nativeAccelerator.find("_developerMode && a_vkCode == kVkF12") != std::string::npos,
 		"F12 must be framework-owned and request DevTools only in effective developer mode");
 	Check(ContainsInOrder(gameWindowKey, {
-		"ColdOpenClock::now()",
+		"ViewTimingClock::now()",
 		"_lastToggleRequestNanos.store",
 		"EnqueuePresentationRequest(ViewPresentationRequest::ToggleDefault)" }),
 		"the toggle input timestamp must be captured before its presentation request is queued");
@@ -294,15 +294,22 @@ int main()
 
 	const auto postDataIntegration = FunctionBody(runtimeSource,
 		"void Runtime::InitializePostDataLoadIntegration()");
-	Check(postDataIntegration.find("Prewarm") == std::string::npos &&
-		runtimeSource.find("BuiltInMenuPrewarm") == std::string::npos &&
-		runtimeSource.find("PrewarmBuiltInKeybindings") == std::string::npos &&
-		runtimeHeader.find("BuiltInMenuPrewarm") == std::string::npos &&
-		runtimeHeader.find("PrewarmBuiltInKeybindings") == std::string::npos,
-		"built-in settings and keybindings pages must remain unloaded until requested");
+	Check(ContainsInOrder(postDataIntegration, {
+		"_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled",
+		"if (!_captureIntegrationAvailable)",
+		"_views.Find(Ids::kSettingsViewId)",
+		"BeginHiddenPrewarmTiming(settings->id)",
+		"InstantiateView(*settings, \"for hidden startup prewarm\")" }) &&
+		postDataIntegration.find("_presentation.Open") == std::string::npos &&
+		postDataIntegration.find("BeginViewOpen") == std::string::npos,
+		"post-post-data-load must instantiate settings hidden only after capture integration succeeds");
 	const auto successfulViewLoad = FunctionBody(runtimeSource, "void Runtime::OnViewLoad(");
-	Check(successfulViewLoad.find("Prewarm") == std::string::npos,
-		"loading one built-in menu must not preload another menu");
+	Check(ContainsInOrder(successfulViewLoad, {
+		"const auto loadedAt = ViewTimingClock::now()",
+		"_coldOpenTiming->loadedAt = loadedAt",
+		"FinishHiddenPrewarmTiming(id, loadedAt)" }) &&
+		successfulViewLoad.find("Ids::kKeybindingsViewId") == std::string::npos,
+		"a hidden settings load must finish timing without cascading into another built-in preload");
 
 	const auto hudEligible = FunctionBody(runtimeSource,
 		"bool Runtime::HudAutoStartEligible(const ViewManifest& a_manifest) const");
@@ -473,6 +480,7 @@ int main()
 	Check(ContainsInOrder(overlayInputSource, {
 		"case kRestoreGameFocusMessage:",
 		"if (!runtime.IsInputCaptured())",
+		"::SetActiveWindow(a_hwnd)",
 		"::SetFocus(a_hwnd)",
 		"runtime.NotifyGameWindowFocused()",
 		"case WM_SETFOCUS:" }),
@@ -503,6 +511,16 @@ int main()
 		hostSource.find("msg::FocusState") != std::string::npos &&
 		hostSource.find("MoveFocus failed") != std::string::npos,
 		"the host must report actual focus changes and surface MoveFocus failures");
+	const auto releaseInputFocus = FunctionBody(hostSource,
+		"void ReleaseInputFocus(std::string_view a_reason)");
+	Check(ContainsInOrder(releaseInputFocus, {
+		"::SetFocus(hostWindow)",
+		"::SetFocus(nullptr)",
+		"PublishFocusState()",
+		"QueueGameFocusRestore()" }) &&
+		hostSource.find("ReleaseInputFocus(\"unexpected GotFocus\")") != std::string::npos &&
+		hostSource.find("ReleaseInputFocus(\"view show\")") != std::string::npos,
+		"focus revocation must synchronously clear Chromium before restoring Starfield focus");
 	Check(rendererSource.find("kRepairDelaySeconds = 1.0") != std::string::npos &&
 		rendererSource.find("focusAckEpoch >= epoch") != std::string::npos,
 		"the focus watchdog must wait for a persistent acknowledgement mismatch");
@@ -564,6 +582,17 @@ int main()
 		"*timing.loadedAt, revealedAt" }) &&
 		finishColdOpen.find("cold-open timing") != std::string::npos,
 		"cold-open diagnostics must summarize total, dispatch, load and presentable-frame timing in one line");
+	const auto finishHiddenPrewarm = FunctionBody(runtimeSource,
+		"void Runtime::FinishHiddenPrewarmTiming(std::string_view a_viewId");
+	Check(ContainsInOrder(finishHiddenPrewarm, {
+		"if (_coldOpenTiming && _coldOpenTiming->viewId == a_viewId)",
+		"_hiddenPrewarmTiming.reset()",
+		"return",
+		"hidden-prewarm timing",
+		"timing.requestedAt, a_loadedAt",
+		"timing.requestedAt, *timing.instantiatedAt",
+		"*timing.instantiatedAt, a_loadedAt" }),
+		"hidden prewarm must emit one summary, suppressed when a player-visible cold open owns the timing line");
 	const auto prepareSharedRing = FunctionBody(compositorSource,
 		"void D3D12Compositor::PrepareSharedRing()");
 	Check(ContainsInOrder(prepareSharedRing, {

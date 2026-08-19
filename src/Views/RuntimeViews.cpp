@@ -41,7 +41,10 @@ namespace OSFUI
 		_presentation.AddInstantiated({ id, a_manifest.kind, a_manifest.capturesInput, a_manifest.pausesGame, a_manifest.order });
 		API::BridgeApi::Get().SetViewInstantiated(id, true);
 		if (_coldOpenTiming && _coldOpenTiming->viewId == id) {
-			_coldOpenTiming->instantiatedAt = ColdOpenClock::now();
+			_coldOpenTiming->instantiatedAt = ViewTimingClock::now();
+		}
+		if (_hiddenPrewarmTiming && _hiddenPrewarmTiming->viewId == id) {
+			_hiddenPrewarmTiming->instantiatedAt = ViewTimingClock::now();
 		}
 
 		REX::INFO("Runtime: view '{}' instantiated {} ({}, capturesInput={}, pausesGame={})", id, a_reason, a_manifest.kind == ViewKind::Hud ? "hud" : "menu", a_manifest.capturesInput, a_manifest.pausesGame);
@@ -65,9 +68,11 @@ namespace OSFUI
 		m_viewLoads.FinishLoad(id, a_failed);
 		m_viewInputGrants.ResetPage(id);
 		if (!a_failed) {
+			const auto loadedAt = ViewTimingClock::now();
 			if (_coldOpenTiming && _coldOpenTiming->viewId == id) {
-				_coldOpenTiming->loadedAt = ColdOpenClock::now();
+				_coldOpenTiming->loadedAt = loadedAt;
 			}
+			FinishHiddenPrewarmTiming(id, loadedAt);
 			if (m_viewRecovery.Clear(id)) {
 				REX::INFO("Runtime: view '{}' recovered ({})", a_viewId, a_url);
 			} else {
@@ -79,6 +84,7 @@ namespace OSFUI
 		}
 
 		CancelColdOpenTiming(id);
+		CancelHiddenPrewarmTiming(id);
 		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]", a_viewId, a_url, a_description, a_errorCode);
 
 		const auto recovery = m_viewRecovery.ScheduleFailure(id, _uptime);
