@@ -403,6 +403,13 @@ int main()
 		"_presentation.CloseAll()" }),
 		"toggle, Escape/Back, and CloseAll must cancel a pending open");
 	Check(ContainsInOrder(applyRequests, {
+		"case ViewPresentationRequest::Back:",
+		"BackTargetFor(*active)",
+		"BeginViewOpen(*target)",
+		"OwnsBackAction(*active)",
+		"InjectKeyEvent(kVkEscape, true)" }),
+		"a native back target must bypass the synthetic browser round trip");
+	Check(ContainsInOrder(applyRequests, {
 		"if (r.open)",
 		"*_pendingViewOpen == r.view",
 		"CancelPendingOpen()",
@@ -470,6 +477,13 @@ int main()
 		"BeginViewOpen(id)",
 		"ApplyViewPresentationPolicy()" }),
 		"setViewHidden must transition the presentation model rather than bypassing it at the renderer");
+	Check(ContainsInOrder(endpoints, {
+		"RegisterSend(\"osfui.handleBack\"",
+		"Json::Get(a_p, \"view\", \"\")",
+		"_views.Find(target)",
+		"manifest->kind != ViewKind::Menu",
+		"SetBackOwnership(src, handle, target)" }),
+		"browser back ownership may register a validated native menu target");
 	Check(runtimeSource.find("bool Runtime::SetViewHidden") == std::string::npos &&
 		runtimeHeader.find("bool SetViewHidden") == std::string::npos,
 		"setViewHidden must not retain a second Runtime visibility authority");

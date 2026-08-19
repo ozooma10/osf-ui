@@ -487,10 +487,16 @@ namespace OSFUI
 				const auto active = _presentation.ActiveMenu();
 				if (_pendingViewOpen) {
 					CancelPendingOpen();
-				} else if (active && m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
-					constexpr std::uint32_t kVkEscape = 0x1B;
-					_renderer->InjectKeyEvent(kVkEscape, true);
-					_renderer->InjectKeyEvent(kVkEscape, false);
+				} else if (active) {
+					if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
+						BeginViewOpen(*target);
+					} else if (m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
+						constexpr std::uint32_t kVkEscape = 0x1B;
+						_renderer->InjectKeyEvent(kVkEscape, true);
+						_renderer->InjectKeyEvent(kVkEscape, false);
+					} else {
+						_presentation.CloseActiveMenu();
+					}
 				} else {
 					_presentation.CloseActiveMenu();
 				}

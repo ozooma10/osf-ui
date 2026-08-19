@@ -108,12 +108,12 @@ export type PlatformSend =
    */
   | { name: "osfui.gamepadRaw"; payload: { raw: boolean } }
   /**
-   * Own the back action. While your menu is ACTIVE, Esc / gamepad B arrive as a
-   * synthetic Escape keydown/keyup instead of closing the active menu. Same
-   * per-document lifetime as osfui.gamepadRaw. The overlay toggle key always
-   * closes natively, so this cannot strand the player.
+   * Own the back action. While your menu is ACTIVE, Esc / gamepad B either
+   * arrive as a synthetic Escape keydown/keyup or open the optional discovered
+   * menu `view` directly. Same per-document lifetime as osfui.gamepadRaw. The
+   * overlay toggle key always closes natively, so this cannot strand the player.
    */
-  | { name: "osfui.handleBack"; payload: { handle: boolean } }
+  | { name: "osfui.handleBack"; payload: { handle: boolean; view?: string } }
   /** Queue an arbitrary GLOBAL Papyrus function. Sugar: osfui.papyrus.call(). */
   | { name: "papyrus.call"; payload: { script: string; function: string; args?: PapyrusCallArgument[] } }
   /** Fire a one-way message at the owning mod's Papyrus listener. Sugar: osfui.papyrus.send(). */

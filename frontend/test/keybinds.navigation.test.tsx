@@ -371,6 +371,10 @@ describe('Keybindings — goBack', () => {
   it('opens Mod Settings, and falls back to a bare close when that rejects', async () => {
     const bridge = seeded();
     const el = await mount(bridge);
+    expect(bridge.sent.find((s) => s.name === 'osfui.handleBack')).toEqual({
+      name: 'osfui.handleBack',
+      payload: { handle: true, view: 'osfui/settings' },
+    });
 
     el.querySelector<HTMLButtonElement>('#back')!.click();
     await flush();

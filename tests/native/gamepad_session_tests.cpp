@@ -129,8 +129,15 @@ int main()
 		assert(grants.GamepadModeFor("view") == Mode::kButtons);
 		grants.SetGamepadMode("view", Mode::kRaw);
 		assert(grants.GamepadModeFor("view") == Mode::kRaw);
+		assert(!grants.OwnsBackAction("view"));
+		assert(!grants.BackTargetFor("view"));
+		grants.SetBackOwnership("view", true, "osfui/settings");
+		assert(grants.OwnsBackAction("view"));
+		assert(grants.BackTargetFor("view") == std::optional<std::string>("osfui/settings"));
 		grants.ResetPage("view");
 		assert(grants.GamepadModeFor("view") == Mode::kDefault);
+		assert(!grants.OwnsBackAction("view"));
+		assert(!grants.BackTargetFor("view"));
 	}
 
 	std::cout << "gamepad session tests passed\n";

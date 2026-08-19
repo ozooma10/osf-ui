@@ -342,7 +342,18 @@ namespace OSFUI
 			if (src.empty()) {
 				return;
 			}
-			m_viewInputGrants.SetBackOwnership(src, Json::Get(a_p, "handle", false));
+			const bool handle = Json::Get(a_p, "handle", false);
+			std::string target = Json::Get(a_p, "view", "");
+			if (handle && !target.empty()) {
+				const auto* manifest = _views.Find(target);
+				if (!manifest || manifest->kind != ViewKind::Menu || manifest->id == src) {
+					REX::WARN("Runtime: [content] view '{}' requested invalid back target '{}'", src, target);
+					target.clear();  // Preserve ordinary browser-owned Back as the safe fallback.
+				} else {
+					target = manifest->id;
+				}
+			}
+			m_viewInputGrants.SetBackOwnership(src, handle, target);
 		});
         a_bridge.RegisterRequest("osfui.setViewAutoStart", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
             if(a_b.CurrentSource() != kSettingsViewId) {

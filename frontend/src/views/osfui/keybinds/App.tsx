@@ -194,7 +194,9 @@ export function App({ bridge = windowBridge }: AppProps) {
       setFlash((f) => ({ name: b.name, seq: f.seq + 1 }));
     });
 
-    if (bridge.available()) sendEndpoint('osfui.handleBack', { handle: true });
+    if (bridge.available()) {
+      sendEndpoint('osfui.handleBack', { handle: true, view: MOD_SETTINGS_VIEW });
+    }
 
     return () => {
       offData();
