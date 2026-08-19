@@ -524,6 +524,44 @@ int main()
 		"FreeCursor::Apply(false)" }),
 		"reveal timeout must close the presentation and immediately release every engine-owned input edge");
 
+	const auto runHost = FunctionBody(hostSource, "int RunHost(const HostOptions& a_options)");
+	Check(ContainsInOrder(runHost, {
+		"std::format(L\"Local\\\\osfui-wv2-host-{}\", a_options.gamePid)",
+		"::CreateMutexW",
+		"ERROR_ALREADY_EXISTS" }),
+		"production must admit at most one browser host for each Starfield process");
+	Check(ContainsInOrder(runHost, {
+		"app.pipe.ServerProcessId()",
+		"*serverPid != a_options.gamePid",
+		"app.gameProcess = ::OpenProcess(",
+		"PROCESS_DUP_HANDLE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION" }),
+		"the browser host must authenticate and retain a waitable handle to its owning Starfield process");
+
+	const auto hostRun = FunctionBody(hostSource, "int Run()");
+	Check(ContainsInOrder(hostRun, {
+		"const HANDLE waits[2] = { wakeEvent, gameProcess }",
+		"::MsgWaitForMultipleObjectsEx(",
+		"if (wait == WAIT_OBJECT_0 + 1)",
+		"break" }),
+		"the browser host must leave its message loop when the owning Starfield process exits");
+	Check(ContainsInOrder(hostRun, {
+		"if (pipeDead.load())",
+		"captureGameExit(1000)",
+		"break" }),
+		"a dead game pipe must also end the browser-host process");
+	Check(hostSource.find("PromptCrashReport") == std::string::npos,
+		"browser-host teardown must not block on the removed post-crash reporting prompt");
+
+	const auto stopRenderer = FunctionBody(rendererSource, "void Stop(bool a_force = false)");
+	Check(ContainsInOrder(stopRenderer, {
+		"RequestShutdown()",
+		"pipe.Close()",
+		"worker.join()",
+		"TakeBrowserHostProcess()",
+		"::WaitForSingleObject(browserHostProcess, graceMs)",
+		"::TerminateProcess(browserHostProcess, 9)" }),
+		"renderer teardown must terminate its verified browser host when graceful shutdown times out");
+
 	const auto menuEvent = FunctionBody(menuEventSource, "MenuEventSink::ProcessEvent(");
 	Check(ContainsInOrder(menuEvent, {
 		"name == \"LoadingMenu\"",
