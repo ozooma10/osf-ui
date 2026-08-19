@@ -14,6 +14,7 @@ namespace OSFUI
 
 		struct FrameObservation
 		{
+			std::uint64_t generation{ 0 };
 			std::uint64_t index{ 0 };
 			bool          outputSizeKnown{ false };
 			bool          matchesExpectedSize{ false };
@@ -41,6 +42,7 @@ namespace OSFUI
 		bool                  m_frameReady{ false };
 		double                m_heldSeconds{ 0.0 };
 		std::optional<double> m_lastPolledAt;
+		std::uint64_t         m_lastSubmittedGeneration{ 0 };
 		std::uint64_t         m_lastSubmittedFrame{ 0 };
 	};
 }

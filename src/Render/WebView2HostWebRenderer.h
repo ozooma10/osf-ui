@@ -65,7 +65,7 @@ namespace OSFUI
 		void SetInputTargetView(std::string_view a_id);
 		void Resize(std::uint32_t a_width, std::uint32_t a_height);
 		void Update(double a_deltaSeconds);
-		std::optional<FrameBufferView> Render();
+		std::optional<FrameBufferView> TakeLatestFrame();
 		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json);
 		void SetWebMessageHandler(WebMessageHandler a_handler);
 		void SetLoadHandler(LoadHandler a_handler);

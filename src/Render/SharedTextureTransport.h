@@ -6,6 +6,7 @@ namespace OSFUI
 	{
 		std::uint32_t width{ 0 };
 		std::uint32_t height{ 0 };
+		std::uint64_t ringGeneration{ 0 };
 		std::uint64_t frameIndex{ 0 };
 		std::uint32_t sharedSlot{ 0 };
 	};

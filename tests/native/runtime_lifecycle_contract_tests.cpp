@@ -145,6 +145,7 @@ int main()
 	const auto runtimeHeader = ReadSource("../../src/Runtime/Runtime.h");
 	const auto runtimeHealthSource = ReadSource("../../src/Runtime/RuntimeHealthCoordinator.cpp");
 	const auto rendererSource = ReadSource("../../src/Render/WebView2HostWebRenderer.cpp");
+	const auto compositorSource = ReadSource("../../src/Composite/D3D12Compositor.cpp");
 	const auto manifestSource = ReadSource("../../src/Views/ViewManifest.h") +
 		ReadSource("../../src/Views/ViewManifest.cpp");
 	const auto hostSource = ReadSource("../../tools/webview2_host/HostApp.cpp") +
@@ -402,15 +403,52 @@ int main()
 		"haveFrame = false",
 		"ackNew = true" }),
 		"all-hidden and wrong-epoch frames must be rejected and acknowledged");
+	const auto takeLatestFrame = FunctionBody(rendererSource,
+		"std::optional<FrameBufferView> WebView2HostWebRenderer::TakeLatestFrame()");
+	Check(takeLatestFrame.find("submittedRingGeneration == _impl->sharedRingGeneration") != std::string::npos &&
+		takeLatestFrame.find("submittedSerial == _impl->frameSerial") != std::string::npos &&
+		Count(takeLatestFrame, "return std::nullopt") == 2,
+		"the renderer must hand each ring-generation/frame-serial pair to Runtime only once");
+	Check(ContainsInOrder(takeLatestFrame, {
+		"_impl->submittedRingGeneration = _impl->sharedRingGeneration",
+		"_impl->submittedSerial = _impl->frameSerial",
+		".ringGeneration = _impl->sharedRingGeneration" }),
+		"the renderer must publish generation-aware frame identity after consuming the edge");
 
 	const auto submitFrame = FunctionBody(runtimeSource, "void Runtime::SubmitFrameIfVisible()");
 	Check(ContainsInOrder(submitFrame, {
+		"_renderer->TakeLatestFrame()",
+		"_latestFrame = *frame",
 		"m_viewReveal.Observe(observation, _uptime)",
 		"if (decision.submitFrame && frame)",
 		"_compositor->Submit(*frame)",
+		"_compositor->PrepareSharedRing()",
 		"if (decision.reveal)",
 		"_compositor->SetVisible(true)" }),
 		"Runtime must submit the gate-approved frame before making the compositor visible");
+	const auto prepareSharedRing = FunctionBody(compositorSource,
+		"void D3D12Compositor::PrepareSharedRing()");
+	Check(ContainsInOrder(prepareSharedRing, {
+		"!_impl->sharedRing.pendingDirty",
+		"return",
+		"_impl->EnsureSetup()",
+		"_impl->EnsureSharedRing()" }),
+		"deferred ring adoption must retry without locking when no generation is pending");
+	const auto cacheFrame = FunctionBody(compositorSource,
+		"void CacheFrame(const FrameBufferView& a_frame)");
+	Check(ContainsInOrder(cacheFrame, {
+		"a_frame.ringGeneration == lastSubmittedGeneration",
+		"a_frame.frameIndex == lastSubmittedIndex",
+		"lastSubmittedGeneration = a_frame.ringGeneration",
+		"frameGeneration = a_frame.ringGeneration" }),
+		"compositor frame caching must distinguish identical serials from different rings");
+	const auto recordOverlay = FunctionBody(compositorSource,
+		"bool RecordOverlay(ID3D12GraphicsCommandList* a_list");
+	Check(ContainsInOrder(recordOverlay, {
+		"frameGeneration == sharedRing.activeGeneration",
+		"ringSlot = sharedRing.readySlot",
+		"DrawInstanced(3, 1, 0, 0)" }),
+		"each UI target must draw the cached frame while only generation-matched candidates replace it");
 	Check(ContainsInOrder(submitFrame, {
 		"if (!decision.timedOut)",
 		"CancelPendingOpen()",

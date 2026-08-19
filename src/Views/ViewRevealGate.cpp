@@ -23,6 +23,7 @@ namespace OSFUI
 	void ViewRevealGate::Reset()
 	{
 		Cancel();
+		m_lastSubmittedGeneration = 0;
 		m_lastSubmittedFrame = 0;
 	}
 
@@ -30,16 +31,15 @@ namespace OSFUI
 	{
 		Decision decision;
 		if (a_frame) {
-			if (!m_pending) {
+			const bool newFrame = a_frame->generation != m_lastSubmittedGeneration || a_frame->index != m_lastSubmittedFrame;
+			if (newFrame) {
+				m_lastSubmittedGeneration = a_frame->generation;
 				m_lastSubmittedFrame = a_frame->index;
 				decision.submitFrame = true;
-				return decision;
+				m_frameReady = m_pending;
 			}
-
-			if (a_frame->index != m_lastSubmittedFrame) {
-				m_lastSubmittedFrame = a_frame->index;
-				m_frameReady = true;
-				decision.submitFrame = true;
+			if (!m_pending) {
+				return decision;
 			}
 
 			if (m_frameReady && a_frame->outputSizeKnown && a_frame->matchesExpectedSize) {

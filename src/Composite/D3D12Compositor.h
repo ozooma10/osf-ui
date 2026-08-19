@@ -18,6 +18,7 @@ namespace OSFUI
 		~D3D12Compositor();
 
 		bool Initialize();
+		void PrepareSharedRing();
 		void Submit(const FrameBufferView& a_frame);
 		void SetVisible(bool a_visible);
 		std::optional<OutputSize> GetObservedOutputSize() const;

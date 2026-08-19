@@ -287,6 +287,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			struct Frame
 			{
 				bool ready{ false };
+				std::uint64_t generation{ 0 };
 				std::uint32_t slot{ 0 };
 				std::uint64_t serial{ 0 };
 			};
@@ -303,12 +304,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			ID3D12Resource* retiredSlots[SharedRingDesc::kMaxSlots]{};
 			ID3D12Fence* retiredProduceFence{ nullptr };
 			ID3D12Fence* retiredConsumeFence{ nullptr };
+			std::uint64_t activeGeneration{ 0 };
 			std::uint32_t readySlot{ 0 };
 			std::uint64_t readySerial{ 0 };
 
 			std::mutex frameMutex;
+			std::uint64_t lastSubmittedGeneration{ 0 };
 			std::uint64_t lastSubmittedIndex{ 0 };
 			bool frameReady{ false };
+			std::uint64_t frameGeneration{ 0 };
 			std::uint32_t frameSlot{ 0 };
 			std::uint64_t frameSerial{ 0 };
 
@@ -379,6 +383,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				retiredConsumeFence = consumeFence;
 				consumeFence = nullptr;
 				slotCount = 0;
+				activeGeneration = 0;
 				readySlot = 0;
 				readySerial = 0;
 			}
@@ -401,17 +406,19 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			Frame SnapshotFrame()
 			{
 				std::scoped_lock lock(frameMutex);
-				return { frameReady, frameSlot, frameSerial };
+				return { frameReady, frameGeneration, frameSlot, frameSerial };
 			}
 
 			void CacheFrame(const FrameBufferView& a_frame)
 			{
-				if (a_frame.frameIndex == lastSubmittedIndex) {
+				if (a_frame.ringGeneration == lastSubmittedGeneration && a_frame.frameIndex == lastSubmittedIndex) {
 					return;
 				}
+				lastSubmittedGeneration = a_frame.ringGeneration;
 				lastSubmittedIndex = a_frame.frameIndex;
 				std::scoped_lock lock(frameMutex);
 				frameReady = true;
+				frameGeneration = a_frame.ringGeneration;
 				frameSlot = a_frame.sharedSlot;
 				frameSerial = a_frame.frameIndex;
 			}
@@ -701,6 +708,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				};
 				dev->CreateShaderResourceView(sharedRing.slots[i], &srv, handle);
 			}
+			sharedRing.activeGeneration = pending.generation;
 			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, {} slots, generation {})", pending.width, pending.height, sharedRing.slotCount, pending.generation);
 			return true;
 		}
@@ -756,6 +764,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return false;
 			}
 			const auto frame = sharedRing.SnapshotFrame();
+			const auto frameGeneration = frame.generation;
 			auto ringSlot = frame.slot;
 			auto serial = frame.serial;
 
@@ -767,7 +776,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				}
 				return false;
 			}
-			if (a_firstDrawInRegion && serial != 0 && ringSlot < sharedRing.slotCount && sharedRing.slots[ringSlot] && (!sharedRing.produceFence || sharedRing.produceFence->GetCompletedValue() >= serial)) {
+			if (a_firstDrawInRegion && frameGeneration == sharedRing.activeGeneration && serial != 0 && ringSlot < sharedRing.slotCount && sharedRing.slots[ringSlot] && (!sharedRing.produceFence || sharedRing.produceFence->GetCompletedValue() >= serial)) {
 				sharedRing.readySlot = ringSlot;
 				sharedRing.readySerial = serial;
 			}
@@ -838,16 +847,24 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	}
 
 
+	void D3D12Compositor::PrepareSharedRing()
+	{
+		if (!_impl || !_impl->sharedRing.pendingDirty) {
+			return;
+		}
+		_impl->EnsureSetup();
+		if (_impl->setupOk) {
+			(void)_impl->EnsureSharedRing();
+		}
+	}
+
 	void D3D12Compositor::Submit(const FrameBufferView& a_frame)
 	{
 		if (!_impl) {
 			return;
 		}
 		_impl->sharedRing.CacheFrame(a_frame);
-		_impl->EnsureSetup();
-		if (_impl->setupOk) {
-			(void)_impl->EnsureSharedRing();
-		}
+		PrepareSharedRing();
 	}
 
 	bool RecordOverlayIntoUIBuffer(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)

@@ -235,6 +235,7 @@ namespace OSFUI
 		bool                          _highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
 
 		ViewRevealGate                 m_viewReveal;
+		std::optional<FrameBufferView> _latestFrame;
 
 		std::string                   _lastShownView;
 

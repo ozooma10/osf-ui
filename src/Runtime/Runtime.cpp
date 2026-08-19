@@ -689,9 +689,11 @@ namespace OSFUI
 		ReconcileNativeFocus();
 		if (_compositor) {
 			if (visible && !wasVisible) {
+				_latestFrame.reset();
 				m_viewReveal.Arm();
 			} else {
 				if (!visible) {
+					_latestFrame.reset();
 					m_viewReveal.Cancel();  // closed while a reveal was still pending
 				}
 				if (!m_viewReveal.Pending()) {
@@ -791,6 +793,7 @@ namespace OSFUI
 		m_viewRecovery.ClearAll();
 		m_viewInputGrants.ResetAll();
 		_pendingMouseMove.store(kNoPendingMouseMove);
+		_latestFrame.reset();
 		m_viewReveal.Reset();
 		_nativeFocusGranted = false;
 		std::size_t reloaded = 0;
@@ -981,21 +984,27 @@ namespace OSFUI
 			return;
 		}
 
-		const auto frame = _renderer->Render();
+		const auto frame = _renderer->TakeLatestFrame();
+		if (frame) {
+			_latestFrame = *frame;
+		}
 		const auto outputSize = _compositor->GetObservedOutputSize();
 		std::optional<ViewRevealGate::FrameObservation> observation;
-		if (frame) {
+		if (_latestFrame) {
 			const auto expected = outputSize ? ViewSizeForOutput(*outputSize) : ViewSize{};
 			observation = ViewRevealGate::FrameObservation{
-				.index = frame->frameIndex,
+				.generation = _latestFrame->ringGeneration,
+				.index = _latestFrame->frameIndex,
 				.outputSizeKnown = outputSize.has_value(),
-				.matchesExpectedSize = frame->width == expected.width && frame->height == expected.height,
+				.matchesExpectedSize = _latestFrame->width == expected.width && _latestFrame->height == expected.height,
 			};
 		}
 
 		const auto decision = m_viewReveal.Observe(observation, _uptime);
 		if (decision.submitFrame && frame) {
 			_compositor->Submit(*frame);
+		} else {
+			_compositor->PrepareSharedRing();
 		}
 		if (decision.reveal) {
 			_compositor->SetVisible(true);  // the cached frame is fresh and output-sized

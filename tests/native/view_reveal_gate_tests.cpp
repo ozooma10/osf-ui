@@ -11,9 +11,11 @@ namespace
 	ViewRevealGate::FrameObservation Frame(
 		std::uint64_t a_index,
 		bool          a_outputSizeKnown = true,
-		bool          a_matchesExpectedSize = true)
+		bool          a_matchesExpectedSize = true,
+		std::uint64_t a_generation = 1)
 	{
 		return {
+			.generation = a_generation,
 			.index = a_index,
 			.outputSizeKnown = a_outputSizeKnown,
 			.matchesExpectedSize = a_matchesExpectedSize,
@@ -31,6 +33,7 @@ int main()
 		assert(!decision.reveal);
 		assert(!decision.timedOut);
 	}
+	assert(!gate.Observe(Frame(10), 1.1).submitFrame);
 
 	gate.Arm();
 	assert(gate.Pending());
@@ -74,6 +77,11 @@ int main()
 		const auto decision = gate.Observe(Frame(12), 3.0);
 		assert(!decision.submitFrame);
 		assert(!decision.reveal);
+	}
+	{
+		const auto decision = gate.Observe(Frame(12, true, true, 2), 3.1);
+		assert(decision.submitFrame);
+		assert(decision.reveal);
 	}
 
 	gate.Reset();

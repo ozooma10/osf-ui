@@ -201,7 +201,7 @@ namespace OSFUI
 		std::mutex           stateMutex;
 		std::vector<ViewRec> views;
 		std::string          inputTargetId;
-		bool                 allHidden{ true };  // no visible view => Render() is never called
+		bool                 allHidden{ true };  // no visible view => frames are not taken
 		// Each hidden-to-visible presentation requires a post-reveal frame.
 		std::uint64_t        presentationEpoch{ 0 };
 		std::uint32_t        width{ 1 }, height{ 1 };
@@ -270,6 +270,7 @@ namespace OSFUI
 		std::uint64_t frameSerial{ 0 };
 		std::uint32_t frameWidth{ 0 }, frameHeight{ 0 };
 		std::uint64_t sharedRingGeneration{ 0 };
+		std::uint64_t submittedRingGeneration{ 0 };
 		std::uint64_t submittedSerial{ 0 };
 		std::uint32_t ringWidth{ 0 }, ringHeight{ 0 };
 		std::uint64_t ringGeneration{ 0 };       // reader-side counter
@@ -1009,7 +1010,7 @@ namespace OSFUI
 					haveFrame = false;
 					ackNew = true;
 				} else {
-					if (haveFrame && frameSerial != submittedSerial) {
+					if (haveFrame && (sharedRingGeneration != submittedRingGeneration || frameSerial != submittedSerial)) {
 						// Acknowledge superseded frames that never reached the compositor.
 						ackSerial = frameSerial;
 					}
@@ -1286,6 +1287,7 @@ namespace OSFUI
 				frameSerial = 0;
 				frameWidth = frameHeight = 0;
 				sharedRingGeneration = 0;
+				submittedRingGeneration = 0;
 				submittedSerial = 0;
 				ringWidth = ringHeight = 0;
 				announcedGeneration = 0;
@@ -1477,7 +1479,7 @@ namespace OSFUI
 		}
 	}
 
-	std::optional<FrameBufferView> WebView2HostWebRenderer::Render()
+	std::optional<FrameBufferView> WebView2HostWebRenderer::TakeLatestFrame()
 	{
 		std::scoped_lock lock(_impl->frameMutex);
 		if (!_impl->haveFrame ||
@@ -1485,10 +1487,15 @@ namespace OSFUI
 			// Wait until Update announces the frame's ring to the compositor.
 			return std::nullopt;
 		}
+		if (_impl->submittedRingGeneration == _impl->sharedRingGeneration && _impl->submittedSerial == _impl->frameSerial) {
+			return std::nullopt;
+		}
+		_impl->submittedRingGeneration = _impl->sharedRingGeneration;
 		_impl->submittedSerial = _impl->frameSerial;
 		return FrameBufferView{
 			.width = _impl->frameWidth,
 			.height = _impl->frameHeight,
+			.ringGeneration = _impl->sharedRingGeneration,
 			.frameIndex = _impl->frameSerial,
 			.sharedSlot = _impl->frameSlot,
 		};
