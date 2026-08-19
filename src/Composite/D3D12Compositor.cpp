@@ -447,16 +447,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 					return false;
 				}
 				std::scoped_lock lock(mutex);
-				const auto it = std::find_if(pending.begin(), pending.end(), [a_list](const PendingConsume& a_pending) {
-					return a_pending.list == a_list;
+				// One command list can sample multiple ring slots before it is submitted.
+				// Keep each slot's fence until that submission signals every recorded read.
+				const auto it = std::find_if(pending.begin(), pending.end(), [a_list, a_fence](const PendingConsume& a_pending) {
+					return a_pending.list == a_list && a_pending.fence == a_fence;
 				});
 				if (it != pending.end()) {
 					auto& tracked = *it;
-					if (tracked.fence != a_fence) {
-						a_fence->AddRef();
-						SafeRelease(tracked.fence);
-						tracked.fence = a_fence;
-					}
 					tracked.serial = (std::max)(tracked.serial, a_serial);
 					return true;
 				}

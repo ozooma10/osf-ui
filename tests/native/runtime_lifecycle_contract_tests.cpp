@@ -678,6 +678,9 @@ int main()
 		"pendingCount.store(pending.size()" }) &&
 		trackConsume.find("pendingSize == pending.size()") == std::string::npos,
 		"consume tracking must grow beyond its reserved fast-path capacity instead of disabling overlay draws");
+	Check(trackConsume.find("a_pending.list == a_list && a_pending.fence == a_fence") != std::string::npos &&
+		trackConsume.find("tracked.fence = a_fence") == std::string::npos,
+		"one command list must retain a separate consume record for every ring-slot fence it reads");
 	const auto executeConsumes = FunctionBody(compositorSource,
 		"void OnCommandListsExecuted(");
 	Check(ContainsInOrder(executeConsumes, {
