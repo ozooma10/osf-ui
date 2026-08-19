@@ -4,6 +4,7 @@
 #include <array>
 #include <format>
 #include <fstream>
+#include <span>
 #include <vector>
 
 namespace OSFUI::ViewCache
@@ -17,8 +18,15 @@ namespace OSFUI::ViewCache
 		struct FileStamp
 		{
 			std::filesystem::path source;
+			std::filesystem::path relativePath;
 			std::string           relative;
 			std::uintmax_t        size{ 0 };
+		};
+
+		struct TreeSnapshot
+		{
+			std::vector<std::filesystem::path> directories;
+			std::vector<FileStamp>             files;
 		};
 
 		std::uint64_t Mix(std::uint64_t a_hash, std::uint64_t a_value)
@@ -26,42 +34,132 @@ namespace OSFUI::ViewCache
 			return (a_hash ^ a_value) * kFnvPrime;
 		}
 
+		void MixBytes(std::uint64_t& a_hash, std::span<const char> a_bytes)
+		{
+			for (const unsigned char byte : a_bytes) {
+				a_hash = Mix(a_hash, byte);
+			}
+		}
+
 		void MixText(std::uint64_t& a_hash, std::string_view a_text)
 		{
-			for (const unsigned char ch : a_text) {
-				a_hash = Mix(a_hash, ch);
-			}
+			MixBytes(a_hash, { a_text.data(), a_text.size() });
 			a_hash = Mix(a_hash, 0);
 		}
 
-		bool MixFile(std::uint64_t& a_hash, const FileStamp& a_file, std::string& a_error)
+		template <class Consumer>
+		bool ReadFile(const FileStamp& a_file, Consumer&& a_consumer, std::string& a_error)
 		{
 			std::ifstream stream(a_file.source, std::ios::binary);
 			if (!stream) {
 				a_error = a_file.relative + ": could not read source file";
 				return false;
 			}
-			std::array<char, 64 * 1024> buffer{};
+
+			std::array<char, 64 * 1024> buffer;
 			std::uintmax_t bytesRead = 0;
-			while (stream) {
-				stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+			const auto capacity = static_cast<std::streamsize>(buffer.size());
+			for (;;) {
+				stream.read(buffer.data(), capacity);
 				const auto count = stream.gcount();
-				for (std::streamsize i = 0; i < count; ++i) {
-					a_hash = Mix(a_hash, static_cast<unsigned char>(buffer[static_cast<std::size_t>(i)]));
+				if (count > 0 && !a_consumer(std::span<const char>{
+						buffer.data(), static_cast<std::size_t>(count) })) {
+					return false;
 				}
 				bytesRead += static_cast<std::uintmax_t>(count);
+				if (count != capacity) {
+					break;
+				}
 			}
-			if (stream.bad() || bytesRead != a_file.size) {
+			if (stream.bad() || !stream.eof() || bytesRead != a_file.size) {
 				a_error = a_file.relative + ": source file changed while fingerprinting";
 				return false;
 			}
 			return true;
 		}
 
+		bool MixFile(std::uint64_t& a_hash, const FileStamp& a_file, std::string& a_error)
+		{
+			return ReadFile(a_file,
+				[&](std::span<const char> a_bytes) {
+					MixBytes(a_hash, a_bytes);
+					return true;
+				},
+				a_error);
+		}
+
 		bool Fail(std::string& a_error, const std::filesystem::path& a_path, const std::error_code& a_ec)
 		{
 			a_error = a_path.filename().string() + ": " + a_ec.message();
 			return false;
+		}
+
+		bool SnapshotTree(const std::filesystem::path& a_source,
+			TreeSnapshot& a_snapshot, std::string& a_error)
+		{
+			std::error_code ec;
+			if (!std::filesystem::is_directory(a_source, ec) || ec) {
+				a_error = ec ? ec.message() : "source is not a directory";
+				return false;
+			}
+
+			a_snapshot = {};
+			for (std::filesystem::recursive_directory_iterator it(a_source, ec), end;
+				 !ec && it != end; it.increment(ec)) {
+				const auto relative = it->path().lexically_relative(a_source);
+				const bool directory = it->is_directory(ec);
+				if (ec) break;
+				if (directory) {
+					a_snapshot.directories.push_back(relative);
+					continue;
+				}
+
+				const bool regular = it->is_regular_file(ec);
+				if (ec) break;
+				if (!regular) {
+					a_error = relative.generic_string() + ": unsupported filesystem entry";
+					return false;
+				}
+
+				const auto size = it->file_size(ec);
+				if (ec) break;
+				a_snapshot.files.push_back({
+					.source = it->path(),
+					.relativePath = relative,
+					.relative = relative.generic_string(),
+					.size = size,
+				});
+			}
+			if (ec) {
+				return Fail(a_error, a_source, ec);
+			}
+
+			std::ranges::sort(a_snapshot.files, {}, &FileStamp::relative);
+			return true;
+		}
+
+		Fingerprint BeginFingerprint(std::string_view a_salt)
+		{
+			Fingerprint result;
+			result.value = Mix(kFnvOffset, kCacheFormat);
+			MixText(result.value, a_salt);
+			return result;
+		}
+
+		std::optional<Fingerprint> FingerprintFiles(const std::vector<FileStamp>& a_files,
+			std::string_view a_salt, std::string& a_error)
+		{
+			auto result = BeginFingerprint(a_salt);
+			for (const auto& file : a_files) {
+				MixText(result.value, file.relative);
+				result.value = Mix(result.value, file.size);
+				if (!MixFile(result.value, file, a_error)) {
+					return std::nullopt;
+				}
+				result.bytes += file.size;
+			}
+			result.files = a_files.size();
+			return result;
 		}
 
 		std::string MarkerText(const Fingerprint& a_fingerprint, std::string_view a_salt)
@@ -93,90 +191,91 @@ namespace OSFUI::ViewCache
 			return out.empty() ? "unknown" : out;
 		}
 
-		bool CopyTree(const std::filesystem::path& a_source, const std::filesystem::path& a_destination, std::string& a_error)
+		bool CopyFileAndMix(std::uint64_t& a_hash, const FileStamp& a_file,
+			const std::filesystem::path& a_destination, std::string& a_error)
 		{
+			std::ofstream destination(a_destination, std::ios::binary | std::ios::trunc);
+			if (!destination) {
+				a_error = a_file.relative + ": could not create cached file";
+				return false;
+			}
+
+			if (!ReadFile(a_file,
+					[&](std::span<const char> a_bytes) {
+						destination.write(a_bytes.data(),
+							static_cast<std::streamsize>(a_bytes.size()));
+						if (!destination) {
+							a_error = a_file.relative + ": could not write cached file";
+							return false;
+						}
+						MixBytes(a_hash, a_bytes);
+						return true;
+					},
+					a_error)) {
+				return false;
+			}
+
+			destination.close();
+			if (!destination) {
+				a_error = a_file.relative + ": could not finish cached file";
+				return false;
+			}
+			return true;
+		}
+
+		std::optional<Fingerprint> CopyTreeAndFingerprint(
+			const std::filesystem::path& a_source,
+			const std::filesystem::path& a_destination, std::string_view a_salt,
+			std::string& a_error)
+		{
+			TreeSnapshot snapshot;
+			if (!SnapshotTree(a_source, snapshot, a_error)) {
+				return std::nullopt;
+			}
+
 			std::error_code ec;
 			std::filesystem::create_directories(a_destination, ec);
 			if (ec) {
-				return Fail(a_error, a_destination, ec);
+				Fail(a_error, a_destination, ec);
+				return std::nullopt;
+			}
+			for (const auto& relative : snapshot.directories) {
+				std::filesystem::create_directories(a_destination / relative, ec);
+				if (ec) {
+					Fail(a_error, a_destination / relative, ec);
+					return std::nullopt;
+				}
 			}
 
-			for (std::filesystem::recursive_directory_iterator it(a_source, ec), end; !ec && it != end; it.increment(ec)) {
-				const auto relative = it->path().lexically_relative(a_source);
-				const auto destination = a_destination / relative;
-				if (it->is_directory(ec)) {
-					if (ec) break;
-					std::filesystem::create_directories(destination, ec);
-					if (ec) break;
-					continue;
-				}
-				if (!it->is_regular_file(ec)) {
-					if (ec) break;
-					a_error = relative.generic_string() + ": unsupported filesystem entry";
-					return false;
-				}
+			auto result = BeginFingerprint(a_salt);
+			for (const auto& file : snapshot.files) {
+				MixText(result.value, file.relative);
+				result.value = Mix(result.value, file.size);
+
+				const auto destination = a_destination / file.relativePath;
 				std::filesystem::create_directories(destination.parent_path(), ec);
-				if (ec) break;
-				std::filesystem::copy_file(it->path(), destination, std::filesystem::copy_options::overwrite_existing, ec);
-				if (ec) break;
+				if (ec) {
+					Fail(a_error, destination.parent_path(), ec);
+					return std::nullopt;
+				}
+				if (!CopyFileAndMix(result.value, file, destination, a_error)) {
+					return std::nullopt;
+				}
+				result.bytes += file.size;
 			}
-			if (ec) {
-				return Fail(a_error, a_source, ec);
-			}
-			return true;
+			result.files = snapshot.files.size();
+			return result;
 		}
 	}  // namespace
 
 	std::optional<Fingerprint> FingerprintTree(const std::filesystem::path& a_source, std::string_view a_salt, std::string& a_error)
 	{
 		a_error.clear();
-		std::error_code ec;
-		if (!std::filesystem::is_directory(a_source, ec) || ec) {
-			a_error = ec ? ec.message() : "source is not a directory";
+		TreeSnapshot snapshot;
+		if (!SnapshotTree(a_source, snapshot, a_error)) {
 			return std::nullopt;
 		}
-
-		std::vector<FileStamp> files;
-		for (std::filesystem::recursive_directory_iterator it(a_source, ec), end;
-			 !ec && it != end; it.increment(ec)) {
-			if (it->is_directory(ec)) {
-				if (ec) break;
-				continue;
-			}
-			if (!it->is_regular_file(ec)) {
-				if (ec) break;
-				a_error = it->path().lexically_relative(a_source).generic_string() +
-					": unsupported filesystem entry";
-				return std::nullopt;
-			}
-			const auto size = it->file_size(ec);
-			if (ec) break;
-			files.push_back({
-				.source = it->path(),
-				.relative = it->path().lexically_relative(a_source).generic_string(),
-				.size = size,
-			});
-		}
-		if (ec) {
-			Fail(a_error, a_source, ec);
-			return std::nullopt;
-		}
-
-		std::ranges::sort(files, {}, &FileStamp::relative);
-		Fingerprint result;
-		result.value = kFnvOffset;
-		result.value = Mix(result.value, kCacheFormat);
-		MixText(result.value, a_salt);
-		for (const auto& file : files) {
-			MixText(result.value, file.relative);
-			result.value = Mix(result.value, file.size);
-			if (!MixFile(result.value, file, a_error)) {
-				return std::nullopt;
-			}
-			result.bytes += file.size;
-		}
-		result.files = files.size();
-		return result;
+		return FingerprintFiles(snapshot.files, a_salt, a_error);
 	}
 
 	std::string GenerationName(std::uint64_t a_fingerprint)
@@ -227,12 +326,11 @@ namespace OSFUI::ViewCache
 			std::filesystem::remove_all(staging, ignored);
 		};
 
-		if (!CopyTree(a_source, staging, a_error)) {
-			cleanupStaging();
-			return std::nullopt;
-		}
-		const auto stagedFingerprint = FingerprintTree(staging, a_salt, a_error);
-		if (!stagedFingerprint || stagedFingerprint->value != fingerprint->value || stagedFingerprint->files != fingerprint->files || stagedFingerprint->bytes != fingerprint->bytes) {
+		const auto copiedFingerprint =
+			CopyTreeAndFingerprint(a_source, staging, a_salt, a_error);
+		if (!copiedFingerprint || copiedFingerprint->value != fingerprint->value ||
+			copiedFingerprint->files != fingerprint->files ||
+			copiedFingerprint->bytes != fingerprint->bytes) {
 			if (a_error.empty()) {
 				a_error = "source tree changed while publishing the cache generation";
 			}

@@ -31,12 +31,18 @@ int main()
 	const auto cache = root / "cache";
 	Write(source / "shared" / "osfui.js", "shared-v1");
 	Write(source / "osfui" / "settings" / "index.html", "settings-v1");
+	std::string binary(64 * 1024, '\0');
+	for (std::size_t i = 0; i < binary.size(); ++i) {
+		binary[i] = static_cast<char>(i);
+	}
+	Write(source / "assets" / "exact-buffer.bin", binary);
+	fs::create_directories(source / "empty");
 
 	std::string error;
 	const auto fingerprint = OSFUI::ViewCache::FingerprintTree(source, "runtime-v1", error);
 	assert(fingerprint && error.empty());
-	assert(fingerprint->files == 2);
-	assert(fingerprint->bytes == 20);
+	assert(fingerprint->files == 3);
+	assert(fingerprint->bytes == 20 + binary.size());
 	assert(OSFUI::ViewCache::GenerationName(fingerprint->value).starts_with("gen-"));
 
 	const auto first = OSFUI::ViewCache::Prepare(
@@ -45,6 +51,8 @@ int main()
 	assert(Read(first->generation / "shared" / "osfui.js") == "shared-v1");
 	assert(Read(first->generation / "osfui" / "settings" / "index.html") ==
 		"settings-v1");
+	assert(Read(first->generation / "assets" / "exact-buffer.bin") == binary);
+	assert(fs::is_directory(first->generation / "empty"));
 	assert(fs::is_regular_file(first->generation / OSFUI::ViewCache::kCompleteMarker));
 	assert(fs::is_regular_file(first->generation / OSFUI::ViewCache::kUseLock));
 
