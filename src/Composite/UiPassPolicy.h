@@ -24,6 +24,63 @@ namespace OSFUI::UiPass::detail
 		return a_current != 0;
 	}
 
+	class ScaleformHandoffWindow final
+	{
+	public:
+		void Begin()
+		{
+			m_trackingHeaps = true;
+			m_handoffsLeft = 0;
+			m_barrierCallsAfterFirst = -1;
+		}
+
+		void End()
+		{
+			if (m_trackingHeaps) {
+				m_handoffsLeft = 2;
+				m_barrierCallsAfterFirst = -1;
+			}
+		}
+
+		void OnBarrierCall()
+		{
+			if (m_handoffsLeft > 0 && m_barrierCallsAfterFirst >= 0 && ++m_barrierCallsAfterFirst > 4) {
+				Cancel();
+			}
+		}
+
+		[[nodiscard]] bool ConsumeAndReportFirstCandidate()
+		{
+			const bool regionFirst = m_handoffsLeft == 2;
+			if (m_handoffsLeft <= 0) {
+				return false;
+			}
+			m_handoffsLeft--;
+			if (m_barrierCallsAfterFirst < 0) {
+				m_barrierCallsAfterFirst = 0;
+			}
+			if (m_handoffsLeft == 0) {
+				m_trackingHeaps = false;
+			}
+			return regionFirst;
+		}
+
+		void Cancel()
+		{
+			m_trackingHeaps = false;
+			m_handoffsLeft = 0;
+			m_barrierCallsAfterFirst = -1;
+		}
+
+		[[nodiscard]] bool TrackingHeaps() const { return m_trackingHeaps; }
+		[[nodiscard]] bool HandoffArmed() const { return m_handoffsLeft > 0; }
+
+	private:
+		bool m_trackingHeaps{ false };
+		int  m_handoffsLeft{ 0 };
+		int  m_barrierCallsAfterFirst{ -1 };
+	};
+
 	struct TargetDecision
 	{
 		bool draw{ false };

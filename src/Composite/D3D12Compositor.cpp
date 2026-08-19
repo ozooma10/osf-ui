@@ -10,11 +10,10 @@
 #include <d3dcompiler.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <iterator>
 #include <mutex>
-#include <unordered_map>
-#include <vector>
 
 #include "Win32Util.h"
 
@@ -421,85 +420,143 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		class ConsumeTracker final
 		{
 		public:
-			void Track(ID3D12GraphicsCommandList* a_list, ID3D12Fence* a_fence, std::uint64_t a_serial)
+			[[nodiscard]] bool Track(ID3D12GraphicsCommandList* a_list, ID3D12Fence* a_fence, std::uint64_t a_serial)
 			{
 				if (!a_list || !a_fence || a_serial == 0) {
-					return;
+					return false;
 				}
 				std::scoped_lock lock(mutex);
-				auto [it, inserted] = pending.try_emplace(a_list);
-				auto& tracked = it->second;
-				if (inserted || tracked.fence != a_fence) {
-					a_fence->AddRef();
-					SafeRelease(tracked.fence);
-					tracked.fence = a_fence;
+				const auto end = pending.begin() + static_cast<std::ptrdiff_t>(pendingSize);
+				const auto it = std::find_if(pending.begin(), end, [a_list](const PendingConsume& a_pending) {
+					return a_pending.list == a_list;
+				});
+				if (it != end) {
+					auto& tracked = *it;
+					if (tracked.fence != a_fence) {
+						a_fence->AddRef();
+						SafeRelease(tracked.fence);
+						tracked.fence = a_fence;
+					}
+					tracked.serial = (std::max)(tracked.serial, a_serial);
+					return true;
 				}
-				tracked.serial = (std::max)(tracked.serial, a_serial);
+				if (pendingSize == pending.size()) {
+					if (!capacityFailureLogged.exchange(true, std::memory_order_relaxed)) {
+						REX::ERROR("D3D12Compositor: consume tracker capacity {} exhausted; skipping overlay draws until a tracked command list is submitted", pending.size());
+					}
+					return false;
+				}
+
+				a_fence->AddRef();
+				pending[pendingSize] = {
+					.list = a_list,
+					.fence = a_fence,
+					.serial = a_serial,
+				};
+				++pendingSize;
+				pendingCount.store(pendingSize, std::memory_order_release);
+				return true;
 			}
 
-			bool HasPending()
+			[[nodiscard]] bool HasPending() const
 			{
-				std::scoped_lock lock(mutex);
-				return !pending.empty();
+				return pendingCount.load(std::memory_order_acquire) != 0;
 			}
 
 			void Release()
 			{
 				std::scoped_lock lock(mutex);
-				for (auto& [list, tracked] : pending) {
-					(void)list;
-					SafeRelease(tracked.fence);
+				for (std::size_t i = 0; i < pendingSize; ++i) {
+					SafeRelease(pending[i].fence);
+					pending[i] = {};
 				}
-				pending.clear();
+				pendingSize = 0;
+				pendingCount.store(0, std::memory_order_release);
 			}
 
 			void OnCommandListsExecuted(ID3D12CommandQueue* a_queue, UINT a_count,
 				ID3D12CommandList* const* a_lists)
 			{
-				if (!a_queue || !a_lists) {
+				if (!a_queue || !a_lists ||
+					pendingCount.load(std::memory_order_acquire) == 0) {
 					return;
 				}
-				std::vector<PendingConsume> completed;
+
+				std::array<PendingConsume, kPendingCapacity> completed{};
+				std::size_t completedSize = 0;
 				{
 					std::scoped_lock lock(mutex);
 					for (UINT i = 0; i < a_count; ++i) {
-						const auto it = pending.find(a_lists[i]);
-						if (it != pending.end()) {
-							completed.push_back(it->second);
-							pending.erase(it);
+						for (std::size_t pendingIndex = 0; pendingIndex < pendingSize;
+							 ++pendingIndex) {
+							if (pending[pendingIndex].list != a_lists[i]) {
+								continue;
+							}
+							completed[completedSize++] = pending[pendingIndex];
+							--pendingSize;
+							if (pendingIndex != pendingSize) {
+								pending[pendingIndex] = pending[pendingSize];
+							}
+							pending[pendingSize] = {};
+							break;
 						}
 					}
+					pendingCount.store(pendingSize, std::memory_order_release);
+				}
+				if (completedSize == 0) {
+					return;
 				}
 
 				// Coalesce this submitted batch by fence so signal values never move backwards.
-				std::unordered_map<ID3D12Fence*, std::uint64_t> signals;
-				for (const auto& tracked : completed) {
-					auto& value = signals[tracked.fence];
-					value = (std::max)(value, tracked.serial);
-				}
-				for (const auto& [fence, serial] : signals) {
-					const auto hr = a_queue->Signal(fence, serial);
-					if (FAILED(hr) && !signalFailureLogged.exchange(true, std::memory_order_relaxed)) {
-						REX::ERROR("D3D12Compositor: queue-ordered consume-fence signal failed "
-							       "(hr=0x{:08X}); the browser host will drop frames instead of reusing a busy slot",
-							static_cast<std::uint32_t>(hr));
+				std::array<PendingSignal, kPendingCapacity> signals{};
+				std::size_t signalCount = 0;
+				for (std::size_t i = 0; i < completedSize; ++i) {
+					const auto& tracked = completed[i];
+					auto signalIndex = std::size_t{ 0 };
+					while (signalIndex < signalCount &&
+						signals[signalIndex].fence != tracked.fence) {
+						++signalIndex;
+					}
+					if (signalIndex == signalCount) {
+						signals[signalCount++] = { tracked.fence, tracked.serial };
+					} else {
+						signals[signalIndex].serial = (std::max)(signals[signalIndex].serial, tracked.serial);
 					}
 				}
-				for (auto& tracked : completed) {
-					SafeRelease(tracked.fence);
+				for (std::size_t i = 0; i < signalCount; ++i) {
+					const auto& signal = signals[i];
+					const auto hr = a_queue->Signal(signal.fence, signal.serial);
+					if (FAILED(hr) && !signalFailureLogged.exchange(true, std::memory_order_relaxed)) {
+						REX::ERROR("D3D12Compositor: queue-ordered consume-fence signal failed (hr=0x{:08X}); the browser host will drop frames instead of reusing a busy slot", static_cast<std::uint32_t>(hr));
+					}
+				}
+				for (std::size_t i = 0; i < completedSize; ++i) {
+					SafeRelease(completed[i].fence);
 				}
 			}
 
 		private:
+			static constexpr std::size_t kPendingCapacity = 16;
+
 			struct PendingConsume
 			{
-				ID3D12Fence* fence{ nullptr };
+				ID3D12CommandList* list{ nullptr };
+				ID3D12Fence*       fence{ nullptr };
+				std::uint64_t      serial{ 0 };
+			};
+
+			struct PendingSignal
+			{
+				ID3D12Fence*  fence{ nullptr };
 				std::uint64_t serial{ 0 };
 			};
 
-			std::mutex mutex;
-			std::unordered_map<ID3D12CommandList*, PendingConsume> pending;
+			mutable std::mutex mutex;
+			std::array<PendingConsume, kPendingCapacity> pending{};
+			std::size_t pendingSize{ 0 };
+			std::atomic_size_t pendingCount{ 0 };
 			std::atomic_bool signalFailureLogged{ false };
+			std::atomic_bool capacityFailureLogged{ false };
 		};
 	}
 
@@ -725,6 +782,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			if (!pso) {
 				return false;
 			}
+			// Reserve consume tracking before mutating the engine command list. If the fixed tracker is ever exhausted, skip the draw rather than lose the exact-submission fence signal that protects shared-ring reuse.
+			if (!consumes.Track(a_list, sharedRing.consumeFence, serial)) {
+				return false;
+			}
 
 			const D3D12_CPU_DESCRIPTOR_HANDLE rtv = draw.rtvHeap->GetCPUDescriptorHandleForHeapStart();
 			D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
@@ -750,7 +811,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			a_list->DrawInstanced(3, 1, 0, 0);
 
-			consumes.Track(a_list, sharedRing.consumeFence, serial);
 			const bool firstDraw = !overlayDrawLogged.exchange(true, std::memory_order_relaxed);
 			if (firstDraw) {
 				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW (ring slot {} serial {} -> {}x{} {} UI buffer 0x{:X})", 

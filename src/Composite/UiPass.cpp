@@ -34,10 +34,8 @@ namespace OSFUI::UiPass
 		constexpr std::size_t kSlotResourceBarrier = 26;
 		constexpr std::size_t kSlotSetDescriptorHeaps = 28;
 
-		using ResourceBarrierFn = void(STDMETHODCALLTYPE*)(
-			ID3D12GraphicsCommandList*, UINT, const D3D12_RESOURCE_BARRIER*);
-		using SetDescriptorHeapsFn = void(STDMETHODCALLTYPE*)(
-			ID3D12GraphicsCommandList*, UINT, ID3D12DescriptorHeap* const*);
+		using ResourceBarrierFn = void(STDMETHODCALLTYPE*)(ID3D12GraphicsCommandList*, UINT, const D3D12_RESOURCE_BARRIER*);
+		using SetDescriptorHeapsFn = void(STDMETHODCALLTYPE*)(ID3D12GraphicsCommandList*, UINT, ID3D12DescriptorHeap* const*);
 
 		std::atomic<ResourceBarrierFn> g_origResourceBarrier{ nullptr };
 		std::atomic<SetDescriptorHeapsFn> g_origSetDescriptorHeaps{ nullptr };
@@ -46,6 +44,7 @@ namespace OSFUI::UiPass
 		thread_local ID3D12GraphicsCommandList* tl_heapList = nullptr;
 		thread_local ID3D12DescriptorHeap* tl_heaps[2] = {};
 		thread_local UINT tl_heapCount = 0;
+		thread_local detail::ScaleformHandoffWindow tl_handoffWindow;
 
 		// Suppress tracking of the compositor's heap or the next handoff restores the wrong engine state.
 		thread_local bool tl_inOverlayDraw = false;
@@ -57,22 +56,16 @@ namespace OSFUI::UiPass
 		detail::FrameGenerationTargetPolicy g_fgTargetPolicy;
 		std::atomic_bool g_fgLayerOnlyLogged{ false };
 
-		thread_local int tl_handoffDrawsLeft = 0;
-		thread_local int tl_callsAfterFirstDraw = -1;
-		void RecordOverlayAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer,
-			bool a_fgTarget, bool a_regionFirst);
+		void RecordOverlayAtHandoff(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, bool a_fgTarget, bool a_regionFirst);
 		std::atomic<ID3D12GraphicsCommandList*> g_selfTestList{ nullptr };
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
 		std::atomic<bool> g_selfTestHeapsSeen{ false };
 
-		void STDMETHODCALLTYPE SetDescriptorHeapsThunk(
-			ID3D12GraphicsCommandList* a_self,
-			const UINT a_num,
-			ID3D12DescriptorHeap* const* a_heaps)
+		void STDMETHODCALLTYPE SetDescriptorHeapsThunk(ID3D12GraphicsCommandList* a_self, const UINT a_num, ID3D12DescriptorHeap* const* a_heaps)
 		{
 			if (a_self == g_selfTestList.load(std::memory_order_acquire)) {
 				g_selfTestHeapsSeen.store(true, std::memory_order_relaxed);
-			} else if (!tl_inOverlayDraw) {
+			} else if (tl_handoffWindow.TrackingHeaps() && !tl_inOverlayDraw) {
 				tl_heapList = a_self;
 				tl_heapCount = a_num < 2u ? a_num : 2u;
 				for (UINT i = 0; i < tl_heapCount; ++i) {
@@ -89,20 +82,15 @@ namespace OSFUI::UiPass
 			const UINT a_numBarriers,
 			const D3D12_RESOURCE_BARRIER* a_barriers)
 		{
-			if (tl_handoffDrawsLeft > 0 && tl_callsAfterFirstDraw >= 0 &&
-				++tl_callsAfterFirstDraw > 4) {
-				tl_handoffDrawsLeft = 0;
-				tl_callsAfterFirstDraw = -1;
-			}
-			if (tl_handoffDrawsLeft > 0 && a_barriers) {
-				for (UINT i = 0; i < a_numBarriers && tl_handoffDrawsLeft > 0; ++i) {
+			tl_handoffWindow.OnBarrierCall();
+			if (tl_handoffWindow.HandoffArmed() && a_barriers) {
+				for (UINT i = 0; i < a_numBarriers && tl_handoffWindow.HandoffArmed(); ++i) {
 					const auto& barrier = a_barriers[i];
 					if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION ||
 						!barrier.Transition.pResource ||
 						barrier.Transition.StateBefore != D3D12_RESOURCE_STATE_RENDER_TARGET ||
 						!(barrier.Transition.StateAfter &
-							(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
-								D3D12_RESOURCE_STATE_COPY_SOURCE))) {
+							(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_COPY_SOURCE))) {
 						continue;
 					}
 					const auto desc = barrier.Transition.pResource->GetDesc();
@@ -115,16 +103,9 @@ namespace OSFUI::UiPass
 					if (a_self->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
 						continue;
 					}
-					const bool fgTarget =
-						(barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_COPY_SOURCE) != 0 &&
-						(barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) == 0;
-					const bool regionFirst = tl_handoffDrawsLeft == 2;
-					--tl_handoffDrawsLeft;
-					if (tl_callsAfterFirstDraw < 0) {
-						tl_callsAfterFirstDraw = 0;
-					}
-					RecordOverlayAtHandoff(
-						a_self, barrier.Transition.pResource, fgTarget, regionFirst);
+					const bool fgTarget = (barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_COPY_SOURCE) != 0 && (barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) == 0;
+					const bool regionFirst = tl_handoffWindow.ConsumeAndReportFirstCandidate();
+					RecordOverlayAtHandoff(a_self, barrier.Transition.pResource, fgTarget, regionFirst);
 				}
 			}
 
@@ -303,6 +284,11 @@ namespace OSFUI::UiPass
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
 			EnsureDrawHooksInstalled();
+			tl_heapList = nullptr;
+			tl_heaps[0] = nullptr;
+			tl_heaps[1] = nullptr;
+			tl_heapCount = 0;
+			tl_handoffWindow.Begin();
 			const auto original =
 				reinterpret_cast<ExecuteFn>(g_origBegin.load(std::memory_order_relaxed));
 			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
@@ -314,15 +300,13 @@ namespace OSFUI::UiPass
 				reinterpret_cast<ExecuteFn>(g_origEnd.load(std::memory_order_relaxed));
 			void* result =
 				original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
-			tl_handoffDrawsLeft = 2;
-			tl_callsAfterFirstDraw = -1;
+			tl_handoffWindow.End();
 			return result;
 		}
 
 		void* CompositeThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			tl_handoffDrawsLeft = 0;
-			tl_callsAfterFirstDraw = -1;
+			tl_handoffWindow.Cancel();
 			const auto original =
 				reinterpret_cast<ExecuteFn>(
 					g_origComposite.load(std::memory_order_relaxed));

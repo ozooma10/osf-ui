@@ -21,6 +21,7 @@ int main()
 	using OSFUI::UiPass::detail::CanRecordOverlay;
 	using OSFUI::UiPass::detail::CommandListHookState;
 	using OSFUI::UiPass::detail::FrameGenerationTargetPolicy;
+	using OSFUI::UiPass::detail::ScaleformHandoffWindow;
 
 	Check(!CanRecordOverlay(CommandListHookState::Uninitialized),
 		"overlay recording waits for command-list hook installation");
@@ -35,6 +36,40 @@ int main()
 		"foreign execute hooks are chained by default");
 	Check(!CanChainForeignExecute(0),
 		"a null slot has no engine pass to chain and is refused");
+
+	ScaleformHandoffWindow handoff;
+	Check(!handoff.TrackingHeaps() && !handoff.HandoffArmed(),
+		"heap tracking starts outside the Scaleform pass");
+	handoff.End();
+	Check(!handoff.HandoffArmed(),
+		"an End without a preceding Begin cannot arm a handoff");
+	handoff.Begin();
+	Check(handoff.TrackingHeaps() && !handoff.HandoffArmed(),
+		"Begin opens heap tracking without scanning unrelated barriers");
+	handoff.End();
+	Check(handoff.HandoffArmed() && handoff.ConsumeHandoff() &&
+			handoff.TrackingHeaps(),
+		"the first post-End target keeps tracking open for the FG target");
+	for (int i = 0; i < 4; ++i) {
+		handoff.OnBarrierCall();
+	}
+	Check(handoff.HandoffArmed(),
+		"the existing four-call handoff grace remains intact");
+	handoff.OnBarrierCall();
+	Check(!handoff.HandoffArmed() && !handoff.TrackingHeaps(),
+		"a stale handoff closes heap tracking after the grace window");
+
+	handoff.Begin();
+	handoff.End();
+	Check(handoff.ConsumeHandoff(),
+		"the first target in a new region is classified as first");
+	Check(!handoff.ConsumeHandoff() && !handoff.HandoffArmed() &&
+			!handoff.TrackingHeaps(),
+		"the second target closes the Begin-to-handoff heap window");
+	handoff.Begin();
+	handoff.Cancel();
+	Check(!handoff.TrackingHeaps(),
+		"Composite cancellation closes an unfinished heap window");
 
 	FrameGenerationTargetPolicy targets;
 	auto decision = targets.Observe(false, true);
