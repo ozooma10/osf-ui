@@ -212,8 +212,8 @@ namespace OSFUI
 							const auto count = (std::min)(options->size(), labels->size());
 							for (std::size_t i = 0; i < count; ++i) {
 								if ((*options)[i].is_string() && (*labels)[i].is_string()) {
-									const auto address = root + ".options." + (*options)[i].get<std::string>();
-									(*labels)[i] = a_resolver(a_modId, address, (*labels)[i].get_ref<const std::string&>());
+									const auto address = root + ".options." + (*options)[i].template get<std::string>();
+									(*labels)[i] = a_resolver(a_modId, address, (*labels)[i].template get_ref<const std::string&>());
 								}
 							}
 						}
