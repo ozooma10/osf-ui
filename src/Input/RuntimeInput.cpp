@@ -63,6 +63,8 @@ namespace OSFUI
 		const bool isToggle = toggleKey != kInvalidScanCode && a_scanCode == toggleKey;
 		if (a_down) {
 			if (isToggle) {
+				const auto requestedAt = std::chrono::duration_cast<std::chrono::nanoseconds>(ColdOpenClock::now().time_since_epoch()).count();
+				_lastToggleRequestNanos.store(requestedAt, std::memory_order_release);
 				EnqueuePresentationRequest(ViewPresentationRequest::ToggleDefault);
 			} else if (captured && a_scanCode == kScanEscape) {
 				EnqueuePresentationRequest(ViewPresentationRequest::Back);

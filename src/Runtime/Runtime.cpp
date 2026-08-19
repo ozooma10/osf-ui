@@ -447,6 +447,9 @@ namespace OSFUI
 		}
 		if (!_pendingViewOpen && !_presentation.ActiveMenu() &&
 			std::ranges::find(a_work.local, ViewPresentationRequest::ToggleDefault) != a_work.local.end()) {
+			if (!_presentation.IsInstantiated(Ids::kSettingsViewId)) {
+				BeginColdOpenTiming(Ids::kSettingsViewId);
+			}
 			prepare(Ids::kSettingsViewId, "for the default-menu toggle");
 		}
 	}
@@ -521,14 +524,14 @@ namespace OSFUI
 	{
 		// Require both installation and the lazy render-worker self-test before allowing input capture.
 		if (!OverlayCanDraw()) {
-			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable",
-				a_id);
+			CancelColdOpenTiming(a_id);
+			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable", a_id);
 			return false;
 		}
 		if (_rendererFailed) {
+			CancelColdOpenTiming(a_id);
 			if (_browserHostRecovery.RequestManualRetry(_uptime)) {
-				REX::INFO("Runtime: open of '{}' requested a fresh browser-host recovery cycle; "
-					"the overlay remains closed until the replacement reaches its reveal gate", a_id);
+				REX::INFO("Runtime: open of '{}' requested a fresh browser-host recovery cycle; the overlay remains closed until the replacement reaches its reveal gate", a_id);
 			} else if (_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Waiting ||
 				_browserHostRecovery.PhaseValue() ==
@@ -541,11 +544,13 @@ namespace OSFUI
 			return false;
 		}
 		if (!_presentation.IsInstantiated(a_id)) {
+			CancelColdOpenTiming(a_id);
 			return false;
 		}
 		const auto* manifest = _views.Find(a_id);
 		if (manifest && manifest->kind == ViewKind::Menu && manifest->capturesInput &&
 			!_captureIntegrationAvailable) {
+			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
 			return false;
 		}
@@ -576,8 +581,50 @@ namespace OSFUI
 		}
 		const auto target = std::move(*_pendingViewOpen);
 		_pendingViewOpen.reset();
+		CancelColdOpenTiming(target);
 		REX::DEBUG("Runtime: cancelled pending open of '{}'", target);
 		return true;
+	}
+
+	void Runtime::BeginColdOpenTiming(std::string_view a_viewId)
+	{
+		const auto now = ColdOpenClock::now();
+		const auto requestedNanos = _lastToggleRequestNanos.exchange(0, std::memory_order_acq_rel);
+		auto requestedAt = now;
+		if (requestedNanos > 0) {
+			const auto candidate = ColdOpenClock::time_point(std::chrono::nanoseconds(requestedNanos));
+			if (candidate <= now) {
+				requestedAt = candidate;
+			}
+		}
+		_coldOpenTiming = ColdOpenTiming{
+			.viewId = std::string(a_viewId),
+			.requestedAt = requestedAt,
+		};
+	}
+
+	void Runtime::CancelColdOpenTiming(std::string_view a_viewId)
+	{
+		if (_coldOpenTiming && _coldOpenTiming->viewId == a_viewId) {
+			_coldOpenTiming.reset();
+		}
+	}
+
+	void Runtime::FinishColdOpenTiming(std::string_view a_viewId)
+	{
+		if (!_coldOpenTiming || _coldOpenTiming->viewId != a_viewId ||
+			!_coldOpenTiming->instantiatedAt || !_coldOpenTiming->loadedAt) {
+			return;
+		}
+
+		const auto timing = std::move(*_coldOpenTiming);
+		_coldOpenTiming.reset();
+		const auto revealedAt = ColdOpenClock::now();
+		const auto milliseconds = [](ColdOpenClock::time_point a_begin, ColdOpenClock::time_point a_end) {
+			return std::chrono::duration_cast<std::chrono::milliseconds>(a_end - a_begin).count();
+		};
+		REX::INFO("Runtime: cold-open timing '{}': {} ms total (input->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)", 
+			timing.viewId, milliseconds(timing.requestedAt, revealedAt), milliseconds(timing.requestedAt, *timing.instantiatedAt), milliseconds(*timing.instantiatedAt, *timing.loadedAt), milliseconds(*timing.loadedAt, revealedAt));
 	}
 
 	void Runtime::DrivePendingOpen()
@@ -1020,6 +1067,9 @@ namespace OSFUI
 		}
 		if (decision.reveal) {
 			_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
+			if (const auto active = _presentation.ActiveMenu()) {
+				FinishColdOpenTiming(*active);
+			}
 			return;
 		}
 		if (!decision.timedOut) {
@@ -1028,6 +1078,7 @@ namespace OSFUI
 
 		const auto active = _presentation.ActiveMenu().value_or("<none>");
 		REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s - closing it and releasing input/pause state", active, decision.heldSeconds);
+		_coldOpenTiming.reset();
 		CancelPendingOpen();
 		_presentation.CloseAll();
 		ApplyViewPresentationPolicy();

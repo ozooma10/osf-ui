@@ -107,6 +107,9 @@ namespace OSFUI
 		bool BeginViewOpen(std::string_view a_id);
 		bool CancelPendingOpen();
 		void DrivePendingOpen();
+		void BeginColdOpenTiming(std::string_view a_viewId);
+		void CancelColdOpenTiming(std::string_view a_viewId);
+		void FinishColdOpenTiming(std::string_view a_viewId);
 
 		void DrainViewRegistrations(std::vector<std::string> a_ids);
 		void DrainSchemaOps(std::vector<API::BridgeApi::SchemaOp> a_ops);
@@ -198,6 +201,17 @@ namespace OSFUI
 		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
 
 		std::optional<std::string> _pendingViewOpen;
+
+		using ColdOpenClock = std::chrono::steady_clock;
+		struct ColdOpenTiming
+		{
+			std::string                              viewId;
+			ColdOpenClock::time_point                requestedAt;
+			std::optional<ColdOpenClock::time_point> instantiatedAt;
+			std::optional<ColdOpenClock::time_point> loadedAt;
+		};
+		std::atomic<std::int64_t>     _lastToggleRequestNanos{ 0 };
+		std::optional<ColdOpenTiming> _coldOpenTiming;
 
 		bool _nativeFocusGranted{ false };
 

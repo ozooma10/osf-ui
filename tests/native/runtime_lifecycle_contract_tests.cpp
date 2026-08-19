@@ -270,6 +270,11 @@ int main()
 		gameWindowKey.find("_devToolsRequested.store(true)") != std::string::npos &&
 		nativeAccelerator.find("_developerMode && a_vkCode == kVkF12") != std::string::npos,
 		"F12 must be framework-owned and request DevTools only in effective developer mode");
+	Check(ContainsInOrder(gameWindowKey, {
+		"ColdOpenClock::now()",
+		"_lastToggleRequestNanos.store",
+		"EnqueuePresentationRequest(ViewPresentationRequest::ToggleDefault)" }),
+		"the toggle input timestamp must be captured before its presentation request is queued");
 
 	const auto instantiateView = FunctionBody(runtimeSource,
 		"bool Runtime::InstantiateView(const ViewManifest& a_manifest");
@@ -496,6 +501,19 @@ int main()
 		"if (decision.reveal)",
 		"_compositor->SetVisible(true)" }),
 		"Runtime must submit the gate-approved frame before making the compositor visible");
+	Check(ContainsInOrder(submitFrame, {
+		"_compositor->SetVisible(true)",
+		"FinishColdOpenTiming(*active)" }),
+		"the cold-open summary must be emitted only after a presentable frame reveals");
+	const auto finishColdOpen = FunctionBody(runtimeSource,
+		"void Runtime::FinishColdOpenTiming(std::string_view a_viewId)");
+	Check(ContainsInOrder(finishColdOpen, {
+		"timing.requestedAt, revealedAt",
+		"timing.requestedAt, *timing.instantiatedAt",
+		"*timing.instantiatedAt, *timing.loadedAt",
+		"*timing.loadedAt, revealedAt" }) &&
+		finishColdOpen.find("cold-open timing") != std::string::npos,
+		"cold-open diagnostics must summarize total, dispatch, load and presentable-frame timing in one line");
 	const auto prepareSharedRing = FunctionBody(compositorSource,
 		"void D3D12Compositor::PrepareSharedRing()");
 	Check(ContainsInOrder(prepareSharedRing, {
@@ -574,6 +592,11 @@ int main()
 		"FreeCursor::Apply(false)" }),
 		"reveal timeout must close the presentation and immediately release every engine-owned input edge");
 
+	const auto hostLog = FunctionBody(hostSource, "void Log(int a_level, const std::string& a_text)");
+	Check(hostLog.find("::GetLocalTime(&localTime)") != std::string::npos &&
+		hostLog.find("localTime.wMilliseconds") != std::string::npos &&
+		hostLog.find("system_clock::now()") == std::string::npos,
+		"browser-host file timestamps must use local wall time with millisecond precision like the SFSE log");
 	const auto runHost = FunctionBody(hostSource, "int RunHost(const HostOptions& a_options)");
 	Check(ContainsInOrder(runHost, {
 		"std::format(L\"Local\\\\osfui-wv2-host-{}\", a_options.gamePid)",
