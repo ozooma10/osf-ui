@@ -17,17 +17,11 @@ namespace OSFUI
 
 namespace OSFUI::API
 {
-	// Concrete IOSFUIBridge singleton — the native-side implementation a sibling
-	// SFSE plugin talks to via OSFUI_RequestBridge (src/API/Exports.cpp).
-	//
-	// All ABI methods are callable from any thread;
-	// Send/request/bridge-availability callbacks fire on the main thread.
 	class BridgeApi final : public IOSFUIBridge
 	{
 	public:
 		[[nodiscard]] static BridgeApi& Get();
 
-		// IOSFUIBridge ABI surface (any thread).
 		std::uint32_t GetInterfaceVersion() override;
 		void          GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch) override;
 		const char*   GetBridgeProtocolVersion() override;
@@ -53,27 +47,16 @@ namespace OSFUI::API
 		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
 		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 		bool          RegisterView(const char* a_viewId) override;
-		bool          ReportIssue(const char* a_modId, const char* a_id, const char* a_code,
-					 std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) override;
+		bool          ReportIssue(const char* a_modId, const char* a_id, const char* a_code, std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) override;
 		bool          ClearIssue(const char* a_modId, const char* a_id) override;
 		bool          ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) override;
-		// Runtime wiring (main thread only).
-		// A menu open/close a sibling plugin requested via RequestMenu.
 		struct ViewPresentationRequest
 		{
 			std::string view;
 			bool        open{ true };
 		};
-		// Drain the queued menu requests. Runtime snapshots these at the top of
-		// Tick and applies each through view-presentation policy (open/close +
-		// ApplyViewPresentationPolicy) after PumpMainThread, which is what guarantees
-		// SendToWeb lands before RequestMenu.
 		std::vector<ViewPresentationRequest> TakeViewPresentationRequests();
 
-		// Install the boot discovery catalog used by RequestMenu's synchronous
-		// existence check, and mirror view instantiation/teardown transitions for close
-		// validation. Runtime owns the catalog; these copies are protected by the
-		// API mutex because RequestMenu is callable from any thread.
 		void SetViewCatalog(const std::vector<std::string>& a_viewIds);
 		void SetViewInstantiated(std::string_view a_viewId, bool a_instantiated);
 
@@ -91,17 +74,12 @@ namespace OSFUI::API
 		};
 		std::vector<HealthIssueOp> TakeHealthIssueOps();
 
-		// One queued SetViewState, already validated and parsed
-		// synchronously; the store write happens on the main tick.
 		struct ViewStateOp
 		{
 			std::string    mod;
 			std::string    key;
 			nlohmann::json value;
 		};
-		// Drain the queued state writes. Runtime retains each in the shared
-		// RetainedStateStore (NOT session-scoped: unlike Papyrus values these hold
-		// no form identities) and publishes it to the mod's instantiated views.
 		std::vector<ViewStateOp> TakeViewStateOps();
 
 		void NoteUnsupportedApiCaller(std::string a_moduleName, std::uint32_t a_major,
@@ -115,32 +93,15 @@ namespace OSFUI::API
 		static constexpr std::size_t kMaxUnsupportedCallers = 32;
 		std::vector<UnsupportedCaller> TakeUnsupportedApiCallers();
 
-		// Drain queued RegisterView ids. Runtime validates each before the menu
-		// request snapshot; openOnStart views are instantiated there, while ordinary
-		// views stay uninstantiated. RegisterView -> SendToWeb -> RequestMenu issued back-to-back still
-		// lands in one tick (ABI 1.5).
 		std::vector<std::string> TakeViewRegistrations();
 
-		// The any-thread settings value mirror the ABI typed getters read
-		// Runtime::BuildModules feeds it from the store's
-		// change/registry listeners on the main thread; the getters (and the
-		// Papyrus natives) read it from any thread.
 		[[nodiscard]] SettingsMirror& Mirror() { return _mirror; }
 
-		// SubscribeSettings bookkeeping. The OSF UI runtime's store
-		// change listener feeds OnChanged (right after Mirror().Update, main
-		// thread); PumpMainThread drains replays + queued changes each tick.
 		[[nodiscard]] SettingsSubscriptions& Subscriptions() { return _subscriptions; }
 
-		// SubscribeHotkey bookkeeping. Runtime::DrainHotkeys
-		// feeds OnFired (main thread); PumpMainThread drains the queue each tick.
 		[[nodiscard]] HotkeySubscriptions& Hotkeys() { return _hotkeys; }
 
-		// Hand the available MessageBridge (or nullptr when no bridge-enabled view exists)
-		// to the API. A different pointer than last time triggers a full re-apply.
 		void SetBridgeAvailability(MessageBridge* a_bridge);
-		// Main thread; call each tick. (Re)applies the endpoint registry to the available
-		// bridge, flushes queued sends, fires the compatibility availability callback once.
 		void PumpMainThread();
 
 	private:
@@ -198,8 +159,7 @@ namespace OSFUI::API
 		void RespondRequest(std::uint64_t, const char*, const char*) noexcept;
 		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
 		void DropInflightRequest(std::uint64_t) noexcept;
-		void DispatchRequest(const std::string&, const RequestRegistration&,
-			const nlohmann::json&, MessageBridge&);
+		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
 		std::mutex                                    _mutex;
 		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
 		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex

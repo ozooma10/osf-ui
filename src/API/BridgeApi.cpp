@@ -9,43 +9,26 @@ namespace OSFUI::API
 {
 	namespace
 	{
-		// Mod ids are opaque, so endpoint ownership can no longer be inferred by
-		// counting dots. Plugin endpoint names are opaque too; reserve the exact
-		// platform surface plus the framework's osfui.* namespace explicitly.
 		bool IsValidPluginEndpointName(std::string_view a_name)
 		{
 			if (a_name.empty()) {
 				return false;
 			}
-			if (a_name.size() >= Ids::kBuiltInModId.size() &&
-				Ids::EqualsCaseInsensitiveAscii(a_name.substr(0, Ids::kBuiltInModId.size()), Ids::kBuiltInModId) &&
-				(a_name.size() == Ids::kBuiltInModId.size() || a_name[Ids::kBuiltInModId.size()] == '.')) {
+			if (a_name.size() >= Ids::kBuiltInModId.size() && Ids::EqualsCaseInsensitiveAscii(a_name.substr(0, Ids::kBuiltInModId.size()), Ids::kBuiltInModId) && (a_name.size() == Ids::kBuiltInModId.size() || a_name[Ids::kBuiltInModId.size()] == '.')) {
 				return false;
 			}
-			static constexpr std::array kPlatformEndpoints{
-				"close", "setVisible", "menu.open", "menu.close", "setViewHidden",
-				"settings.captureKey", "settings.set", "settings.reset", "papyrus.call",
-				"papyrus.send", "papyrus.request", "ping"
-			};
-			return std::ranges::find_if(kPlatformEndpoints,
-				[a_name](const char* a_endpoint) { return a_name == a_endpoint; }) == kPlatformEndpoints.end();
+			static constexpr std::array kPlatformEndpoints{ "close", "setVisible", "menu.open", "menu.close", "setViewHidden", "settings.captureKey", "settings.set", "settings.reset", "papyrus.call", "papyrus.send", "papyrus.request", "ping" };
+			return std::ranges::find_if(kPlatformEndpoints, [a_name](const char* a_endpoint) { return a_name == a_endpoint; }) == kPlatformEndpoints.end();
 		}
 
-		const std::string* FindIdCaseInsensitive(
-			const std::unordered_set<std::string>& a_ids, std::string_view a_wanted)
+		const std::string* FindIdCaseInsensitive(const std::unordered_set<std::string>& a_ids, std::string_view a_wanted)
 		{
-			const auto found = std::ranges::find_if(a_ids,
-				[a_wanted](const auto& a_id) { return Ids::EqualsCaseInsensitiveAscii(a_id, a_wanted); });
+			const auto found = std::ranges::find_if(a_ids, [a_wanted](const auto& a_id) { return Ids::EqualsCaseInsensitiveAscii(a_id, a_wanted); });
 			return found == a_ids.end() ? nullptr : &*found;
 		}
 
-		// Cap on queued SendToWeb messages per target view while no target page is
-		// instantiated to receive them (ABI 1.3 queue-until-deliverable). Matches the
-		// renderer's per-view queue bound; overflow drops the oldest so the view
-		// still converges on the newest pushed state when it comes up.
 		constexpr std::size_t kMaxPendingSendsPerView = 64;
 		constexpr std::size_t kMaxPendingHealthIssueOps = 256;
-
 		constexpr std::size_t kMaxInflightRequestsPerView = 64;
 
 		bool ValidateHealthReporter(std::string_view a_fn, const char* a_modId)
@@ -55,8 +38,7 @@ namespace OSFUI::API
 				return false;
 			}
 			if (!Ids::IsValidModId(a_modId)) {
-				REX::WARN("BridgeApi: [content] refused {}('{}') — invalid or reserved mod id",
-					a_fn, std::string_view(a_modId).substr(0, 128));
+				REX::WARN("BridgeApi: [content] refused {}('{}') — invalid or reserved mod id", a_fn, std::string_view(a_modId).substr(0, 128));
 				return false;
 			}
 			return true;
@@ -66,9 +48,6 @@ namespace OSFUI::API
 
 	BridgeApi& BridgeApi::Get()
 	{
-		// Process-lifetime API state can be in use by plugin threads when Windows
-		// begins DLL detach. Do not destruct its mutexes, callbacks, or mirrors
-		// after those threads have been stopped.
 		static BridgeApi* const instance = new BridgeApi;
 		return *instance;
 	}
@@ -100,8 +79,7 @@ namespace OSFUI::API
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
 		if (!IsValidPluginEndpointName(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterCommand('{}') — endpoint name is empty or reserved by the platform",
-				name.substr(0, 128));
+			REX::WARN("BridgeApi: [content] refused RegisterCommand('{}') — endpoint name is empty or reserved by the platform", name.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);
@@ -132,19 +110,12 @@ namespace OSFUI::API
 		}
 		const std::string name(a_name);
 		if (!IsValidPluginEndpointName(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — endpoint name is empty or reserved by the platform",
-				name.substr(0, 128));
+			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — endpoint name is empty or reserved by the platform", name.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);
-		// First-wins: a duplicate registration is refused, not last-writer-wins,
-		// so an already-claimed endpoint cannot be hijacked.
-		// Replacing your own handler means UnregisterSend then re-register;
-		// the pair works back-to-back within one tick.
 		if (_commands.contains(name) || _sends.contains(name) || _requests.contains(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — already registered (first wins; "
-					  "UnregisterSend first to replace your own handler)",
-				name);
+			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — already registered (first wins; UnregisterSend first to replace your own handler)", name);
 			return;
 		}
 		_sends[name] = { a_handler, a_user };
@@ -198,24 +169,17 @@ namespace OSFUI::API
 		if (!a_viewId || !a_type || !a_payloadJson) {
 			return false;
 		}
-		// Validate now so a malformed payload is reported synchronously; delivery is
-		// marshaled to the main thread in PumpMainThread.
 		if (!Json::Parse(a_payloadJson)) {
 			return false;
 		}
 		std::lock_guard lock(_mutex);
-		// ABI 1.3 queues until the target page exists, not merely until any bridge
-		// is available. Discovered-but-uninstantiated views can therefore retain
-		// bounded first-open state while unrelated views are already running.
 		std::size_t sameView = 0;
 		for (const auto& s : _pendingSends) {
 			sameView += (s.view == a_viewId) ? 1u : 0u;
 		}
 		if (sameView >= kMaxPendingSendsPerView) {
-			const auto oldest = std::ranges::find_if(_pendingSends,
-				[&](const PendingSend& s) { return s.view == a_viewId; });
-			REX::WARN("BridgeApi: SendToWeb holdback for view '{}' is full ({}); dropping oldest queued '{}'",
-				a_viewId, kMaxPendingSendsPerView, oldest->type);
+			const auto oldest = std::ranges::find_if(_pendingSends, [&](const PendingSend& s) { return s.view == a_viewId; });
+			REX::WARN("BridgeApi: SendToWeb holdback for view '{}' is full ({}); dropping oldest queued '{}'", a_viewId, kMaxPendingSendsPerView, oldest->type);
 			_pendingSends.erase(oldest);
 		}
 		_pendingSends.push_back({ std::string(a_viewId), std::string(a_type), std::string(a_payloadJson) });
@@ -228,12 +192,9 @@ namespace OSFUI::API
 			return false;
 		}
 		if (!Ids::IsValidModId(a_modId)) {
-			REX::WARN("BridgeApi: [content] refused SetViewState('{}') — invalid or reserved mod id",
-				std::string_view(a_modId).substr(0, 128));
+			REX::WARN("BridgeApi: [content] refused SetViewState('{}') - invalid or reserved mod id", std::string_view(a_modId).substr(0, 128));
 			return false;
 		}
-		// Bound the key like every other content-supplied name: it is echoed on
-		// the wire and used as a cache key.
 		const std::string key(a_key);
 		if (key.size() > 128) {
 			REX::WARN("BridgeApi: [content] refused SetViewState — key longer than 128 characters");
