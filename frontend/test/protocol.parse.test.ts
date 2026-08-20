@@ -200,6 +200,31 @@ describe('kind:"state" — latest-wins values with replay', () => {
     expect(helper.state.get('acme.mymod/SHIP')).toBe('Frontier');
   });
 
+  it('aliases the ready payload mod\'s state to its local key while retaining the qualified key', () => {
+    const { helper } = loadHelper();
+    deliver(helper, { kind: 'ready', payload: { mod: 'acme.mymod' } });
+    const local: unknown[] = [];
+    const qualified: unknown[] = [];
+    helper.state.on('fuel', (value) => local.push(value));
+    helper.state.on('acme.mymod/fuel', (value) => qualified.push(value));
+
+    deliver(helper, { kind: 'state', mod: 'ACME.MyMod', key: 'Fuel', value: 73 });
+
+    expect(local).toEqual([73]);
+    expect(qualified).toEqual([73]);
+    expect(helper.state.get('FUEL')).toBe(73);
+    expect(helper.state.get('acme.mymod/fuel')).toBe(73);
+  });
+
+  it('does not create a local alias for another mod\'s state', () => {
+    const { helper } = loadHelper();
+    deliver(helper, { kind: 'ready', payload: { mod: 'acme.mymod' } });
+    deliver(helper, { kind: 'state', mod: 'other.mod', key: 'fuel', value: 5 });
+
+    expect(helper.state.get('fuel')).toBeUndefined();
+    expect(helper.state.get('other.mod/fuel')).toBe(5);
+  });
+
   it('delivers a null value as a value', () => {
     const { helper } = loadHelper();
     const seen: unknown[] = [];
@@ -289,6 +314,16 @@ describe('kind:"event" — one-shot happenings', () => {
     expect(seen).toEqual([{}]);
   });
 
+  it.each([false, 0, '', null])('delivers a present falsy event payload verbatim: %j', (payload) => {
+    const { helper } = loadHelper();
+    const seen: unknown[] = [];
+    helper.on('acme.mymod.signal', (value) => seen.push(value));
+
+    deliver(helper, { kind: 'event', name: 'acme.mymod.signal', payload });
+
+    expect(seen).toEqual([payload]);
+  });
+
   it('ignores an unnamed event', () => {
     const { helper } = loadHelper();
     let calls = 0;
@@ -312,9 +347,23 @@ describe('kind:"event" — one-shot happenings', () => {
     const seen: unknown[] = [];
     helper.on('acme.mymod.docked', (p) => seen.push(p));
 
-    // Papyrus SendViewEvent / the C ABI's SendToWeb land here.
+    // Papyrus OSFUI_View.EmitEvent / the C ABI's SendToWeb land here.
     deliver(helper, { kind: 'event', name: 'acme.mymod.docked', payload: { args: [1, 'Neon'] } });
     expect(seen).toEqual([{ args: [1, 'Neon'] }]);
+  });
+
+  it('also routes an owning-mod event to its local-name subscriber', () => {
+    const { helper } = loadHelper();
+    deliver(helper, { kind: 'ready', payload: { mod: 'acme.mymod' } });
+    const local: unknown[] = [];
+    const qualified: unknown[] = [];
+    helper.on('docked', (payload) => local.push(payload));
+    helper.on('acme.mymod.docked', (payload) => qualified.push(payload));
+
+    deliver(helper, { kind: 'event', name: 'acme.mymod.docked', payload: { args: ['Neon'] } });
+
+    expect(local).toEqual([{ args: ['Neon'] }]);
+    expect(qualified).toEqual([{ args: ['Neon'] }]);
   });
 
   it('isolates a throwing subscriber from the others and prints it', () => {

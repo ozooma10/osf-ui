@@ -21,7 +21,6 @@ interface Helper {
     opts?: { timeoutMs?: number },
   ): Promise<unknown>;
   on(event: string, fn: (payload: unknown) => void): () => void;
-  papyrus: { request(name: string, ...args: unknown[]): Promise<unknown> };
   onMessage(json: string): void;
 }
 
@@ -241,14 +240,14 @@ describe('correlation is by id alone — no payload heuristic survives', () => {
     expect(p.value()).toEqual({ mod: 'demo', key: 'k', value: 1 });
   });
 
-  it('unwraps papyrus.request to the reply payload value', async () => {
+  it.each([false, 0, '', null])('preserves a raw falsy reply payload: %j', async (value) => {
     const { helper, sent } = loadHelper();
-    const p = probe(helper.papyrus.request('GetWeight', 0x14));
+    const p = probe(helper.request('GetWeight', { args: [0x14] }));
 
-    deliver(helper, { kind: 'reply', id: sent[1]!.id!, payload: { value: 12.5 } });
+    deliver(helper, { kind: 'reply', id: sent[1]!.id!, payload: value });
     await flush();
 
-    expect(p.value()).toBe(12.5);
+    expect(p.value()).toBe(value);
   });
 });
 

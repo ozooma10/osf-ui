@@ -29,6 +29,13 @@ namespace OSFUI
 			return std::string{ a_s.substr(0, StringUtil::Utf8TruncateLen(a_s, kMaxEndpointNameLength)) };
 		}
 
+		[[nodiscard]] std::string OwnerQualifiedEndpoint(std::string_view a_sourceViewId, std::string_view a_name)
+		{
+			const auto mod = Ids::ModOf(a_sourceViewId);
+			if (mod.empty()) return {};
+			return std::format("{}.{}", mod, a_name);
+		}
+
 		class ScopeExit
 		{
 		public:
@@ -103,6 +110,13 @@ namespace OSFUI
 	void MessageBridge::UnregisterCommand(std::string_view a_name)
 	{
 		_commands.erase(std::string(a_name));
+	}
+
+	void MessageBridge::SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request)
+	{
+		_fallbackProbe = std::move(a_probe);
+		_fallbackSend = std::move(a_send);
+		_fallbackRequest = std::move(a_request);
 	}
 
 	void MessageBridge::HandleWebMessage(std::string_view a_viewId, std::string_view a_json)
@@ -226,12 +240,34 @@ namespace OSFUI
 			NoteTracedReply("wrong-endpoint-kind");
 			return;
 		}
+		const auto ownerName = OwnerQualifiedEndpoint(_currentSource, a_name);
+		if (!ownerName.empty()) {
+			if (const auto it = _sends.find(ownerName); it != _sends.end()) {
+				it->second(a_payload, *this);
+				return;
+			}
+			if (_requests.contains(ownerName)) {
+				ReportProtocolFault(_currentSource, "wrong-endpoint-kind", std::format("'{}' is a request endpoint — use request(), not send()", a_name), { { "name", a_name }, { "resolvedName", ownerName } });
+				NoteTracedReply("wrong-endpoint-kind");
+				return;
+			}
+		}
+		if (_fallbackProbe) {
+			const auto kind = _fallbackProbe(_currentSource, a_name);
+			if (kind == FallbackEndpointKind::kRequest) {
+				ReportProtocolFault(_currentSource, "wrong-endpoint-kind", std::format("'{}' is a request endpoint — use request(), not send()", a_name), { { "name", a_name } });
+				NoteTracedReply("wrong-endpoint-kind");
+				return;
+			}
+			if (kind == FallbackEndpointKind::kSend && _fallbackSend) {
+				_fallbackSend(a_name, a_payload, *this);
+				return;
+			}
+		}
 		// Deduplicate log warnings while still reporting every fault to the page.
 		constexpr std::size_t kMaxWarnedEndpoints = 512;
-		if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
-			_warnedUnknownEndpoints.insert(a_name).second) {
-			REX::WARN("MessageBridge: [content] dropped send to unknown endpoint '{}' "
-					  "(further drops of this endpoint are not logged)", a_name);
+		if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints && _warnedUnknownEndpoints.insert(a_name).second) {
+			REX::WARN("MessageBridge: [content] dropped send to unknown endpoint '{}' (further drops of this endpoint are not logged)", a_name);
 		}
 		ReportProtocolFault(_currentSource, "unknown-endpoint", "no such endpoint", { { "name", a_name } });
 		NoteTracedReply("unknown-endpoint");
@@ -241,8 +277,12 @@ namespace OSFUI
 	{
 		_currentRequestId = a_id;
 
-		const auto it = _requests.find(a_name);
-		if (it == _requests.end()) {
+		const RequestHandler* handler = nullptr;
+		if (const auto exact = _requests.find(a_name); exact != _requests.end()) {
+			handler = std::addressof(exact->second);
+		}
+		bool useFallback = false;
+		if (!handler) {
 			if (const auto command = _commands.find(a_name);
 				command != _commands.end()) {
 				auto payload = a_payload;
@@ -263,18 +303,39 @@ namespace OSFUI
 				return;
 			}
 			if (_sends.contains(a_name)) {
-				Reject("wrong-endpoint-kind",
-					std::format("'{}' is a send endpoint — use send(), not request()", a_name));
+				Reject("wrong-endpoint-kind", std::format("'{}' is a send endpoint — use send(), not request()", a_name));
 				return;
 			}
-			constexpr std::size_t kMaxWarnedEndpoints = 512;
-			if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
-				_warnedUnknownEndpoints.insert(a_name).second) {
-				REX::WARN("MessageBridge: [content] rejected request to unknown endpoint '{}' "
-						  "(further rejections of this endpoint are not logged)", a_name);
+
+			const auto ownerName = OwnerQualifiedEndpoint(_currentSource, a_name);
+			if (!ownerName.empty()) {
+				if (const auto owner = _requests.find(ownerName); owner != _requests.end()) {
+					handler = std::addressof(owner->second);
+				} else if (_sends.contains(ownerName)) {
+					Reject("wrong-endpoint-kind", std::format("'{}' is a send endpoint — use send(), not request()", a_name));
+					return;
+				}
 			}
-			Reject("unknown-endpoint", "no such endpoint");
-			return;
+
+			if (!handler && _fallbackProbe) {
+				const auto kind = _fallbackProbe(_currentSource, a_name);
+				if (kind == FallbackEndpointKind::kSend) {
+					Reject("wrong-endpoint-kind", std::format("'{}' is a send endpoint — use send(), not request()", a_name));
+					return;
+				}
+				useFallback = kind == FallbackEndpointKind::kRequest && static_cast<bool>(_fallbackRequest);
+			}
+			if (handler || useFallback) {
+				// The shared request-capacity check below applies to fallback handlers too.
+			} else {
+				constexpr std::size_t kMaxWarnedEndpoints = 512;
+				if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
+					_warnedUnknownEndpoints.insert(a_name).second) {
+					REX::WARN("MessageBridge: [content] rejected request to unknown endpoint '{}' (further rejections of this endpoint are not logged)", a_name);
+				}
+				Reject("unknown-endpoint", "no such endpoint");
+				return;
+			}
 		}
 
 		// Refuse saturated views before invoking the endpoint handler.
@@ -285,13 +346,16 @@ namespace OSFUI
 			}
 		}
 		if (owned >= kMaxPendingRequestsPerView) {
-			REX::WARN("MessageBridge: [content] view '{}' has {} requests in flight — refusing '{}'",
-				_currentSource, owned, a_name);
+			REX::WARN("MessageBridge: [content] view '{}' has {} requests in flight — refusing '{}'", _currentSource, owned, a_name);
 			Reject("request-capacity", "too many requests are already in flight for this view");
 			return;
 		}
 
-		it->second(a_payload, *this);
+		if (useFallback) {
+			_fallbackRequest(a_name, a_payload, *this);
+		} else {
+			(*handler)(a_payload, *this);
+		}
 		if (!_settled) {
 			// An endpoint returning without settlement is a platform bug, not a silent hang.
 			REX::ERROR("MessageBridge: request endpoint '{}' returned without settling", a_name);
@@ -320,8 +384,7 @@ namespace OSFUI
 				_send(a_viewId, encoded);
 			}
 		}
-		REX::DEBUG("MessageBridge: view '{}' greeted — ready, state replay, {} queued event(s), events open",
-			a_viewId, queued.size());
+		REX::DEBUG("MessageBridge: view '{}' greeted — ready, state replay, {} queued event(s), events open", a_viewId, queued.size());
 	}
 
 	void MessageBridge::Respond(const nlohmann::json& a_payload)

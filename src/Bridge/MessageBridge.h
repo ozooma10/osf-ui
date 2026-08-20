@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <unordered_set>  // not in pch.h
 
@@ -21,13 +22,20 @@ namespace OSFUI
 
 		// Request handlers must Respond, Reject, or Defer exactly once.
 		using RequestHandler = std::function<void(const nlohmann::json& a_payload, MessageBridge& a_bridge)>;
+		enum class FallbackEndpointKind : std::uint8_t
+		{
+			kNone,
+			kSend,
+			kRequest,
+		};
+		using FallbackProbe = std::function<FallbackEndpointKind(std::string_view a_sourceViewId, std::string_view a_name)>;
+		using FallbackHandler = std::function<void(std::string_view a_name, const nlohmann::json& a_payload, MessageBridge& a_bridge)>;
 
 		// Runs after ready and before the event gate opens, preserving ready < state < events.
 		using HelloHook = std::function<void(std::string_view a_viewId)>;
 
 		// Only faults marked a_viewFault count toward view.protocol-misuse.
-		using ProtocolFaultSink = std::function<void(std::string_view a_viewId, std::string_view a_code,
-			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)>;
+		using ProtocolFaultSink = std::function<void(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)>;
 		// Adapter cleanup invoked only when the bridge drops a deferred request before RespondTo/RejectTo can settle it (deadline or view teardown).
 		using DeferredDropHandler = std::function<void()>;
 
@@ -43,6 +51,9 @@ namespace OSFUI
 		void UnregisterSend(std::string_view a_name);
 		void UnregisterRequest(std::string_view a_name);
 		void UnregisterCommand(std::string_view a_name);
+
+		// Optional bounded registry consulted only after exact native endpoints miss.
+		void SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request);
 
 		// Reject malformed or non-whitelisted page input without making it fatal.
 		void HandleWebMessage(std::string_view a_viewId, std::string_view a_json);
@@ -131,6 +142,9 @@ namespace OSFUI
 		std::unordered_map<std::string, SendHandler>      _sends;
 		std::unordered_map<std::string, RequestHandler>   _requests;
 		std::unordered_map<std::string, SendHandler>      _commands;
+		FallbackProbe                                      _fallbackProbe;
+		FallbackHandler                                    _fallbackSend;
+		FallbackHandler                                    _fallbackRequest;
 		std::unordered_map<std::string, Gate>             _gates;    // view id -> event gate
 		std::unordered_map<std::string, Pending>          _pending;  // runtime token -> deferred request
 		std::uint64_t                                     _nextDeferToken{ 1 };

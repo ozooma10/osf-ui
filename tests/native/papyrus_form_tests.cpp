@@ -1,7 +1,4 @@
-
-#include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
-#include "Compat/V1/Papyrus.h"
 
 #include "RE/B/BSScriptUtil.h"
 #include "RE/E/Events.h"
@@ -11,17 +8,11 @@
 
 namespace
 {
-
-	// Count of test-log entries whose text contains a_needle.
 	std::size_t LogCount(std::string_view a_needle)
 	{
-		std::size_t n = 0;
-		for (const auto& e : REX::test::Entries()) {
-			if (e.find(a_needle) != std::string::npos) {
-				++n;
-			}
-		}
-		return n;
+		return std::ranges::count_if(REX::test::Entries(), [&](const auto& a_entry) {
+			return a_entry.find(a_needle) != std::string::npos;
+		});
 	}
 
 	struct NamedForm :
@@ -37,7 +28,6 @@ namespace
 		}
 	};
 
-	// A nameless form that carries an editor id (the best-effort field).
 	struct EditorIdForm : RE::TESForm
 	{
 		EditorIdForm(std::uint32_t a_id, RE::FormType a_type, std::string a_editorId) :
@@ -49,7 +39,6 @@ namespace
 		}
 
 		const char* GetFormEditorID() const override { return editorId.c_str(); }
-
 		std::string editorId;
 	};
 }
@@ -70,157 +59,167 @@ int main()
 	using namespace OSFUI;
 	using IVM = RE::BSScript::IVirtualMachine;
 	using Str = RE::BSFixedString;
+	using Var = RE::BSScript::Variable;
 
 	auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
-
 	API::Papyrus::Install();
-	CHECK(vm->natives.contains("SetViewForms"));
-	CHECK(vm->natives.contains("GetFormById"));
-	CHECK(vm->natives.contains("GetFormsById"));
-	CHECK(vm->natives.contains("PushFormsToView"));
+	CHECK(vm->natives.contains("SetState"));
+	CHECK(vm->natives.contains("SetStateForms"));
+	CHECK(vm->natives.contains("ReplyForms"));
+	CHECK(vm->natives.contains("EmitEvent"));
+	CHECK(!vm->natives.contains("GetFormById"));
+	CHECK(!vm->natives.contains("GetFormsById"));
 
-	const auto setViewForms =
-		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<RE::TESForm*>)>("SetViewForms");
-	const auto setViewStrings =
-		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<Str>)>("SetViewStrings");
-	const auto getFormById =
-		vm->GetNative<RE::TESForm* (*)(IVM&, std::uint32_t, std::monostate, Str)>("GetFormById");
-	const auto getFormsById =
-		vm->GetNative<std::vector<RE::TESForm*> (*)(IVM&, std::uint32_t, std::monostate, std::vector<Str>)>("GetFormsById");
-	const auto pushForms =
-		vm->GetNative<void (*)(IVM&, std::uint32_t, std::monostate, Str, Str, std::vector<RE::TESForm*>)>("PushFormsToView");
+	const auto setState = vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate,
+		Str, Str, const Var*)>("SetState");
+	const auto setStateForms = vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate,
+		Str, Str, std::vector<RE::TESForm*>)>("SetStateForms");
+	const auto emitEvent = vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate,
+		Str, Str, std::optional<std::vector<const Var*>>)>("EmitEvent");
 
-	std::vector<API::Papyrus::ViewState> drained;
-	const auto                           drain = [&] {
-		drained = API::Papyrus::TakePendingBatch().states;
-	};
-
-	NamedForm    keyword{ 0x0014E8D2, RE::FormType::kKYWD, "Melee Weapons" };
-	NamedForm    weapon{ 0x000000FA, RE::FormType::kWEAP, "Eon" };
+	NamedForm keyword{ 0x0014E8D2, RE::FormType::kKYWD, "Melee Weapons" };
+	NamedForm weapon{ 0x000000FA, RE::FormType::kWEAP, "Eon" };
 	EditorIdForm bare{ 0x00000010, RE::FormType::kNONE, "MyEditorId" };
+	NamedForm unmapped{ 0x00000020, static_cast<RE::FormType>(0xC8), "Oddity" };
 
-	pushForms(*vm, 0, {}, "T.Forms", "legacy", { &keyword, nullptr, &weapon });
-	std::vector<Compat::V1::Papyrus::Push> legacyPushes;
-	Compat::V1::Papyrus::DrainPushes([&](const auto& push) { legacyPushes.push_back(push); });
-	CHECK(legacyPushes.size() == 1);
-	if (!legacyPushes.empty()) {
-		CHECK(legacyPushes[0].payload["values"].empty());
-		CHECK(legacyPushes[0].payload["forms"].size() == 3);
-		CHECK(legacyPushes[0].payload["forms"][0]["formType"] == "KYWD");
-		CHECK(legacyPushes[0].payload["forms"][1].is_null());
-		CHECK(legacyPushes[0].payload["forms"][2]["name"] == "Eon");
-	}
-
-	// --- round-trip: publish -> serialized identity -> echo -> same form ----------
-	setViewForms(*vm, 0, {}, "T.Forms", "catalog", { &keyword, &weapon });
-	drain();
-	CHECK(drained.size() == 1);
-	if (drained.size() == 1) {
-		const auto& s = drained[0];
-		CHECK(s.mod == "t.forms");  // folded to canonical lowercase, like every SetView*
-		CHECK(s.key == "catalog");
-		CHECK(s.value.is_array());
-		CHECK(s.value.size() == 2);
-		if (s.value.is_array() && s.value.size() == 2) {
-			const auto& kw = s.value[0];
-			CHECK(kw.at("formId").get<std::uint32_t>() == 0x0014E8D2u);
-			CHECK(kw.at("formType").get<std::string>() == "KYWD");
-			CHECK(kw.at("name").get<std::string>() == "Melee Weapons");
-			CHECK(!kw.contains("editorId"));  // default GetFormEditorID is empty
-			CHECK(s.value[1].at("formType").get<std::string>() == "WEAP");
+	// Typed Form[] state preserves ordering and None slots; scalar Var carries a
+	// Form without exposing a separate resolver API.
+	CHECK(setStateForms(*vm, 0, {}, "T.Forms", "catalog", { &keyword, nullptr, &weapon }));
+	Var scalarForm;
+	RE::BSScript::PackVariable(scalarForm, &keyword);
+	CHECK(setState(*vm, 0, {}, "T.Forms", "selected", &scalarForm));
+	{
+		auto batch = API::Papyrus::TakePendingBatch();
+		CHECK(batch.states.size() == 2);
+		if (batch.states.size() == 2) {
+			const auto& forms = batch.states[0].value;
+			CHECK(batch.states[0].mod == "t.forms" && batch.states[0].key == "catalog");
+			CHECK(forms.is_array() && forms.size() == 3);
+			if (forms.is_array() && forms.size() == 3) {
+				CHECK(forms[0]["formId"] == 0x0014E8D2u);
+				CHECK(forms[0]["formType"] == "KYWD");
+				CHECK(forms[0]["name"] == "Melee Weapons");
+				CHECK(forms[1].is_null());
+				CHECK(forms[2]["formType"] == "WEAP");
+			}
+			CHECK(batch.states[1].key == "selected");
+			CHECK(batch.states[1].value["formId"] == keyword.GetFormID());
 		}
 	}
 
-	CHECK(getFormById(*vm, 0, {}, std::to_string(0x0014E8D2u).c_str()) == &keyword);
-	CHECK(getFormById(*vm, 0, {}, "0x0014E8D2") == &keyword);
-	CHECK(getFormById(*vm, 0, {}, "0X0014e8d2") == &keyword);
-
-	// --- best-effort fields: editorId when present, numeric-fallback formType -----
-	NamedForm unmapped{ 0x00000020, static_cast<RE::FormType>(0xC8), "Oddity" };
-	setViewForms(*vm, 0, {}, "t.forms", "misc", { &bare, &unmapped });
-	drain();
-	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 2);
-	if (drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 2) {
-		const auto& b = drained[0].value[0];
-		CHECK(b.at("editorId").get<std::string>() == "MyEditorId");
-		CHECK(!b.contains("name"));  // no TESFullName component
-		// A type with no FORM_ENUM_STRING row serializes its numeric value.
-		CHECK(drained[0].value[1].at("formType").get<std::string>() == "200");
+	CHECK(setStateForms(*vm, 0, {}, "t.forms", "metadata", { &bare, &unmapped }));
+	{
+		auto batch = API::Papyrus::TakePendingBatch();
+		CHECK(batch.states.size() == 1);
+		if (batch.states.size() == 1 && batch.states[0].value.size() == 2) {
+			CHECK(batch.states[0].value[0]["editorId"] == "MyEditorId");
+			CHECK(!batch.states[0].value[0].contains("name"));
+			CHECK(batch.states[0].value[1]["formType"] == "200");
+		}
 	}
 
-	setViewForms(*vm, 0, {}, "t.forms", "inv", { &keyword, nullptr, &weapon });
-	RE::TESForm::Registry().erase(weapon.GetFormID());  // vanishes pre-drain
-	drain();
-	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 3);
-	if (drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 3) {
-		CHECK(!drained[0].value[0].is_null());
-		CHECK(drained[0].value[1].is_null());  // None kept its slot
-		CHECK(drained[0].value[2].is_null());  // deleted form kept its slot
+	CHECK(setStateForms(*vm, 0, {}, "t.forms", "vanishing", { &keyword, &weapon }));
+	RE::TESForm::Registry().erase(weapon.GetFormID());
+	{
+		auto batch = API::Papyrus::TakePendingBatch();
+		CHECK(batch.states.size() == 1 && batch.states[0].value.size() == 2);
+		if (batch.states.size() == 1 && batch.states[0].value.size() == 2) {
+			CHECK(!batch.states[0].value[0].is_null());
+			CHECK(batch.states[0].value[1].is_null());
+		}
 	}
 	CHECK(LogCount("vanished before serialization") == 1);
-	RE::TESForm::Registry()[weapon.GetFormID()] = &weapon;  // restore for later sections
+	RE::TESForm::Registry()[weapon.GetFormID()] = &weapon;
 
-	setViewForms(*vm, 0, {}, "t.forms", "catalog", {});
-	drain();
-	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.empty());
-
-	setViewStrings(*vm, 0, {}, "t.forms", "labels", { Str{ "a" } });
-	drain();
-	CHECK(drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 1);
-	if (drained.size() == 1 && drained[0].value.is_array() && drained[0].value.size() == 1) {
-		CHECK(drained[0].value[0] == "a");
+	// None is a legal scalar; arbitrary ScriptObjects are not bridge values.
+	Var none;
+	CHECK(setState(*vm, 0, {}, "t.forms", "none", &none));
+	auto badType = std::make_shared<RE::BSScript::ObjectTypeInfo>();
+	badType->name = Str{ "NotAForm" };
+	auto badObject = std::make_shared<RE::BSScript::Object>();
+	badObject->type = RE::BSTSmartPointer<RE::BSScript::ObjectTypeInfo>(std::move(badType));
+	Var unsupported;
+	unsupported = RE::BSTSmartPointer<RE::BSScript::Object>(std::move(badObject));
+	CHECK(!setState(*vm, 0, {}, "t.forms", "bad", &unsupported));
+	{
+		auto batch = API::Papyrus::TakePendingBatch();
+		CHECK(batch.states.size() == 1 && batch.states[0].value.is_null());
 	}
 
-	// --- shared validation and queue cap with the other SetView* natives ------------
-	setViewForms(*vm, 0, {}, "../evil", "k", { &keyword });
-	setViewForms(*vm, 0, {}, "t.forms", "", { &keyword });
-	drain();
-	CHECK(drained.empty());
-	CHECK(LogCount("SetViewForms") >= 2);  // both refusals name the native
-
-	for (int i = 0; i < 1024; ++i) {
-		setViewStrings(*vm, 0, {}, "t.forms", "k", { Str{ "v" } });
-	}
-	setViewForms(*vm, 0, {}, "t.forms", "overflow", { &keyword });  // 1025th entry
-	CHECK(LogCount("view-state queue full") > 0);
-	drain();
-	CHECK(drained.size() == 1024);
-	for (const auto& s : drained) {
-		CHECK(s.key != "overflow");  // the forms value was the one dropped
+	// Var[] events serialize mixed scalar/Form arguments on the main thread.
+	Var label;
+	label = Str{ "weapon" };
+	CHECK(emitEvent(*vm, 0, {}, "T.Forms", "selected",
+		std::vector<const Var*>{ &label, &scalarForm, &none }));
+	{
+		auto batch = API::Papyrus::TakePendingBatch();
+		CHECK(batch.events.size() == 1);
+		if (batch.events.size() == 1) {
+			CHECK(batch.events[0].args.size() == 3);
+			CHECK(batch.events[0].args[0] == "weapon");
+			CHECK(batch.events[0].args[1]["formId"] == keyword.GetFormID());
+			CHECK(batch.events[0].args[2].is_null());
+		}
 	}
 
-	// --- resolver parse matrix ------------------------------------------------------
-	const auto warnsBefore = LogCount("is not a form id");
-	CHECK(getFormById(*vm, 0, {}, "") == nullptr);
-	CHECK(getFormById(*vm, 0, {}, "garbage") == nullptr);
-	CHECK(getFormById(*vm, 0, {}, "0x") == nullptr);
-	CHECK(getFormById(*vm, 0, {}, "123abc") == nullptr);
-	CHECK(getFormById(*vm, 0, {}, "-5") == nullptr);
-	CHECK(getFormById(*vm, 0, {}, "4294967296") == nullptr);   // > 32 bits
-	CHECK(getFormById(*vm, 0, {}, "0x1FFFFFFFF") == nullptr);  // > 32 bits, hex
-	CHECK(LogCount("is not a form id") == warnsBefore + 7);
-
-	// Well-formed but absent: the stale-reference case is quiet (DEBUG), not a WARN.
-	CHECK(getFormById(*vm, 0, {}, "0x0BADF00D") == nullptr);
-	CHECK(LogCount("resolved no form") == 1);
-	CHECK(LogCount("is not a form id") == warnsBefore + 7);
-
-	// --- bulk resolver: order + length preserved, unresolved -> None ---------------
-	const auto forms = getFormsById(*vm, 0, {},
-		{ Str{ "0x0014E8D2" }, Str{ "junk" }, Str{ std::to_string(weapon.GetFormID()) } });
-	CHECK(forms.size() == 3);
-	if (forms.size() == 3) {
-		CHECK(forms[0] == &keyword);
-		CHECK(forms[1] == nullptr);
-		CHECK(forms[2] == &weapon);
+	// JavaScript SerializedForm arguments become real Form Vars in the callback.
+	const auto registerSend = vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t,
+		std::monostate, Str, Str, Str)>("RegisterSendStatic");
+	CHECK(registerSend(*vm, 0, {}, "FormSink", "T.Forms", "inspect") != 0);
+	vm->calls.clear();
+	CHECK(API::Papyrus::OnViewSend("t.forms", "inspect",
+		{ API::Papyrus::FormValue{ keyword.GetFormID() },
+			API::Papyrus::FormValue{ 0x0BADF00D } }, "other.mod/view"));
+	CHECK(vm->calls.size() == 1);
+	if (vm->calls.size() == 1) {
+		CHECK(vm->calls[0].fn == "OnOSFUISend");
+		CHECK((vm->calls[0].argTypes ==
+			std::vector<std::string>{ "string", "object", "none", "string" }));
+		CHECK(vm->calls[0].args.back() == "other.mod/view");
 	}
 
-	setViewForms(*vm, 0, {}, "t.forms", "catalog", { &keyword });
+	// Scalar and typed-array Form replies share the same request ledger.
+	const auto registerRequest = vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t,
+		std::monostate, Str, Str, Str)>("RegisterRequestStatic");
+	const auto reply = vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate,
+		Str, const Var*)>("Reply");
+	const auto replyForms = vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate,
+		Str, std::vector<RE::TESForm*>)>("ReplyForms");
+	CHECK(registerRequest(*vm, 0, {}, "FormSink", "T.Forms", "choose") != 0);
+
+	vm->calls.clear();
+	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-form"));
+	CHECK(vm->calls.size() == 1);
+	std::string token = vm->calls.empty() ? "" : vm->calls[0].args.back();
+	CHECK(reply(*vm, 0, {}, token, &scalarForm));
+	{
+		auto batch = API::Papyrus::TakePendingBatch();
+		CHECK(batch.replies.size() == 1);
+		CHECK(batch.replies.size() == 1 && batch.replies[0].value["formId"] == keyword.GetFormID());
+	}
+
+	vm->calls.clear();
+	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-forms"));
+	token = vm->calls.empty() ? "" : vm->calls[0].args.back();
+	CHECK(replyForms(*vm, 0, {}, token, { &keyword, nullptr, &weapon }));
+	{
+		auto batch = API::Papyrus::TakePendingBatch();
+		CHECK(batch.replies.size() == 1 && batch.replies[0].value.size() == 3);
+		if (batch.replies.size() == 1 && batch.replies[0].value.size() == 3) {
+			CHECK(batch.replies[0].value[0]["formType"] == "KYWD");
+			CHECK(batch.replies[0].value[1].is_null());
+			CHECK(batch.replies[0].value[2]["name"] == "Eon");
+		}
+	}
+
+	// A load drops queued form identities before they can leak into a new save.
+	CHECK(setStateForms(*vm, 0, {}, "t.forms", "stale", { &keyword }));
 	RE::TESLoadGameEvent::GetEventSource()->Notify(RE::TESLoadGameEvent{});
-	auto resetBatch = API::Papyrus::TakePendingBatch();
-	CHECK(resetBatch.states.empty());                          // queued identities never reach the new session
-	CHECK(resetBatch.sessionReset);                            // raised once by the load...
-	CHECK(!API::Papyrus::TakePendingBatch().sessionReset);     // ...and consumed by one batch
+	const auto resetBatch = API::Papyrus::TakePendingBatch();
+	CHECK(resetBatch.states.empty());
+	CHECK(resetBatch.events.empty());
+	CHECK(resetBatch.replies.empty());
+	CHECK(resetBatch.sessionReset);
 
 	std::fprintf(stderr, "papyrus_form_tests: %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures;

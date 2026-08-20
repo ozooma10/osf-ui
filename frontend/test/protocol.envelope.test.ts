@@ -25,8 +25,6 @@ interface Helper {
   papyrus: {
     float(value: number): { $papyrus: 'float'; value: number };
     call(script: string, fn: string, ...args: unknown[]): boolean;
-    send(name: string, ...args: unknown[]): boolean;
-    request(name: string, ...args: unknown[]): Promise<unknown>;
   };
 }
 
@@ -111,15 +109,15 @@ describe('send envelopes', () => {
     expect(sent[1]!.name).toBe('42');
   });
 
-  it('papyrus.send() folds its varargs into one fixed endpoint', () => {
+  it('sends local Papyrus arguments through the generic endpoint envelope', () => {
     const { helper, sent } = loadHelper();
 
-    helper.papyrus.send('OnThing', 1, 'two', true);
+    helper.send('OnThing', { args: [1, 'two', true] });
 
     expect(sent[1]).toEqual({
       kind: 'send',
-      name: 'papyrus.send',
-      payload: { name: 'OnThing', args: [1, 'two', true] },
+      name: 'OnThing',
+      payload: { args: [1, 'two', true] },
     });
   });
 
@@ -178,16 +176,16 @@ describe('request envelopes', () => {
     expect(sent[1]!.payload).toEqual({});
   });
 
-  it('papyrus.request() folds its varargs into one fixed endpoint', () => {
+  it('requests a local Papyrus endpoint through the generic endpoint envelope', () => {
     const { helper, sent } = loadHelper();
 
-    void helper.papyrus.request('GetWeight', 0x14).catch(() => {});
+    void helper.request('GetWeight', { args: [0x14] }).catch(() => {});
 
     expect(sent[1]).toEqual({
       kind: 'request',
-      name: 'papyrus.request',
+      name: 'GetWeight',
       id: 'q1',
-      payload: { name: 'GetWeight', args: [0x14] },
+      payload: { args: [0x14] },
     });
   });
 });
@@ -255,10 +253,10 @@ describe('OSF UI runtime envelope validation — 2.0 REJECTS where 1.x silently 
     helper.send('close');
     helper.send('log', { level: 'info', message: 'hi' });
     helper.papyrus.call('AcmeWidgets', 'Refresh');
-    helper.papyrus.send('OnThing', 1);
+    helper.send('OnThing', { args: [1] });
     void helper.request('ping').catch(() => {});
     void helper.request('settings.set', { mod: 'm', key: 'k', value: 1 }).catch(() => {});
-    void helper.papyrus.request('GetWeight', 0x14).catch(() => {});
+    void helper.request('GetWeight', { args: [0x14] }).catch(() => {});
 
     expect(sent.length).toBe(8); // hello + the seven above
     for (const frame of sent) {

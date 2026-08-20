@@ -49,8 +49,12 @@ int main()
 		"OSFUI is refused as a papyrus.call target");
 	Check(Refused(Call("osfui", "Reset"), "forbidden"),
 		"the refusal is case-insensitive (Papyrus identifiers are)");
-	Check(Refused(Call("OsFuI", "SetViewString"), "forbidden"),
+	Check(Refused(Call("OsFuI", "GetVersion"), "forbidden"),
 		"mixed casing does not slip past the refusal");
+	Check(Refused(Call("OSFUI_Settings", "SetString"), "forbidden"),
+		"the settings native namespace is reserved");
+	Check(Refused(Call("osfui_view", "SetState"), "forbidden"),
+		"the view native namespace is reserved case-insensitively");
 	Check(Parse(Call("OSFUIHelper", "Go")).ok,
 		"a script that merely starts with the platform name is fine");
 

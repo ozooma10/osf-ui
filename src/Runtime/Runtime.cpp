@@ -5,7 +5,6 @@
 
 #include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
-#include "Compat/V1/Papyrus.h"
 #include "Composite/UiPass.h"
 #include "Core/Log.h"
 #include "Core/Version.h"

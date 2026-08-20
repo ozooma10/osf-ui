@@ -49,6 +49,20 @@ describe('settings.set rejection', () => {
 });
 
 describe('action timeout', () => {
+  it('shows a scalar Papyrus reply string as the success message', async () => {
+    const { bridge, el } = await mountKit();
+    const go = [...el.querySelectorAll<HTMLButtonElement>('.row--action .osf-btn')].find(
+      (b) => b.textContent === 'Run it',
+    )!;
+    go.click();
+    await flush();
+
+    bridge.settle(bridge.indexOf('acme.kit.run'), 'Completed in Papyrus');
+    await flush();
+
+    expect(el.querySelector('.toast')?.textContent).toContain('Completed in Papyrus');
+  });
+
   it('warns "No response from {mod}" and restores the button', async () => {
     const { bridge, el } = await mountKit();
     const go = [...el.querySelectorAll<HTMLButtonElement>('.row--action .osf-btn')].find(

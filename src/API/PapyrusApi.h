@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -18,6 +19,8 @@ namespace OSFUI::API::Papyrus
 {
 	// Untrusted script dispatch must reject this trusted platform script.
 	inline constexpr std::string_view kPlatformScriptName = "OSFUI";
+	inline constexpr std::string_view kSettingsScriptName = "OSFUI_Settings";
+	inline constexpr std::string_view kViewScriptName = "OSFUI_View";
 
 	// Main thread and idempotent; binds natives and installs game-load cleanup.
 	void Install();
@@ -42,11 +45,32 @@ namespace OSFUI::API::Papyrus
 	using StaticCallArg = std::variant<std::string, std::int32_t, float, bool>;
 	StaticDispatchResult DispatchStaticFunction(std::string_view a_script, std::string_view a_function, const std::vector<StaticCallArg>& a_args);
 
-	// Main thread; fire-and-forget to source-derived mod listeners.
-	void OnViewAction(std::string_view a_modId, std::string_view a_action, const std::vector<std::string>& a_args);
+	// Portable scalar carried by the JavaScript/Papyrus bridge. Form IDs are resolved only while building a VM callback and serialized only on main.
+	struct FormValue
+	{
+		std::uint32_t id{ 0 };
+	};
+	using Value = std::variant<std::monostate, bool, std::int32_t, float, std::string, FormValue>;
 
-	// Main thread; returns false when no listener or request capacity is available.
-	bool OnViewRequest(std::string_view a_modId, std::string_view a_request, const std::vector<std::string>& a_args, std::string_view a_viewId, std::string_view a_deferToken);
+	enum class ViewEndpointKind : std::uint8_t
+	{
+		kNone,
+		kSend,
+		kRequest,
+	};
+
+	struct ViewEndpoint
+	{
+		ViewEndpointKind kind{ ViewEndpointKind::kNone };
+		std::string      modId;
+		std::string      name;
+	};
+
+	// A local name is resolved against a_sourceModId first; otherwise the bounded registry is matched against each exact "modId.name" qualified endpoint.
+	[[nodiscard]] ViewEndpoint ResolveViewEndpoint(std::string_view a_sourceModId, std::string_view a_name);
+
+	bool OnViewSend(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId);
+	bool OnViewRequest(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken);
 
 	struct ViewReply
 	{
@@ -69,9 +93,9 @@ namespace OSFUI::API::Papyrus
 	// A one-shot event for instantiated views; never retained or replayed.
 	struct ViewEvent
 	{
-		std::string              mod;
-		std::string              name;
-		std::vector<std::string> args;
+		std::string    mod;
+		std::string    name;
+		nlohmann::json args;
 	};
 
 	struct PendingSettingsOp

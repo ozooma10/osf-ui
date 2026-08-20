@@ -1,7 +1,6 @@
 #include "Runtime/Runtime.h"
 
 #include "API/PapyrusApi.h"
-#include "Compat/V1/Papyrus.h"
 #include "Core/Ids.h"
 #include "Input/FreeCursor.h"
 #include "Input/OverlayInputHook.h"
@@ -66,18 +65,12 @@ namespace OSFUI
 		if(_bridge) {
 			if(a_papyrus.sessionReset) {
 				_retainedState.ClearSessionScoped();
-				Compat::V1::Papyrus::ClearPendingPushes();
 			}
 
 			for (const auto& a_state : a_papyrus.states) {
 				_retainedState.Set(a_state.mod, a_state.key, a_state.value, /*sessionScoped*/ true);
 				PublishModState(a_state.mod, a_state.key, a_state.value);
 			}
-
-			Compat::V1::Papyrus::DrainPushes([this](const Compat::V1::Papyrus::Push& a_push) {
-				const auto targets = InstantiatedViewsOfMod(a_push.mod);
-				if (!targets.empty()) _bridge->Emit(targets, "data.push", a_push.payload);
-			});
 
 			for(auto& op : a_bridgeState) {
 				_retainedState.Set(op.mod, op.key, op.value, /*sessionScoped*/ false);
@@ -94,7 +87,7 @@ namespace OSFUI
 				if(reply.rejected) {
 					_bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				} else {
-					_bridge->RespondTo(reply.deferToken, nlohmann::json{ { "value", reply.value } });
+					_bridge->RespondTo(reply.deferToken, reply.value);
 				}
 			}
 

@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { OSFUIHelper } from '@sdk';
+import type { OSFUIHelper, PapyrusEndpointPayload } from '@sdk';
 
 const HELPER_SRC = readFileSync(resolve(process.cwd(), 'src/shared-kit/osfui.js'), 'utf8');
 
@@ -48,32 +48,33 @@ describe('author-friendly bridge helpers', () => {
 
   it('send() is the fire-and-forget spelling, and posts no id', () => {
     const { helper, sent } = loadHelper();
-    expect(helper.send('acme.mod.equip', { formId: 42 })).toBe(true);
+    const payload: PapyrusEndpointPayload = { args: [42] };
+    expect(helper.send('equip', payload)).toBe(true);
 
     expect(lastPosted(sent)).toEqual({
       kind: 'send',
-      name: 'acme.mod.equip',
-      payload: { formId: 42 },
+      name: 'equip',
+      payload: { args: [42] },
     });
   });
 
   it('request() correlates by id and resolves with the reply PAYLOAD', async () => {
     const { helper, sent } = loadHelper();
-    const result = helper.request<{ weight: number }>('acme.mod.getWeight', { formId: 42 });
+    const result = helper.request<number>('getWeight', { args: [42] });
 
     const envelope = lastPosted(sent);
     expect(envelope).toMatchObject({
       kind: 'request',
-      name: 'acme.mod.getWeight',
-      payload: { formId: 42 },
+      name: 'getWeight',
+      payload: { args: [42] },
     });
     // `id` is required on a request and is what the reply is matched against.
     expect(typeof envelope.id).toBe('string');
     expect(envelope.id).toBeTruthy();
 
     // The author awaits the payload, never the envelope.
-    deliver(helper, { kind: 'reply', id: envelope.id, payload: { weight: 12.5 } });
-    await expect(result).resolves.toEqual({ weight: 12.5 });
+    deliver(helper, { kind: 'reply', id: envelope.id, payload: 12.5 });
+    await expect(result).resolves.toBe(12.5);
   });
 
   it('settles a request exactly once — a late second answer is ignored', async () => {
@@ -95,29 +96,25 @@ describe('author-friendly bridge helpers', () => {
     await expect(result).resolves.toEqual({ weight: 12.5 });
   });
 
-  it('papyrus.request() sends scalar args and resolves to the typed value', async () => {
+  it('uses the same request() surface for a local Papyrus endpoint', async () => {
     const { helper, sent } = loadHelper();
-    const result = helper.papyrus.request<number>('calculatePrice', 42, true);
+    const result = helper.request<number>('calculatePrice', { args: [42, true] });
 
     const envelope = lastPosted(sent);
     expect(envelope).toMatchObject({
       kind: 'request',
-      name: 'papyrus.request',
-      payload: { name: 'calculatePrice', args: [42, true] },
+      name: 'calculatePrice',
+      payload: { args: [42, true] },
     });
 
-    deliver(helper, { kind: 'reply', id: envelope.id, payload: { value: 125 } });
+    deliver(helper, { kind: 'reply', id: envelope.id, payload: 125 });
     await expect(result).resolves.toBe(125);
   });
 
-  it('papyrus.send() is the one-way sibling and never correlates', () => {
-    const { helper, sent } = loadHelper();
-    expect(helper.papyrus.send('doorOpened', 'airlock', 3)).toBe(true);
-    expect(lastPosted(sent)).toEqual({
-      kind: 'send',
-      name: 'papyrus.send',
-      payload: { name: 'doorOpened', args: ['airlock', 3] },
-    });
+  it('does not expose a second papyrus send/request messaging surface', () => {
+    const { helper } = loadHelper();
+    expect((helper.papyrus as unknown as Record<string, unknown>).send).toBeUndefined();
+    expect((helper.papyrus as unknown as Record<string, unknown>).request).toBeUndefined();
   });
 
   it('papyrus.call() targets an arbitrary GLOBAL function', () => {
@@ -132,6 +129,7 @@ describe('author-friendly bridge helpers', () => {
 
   it('state caches values and replays them by case-insensitive key', () => {
     const { helper } = loadHelper();
+    deliver(helper, { kind: 'ready', payload: { mod: 'acme.mod' } });
     deliver(helper, {
       kind: 'state',
       mod: 'acme.mod',
@@ -140,6 +138,7 @@ describe('author-friendly bridge helpers', () => {
     });
 
     expect(helper.state.get<number[]>('acme.mod/inventory.counts')).toEqual([2, 5]);
+    expect(helper.state.get<number[]>('inventory.counts')).toEqual([2, 5]);
 
     const listener = vi.fn();
     const off = helper.state.on<number[]>('ACME.MOD/INVENTORY.COUNTS', listener);
@@ -147,8 +146,13 @@ describe('author-friendly bridge helpers', () => {
     // Exactly one argument — the value. No envelope tail for authors to poke at.
     expect(listener).toHaveBeenLastCalledWith([2, 5]);
 
+    const localListener = vi.fn();
+    helper.state.on<number[]>('Inventory.Counts', localListener);
+    expect(localListener).toHaveBeenLastCalledWith([2, 5]);
+
     deliver(helper, { kind: 'state', mod: 'acme.mod', key: 'inventory.counts', value: [8] });
     expect(listener).toHaveBeenCalledTimes(2);
+    expect(localListener).toHaveBeenCalledTimes(2);
     expect(helper.state.get<number[]>('Acme.Mod/Inventory.Counts')).toEqual([8]);
 
     off();

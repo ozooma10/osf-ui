@@ -2,7 +2,7 @@
   "$schema": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
   "id": "osfui.paptest",
   "title": "Papyrus API Test",
-  "description": "Throwaway validation card for the OSFUI Papyrus natives (tests/papyrus/). Not shipped in releases.",
+  "description": "Throwaway validation card for the split OSF UI Papyrus API (tests/papyrus/). Not shipped in releases.",
   "version": 1,
 
   "groups": [

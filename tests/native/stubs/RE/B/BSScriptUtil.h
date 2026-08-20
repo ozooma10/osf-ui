@@ -8,11 +8,14 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
 namespace RE
 {
+	class TESForm;
+
 	class BSFixedString
 	{
 	public:
@@ -38,6 +41,7 @@ namespace RE
 			_ptr(std::move(a_ptr)) {}
 
 		[[nodiscard]] T*            get() const noexcept { return _ptr.get(); }
+		[[nodiscard]] T*            operator->() const noexcept { return _ptr.get(); }
 		[[nodiscard]] explicit      operator bool() const noexcept { return _ptr != nullptr; }
 
 	private:
@@ -49,8 +53,17 @@ namespace RE
 
 	namespace BSScript
 	{
+		struct ObjectTypeInfo
+		{
+			BSFixedString                    name;
+			BSTSmartPointer<ObjectTypeInfo> parentTypeInfo;
+		};
+
 		struct Object
-		{};
+		{
+			BSTSmartPointer<ObjectTypeInfo> type;
+			TESForm*                        form{ nullptr };
+		};
 
 		struct IStackCallbackFunctor
 		{};
@@ -58,6 +71,15 @@ namespace RE
 		class Variable
 		{
 		public:
+			Variable& operator=(std::nullptr_t)
+			{
+				_str.clear();
+				_type = "none";
+				_isList = false;
+				_object = {};
+				_inner.reset();
+				return *this;
+			}
 			Variable& operator=(const BSFixedString& a_str)
 			{
 				_str = a_str.c_str();
@@ -86,16 +108,47 @@ namespace RE
 				_isList = false;
 				return *this;
 			}
+			Variable& operator=(BSTSmartPointer<Object> a_object)
+			{
+				_object = std::move(a_object);
+				_type = "object";
+				_isList = false;
+				return *this;
+			}
+			Variable& operator=(Variable* a_value)
+			{
+				_inner.reset(a_value);
+				_type = "var";
+				_isList = false;
+				return *this;
+			}
+
+			template <class T>
+			[[nodiscard]] bool is() const noexcept
+			{
+				if constexpr (std::same_as<T, std::nullptr_t>) return _type == "none";
+				if constexpr (std::same_as<T, BSFixedString>) return _type == "string";
+				if constexpr (std::same_as<T, std::int32_t> || std::same_as<T, std::uint32_t>) return _type == "int";
+				if constexpr (std::same_as<T, float>) return _type == "float";
+				if constexpr (std::same_as<T, bool>) return _type == "bool";
+				if constexpr (std::same_as<T, Object>) return _type == "object";
+				if constexpr (std::same_as<T, Variable>) return _type == "var";
+				return false;
+			}
 
 			[[nodiscard]] const std::string& String() const noexcept { return _str; }
 			[[nodiscard]] const std::string& Type() const noexcept { return _type; }
 
 			[[nodiscard]] bool                             IsList() const noexcept { return _isList; }
 			[[nodiscard]] const std::vector<std::string>&  List() const noexcept { return _list; }
-			void SetList(std::vector<std::string> a_list)
+			[[nodiscard]] const std::vector<std::string>&  ListTypes() const noexcept { return _listTypes; }
+			[[nodiscard]] const BSTSmartPointer<Object>& ObjectValue() const noexcept { return _object; }
+			[[nodiscard]] const Variable* InnerValue() const noexcept { return _inner.get(); }
+			void SetList(std::vector<std::string> a_list, std::vector<std::string> a_types = {})
 			{
 				_list = std::move(a_list);
-				_type = "string[]";
+				_listTypes = std::move(a_types);
+				_type = "array";
 				_isList = true;
 			}
 
@@ -103,6 +156,9 @@ namespace RE
 			std::string              _str;
 			std::string              _type{ "none" };
 			std::vector<std::string> _list;
+			std::vector<std::string> _listTypes;
+			BSTSmartPointer<Object>  _object;
+			std::shared_ptr<Variable> _inner;
 			bool                     _isList{ false };
 		};
 
@@ -116,11 +172,57 @@ namespace RE
 			a_var.SetList(std::move(out));
 		}
 
+		inline void PackVariable(Variable& a_var, const std::vector<const Variable*>& a_values)
+		{
+			std::vector<std::string> out;
+			std::vector<std::string> types;
+			out.reserve(a_values.size());
+			types.reserve(a_values.size());
+			for (const auto* value : a_values) {
+				out.push_back(value ? value->String() : "");
+				types.push_back(value ? value->Type() : "none");
+				delete value;
+			}
+			a_var.SetList(std::move(out), std::move(types));
+		}
+
 		inline void PackVariable(Variable& a_var, const BSFixedString& a_value) { a_var = a_value; }
 		inline void PackVariable(Variable& a_var, const std::string& a_value) { a_var = BSFixedString(a_value); }
 		inline void PackVariable(Variable& a_var, std::int32_t a_value) { a_var = a_value; }
 		inline void PackVariable(Variable& a_var, float a_value) { a_var = a_value; }
 		inline void PackVariable(Variable& a_var, bool a_value) { a_var = a_value; }
+		inline void PackVariable(Variable& a_var, TESForm* a_value)
+		{
+			if (!a_value) {
+				a_var = nullptr;
+				return;
+			}
+			auto type = std::make_shared<ObjectTypeInfo>();
+			type->name = BSFixedString("Form");
+			auto object = std::make_shared<Object>();
+			object->type = BSTSmartPointer<ObjectTypeInfo>(std::move(type));
+			object->form = a_value;
+			a_var = BSTSmartPointer<Object>(std::move(object));
+		}
+
+		template <class T>
+		[[nodiscard]] auto get(const Variable& a_var)
+		{
+			if constexpr (std::same_as<T, BSFixedString>) return BSFixedString(a_var.String());
+			if constexpr (std::same_as<T, std::int32_t>) return static_cast<std::int32_t>(std::stoi(a_var.String()));
+			if constexpr (std::same_as<T, std::uint32_t>) return static_cast<std::uint32_t>(std::stoul(a_var.String()));
+			if constexpr (std::same_as<T, float>) return std::stof(a_var.String());
+			if constexpr (std::same_as<T, bool>) return a_var.String() == "true";
+			if constexpr (std::same_as<T, Object>) return a_var.ObjectValue();
+			if constexpr (std::same_as<T, Variable>) return const_cast<Variable*>(a_var.InnerValue());
+		}
+
+		template <class T>
+		[[nodiscard]] T* UnpackVariable(const Variable& a_var)
+			requires(std::same_as<T, TESForm>)
+		{
+			return a_var.ObjectValue() ? a_var.ObjectValue()->form : nullptr;
+		}
 
 		class IVirtualMachine
 		{
@@ -128,10 +230,11 @@ namespace RE
 			virtual ~IVirtualMachine() = default;
 
 			template <class F>
-			void BindNativeMethod(std::string_view /*a_script*/, std::string_view a_name, F a_func,
+			void BindNativeMethod(std::string_view a_script, std::string_view a_name, F a_func,
 				bool /*a_taskletCallable*/ = true, bool /*a_isLatent*/ = false)
 			{
 				natives[std::string(a_name)] = a_func;
+				nativeScripts[std::string(a_name)].push_back(std::string(a_script));
 			}
 
 			template <class F>
@@ -143,6 +246,7 @@ namespace RE
 			}
 
 			std::map<std::string, std::any> natives;
+			std::map<std::string, std::vector<std::string>> nativeScripts;
 		};
 
 		namespace Internal
@@ -207,13 +311,14 @@ namespace RE
 					out.types.reserve(packed.size());
 					for (const auto& v : packed) {
 						if (v.IsList()) {
-							for (const auto& s : v.List()) {
-								out.args.push_back(s);
+							for (std::size_t i = 0; i < v.List().size(); ++i) {
+								out.args.push_back(v.List()[i]);
+								out.types.push_back(i < v.ListTypes().size() ? v.ListTypes()[i] : "string");
 							}
 						} else {
 							out.args.push_back(v.String());
+							out.types.push_back(v.Type());
 						}
-						out.types.push_back(v.Type());
 					}
 					return out;
 				}

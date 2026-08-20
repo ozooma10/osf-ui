@@ -19,6 +19,9 @@ namespace OSFUI
 
 namespace OSFUI::API
 {
+	//returns true if name is valid and not reserved.
+	[[nodiscard]] bool IsUnreservedEndpointName(std::string_view a_name);
+
 	class BridgeApi final : public IOSFUIBridge
 	{
 	public:

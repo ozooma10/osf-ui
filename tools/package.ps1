@@ -152,7 +152,9 @@ try {
         'SFSE\Plugins\OSFUI\views\shared\osfui.js',
         'SFSE\Plugins\OSFUI\views\shared\osfui.css',
         'SFSE\Plugins\OSFUI\views\osfui\padnav.js',
-        'Scripts\OSFUI.pex'   # Papyrus API
+        'Scripts\OSFUI.pex',          # Runtime/version API
+        'Scripts\OSFUI_Settings.pex', # Settings/hotkey API
+        'Scripts\OSFUI_View.pex'      # View bridge/presentation API
     )
     $missing = $required | Where-Object { -not (Test-Path (Join-Path $Staging $_)) }
     if ($missing) {

@@ -438,9 +438,14 @@ export function App({ bridge = windowBridge, assetRoots }: AppProps) {
 
   const runAction = (requestEndpoint: string, modId: string, key: string | undefined) =>
     bridge
-      .request<{ message?: unknown }>(requestEndpoint, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
+      .request<unknown>(requestEndpoint, { mod: modId, key }, { timeoutMs: ACTION_TIMEOUT_MS })
       .then((payload) => {
-        return payload && typeof payload.message === 'string' ? payload.message : null;
+        // Papyrus can Reply with a scalar string; native endpoints commonly
+        // return the structured `{ message }` shape. Both mean the same thing
+        // at this UI boundary, while None/{} remain silent success.
+        if (typeof payload === 'string') return payload;
+        return payload && typeof payload === 'object' && 'message' in payload &&
+          typeof payload.message === 'string' ? payload.message : null;
       });
 
   return (

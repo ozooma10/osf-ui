@@ -1,6 +1,6 @@
 
 import type { EventName, EventPayload, StateKey, StateValue, BridgeError } from './protocol';
-import type { RuntimeInfo, JsonObject, I18nCatalog, PapyrusArgument, PapyrusCallArgument } from '@sdk';
+import type { RuntimeInfo, JsonObject, I18nCatalog, PapyrusCallArgument } from '@sdk';
 
 export interface RequestOptions {
   timeoutMs?: number;
@@ -19,7 +19,7 @@ export interface Bridge {
   /** Subscribe to a one-shot happening. Returns the unsubscribe fn. */
   on<T extends EventName>(event: T, fn: (payload: EventPayload<T>) => void): () => void;
 
-  /** Subscribe to a mod-defined event (a `<mod>.<name>` the SDK cannot know about). */
+  /** Subscribe to a mod-defined event the SDK cannot know about (local for own, qualified cross-mod). */
   onAny<T = unknown>(event: string, fn: (payload: T) => void): () => void;
 
   state<T extends StateKey>(key: T, fn: (value: StateValue<T>) => void): () => void;
@@ -42,14 +42,8 @@ export interface Bridge {
   /** Apply a mod accent hex to a subtree; a missing/invalid hex clears it. */
   applyAccent(el: HTMLElement, hex: string | null | undefined): void;
 
-  /** One-way message to the owning mod's Papyrus listener. */
-  papyrusSend(name: string, ...args: PapyrusArgument[]): boolean;
-
   /** Fire-and-forget call to an arbitrary GLOBAL Papyrus function. */
   papyrusCall(script: string, fn: string, ...args: PapyrusCallArgument[]): boolean;
-
-  /** Correlated request to the owning mod's Papyrus listener. */
-  papyrusRequest<T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T>;
 }
 
 function noBridgeError(): BridgeError {
@@ -112,15 +106,7 @@ export const windowBridge: Bridge = {
     window.osfui?.theme?.applyAccent?.call(window.osfui!.theme, el, hex);
   },
 
-  papyrusSend: (name, ...args) => window.osfui?.papyrus?.send?.(name, ...args) ?? false,
-
   papyrusCall: (script, fn, ...args) => window.osfui?.papyrus?.call?.(script, fn, ...args) ?? false,
-
-  papyrusRequest: <T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T> => {
-    const request = window.osfui?.papyrus?.request;
-    if (!request) return Promise.reject(noBridgeError());
-    return request.call(window.osfui!.papyrus, name, ...args) as Promise<T>;
-  },
 };
 
 export const nullBridge: Bridge = {
@@ -136,7 +122,5 @@ export const nullBridge: Bridge = {
   locale: () => 'en',
   t: (_address, english, vars) => interpolateEnglish(english, vars),
   applyAccent: () => {},
-  papyrusSend: () => false,
   papyrusCall: () => false,
-  papyrusRequest: () => Promise.reject(noBridgeError()),
 };

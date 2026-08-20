@@ -1,6 +1,8 @@
 #include "Runtime/Runtime.h"
 
 #include <format>
+#include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -12,6 +14,83 @@
 
 namespace OSFUI
 {
+	namespace
+	{
+		std::optional<std::vector<API::Papyrus::Value>> ParsePapyrusArgs(const nlohmann::json& a_payload, std::string& a_error)
+		{
+			std::vector<API::Papyrus::Value> args;
+			const auto it = a_payload.find("args");
+			if (it == a_payload.end()) return args;
+			if (!it->is_array()) {
+				a_error = "payload.args must be an array";
+				return std::nullopt;
+			}
+			constexpr std::size_t kMaxPapyrusArgs = 64;
+			if (it->size() > kMaxPapyrusArgs) {
+				a_error = "payload.args may contain at most 64 values";
+				return std::nullopt;
+			}
+			args.reserve(it->size());
+			for (const auto& value : *it) {
+				if (value.is_null()) {
+					args.emplace_back(std::monostate{});
+				} else if (value.is_boolean()) {
+					args.emplace_back(value.get<bool>());
+				} else if (value.is_number_unsigned()) {
+					const auto number = value.get<std::uint64_t>();
+					if (number > static_cast<std::uint64_t>(INT32_MAX)) {
+						a_error = "integer args must fit the Papyrus signed 32-bit range";
+						return std::nullopt;
+					}
+					args.emplace_back(static_cast<std::int32_t>(number));
+				} else if (value.is_number_integer()) {
+					const auto number = value.get<std::int64_t>();
+					if (number < INT32_MIN || number > INT32_MAX) {
+						a_error = "integer args must fit the Papyrus signed 32-bit range";
+						return std::nullopt;
+					}
+					args.emplace_back(static_cast<std::int32_t>(number));
+				} else if (value.is_number_float()) {
+					const auto number = value.get<double>();
+					if (!std::isfinite(number) || std::abs(number) > std::numeric_limits<float>::max()) {
+						a_error = "float args must be finite Papyrus float values";
+						return std::nullopt;
+					}
+					args.emplace_back(static_cast<float>(number));
+				} else if (value.is_string()) {
+					args.emplace_back(value.get<std::string>());
+				} else if (value.is_object()) {
+					const auto form = value.find("formId");
+					if (form == value.end() || (!form->is_number_integer() && !form->is_number_unsigned())) {
+						a_error = "object args must be serialized Forms with an unsigned 32-bit formId";
+						return std::nullopt;
+					}
+					std::uint32_t formId = 0;
+					if (form->is_number_unsigned()) {
+						const auto number = form->get<std::uint64_t>();
+						if (number > UINT32_MAX) {
+							a_error = "Form args require an unsigned 32-bit formId";
+							return std::nullopt;
+						}
+						formId = static_cast<std::uint32_t>(number);
+					} else {
+						const auto number = form->get<std::int64_t>();
+						if (number < 0 || number > UINT32_MAX) {
+							a_error = "Form args require an unsigned 32-bit formId";
+							return std::nullopt;
+						}
+						formId = static_cast<std::uint32_t>(number);
+					}
+					args.emplace_back(API::Papyrus::FormValue{ formId });
+				} else {
+					a_error = "args support only null, bool, int, float, string, and serialized Form values";
+					return std::nullopt;
+				}
+			}
+			return args;
+		}
+	}
+
     void Runtime::BroadcastViewsData()
 	{
 		if (!_bridge) {
@@ -246,31 +325,6 @@ namespace OSFUI
 			REX::DEBUG("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
 			a_b.Respond(nlohmann::json{ { "armed", true }, { "mod", mod }, { "key", key } });
 		});
-		// Non-string arg elements are coerced so view can send `args: [1, 7]` without stringifying
-		const auto papyrusArgs = [](const nlohmann::json& a_p) {
-			std::vector<std::string> args;
-			const auto* list = Json::GetArray(a_p, "args");
-			if (!list) {
-				return args;
-			}
-			args.reserve(list->size());
-			for (const auto& e : *list) {
-				if (e.is_string()) {
-					args.push_back(e.get<std::string>());
-				} else if (e.is_number_unsigned()) {
-					args.push_back(std::to_string(e.get<std::uint64_t>()));
-				} else if (e.is_number_integer()) {
-					args.push_back(std::to_string(e.get<std::int64_t>()));
-				} else if (e.is_number()) {
-					args.push_back(std::to_string(e.get<double>()));
-				} else if (e.is_boolean()) {
-					args.emplace_back(e.get<bool>() ? "true" : "false");
-				} else {
-					args.emplace_back();  // null/object/array element -> ""
-				}
-			}
-			return args;
-		};
 		a_bridge.RegisterSend("papyrus.call", [](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
 			const auto call = PapyrusCall::Parse(a_p);
@@ -283,31 +337,49 @@ namespace OSFUI
 				a_b.ReportProtocolFault(source, "papyrus-unavailable", "Papyrus could not queue the GLOBAL function");
 			}
 		});
-		a_bridge.RegisterSend("papyrus.send", [papyrusArgs](const nlohmann::json& a_p, MessageBridge& a_b) {
-			const std::string source(a_b.CurrentSource());
-			const std::string mod{ Ids::ModOf(source) };
-			const std::string name = Json::Get(a_p, "name", "");
-			if (name.empty()) {
-				a_b.ReportProtocolFault(source, "invalid-request", "papyrus.send requires a non-empty 'name'");
-				return;
-			}
-			API::Papyrus::OnViewAction(mod, name, papyrusArgs(a_p));
-		});
-		a_bridge.RegisterRequest("papyrus.request", [papyrusArgs](const nlohmann::json& a_p, MessageBridge& a_b) {
-			const std::string source(a_b.CurrentSource());
-			const std::string mod{ Ids::ModOf(source) };
-			const std::string name = Json::Get(a_p, "name", "");
-			if (mod.empty() || name.empty() || name.size() > 64) {
-				a_b.Reject("invalid-request", "name must be a non-empty string of at most 64 characters");
-				return;
-			}
-			const auto token = a_b.Defer();
-			if (!API::Papyrus::OnViewRequest(mod, name, papyrusArgs(a_p), source, token)) {
-				a_b.RejectTo(token, "papyrus-unavailable", "no Papyrus request listener is available");
-				return;
-			}
-			// script settles it later through ReplyView*/RejectViewRequest.
-		});
+		a_bridge.SetEndpointFallback(
+			[](std::string_view a_sourceViewId, std::string_view a_name) {
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint(Ids::ModOf(a_sourceViewId), a_name);
+				switch (endpoint.kind) {
+				case API::Papyrus::ViewEndpointKind::kSend:
+					return MessageBridge::FallbackEndpointKind::kSend;
+				case API::Papyrus::ViewEndpointKind::kRequest:
+					return MessageBridge::FallbackEndpointKind::kRequest;
+				default:
+					return MessageBridge::FallbackEndpointKind::kNone;
+				}
+			},
+			[](std::string_view a_name, const nlohmann::json& a_payload, MessageBridge& a_b) {
+				const std::string source(a_b.CurrentSource());
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint(Ids::ModOf(source), a_name);
+				std::string error;
+				auto args = ParsePapyrusArgs(a_payload, error);
+				if (!args) {
+					a_b.ReportProtocolFault(source, "invalid-payload", error, { { "name", a_name } });
+					return;
+				}
+				if (endpoint.kind != API::Papyrus::ViewEndpointKind::kSend || !API::Papyrus::OnViewSend(endpoint.modId, endpoint.name, *args, source)) {
+					a_b.ReportProtocolFault(source, "papyrus-unavailable", "Papyrus send endpoint is no longer available", { { "name", a_name } }, false);
+				}
+			},
+			[](std::string_view a_name, const nlohmann::json& a_payload, MessageBridge& a_b) {
+				const std::string source(a_b.CurrentSource());
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint(Ids::ModOf(source), a_name);
+				std::string error;
+				auto args = ParsePapyrusArgs(a_payload, error);
+				if (!args) {
+					a_b.Reject("invalid-payload", error);
+					return;
+				}
+				if (endpoint.kind != API::Papyrus::ViewEndpointKind::kRequest) {
+					a_b.Reject("papyrus-unavailable", "Papyrus request endpoint is no longer available");
+					return;
+				}
+				const auto token = a_b.Defer();
+				if (!API::Papyrus::OnViewRequest(endpoint.modId, endpoint.name, *args, source, token)) {
+					a_b.RejectTo(token, "papyrus-unavailable", "Papyrus request endpoint is no longer available");
+				}
+			});
 		a_bridge.RegisterRequest("ping", [](const nlohmann::json&, MessageBridge& a_b) {
 			a_b.Respond(nlohmann::json::object());
 		});

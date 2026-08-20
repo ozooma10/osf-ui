@@ -23,16 +23,20 @@
 //                                            the client timer).
 //   osfui.on(event, fn)                   -> one-shot happenings. Never replayed;
 //                                            request replies never land here.
+//                                            Own events use their local name;
+//                                            qualified names still work.
 //                                            Returns unsubscribe.
 //   osfui.state.on(key, fn)               -> named values, latest-wins, complete
 //                                            per key. Replays the current value
 //                                            synchronously on subscribe and
 //                                            again on every fresh document, so a
 //                                            correct view needs ZERO lifecycle
-//                                            code. Key is "<mod>/<key>".
+//                                            code. Own state uses its local key;
+//                                            qualified "<mod>/<key>" keys still
+//                                            work.
 //   osfui.state.get(key)                  -> latest value, or undefined.
 //
-//   osfui.papyrus.call / .send / .request -> GLOBAL call or listener messages
+//   osfui.papyrus.call / .float            -> advanced GLOBAL-call escape hatch
 //   osfui.i18n.ready / .locale / .t / .localize
 //   osfui.theme.applyAccent(el, hex)
 //
@@ -58,10 +62,12 @@
   const g = (window.osfui = window.osfui || {});
 
   const events = new Map();      // event name -> Set<fn>
-  const stateSubs = new Map();   // "<mod>/<key>" -> Set<fn>
-  const stateCache = new Map();  // "<mod>/<key>" -> value
+  const stateSubs = new Map();   // local key or "<mod>/<key>" -> Set<fn>
+  const stateCache = new Map();  // local key or "<mod>/<key>" -> value
   const pending = new Map();     // request id -> { resolve, reject, timer, name, startedAt }
   let seq = 0;
+  let readySeen = false;
+  let ownMod = "";              // lower-case mod id from the first ready payload
 
   const bridged = typeof g.postMessage === "function";
 
@@ -183,7 +189,7 @@
   };
 
   // ---------------------------------------------------------------------
-  // sugar: papyrus
+  // sugar: advanced GLOBAL Papyrus calls
   // ---------------------------------------------------------------------
 
   g.papyrus = {
@@ -193,17 +199,6 @@
     call: function (script, fn) {
       const args = Array.prototype.slice.call(arguments, 2);
       return g.send("papyrus.call", { script: String(script), function: String(fn), args: args });
-    },
-    send: function (name) {
-      const args = Array.prototype.slice.call(arguments, 1);
-      return g.send("papyrus.send", { name: String(name), args: args });
-    },
-    request: function (name) {
-      const args = Array.prototype.slice.call(arguments, 1);
-      // Papyrus answers over the VM's async call queue, so it gets a longer
-      // client timer than the platform default.
-      return g.request("papyrus.request", { name: String(name), args: args }, { timeoutMs: 15000 })
-        .then(function (payload) { return payload ? payload.value : undefined; });
     },
   };
 
@@ -285,9 +280,18 @@
   // inbound
   // ---------------------------------------------------------------------
 
+  function publishState(address, value) {
+    stateCache.set(address, value);
+    const set = stateSubs.get(address);
+    if (!set) return;
+    for (const fn of Array.from(set)) {
+      try { fn(value); }
+      catch (e) { report('state handler for "' + address + '" threw', e); }
+    }
+  }
+
   function deliverState(mod, key, value) {
     const composite = stateKey(mod + "/" + key);
-    stateCache.set(composite, value);
     if (composite === "osfui/i18n") {
       const catalog = value || {};
       locale = typeof catalog.locale === "string" ? catalog.locale : "en";
@@ -296,12 +300,8 @@
       localize(document);
       resolveI18n({ locale: locale, strings: strings });
     }
-    const set = stateSubs.get(composite);
-    if (!set) return;
-    for (const fn of Array.from(set)) {
-      try { fn(value); }
-      catch (e) { report('state handler for "' + composite + '" threw', e); }
-    }
+    publishState(composite, value);
+    if (ownMod && stateKey(mod) === ownMod) publishState(stateKey(key), value);
   }
 
   function deliverEvent(name, payload) {
@@ -312,11 +312,18 @@
       report("OSF UI runtime rejected " + (p.code || "a message") + ": " + (p.message || ""), p.detail || p);
       return;
     }
-    const set = events.get(name);
-    if (!set) return;
-    for (const fn of Array.from(set)) {
-      try { fn(payload); }
-      catch (e) { report('event handler for "' + name + '" threw', e); }
+    const addresses = [name];
+    const ownPrefix = ownMod + ".";
+    if (ownMod && name.toLowerCase().startsWith(ownPrefix) && name.length > ownPrefix.length) {
+      addresses.push(name.slice(ownPrefix.length));
+    }
+    for (const address of addresses) {
+      const set = events.get(address);
+      if (!set) continue;
+      for (const fn of Array.from(set)) {
+        try { fn(payload); }
+        catch (e) { report('event handler for "' + address + '" threw', e); }
+      }
     }
   }
 
@@ -347,7 +354,12 @@
 
     switch (message.kind) {
       case "ready":
-        resolveReady(message.payload || {});
+        if (!readySeen) {
+          readySeen = true;
+          const info = message.payload || {};
+          ownMod = info && typeof info.mod === "string" ? stateKey(info.mod) : "";
+          resolveReady(info);
+        }
         break;
       case "state":
         if (typeof message.mod === "string" && typeof message.key === "string") {
@@ -355,10 +367,14 @@
         }
         break;
       case "event":
-        if (typeof message.name === "string") deliverEvent(message.name, message.payload || {});
+        if (typeof message.name === "string") {
+          deliverEvent(message.name,
+            Object.prototype.hasOwnProperty.call(message, "payload") ? message.payload : {});
+        }
         break;
       case "reply":
-        settle(message.id, true, message.payload || {});
+        settle(message.id, true,
+          Object.prototype.hasOwnProperty.call(message, "payload") ? message.payload : {});
         break;
       case "error":
         settle(message.id, false, message.payload || {});

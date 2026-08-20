@@ -33,8 +33,8 @@ describe('nullBridge — one-way members', () => {
   it('return false instead of throwing', () => {
     expect(nullBridge.send('close')).toBe(false);
     expect(nullBridge.send('setVisible', { visible: false })).toBe(false);
+    expect(nullBridge.send('doorOpened', { args: ['airlock', 3] })).toBe(false);
     expect(nullBridge.papyrusCall('AcmeWidgets', 'Refresh')).toBe(false);
-    expect(nullBridge.papyrusSend('doorOpened', 'airlock', 3)).toBe(false);
   });
 });
 
@@ -61,10 +61,6 @@ describe('nullBridge — request', () => {
     expect(a).not.toBe(b);
   });
 
-  it('rejects papyrusRequest the same way — sugar is not a second contract', async () => {
-    const err = await caught(nullBridge.papyrusRequest('calculatePrice', 42));
-    expect(err.code).toBe('no-bridge');
-  });
 });
 
 describe('nullBridge — on / state', () => {

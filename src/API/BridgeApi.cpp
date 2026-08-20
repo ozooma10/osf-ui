@@ -8,19 +8,20 @@
 
 namespace OSFUI::API
 {
+	bool IsUnreservedEndpointName(std::string_view a_name)
+	{
+		if (a_name.empty() || a_name.size() > 128) {
+			return false;
+		}
+		if (a_name.size() >= Ids::kBuiltInModId.size() && Ids::EqualsCaseInsensitiveAscii(a_name.substr(0, Ids::kBuiltInModId.size()), Ids::kBuiltInModId) && (a_name.size() == Ids::kBuiltInModId.size() || a_name[Ids::kBuiltInModId.size()] == '.')) {
+			return false;
+		}
+		static constexpr std::array kPlatformEndpoints{ "close", "setVisible", "menu.open", "menu.close", "setViewHidden", "settings.captureKey", "settings.set", "settings.reset", "papyrus.call", "ping" };
+		return std::ranges::find_if(kPlatformEndpoints, [a_name](const char* a_endpoint) { return a_name == a_endpoint; }) == kPlatformEndpoints.end();
+	}
+
 	namespace
 	{
-		bool IsValidPluginEndpointName(std::string_view a_name)
-		{
-			if (a_name.empty()) {
-				return false;
-			}
-			if (a_name.size() >= Ids::kBuiltInModId.size() && Ids::EqualsCaseInsensitiveAscii(a_name.substr(0, Ids::kBuiltInModId.size()), Ids::kBuiltInModId) && (a_name.size() == Ids::kBuiltInModId.size() || a_name[Ids::kBuiltInModId.size()] == '.')) {
-				return false;
-			}
-			static constexpr std::array kPlatformEndpoints{ "close", "setVisible", "menu.open", "menu.close", "setViewHidden", "settings.captureKey", "settings.set", "settings.reset", "papyrus.call", "papyrus.send", "papyrus.request", "ping" };
-			return std::ranges::find_if(kPlatformEndpoints, [a_name](const char* a_endpoint) { return a_name == a_endpoint; }) == kPlatformEndpoints.end();
-		}
 
 		const std::string* FindIdCaseInsensitive(const std::unordered_set<std::string>& a_ids, std::string_view a_wanted)
 		{
@@ -79,8 +80,8 @@ namespace OSFUI::API
 	{
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
-		if (!IsValidPluginEndpointName(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterCommand('{}') — endpoint name is empty or reserved by the platform", name.substr(0, 128));
+		if (!IsUnreservedEndpointName(name)) {
+			REX::WARN("BridgeApi: [content] refused RegisterCommand('{}') — endpoint name is empty, longer than 128 bytes, or reserved by the platform", name.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);
@@ -112,8 +113,8 @@ namespace OSFUI::API
 			return;
 		}
 		const std::string name(a_name);
-		if (!IsValidPluginEndpointName(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — endpoint name is empty or reserved by the platform", name.substr(0, 128));
+		if (!IsUnreservedEndpointName(name)) {
+			REX::WARN("BridgeApi: [content] refused RegisterSend('{}') — endpoint name is empty, longer than 128 bytes, or reserved by the platform", name.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);
@@ -145,8 +146,8 @@ namespace OSFUI::API
 	{
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
-		if (!IsValidPluginEndpointName(name)) {
-			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — endpoint name is empty or reserved by the platform", name.substr(0, 128));
+		if (!IsUnreservedEndpointName(name)) {
+			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — endpoint name is empty, longer than 128 bytes, or reserved by the platform", name.substr(0, 128));
 			return;
 		}
 		std::lock_guard lock(_mutex);

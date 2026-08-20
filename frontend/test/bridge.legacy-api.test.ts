@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { composeHelper } from '../scripts/compose-helper.mjs';
 import type { GameInputContextClassification, VanillaContextClassification } from '@sdk';
 
 const legacyClassification: VanillaContextClassification =
   'core' satisfies GameInputContextClassification;
+const BRIDGE_SHIM = readFileSync(
+  resolve(process.cwd(), '../tools/webview2_host/scripts/bridge-shim.js'),
+  'utf8',
+);
 
 describe('deprecated SDK aliases', () => {
   it('keeps VanillaContextClassification source-compatible', () => {
@@ -49,6 +55,36 @@ function load(search: string): { helper: LegacyHelper; sent: Sent[] } {
   return { helper: (window as any).osfui as LegacyHelper, sent };
 }
 
+function loadThroughProductionShim(search: string): {
+  helper: LegacyHelper;
+  sent: Sent[];
+  deliverNative(message: unknown): void;
+} {
+  window.history.replaceState({}, '', '/acme.widgets/panel/index.html' + search);
+  const sent: Sent[] = [];
+  let inbound: ((event: { data: unknown }) => void) | undefined;
+  const chromeStub = {
+    webview: {
+      postMessage(json: string) { sent.push(JSON.parse(json) as Sent); },
+      addEventListener(type: string, fn: (event: { data: unknown }) => void) {
+        if (type === 'message') inbound = fn;
+      },
+    },
+  };
+  (window as any).osfui = undefined;
+  (window as any).chrome = chromeStub;
+  new Function(BRIDGE_SHIM)();
+  new Function(composeHelper())();
+  return {
+    helper: (window as any).osfui as LegacyHelper,
+    sent,
+    deliverNative(message) {
+      if (!inbound) throw new Error('the production bridge shim installed no native message sink');
+      inbound({ data: message });
+    },
+  };
+}
+
 function deliver(helper: LegacyHelper, message: unknown): void {
   helper.onMessage(JSON.stringify(message));
 }
@@ -63,6 +99,59 @@ beforeEach(() => {
 });
 
 describe('frozen 1.x helper facade', () => {
+  it('receives native frames through the production bridge shim after replacing window.osfui', async () => {
+    const { helper, sent, deliverNative } = loadThroughProductionShim('?osfui-api=1');
+    const ready = vi.fn();
+    const state = vi.fn();
+    const resultEvent = vi.fn();
+    helper.on('runtime.ready', ready);
+    helper.data.on('count', state);
+    helper.on('papyrus.result', resultEvent);
+
+    deliverNative({ kind: 'ready', payload: { mod: 'acme.widgets', version: '2.0.0' } });
+    deliverNative({ kind: 'state', mod: 'acme.widgets', key: 'count', value: 4 });
+    expect(ready).toHaveBeenCalledWith(
+      { mod: 'acme.widgets', version: '2.0.0' },
+      { type: 'runtime.ready', payload: { mod: 'acme.widgets', version: '2.0.0' } },
+    );
+    expect(state).toHaveBeenCalledWith(
+      4,
+      { mod: 'acme.widgets', key: 'count', value: 4 },
+      { type: 'data.state', payload: { mod: 'acme.widgets', key: 'count', value: 4 } },
+    );
+
+    const result = helper.request('ui.papyrusRequest', { request: 'count', args: [] });
+    const outbound = last(sent);
+    expect(outbound).toMatchObject({ kind: 'request', name: 'count', payload: { args: [] } });
+    deliverNative({ kind: 'reply', id: outbound.id, payload: 0 });
+
+    await expect(result).resolves.toEqual({
+      type: 'papyrus.result', requestId: 'q1', payload: { value: 0 },
+    });
+    expect(resultEvent).toHaveBeenCalledWith(
+      { value: 0 },
+      { type: 'papyrus.result', requestId: 'q1', payload: { value: 0 } },
+    );
+  });
+
+  it('blurs focused controls on current and legacy visibility-off envelopes in the production shim', () => {
+    const { deliverNative } = loadThroughProductionShim('?osfui-api=1');
+    const input = document.createElement('input');
+    document.body.append(input);
+
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    deliverNative({
+      kind: 'event', name: 'ui.visibility', payload: { visible: false },
+    });
+    expect(document.activeElement).not.toBe(input);
+
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    deliverNative({ type: 'ui.visibility', payload: { visible: false } });
+    expect(document.activeElement).not.toBe(input);
+  });
+
   it('is absent from a 2.0 navigation', () => {
     const { helper } = load('?scenario=strict');
     expect(typeof (helper as any).available).toBe('boolean');
@@ -87,15 +176,15 @@ describe('frozen 1.x helper facade', () => {
     });
     expect(helper.action('sort', 'aid', 4)).toBe(true);
     expect(last(sent)).toEqual({
-      kind: 'send', name: 'papyrus.send', payload: { name: 'sort', args: ['aid', 4] },
+      kind: 'send', name: 'sort', payload: { args: ['aid', 4] },
     });
     expect(helper.emit('ui.action', { action: 'equip', arg: 'weapon' })).toBe(true);
     expect(last(sent)).toEqual({
-      kind: 'send', name: 'papyrus.send', payload: { name: 'equip', args: ['weapon'] },
+      kind: 'send', name: 'equip', payload: { args: ['weapon'] },
     });
     expect(helper.papyrus.action('equip', 42)).toBe(true);
     expect(last(sent)).toEqual({
-      kind: 'send', name: 'papyrus.send', payload: { name: 'equip', args: [42] },
+      kind: 'send', name: 'equip', payload: { args: [42] },
     });
     const pong = vi.fn();
     helper.on('runtime.pong', pong);
@@ -117,9 +206,9 @@ describe('frozen 1.x helper facade', () => {
     const result = helper.request('ui.papyrusRequest', { request: 'price', args: [42] });
     const outbound = last(sent);
     expect(outbound).toMatchObject({
-      kind: 'request', name: 'papyrus.request', payload: { name: 'price', args: [42] },
+      kind: 'request', name: 'price', payload: { args: [42] },
     });
-    deliver(helper, { kind: 'reply', id: outbound.id, payload: { value: 125 } });
+    deliver(helper, { kind: 'reply', id: outbound.id, payload: 125 });
     const message = await result;
     expect(message).toEqual({ type: 'papyrus.result', requestId: 'q1', payload: { value: 125 } });
     expect(listener).toHaveBeenCalledWith(message.payload, message);
@@ -154,11 +243,33 @@ describe('frozen 1.x helper facade', () => {
     const papyrus = helper.papyrus.request('cost', 42);
     const papyrusOutbound = last(sent);
     expect(papyrusOutbound).toMatchObject({
-      kind: 'request', name: 'papyrus.request', payload: { name: 'cost', args: [42] },
+      kind: 'request', name: 'cost', payload: { args: [42] },
     });
-    deliver(helper, { kind: 'reply', id: papyrusOutbound.id, payload: { value: 17 } });
+    deliver(helper, { kind: 'reply', id: papyrusOutbound.id, payload: 17 });
     await expect(papyrus).resolves.toBe(17);
   });
+
+  it.each([false, 0, '', null])(
+    'wraps a raw falsy Papyrus reply in the frozen 1.x envelope: %j',
+    async (value) => {
+      const { helper, sent } = load('?osfui-api=1');
+      const listener = vi.fn();
+      helper.on('papyrus.result', listener);
+      const result = helper.request('ui.papyrusRequest', { request: 'probe', args: [] });
+      const outbound = last(sent);
+
+      expect(outbound).toMatchObject({
+        kind: 'request', name: 'probe', payload: { args: [] },
+      });
+      deliver(helper, { kind: 'reply', id: outbound.id, payload: value });
+
+      const message = await result;
+      expect(message).toEqual({
+        type: 'papyrus.result', requestId: 'q1', payload: { value },
+      });
+      expect(listener).toHaveBeenCalledWith(message.payload, message);
+    },
+  );
 
   it('serves all four registry reads from replayed 2.0 state', async () => {
     const { helper, sent } = load('?osfui-api=1');

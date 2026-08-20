@@ -7,6 +7,10 @@
 
   const core = window.osfui;
   if (!core || typeof core.send !== "function" || typeof core.request !== "function") return;
+  // The injected transport keeps its native inbound sink on the original
+  // bridge object. Capture the strict handler before replacing window.osfui,
+  // then install the compatibility wrapper back into that transport slot.
+  const coreOnMessage = typeof core.onMessage === "function" ? core.onMessage.bind(core) : function () {};
 
   const listeners = new Map();
   const dataState = new Map();
@@ -25,8 +29,9 @@
   function dispatch(type, payload, message) {
     const set = listeners.get(type);
     if (!set) return;
+    const delivered = payload === undefined ? {} : payload;
     for (const fn of Array.from(set)) {
-      try { fn(payload || {}, message); }
+      try { fn(delivered, message); }
       catch (error) { console.error("osfui.on handler failed:", error); }
     }
   }
@@ -57,7 +62,10 @@
       return;
     }
     if (message.kind === "event" && typeof message.name === "string") {
-      const legacy = { type: message.name, payload: message.payload || {} };
+      const legacy = {
+        type: message.name,
+        payload: Object.prototype.hasOwnProperty.call(message, "payload") ? message.payload : {},
+      };
       if (message.name === "data.push") rememberData(legacy.payload, legacy);
       if (message.name === "settings.captured") {
         const index = captureWaiters.findIndex(function (waiter) {
@@ -98,20 +106,14 @@
       const args = Array.isArray(payload.args) ? payload.args :
         (Object.prototype.hasOwnProperty.call(payload, "arg") ? [payload.arg] : []);
       return {
-        name: "papyrus.send",
-        payload: {
-          name: String(payload.action || ""),
-          args: args,
-        },
+        name: String(payload.action || ""),
+        payload: { args: args },
       };
     }
     if (name === "ui.papyrusRequest") {
       return {
-        name: "papyrus.request",
-        payload: {
-          name: String(payload.request || ""),
-          args: Array.isArray(payload.args) ? payload.args : [],
-        },
+        name: String(payload.request || ""),
+        payload: { args: Array.isArray(payload.args) ? payload.args : [] },
       };
     }
     if (name === "hud.show") return { name: "menu.open", payload: payload };
@@ -223,6 +225,9 @@
       });
     }
     return core.request(translated.name, translated.payload, opts).then(function (payload) {
+      // The current request contract resolves a Papyrus reply as the raw scalar.
+      // Rebuild the released 1.x `{ value }` document at the compatibility edge.
+      if (command === "ui.papyrusRequest") return { value: payload };
       if (command === "settings.set" && payload && payload.ok === undefined) {
         return Object.assign({ ok: true }, payload);
       }
@@ -280,7 +285,7 @@
       let message;
       try { message = JSON.parse(json); } catch (error) { message = null; }
       translateInbound(message);
-      core.onMessage(json);
+      coreOnMessage(json);
     },
     available: function () { return Boolean(core.available); },
     ready: core.ready,
@@ -347,5 +352,6 @@
   legacy.localize = function () { return core.i18n.localize.apply(core.i18n, arguments); };
   legacy.applyAccent = function () { return core.theme.applyAccent.apply(core.theme, arguments); };
 
+  core.onMessage = legacy.onMessage;
   window.osfui = legacy;
 })();

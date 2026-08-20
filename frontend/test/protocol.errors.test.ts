@@ -22,7 +22,6 @@ interface Helper {
     payload?: Record<string, unknown>,
     opts?: { timeoutMs?: number | undefined },
   ): Promise<unknown>;
-  papyrus: { request(name: string, ...args: unknown[]): Promise<unknown> };
   i18n: { ready: Promise<{ locale: string; strings: Record<string, string> }> };
   onMessage(json: string): void;
 }
@@ -270,15 +269,6 @@ describe('the client timer', () => {
     const pending = caught(helper.request('game.get', undefined, { timeoutMs: 250 }));
     await vi.advanceTimersByTimeAsync(250);
     expect((await pending).message).toBe('"game.get" got no reply within 250ms');
-  });
-
-  it('gives papyrus.request a longer 15000ms timer', async () => {
-    vi.useFakeTimers();
-    const { helper } = loadHelper();
-
-    const pending = caught(helper.papyrus.request('GetWeight', 0x14));
-    await vi.advanceTimersByTimeAsync(15000);
-    expect((await pending).message).toBe('"papyrus.request" got no reply within 15000ms');
   });
 
   it('clears the timer once a reply lands, so a late tick cannot reject', async () => {

@@ -180,15 +180,20 @@ int main()
 
 	// --- endpoint ownership: explicit, with no dot-count inference -------------
 	for (const auto* bad : { "close", "ping", "setVisible", "menu.open",
-	                         "settings.set", "papyrus.call", "papyrus.send", "osfui.hello",
+	                         "settings.set", "papyrus.call", "osfui.hello",
 	                         "osfui.gamepadMode", "osfui.gamepadRaw", "OSFUI.private" }) {
 		api.RegisterSend(bad, &HandlerA, nullptr);
 	}
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('close')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('menu.open')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('osfui.hello')"));
-	CHECK(LoggedContaining("WARN", "refused RegisterSend('papyrus.send')"));
 	CHECK(LoggedContaining("WARN", "refused RegisterSend('OSFUI.private')"));
+	api.RegisterSend("papyrus.send", &HandlerA, nullptr);
+	CHECK(!LoggedContaining("WARN", "refused RegisterSend('papyrus.send')"));
+	api.UnregisterSend("papyrus.send");
+	api.RegisterRequest("papyrus.request", &RequestHandler, nullptr);
+	CHECK(!LoggedContaining("WARN", "refused RegisterRequest('papyrus.request')"));
+	api.UnregisterRequest("papyrus.request");
 
 	// Opaque plugin endpoint names need no particular dot count.
 	api.RegisterSend("acme.mymod.ping", &HandlerA, nullptr);
@@ -227,6 +232,96 @@ int main()
 		CHECK(info.value("view", "") == "someview");
 		CHECK(info.value("mod", "") == "someview");
 		CHECK(!info.contains("capabilities"));  // removed pre-1.0, still gone
+	}
+
+	// Local JS names resolve through the authoritative source-mod namespace.
+	// Exact/native routing stays ahead of the Papyrus-style fallback, while a
+	// fully-qualified name remains available to a different view.
+	{
+		Outbox routeOut;
+		std::vector<std::string> routed;
+		std::vector<ProtocolFault> faults;
+		int fallbackProbes = 0;
+		MessageBridge routes([&](std::string_view a_view, std::string_view a_json) {
+			routeOut.emplace_back(a_view, a_json);
+		});
+		routes.SetProtocolFaultSink([&](std::string_view a_view, std::string_view a_code,
+			std::string_view a_message, const nlohmann::json& a_detail, bool) {
+			faults.push_back({ std::string(a_view), std::string(a_code), std::string(a_message), a_detail });
+		});
+		routes.RegisterSend("acme.route.fire", [&](const nlohmann::json&, MessageBridge& a_b) {
+			routed.push_back("native-send:" + std::string(a_b.CurrentSource()));
+		});
+		routes.RegisterRequest("acme.route.ask", [&](const nlohmann::json&, MessageBridge& a_b) {
+			routed.push_back("native-request:" + std::string(a_b.CurrentSource()));
+			a_b.Respond(nlohmann::json{ { "route", "native" } });
+		});
+		routes.SetEndpointFallback(
+			[&](std::string_view a_source, std::string_view a_name) {
+				++fallbackProbes;
+				// Deliberately claim the opposite Papyrus kind. Owner-qualified
+				// native endpoints must still win before this probe is consulted.
+				if (a_source.starts_with("acme.route/") && a_name == "fire") {
+					return MessageBridge::FallbackEndpointKind::kRequest;
+				}
+				if (a_source.starts_with("acme.route/") && a_name == "ask") {
+					return MessageBridge::FallbackEndpointKind::kSend;
+				}
+				const bool owns = a_source.starts_with("acme.paper/");
+				if ((owns && a_name == "papSend") || a_name == "acme.paper.papSend") {
+					return MessageBridge::FallbackEndpointKind::kSend;
+				}
+				if ((owns && a_name == "papRequest") || a_name == "acme.paper.papRequest") {
+					return MessageBridge::FallbackEndpointKind::kRequest;
+				}
+				return MessageBridge::FallbackEndpointKind::kNone;
+			},
+			[&](std::string_view a_name, const nlohmann::json&, MessageBridge& a_b) {
+				routed.push_back("papyrus-send:" + std::string(a_name) + ":" + std::string(a_b.CurrentSource()));
+			},
+			[&](std::string_view a_name, const nlohmann::json&, MessageBridge& a_b) {
+				routed.push_back("papyrus-request:" + std::string(a_name) + ":" + std::string(a_b.CurrentSource()));
+				a_b.Respond(17);
+			});
+
+		routes.HandleWebMessage("acme.route/panel", SendMsg("fire"));
+		CHECK(routed.size() == 1 && routed.back() == "native-send:acme.route/panel");
+		CHECK(fallbackProbes == 0);  // owner-qualified native alias beats fallback
+		routes.HandleWebMessage("other.mod/panel", SendMsg("acme.route.fire"));
+		CHECK(routed.size() == 2 && routed.back() == "native-send:other.mod/panel");
+
+		routeOut.clear();
+		routes.HandleWebMessage("acme.route/panel", RequestMsg("ask", "native-r"));
+		CHECK(routed.size() == 3 && routed.back() == "native-request:acme.route/panel");
+		CHECK(routeOut.size() == 1 && PayloadOf(Last(routeOut)).value("route", "") == "native");
+
+		faults.clear();
+		routes.HandleWebMessage("acme.route/panel", SendMsg("ask"));
+		CHECK(faults.size() == 1 && faults.back().code == "wrong-endpoint-kind");
+		routeOut.clear();
+		routes.HandleWebMessage("acme.route/panel", RequestMsg("fire", "wrong-native"));
+		CHECK(routeOut.size() == 1 && PayloadOf(Last(routeOut)).value("code", "") == "wrong-endpoint-kind");
+		CHECK(fallbackProbes == 0);
+
+		routes.HandleWebMessage("acme.paper/panel", SendMsg("papSend"));
+		CHECK(routed.size() == 4 && routed.back().starts_with("papyrus-send:papSend:"));
+		routes.HandleWebMessage("osfui/settings", SendMsg("acme.paper.papSend"));
+		CHECK(routed.size() == 5 && routed.back() == "papyrus-send:acme.paper.papSend:osfui/settings");
+		routeOut.clear();
+		routes.HandleWebMessage("acme.paper/panel", RequestMsg("papRequest", "paper-r"));
+		CHECK(routed.size() == 6 && routed.back().starts_with("papyrus-request:papRequest:"));
+		CHECK(routeOut.size() == 1 && PayloadOf(Last(routeOut)) == 17);
+
+		faults.clear();
+		routes.HandleWebMessage("acme.paper/panel", SendMsg("papRequest"));
+		CHECK(faults.size() == 1 && faults.back().code == "wrong-endpoint-kind");
+		routeOut.clear();
+		routes.HandleWebMessage("acme.paper/panel", RequestMsg("papSend", "wrong-paper"));
+		CHECK(routeOut.size() == 1 && PayloadOf(Last(routeOut)).value("code", "") == "wrong-endpoint-kind");
+
+		faults.clear();
+		routes.HandleWebMessage("other.mod/panel", SendMsg("papSend"));
+		CHECK(faults.size() == 1 && faults.back().code == "unknown-endpoint");
 	}
 
 	toWeb.clear();
