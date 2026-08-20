@@ -37,9 +37,15 @@ native backend mod.
 The paired `native/src/main.cpp` and view use the optional `OSFUI_JSON.h`
 facade:
 
+- The owning view calls local endpoint names such as `increment`, `getState`,
+  and `greet`; the plugin keeps the frozen native ABI's qualified registrations.
 - JavaScript `send()` dispatches a typed fire-and-forget `JsonSend`.
-- JavaScript `request()` dispatches a `JsonRequest`, and OSF UI owns reply
+- JavaScript `request()` dispatches a `JsonRequest` and resolves its raw reply;
+  OSF UI owns reply
   correlation and timeout behavior.
+- Native pushes use `osfui.on('notice', ...)` for a transient local event and
+  `osfui.state.on('state', ...)` for retained local state. Qualified names are
+  still available to explicit cross-mod consumers.
 - The plugin registers its endpoints, settings/hotkey subscriptions, view, and
   bridge-availability callback.
 - The settings schema under `mod/SFSE/Plugins/OSFUI/settings/` is discovered

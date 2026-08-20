@@ -114,11 +114,6 @@ export async function loadProject(cwd, command = 'serve') {
       capturesInput: kind === 'menu' && authored.capturesInput !== false,
       pausesGame: kind === 'menu' && authored.pausesGame !== false,
       targetVersion: version(authored.targetVersion, `view "${authored.id}"`),
-      permissions: {
-        nativeBridge: authored.permissions?.nativeBridge !== false,
-        filesystem: false,
-        network: false,
-      },
     });
   }
 
@@ -158,6 +153,5 @@ export function manifestFor(view) {
     hub: view.hub !== false,
     debugOnly: view.debugOnly === true,
     ...(view.targetVersion ? { targetVersion: view.targetVersion } : {}),
-    permissions: view.permissions,
   };
 }

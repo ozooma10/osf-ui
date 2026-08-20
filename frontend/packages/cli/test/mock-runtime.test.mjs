@@ -100,7 +100,7 @@ test('papyrus.call keeps only the advanced GLOBAL escape hatch', async () => {
   assert.equal(own.surfaced.length, 0);
 });
 
-test('a mock import error still installs hello, ready, and request handling', { concurrency: false }, async (t) => {
+test('mock import and install errors keep hello, ready, and requests live', { concurrency: false }, async (t) => {
   const saved = {
     window: globalThis.window,
     location: globalThis.location,
@@ -124,37 +124,46 @@ test('a mock import error still installs hello, ready, and request handling', { 
     addEventListener(_name, listener) { listeners.push(listener); },
   };
 
-  const delivered = [];
-  const statuses = [];
-  let bridgeHandler = null;
-  const harness = {
-    meta: {
-      ...META,
-      nativeBridge: true,
-      version: '2.0.0',
-      bridgeVersion: '2',
+  for (const failure of [
+    { module: {}, loadError: new Error('mock syntax exploded'), expected: /mock syntax exploded/ },
+    {
+      module: { install() { throw new Error('mock install exploded'); } },
+      loadError: null,
+      expected: /mock install exploded/,
     },
-    source: 'osfui-harness',
-    report() {},
-    deliver(message) { delivered.push(message); },
-    flush() { return true; },
-    setHandler(handler) { bridgeHandler = handler; },
-    ready() {},
-    status(ok, message) { statuses.push({ ok, message }); },
-  };
+  ]) {
+    const delivered = [];
+    const statuses = [];
+    let bridgeHandler = null;
+    const harness = {
+      meta: {
+        ...META,
+        nativeBridge: true,
+        version: '2.0.0',
+        bridgeVersion: '2',
+      },
+      source: 'osfui-harness',
+      report() {},
+      deliver(message) { delivered.push(message); },
+      flush() { return true; },
+      setHandler(handler) { bridgeHandler = handler; },
+      ready() {},
+      status(ok, message) { statuses.push({ ok, message }); },
+    };
 
-  await installMock(harness, {}, new Error('mock syntax exploded'));
-  assert.equal(typeof bridgeHandler, 'function');
-  bridgeHandler(JSON.stringify({ kind: 'send', name: 'osfui.hello', payload: {} }));
-  bridgeHandler(JSON.stringify({ kind: 'request', name: 'ping', id: 'q1', payload: {} }));
-  await new Promise((resolveMicrotasks) => setImmediate(resolveMicrotasks));
+    await installMock(harness, failure.module, failure.loadError);
+    assert.equal(typeof bridgeHandler, 'function');
+    bridgeHandler(JSON.stringify({ kind: 'send', name: 'osfui.hello', payload: {} }));
+    bridgeHandler(JSON.stringify({ kind: 'request', name: 'ping', id: 'q1', payload: {} }));
+    await new Promise((resolveMicrotasks) => setImmediate(resolveMicrotasks));
 
-  assert.ok(delivered.some((message) => message.kind === 'ready'));
-  assert.ok(delivered.some((message) => message.kind === 'event' &&
-    message.payload?.code === 'mock-load-error'));
-  assert.ok(delivered.some((message) => message.kind === 'reply' && message.id === 'q1'));
-  assert.equal(statuses.at(-1).ok, false);
-  assert.match(statuses.at(-1).message, /mock syntax exploded/);
+    assert.ok(delivered.some((message) => message.kind === 'ready'));
+    assert.ok(delivered.some((message) => message.kind === 'event' &&
+      message.payload?.code === 'mock-load-error'));
+    assert.ok(delivered.some((message) => message.kind === 'reply' && message.id === 'q1'));
+    assert.equal(statuses.at(-1).ok, false);
+    assert.match(statuses.at(-1).message, failure.expected);
+  }
 });
 
 test('scenario overlays keep base state and local request names', () => {

@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
+import { createServer } from 'vite';
 
 import { buildProject } from '../src/build.mjs';
 import { checkProject } from '../src/check.mjs';
@@ -29,7 +30,6 @@ async function animationFixture(t) {
         pausesGame: false,
         transparent: true,
         targetVersion: '2.0.0',
-        permissions: { nativeBridge: true },
       }],
     });
   `);
@@ -61,7 +61,7 @@ test('loads, checks, and builds the OSF Animation project shape', async (t) => {
   const output = resolve(root, 'build/SFSE/Plugins/OSFUI/views/osf.animation/browser');
   const manifest = JSON.parse(await readFile(resolve(output, 'manifest.json'), 'utf8'));
   assert.equal(manifest.targetVersion, '2.0.0');
-  assert.equal(manifest.permissions.nativeBridge, true);
+  assert.equal(Object.hasOwn(manifest, 'permissions'), false);
   assert.equal(await access(resolve(output, 'index.html')).then(() => true, () => false), true);
 });
 
@@ -89,5 +89,41 @@ test('injects the protocol-aware harness bootstrap and mock loader', async (t) =
   const shell = await readFile(resolve(import.meta.dirname, '../src/browser/shell.js'), 'utf8');
   for (const kind of ['button', 'toggle', 'cycle', 'select', 'tool-state']) {
     assert.match(shell, new RegExp(kind));
+  }
+});
+
+test('dev server serves the complete protocol harness module graph', async (t) => {
+  const project = await loadProject(await animationFixture(t));
+  const server = await createServer({
+    root: project.viewsRoot,
+    plugins: [harnessPlugin(project, project.views[0])],
+    server: { host: '127.0.0.1', port: 0, open: false, fs: { strict: false } },
+    logLevel: 'silent',
+  });
+  await server.listen();
+  try {
+    const { port } = server.httpServer.address();
+    const origin = `http://127.0.0.1:${port}`;
+    const page = await fetch(`${origin}/osf.animation/browser/index.html`);
+    const html = await page.text();
+    assert.equal(page.status, 200);
+    assert.match(html, /__osfui\/bootstrap\.js/);
+    assert.match(html, /__osfui\/mock-loader\.js/);
+
+    const expectedImports = new Map([
+      ['/__osfui/bootstrap.js', null],
+      ['/__osfui/mock-loader.js', './mock-runtime.js'],
+      ['/__osfui/mock-runtime.js', './tools-model.js'],
+      ['/__osfui/tools-model.js', null],
+      ['/__osfui/mock-entry.js', null],
+    ]);
+    for (const [path, imported] of expectedImports) {
+      const response = await fetch(origin + path);
+      const source = await response.text();
+      assert.equal(response.status, 200, `${path} must be served`);
+      if (imported) assert.match(source, new RegExp(imported.replace('.', '\\.')));
+    }
+  } finally {
+    await server.close();
   }
 });

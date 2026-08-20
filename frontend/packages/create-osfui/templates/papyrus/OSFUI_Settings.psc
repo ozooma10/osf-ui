@@ -20,14 +20,12 @@ float Function GetFloat(string asModId, string asKey, float afDefault = 0.0) Glo
 ; Covers string-, enum-, and key-typed settings. Enum settings return the stored option value; key settings return the current key name.
 string Function GetString(string asModId, string asKey, string asDefault = "") Global Native
 
-
 ; =============================================================================
 ; Write
 ; =============================================================================
 
 ; Writes are queued, then validated and clamped against the installed schema.
-; True means the operation was admitted to the queue, not that it has already
-; committed. Refused writes are logged and leave the stored value unchanged.
+; True means the operation was admitted to the queue, not that it has already committed. Refused writes are logged and leave the stored value unchanged.
 bool Function SetBool(string asModId, string asKey, bool abValue) Global Native
 bool Function SetInt(string asModId, string asKey, int aiValue) Global Native
 bool Function SetFloat(string asModId, string asKey, float afValue) Global Native
@@ -36,7 +34,6 @@ bool Function SetString(string asModId, string asKey, string asValue) Global Nat
 ; Reset one setting, or every setting for the mod when asKey is empty.
 bool Function Reset(string asModId, string asKey = "") Global Native
 
-
 ; =============================================================================
 ; Change listeners
 ; =============================================================================
@@ -44,8 +41,7 @@ bool Function Reset(string asModId, string asKey = "") Global Native
 ; Receiver callback:
 ;   Function OnOSFUISettingChanged(string asModId, string asKey)
 ;
-; Empty asKey listens to every setting in asModId. Returns a session-scoped
-; registration token, or 0 on failure.
+; Empty asKey listens to every setting in asModId. Returns a session-scoped registration token, or 0 on failure.
 int Function ListenForChanges(ScriptObject akReceiver, string asModId, string asKey = "") Global Native
 
 ; GLOBAL-function variant. Invokes OnOSFUISettingChanged on asScript.
@@ -59,14 +55,12 @@ int Function ListenForChangesStatic(string asScript, string asModId, string asKe
 ; Receiver callback:
 ;   Function OnOSFUIHotkey(string asModId, string asKey)
 ;
-; Empty asKey listens to every key-typed setting in asModId. Hotkeys fire only
-; during gameplay, never while an OSF UI view is accepting text/key input.
+; Empty asKey listens to every key-typed setting in asModId. Hotkeys fire only during gameplay, never while an OSF UI view is accepting text/key input.
 int Function ListenForHotkeys(ScriptObject akReceiver, string asModId, string asKey = "") Global Native
 
 ; GLOBAL-function variant. Invokes OnOSFUIHotkey on asScript.
 int Function ListenForHotkeysStatic(string asScript, string asModId, string asKey = "") Global Native
 
 
-; Remove a settings or hotkey registration. Returns false for 0 or a stale or
-; session-expired token.
+; Remove a settings or hotkey registration. Returns false for 0 or a stale or session-expired token.
 bool Function Unregister(int aiRegistrationToken) Global Native

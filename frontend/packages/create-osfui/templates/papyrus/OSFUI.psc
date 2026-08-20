@@ -9,8 +9,6 @@ ScriptName OSFUI Native Hidden
 bool Function IsAvailable() Global Native
 
 ; Packed release version: major*10000 + minor*100 + patch.
-; Returns 0 when OSF UI is unavailable.
 int Function GetVersion() Global Native
-
 ; Human-readable release version, for display and diagnostics only.
 string Function GetVersionString() Global Native

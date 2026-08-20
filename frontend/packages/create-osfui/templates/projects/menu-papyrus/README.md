@@ -50,7 +50,14 @@ alias, or registration to maintain. This is why the starter uses
 `osfui.papyrus.call()` for the direct round trip. A quest- or alias-backed
 backend should instead register ordinary `OSFUI_View.RegisterSend` or
 `RegisterRequest` endpoints after each game load, which JavaScript calls with
-`osfui.send()` or `osfui.request()`.
+`osfui.send('localName', { args: [...] })` or
+`osfui.request('localName', { args: [...] })`. The `OSFUI_View.Reply` value is
+the raw value returned by the JavaScript promise. Use a qualified endpoint only
+when intentionally addressing another mod.
+
+The starter's retained `clicks` value and transient `notice` event are likewise
+consumed through their local owner names: `osfui.state.on('clicks', ...)` and
+`osfui.on('notice', ...)`.
 
 ## API references
 

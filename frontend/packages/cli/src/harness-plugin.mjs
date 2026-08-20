@@ -11,6 +11,7 @@ import { readSharedAsset } from './shared-assets.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MOCK_ENTRY = '/__osfui/mock-entry.js';
 const SHARED_PREFIX = '\0osfui-shared:';
+const BROWSER_MODULES = new Set(['mock-loader.js', 'mock-runtime.js', 'tools-model.js']);
 const CSP = [
   "default-src 'self' data: blob:",
   "script-src 'self' 'unsafe-inline'",
@@ -41,7 +42,7 @@ export function harnessPlugin(project, selectedView) {
     width: view.width,
     height: view.height,
     transparent: view.transparent,
-    nativeBridge: view.permissions.nativeBridge,
+    nativeBridge: true,
     targetVersion: view.targetVersion || '',
     viewUrl: `/${project.modId}/${view.id}/${view.entry}`,
     version: OSFUI_RELEASE_VERSION,
@@ -59,9 +60,6 @@ export function harnessPlugin(project, selectedView) {
       if (source === '/shared/osfui.css') return `${SHARED_PREFIX}osfui.css`;
       const bare = source.split('?')[0];
       if (bare === MOCK_ENTRY && project.mockPath) return normalizePath(project.mockPath);
-      if (bare === '/__osfui/mock-loader.js') {
-        return normalizePath(resolve(HERE, 'browser', 'mock-loader.js'));
-      }
     },
     async load(id) {
       if (!id.startsWith(SHARED_PREFIX)) return null;
@@ -108,6 +106,13 @@ export function harnessPlugin(project, selectedView) {
           send(response, await browserAsset('shell.js'), 'text/javascript; charset=utf-8');
         } else if (url.pathname === '/__osfui/bootstrap.js') {
           send(response, await browserAsset('bootstrap.js'), 'text/javascript; charset=utf-8');
+        } else if (url.pathname.startsWith('/__osfui/') &&
+                   BROWSER_MODULES.has(url.pathname.slice('/__osfui/'.length))) {
+          send(
+            response,
+            await browserAsset(url.pathname.slice('/__osfui/'.length)),
+            'text/javascript; charset=utf-8',
+          );
         } else if (url.pathname === '/__osfui/meta.json') {
           send(response, JSON.stringify({
             views: project.views.map(metaFor),

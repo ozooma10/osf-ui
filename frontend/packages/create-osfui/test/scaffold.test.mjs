@@ -114,6 +114,8 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
       );
     }
     assert.doesNotMatch(mock, /\btype: 'ui\./);
+    assert.match(mock, /ctx\.onEndpoint\(handleEndpoint\)/);
+    assert.doesNotMatch(mock, /onCommand/);
     const tsconfig = JSON.parse(await readFile(resolve(root, 'tsconfig.json'), 'utf8'));
     assert.equal(tsconfig.compilerOptions.strict, true);
     // Hand-written .js view files stay a supported authoring path.
@@ -184,6 +186,8 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
       assert.doesNotMatch(script, /Function (?:OpenSettings|Greet)\(/);
       assert.match(readme, /papyrus\.call\(\)/);
       assert.match(readme, /GLOBAL call[\s\S]*intentional escape hatch/);
+      assert.match(readme, /request\('localName', \{ args: \[\.\.\.\] \}\)/);
+      assert.match(readme, /Reply` value is[\s\S]*raw value/);
       assert.doesNotMatch(`${source}\n${script}\n${readme}`, /papyrus\.(?:send|request)/);
       assert.doesNotMatch(source, /ui\.papyrusRequest/);
       assert.match(mock, /name === 'papyrus\.call'/);
@@ -253,6 +257,8 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
       assert.match(await readFile(resolve(root, 'native/include/OSFUI_API.h'), 'utf8'), /struct IOSFUIBridge/);
       assert.match(await readFile(resolve(root, 'native/include/OSFUI_JSON.h'), 'utf8'), /class JsonClient/);
       assert.match(readme, /current `@osfui\/cli` does not merge those trees or create an archive/);
+      assert.match(readme, /owning view calls local endpoint names/);
+      assert.match(readme, /request\(\)[\s\S]*raw reply/);
       assert.doesNotMatch(readme, /npm run package/);
     }
 

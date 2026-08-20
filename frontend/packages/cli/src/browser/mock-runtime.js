@@ -391,7 +391,7 @@ export async function installMock(harness, mod, loadError = null) {
   harness.setHandler(handle);
   const ready = await waitForKit(harness);
   const statusMessage = mockError
-    ? `Mock failed to load: ${String(mockError?.message || mockError)}`
+    ? String(mockError?.message || mockError)
     : (ready ? '' : 'shared helper did not install onMessage within 5 seconds');
   harness.status(ready && !mockError, statusMessage);
   harness.ready();

@@ -2,24 +2,17 @@ ScriptName OSFUI_View Native Hidden
 
 ; OSF UI JavaScript view API.
 ;
-; This script mirrors the four JavaScript communication semantics:
+; This script mirrors the four communication semantics:
 ;
 ;   JavaScript send()     -> RegisterSend callback
 ;   JavaScript request()  -> RegisterRequest callback, then Reply/Reject
 ;   JavaScript on()       <- EmitEvent
 ;   JavaScript state      <- SetState (retained and replayed)
 ;
-; Registrations and reply tokens are SESSION-scoped. Register again after
-; every game load. Never save a registration or reply token.
+; Registrations and reply tokens are SESSION-scoped. Register again after every game load. Never save a registration or reply token.
 ;
-; A document reload is not a game load: retained state is replayed to the new
-; document automatically. Events are transient and are never replayed.
-;
-; Scalar values support None, bool, int, float, string, and Form through
-; Papyrus Var. Papyrus cannot implicitly convert typed arrays to Var, so state
-; and reply arrays use explicit typed functions. Send/request and event
-; argument lists use Var[] explicitly. Unsupported objects, structs, and
-; nested arrays are rejected instead of being silently converted.
+; Scalar values support None, bool, int, float, string, and Form through Papyrus Var. Papyrus cannot implicitly convert typed arrays to Var, so state and reply arrays use explicit typed functions.
+; Send/request and event argument lists use Var[] explicitly. Unsupported objects, structs, and nested arrays are rejected instead of being silently converted.
 ;
 ; Portable Papyrus endpoints accept the JavaScript payload shape
 ; { args: [...] }. Native-only endpoints may define richer JSON payloads.

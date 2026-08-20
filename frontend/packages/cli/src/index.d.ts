@@ -17,7 +17,6 @@ export interface ViewConfig {
   hub?: boolean;
   debugOnly?: boolean;
   targetVersion?: string;
-  permissions?: { nativeBridge?: boolean };
 }
 
 export interface OsfuiConfig {
