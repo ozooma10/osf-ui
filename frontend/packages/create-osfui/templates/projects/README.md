@@ -30,6 +30,7 @@ The recordless starter calls the platform's `papyrus.call` endpoint through
 `OSFUI_View` endpoint. It does not add a second Papyrus-specific JavaScript API.
 
 The three Papyrus compiler APIs (`OSFUI.psc`, `OSFUI_Settings.psc`, and
-`OSFUI_View.psc`) and the native API files remain in the sibling `papyrus/` and
-`native/` directories. They are synchronized SDK artifacts and are copied into
-the rendered project after its authored template tree.
+`OSFUI_View.psc`) are copied from `data/Scripts/Source/`; the native API headers
+are copied from `sdk/`. They are canonical repository sources, not project
+templates. Package publishing stages them as npm payload files so the installed
+scaffolder has the same inputs without keeping synchronized source mirrors.

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cp, mkdir, readdir } from 'node:fs/promises';
+import { access, cp, mkdir, readdir } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -14,6 +14,20 @@ import { MAX_MOD_ID_LENGTH, OSFUI_RELEASE_VERSION } from './constants.mjs';
 import { renderProjectTemplate } from './project-template.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = resolve(HERE, '..');
+const REPOSITORY_ROOT = resolve(PACKAGE_ROOT, '..', '..', '..');
+const PACKAGED_SDK_ROOT = resolve(PACKAGE_ROOT, 'package-sdk');
+
+const SDK_SOURCES = {
+  native: {
+    packaged: resolve(PACKAGED_SDK_ROOT, 'native'),
+    repository: resolve(REPOSITORY_ROOT, 'sdk'),
+  },
+  papyrus: {
+    packaged: resolve(PACKAGED_SDK_ROOT, 'papyrus'),
+    repository: resolve(REPOSITORY_ROOT, 'data', 'Scripts', 'Source'),
+  },
+};
 
 // Closed sets: a typo'd flag ("--surfce menu") must fail here, not scaffold
 // the default starter type and exit 0. `--surface` remains the stable flag name.
@@ -72,12 +86,25 @@ function validate(options) {
   }
 }
 
-async function copyPapyrusApis(root) {
-  const papyrusRoot = resolve(root, 'tools/papyrus');
-  await mkdir(papyrusRoot, { recursive: true });
-  for (const name of ['OSFUI.psc', 'OSFUI_Settings.psc', 'OSFUI_View.psc']) {
-    await cp(resolve(HERE, '..', `templates/papyrus/${name}`), resolve(papyrusRoot, name));
+async function sdkSource(kind, name) {
+  for (const root of Object.values(SDK_SOURCES[kind])) {
+    const source = resolve(root, name);
+    try {
+      await access(source);
+      return source;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
   }
+  throw new Error(`Missing ${name}; reinstall create-osfui or restore the repository SDK sources.`);
+}
+
+async function copySdkFiles(root, kind, destination, names) {
+  const outputRoot = resolve(root, destination);
+  await mkdir(outputRoot, { recursive: true });
+  await Promise.all(names.map(async (name) => {
+    await cp(await sdkSource(kind, name), resolve(outputRoot, name));
+  }));
 }
 
 export async function scaffold(options) {
@@ -92,13 +119,13 @@ export async function scaffold(options) {
   });
 
   if (options.integration === 'native') {
-    const includeRoot = resolve(root, 'native/include');
-    await mkdir(includeRoot, { recursive: true });
-    for (const name of ['OSFUI_API.h', 'OSFUI_JSON.h']) {
-      await cp(resolve(HERE, '..', `templates/native/${name}`), resolve(includeRoot, name));
-    }
+    await copySdkFiles(root, 'native', 'native/include', ['OSFUI_API.h', 'OSFUI_JSON.h']);
   } else {
-    await copyPapyrusApis(root);
+    await copySdkFiles(root, 'papyrus', 'tools/papyrus', [
+      'OSFUI.psc',
+      'OSFUI_Settings.psc',
+      'OSFUI_View.psc',
+    ]);
   }
   return root;
 }

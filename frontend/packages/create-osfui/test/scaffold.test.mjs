@@ -11,6 +11,7 @@ import { OSFUI_RELEASE_VERSION } from '../src/constants.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(HERE, '..', 'src', 'cli.mjs');
 const PROJECT_TEMPLATES = resolve(HERE, '..', 'templates', 'projects');
+const REPOSITORY_ROOT = resolve(HERE, '..', '..', '..', '..');
 const PAPYRUS_APIS = [
   ['OSFUI.psc', 'OSFUI'],
   ['OSFUI_Settings.psc', 'OSFUI_Settings'],
@@ -37,9 +38,15 @@ async function assertPapyrusApis(root) {
     PAPYRUS_APIS.map(([file]) => file).sort(),
   );
   for (const [file, scriptName] of PAPYRUS_APIS) {
+    const output = await readFile(resolve(root, 'tools/papyrus', file), 'utf8');
     assert.match(
-      await readFile(resolve(root, 'tools/papyrus', file), 'utf8'),
+      output,
       new RegExp(`ScriptName ${scriptName} Native Hidden`),
+    );
+    assert.equal(
+      output,
+      await readFile(resolve(REPOSITORY_ROOT, 'data/Scripts/Source', file), 'utf8'),
+      `${file} must come from the canonical Papyrus source`,
     );
   }
 }
@@ -92,6 +99,17 @@ async function assertStaticView(root, modId = 'acme.widgets', viewId = 'panel') 
 }
 
 test('stores each supported starter as an authored project tree', async () => {
+  for (const obsoleteDirectory of ['native', 'papyrus']) {
+    assert.deepEqual(
+      await readdir(resolve(PROJECT_TEMPLATES, '..', obsoleteDirectory)).catch((error) => {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      }),
+      [],
+      `templates/${obsoleteDirectory} must not contain mirrored SDK files`,
+    );
+  }
+
   for (const [preset, representative] of [
     [
       'menu-papyrus',
@@ -198,8 +216,18 @@ test('creates a directly deployable plain-JS native menu', async (t) => {
 
   assert.match(await readFile(resolve(root, 'xmake.lua'), 'utf8'), /set_installdir\("mod"\)/);
   await assertMissing(resolve(root, 'native/build.mjs'));
-  assert.match(await readFile(resolve(root, 'native/include/OSFUI_API.h'), 'utf8'), /struct IOSFUIBridge/);
-  assert.match(await readFile(resolve(root, 'native/include/OSFUI_JSON.h'), 'utf8'), /class JsonClient/);
+  for (const [file, signature] of [
+    ['OSFUI_API.h', /struct IOSFUIBridge/],
+    ['OSFUI_JSON.h', /class JsonClient/],
+  ]) {
+    const output = await readFile(resolve(root, 'native/include', file), 'utf8');
+    assert.match(output, signature);
+    assert.equal(
+      output,
+      await readFile(resolve(REPOSITORY_ROOT, 'sdk', file), 'utf8'),
+      `${file} must come from the canonical native SDK source`,
+    );
+  }
   assert.match(
     await readFile(resolve(root, 'mod/SFSE/Plugins/OSFUI/l10n/acme.widgets_de.json'), 'utf8'),
     /views\.panel\.heading/,

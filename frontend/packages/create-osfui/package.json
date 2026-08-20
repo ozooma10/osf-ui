@@ -13,17 +13,17 @@
   },
   "files": [
     "src",
-    "templates"
+    "templates/projects",
+    "package-sdk",
+    "scripts/package-sdk.mjs"
   ],
   "dependencies": {
     "@clack/prompts": "^1.7.0"
   },
   "scripts": {
-    "prepack": "node scripts/sync-sdk.mjs",
-    "pretest": "npm run sync:sdk",
-    "sync:sdk": "node scripts/sync-sdk.mjs",
-    "check:sdk": "node scripts/sync-sdk.mjs --check",
-    "test": "npm run check:sdk && node --test test/*.test.mjs"
+    "prepack": "node scripts/package-sdk.mjs",
+    "postpack": "node scripts/package-sdk.mjs --clean",
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=20.19"
