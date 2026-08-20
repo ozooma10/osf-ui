@@ -74,6 +74,9 @@ function New-SyntheticSummary(
             trackedCpuCoreMillisecondsPerApplicationFrame = ($TrackedCpu * 100) / (60 - $SystemCpu)
             trackedCpuCoreMillisecondsPerFramePerMegapixel = (($TrackedCpu * 100) / (60 - $SystemCpu)) / 3.6864
         }
+        fixture = if ($Framework -eq 'Baseline') { $null } else {
+            [ordered]@{ rafFps = [ordered]@{ mean = 60.0 } }
+        }
     }
 }
 
@@ -87,7 +90,8 @@ $fixtureSource = Get-Content -LiteralPath (Join-Path $repo 'tools\profiling\fixt
     'tasks->AddTask(InitializeAfterDataLoad);'
     'tasks->AddPermanentTask(FixtureTick);'
     'TrySubmitThreadpoolCallback(&WriteTelemetry'
-    'file:///UIBench/index.html?scenario='
+    'file:///Data/SFSE/Plugins/UIBench/index.html?scenario='
+    'UIBench: loading menu closed; no-framework baseline ready'
     'desc.focusable = 0;'
 ) | ForEach-Object {
     if (-not $fixtureSource.Contains($_, [StringComparison]::Ordinal)) {
@@ -118,6 +122,23 @@ if (-not $fixtureDocument.Contains('.transform-field {', [StringComparison]::Ord
 ) | ForEach-Object {
     if (-not $fixtureDocument.Contains($_, [StringComparison]::Ordinal)) {
         throw "UIBench fixture is missing its visible RAF cadence contract: $_"
+    }
+}
+$matrixRunnerSource = Get-Content -LiteralPath (Join-Path $repo 'tools\profiling\Invoke-UIBenchMatrix.ps1') -Raw
+if (-not $matrixRunnerSource.Contains("`$marker = 'UIBench: loading menu closed; no-framework baseline ready'", [StringComparison]::Ordinal)) {
+    throw 'Matrix runner is missing its baseline post-load readiness marker.'
+}
+if ($matrixRunnerSource.Contains('$marker = "[$($Game.Id)] [I] UIBench: loading menu closed; no-framework baseline ready"', [StringComparison]::Ordinal)) {
+    throw 'Matrix runner incorrectly treats the SFSE logger thread ID as a process ID.'
+}
+$captureSource = Get-Content -LiteralPath (Join-Path $repo 'tools\profiling\Capture-OSFUI.ps1') -Raw
+@(
+    'function Get-ValidCounterSamples'
+    'Get-Counter -Counter $Paths -ErrorAction SilentlyContinue'
+    '[uint32]$_.Status -eq 0'
+) | ForEach-Object {
+    if (-not $captureSource.Contains($_, [StringComparison]::Ordinal)) {
+        throw "Capture script is missing invalid performance-counter resilience: $_"
     }
 }
 $testParent = Join-Path $repo 'build\test-tmp'
@@ -155,6 +176,7 @@ try {
     Assert-Near 2 $condition.carbonMinusOSF.systemCpuMeanPercent 'Carbon-minus-OSF CPU delta'
     Assert-Near 2 $condition.carbonMinusOSF.frameP95Milliseconds 'Carbon-minus-OSF frame p95 delta'
     Assert-Near ((800 - 500) / 47 - (600 - 500) / 49) $condition.carbonMinusOSF.baselineAdjustedCpuCoreMsPerFrame 'Baseline-adjusted core-ms/frame delta'
+    Assert-Near ((800 - 500) / 60 - (600 - 500) / 60) $condition.carbonMinusOSF.baselineAdjustedCpuCoreMsPerUiUpdate 'Baseline-adjusted core-ms/UI-update delta'
 
     $pairedRoot = Join-Path $testRoot 'paired'
     New-Item -ItemType Directory -Force -Path $pairedRoot | Out-Null
@@ -267,6 +289,14 @@ try {
     Assert-Near 27 $matrix.Count 'Default screening matrix size'
     if (@($matrix | Where-Object { $_.CaptureCommand -notmatch '-WprProfile None' }).Count) {
         throw 'Default screening matrix must keep WPR disabled.'
+    }
+    $runnerPlan = & (Join-Path $repo 'tools\profiling\Invoke-UIBenchMatrix.ps1') `
+        -MatrixPath $matrixPath -FixtureModPath $testRoot -PlanOnly *>&1 | Out-String
+    if (-not $runnerPlan.Contains('0 complete; 27 pending/failed.', [StringComparison]::Ordinal)) {
+        throw 'Matrix runner plan did not recognize all generated rows.'
+    }
+    if (-not $runnerPlan.Contains('Minimum timed work remaining', [StringComparison]::Ordinal)) {
+        throw 'Matrix runner plan is missing its duration estimate.'
     }
 
     Write-Host 'UI benchmark tests: PASS' -ForegroundColor Green

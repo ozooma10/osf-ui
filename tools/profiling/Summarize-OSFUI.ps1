@@ -1,7 +1,7 @@
 #requires -Version 7.2
 <#
 .SYNOPSIS
-  Summarize an OSF UI profiling capture into JSON and Markdown.
+  Summarize a UI-framework profiling capture into JSON and Markdown.
 #>
 [CmdletBinding()]
 param(
@@ -76,6 +76,18 @@ function Get-Statistic($Stats, [string] $Name)
     return $Stats.$Name
 }
 
+function Get-PropertyValue($Object, [string] $Property)
+{
+    if ($null -eq $Object -or [string]::IsNullOrWhiteSpace($Property)) { return $null }
+    if ($Object -is [Collections.IDictionary]) {
+        if ($Object.Contains($Property)) { return $Object[$Property] }
+        return $null
+    }
+    $member = $Object.PSObject.Properties[$Property]
+    if ($null -eq $member) { return $null }
+    return $member.Value
+}
+
 function Get-Sum($Rows, [string] $Property)
 {
     return [double](($Rows | ForEach-Object { Convert-ToNumber $_.$Property } |
@@ -90,18 +102,85 @@ function Get-SumOrNull($Rows, [string] $Property)
     return [double](($numbers | Measure-Object -Sum).Sum)
 }
 
+function Measure-PresentRows($Rows, [string[]] $Headers)
+{
+    if ($null -eq $Rows) { return $null }
+    $items = @($Rows | Where-Object { $null -ne $_ })
+    if (-not $items.Count) { return $null }
+    $aliases = [ordered]@{
+        FrameTime = @('FrameTime', 'MsBetweenPresents')
+        CPUBusy = @('CPUBusy', 'MsCPUBusy')
+        CPUWait = @('CPUWait', 'MsCPUWait')
+        GPULatency = @('GPULatency', 'MsGPULatency')
+        GPUTime = @('GPUTime', 'MsGPUTime', 'MsGPUDuration')
+        GPUBusy = @('GPUBusy', 'MsGPUBusy')
+        GPUWait = @('GPUWait', 'MsGPUWait')
+        DisplayLatency = @('DisplayLatency', 'MsDisplayLatency')
+        DisplayedTime = @('DisplayedTime', 'MsDisplayedTime')
+        BetweenDisplayChange = @('MsBetweenDisplayChange')
+        RenderPresentLatency = @('MsRenderPresentLatency')
+        UntilDisplayed = @('MsUntilDisplayed')
+    }
+    $resolvedColumns = [ordered]@{}
+    foreach ($metric in $aliases.Keys) {
+        $column = @($aliases[$metric] | Where-Object { $Headers -contains $_ } | Select-Object -First 1)
+        if ($column.Count) { $resolvedColumns[$metric] = $column[0] }
+    }
+    $frameColumn = $resolvedColumns.FrameTime
+    $frameStats = if ($frameColumn) {
+        Measure-Series ($items | ForEach-Object { Get-PropertyValue $_ $frameColumn })
+    } else { $null }
+    $metrics = [ordered]@{}
+    foreach ($metric in $resolvedColumns.Keys) {
+        $column = $resolvedColumns[$metric]
+        $metrics[$metric] = Measure-Series ($items | ForEach-Object { Get-PropertyValue $_ $column })
+    }
+    $dropped = if ($Headers -contains 'Dropped') {
+        @($items | Where-Object { $_.Dropped -eq '1' -or $_.Dropped -eq 'true' }).Count
+    } elseif ($resolvedColumns.Contains('DisplayedTime')) {
+        $displayedColumn = $resolvedColumns.DisplayedTime
+        @($items | Where-Object {
+            $displayed = Convert-ToNumber (Get-PropertyValue $_ $displayedColumn)
+            $null -eq $displayed -or $displayed -le 0
+        }).Count
+    } else { $null }
+    return [ordered]@{
+        rows = $items.Count
+        dropped = $dropped
+        averageFps = if ($frameStats -and $frameStats.mean -gt 0) { 1000.0 / $frameStats.mean } else { $null }
+        onePercentLowFps = if ($frameStats -and $frameStats.p99 -gt 0) { 1000.0 / $frameStats.p99 } else { $null }
+        metricsMilliseconds = $metrics
+    }
+}
+
+function Import-JsonLines([string] $Path)
+{
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    $result = [Collections.Generic.List[object]]::new()
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        try { $result.Add(($line | ConvertFrom-Json -Depth 20 -ErrorAction Stop)) } catch {}
+    }
+    return @($result)
+}
+
 $capture = (Resolve-Path -LiteralPath $CaptureDirectory).Path
 $manifestPath = Join-Path $capture 'manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "Capture manifest not found: $manifestPath"
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$benchmark = if ($manifest.PSObject.Properties['benchmark']) { $manifest.benchmark } else { $null }
+$framework = if ($null -ne $manifest.PSObject.Properties['framework']) {
+    [string]$manifest.framework
+} else { 'OSFUI' }
 $processRows = @(Import-CsvIfPresent (Join-Path $capture 'process-samples.csv'))
 $gpuEngineRows = @(Import-CsvIfPresent (Join-Path $capture 'gpu-engine-samples.csv'))
 $gpuMemoryRows = @(Import-CsvIfPresent (Join-Path $capture 'gpu-memory-samples.csv'))
 $systemRows = @(Import-CsvIfPresent (Join-Path $capture 'system-samples.csv'))
 $hardwareRows = @(Import-CsvIfPresent (Join-Path $capture 'hardware-samples.csv'))
 $presentRows = @(Import-CsvIfPresent (Join-Path $capture 'presentmon.csv'))
+$fixtureRows = @(Import-JsonLines (Join-Path $capture 'fixture-telemetry.jsonl') |
+    Sort-Object { [int64]$_.receivedUnixMs })
 
 $rolePoints = @()
 foreach ($group in ($processRows | Group-Object { "$($_.TimestampUtc)|$($_.Role)" })) {
@@ -192,6 +271,85 @@ foreach ($role in @($rolePoints.Role | Sort-Object -Unique)) {
     }
 }
 
+$trackedPoints = @()
+foreach ($group in ($rolePoints | Group-Object TimestampUtc)) {
+    $rows = @($group.Group)
+    $trackedPoints += [pscustomobject]@{
+        TimestampUtc = $rows[0].TimestampUtc
+        ProcessCount = Get-Sum $rows 'ProcessCount'
+        CpuPercentMachine = Get-SumOrNull $rows 'CpuPercentMachine'
+        CpuPercentOneCore = Get-SumOrNull $rows 'CpuPercentOneCore'
+        WorkingSetBytes = Get-Sum $rows 'WorkingSetBytes'
+        PrivateBytes = Get-Sum $rows 'PrivateBytes'
+        HandleCount = Get-Sum $rows 'HandleCount'
+        ThreadCount = Get-Sum $rows 'ThreadCount'
+    }
+}
+$trackedGpuPoints = @()
+foreach ($group in ($gpuMemoryPoints | Group-Object TimestampUtc)) {
+    $rows = @($group.Group)
+    $trackedGpuPoints += [pscustomobject]@{
+        TimestampUtc = $rows[0].TimestampUtc
+        DedicatedBytes = Get-Sum $rows 'DedicatedBytes'
+        SharedBytes = Get-Sum $rows 'SharedBytes'
+    }
+}
+$trackedSummary = if ($trackedPoints.Count) {
+    $points = @($trackedPoints | Sort-Object TimestampUtc)
+    $gpuPoints = @($trackedGpuPoints | Sort-Object TimestampUtc)
+    $first = $points[0]
+    $last = $points[-1]
+    $firstGpu = if ($gpuPoints.Count) { $gpuPoints[0] } else { $null }
+    $lastGpu = if ($gpuPoints.Count) { $gpuPoints[-1] } else { $null }
+    [ordered]@{
+        roles = @($roleSummary.Keys)
+        samples = $points.Count
+        maxProcessCount = [int](($points.ProcessCount | Measure-Object -Maximum).Maximum)
+        cpuPercentMachine = Measure-Series $points.CpuPercentMachine
+        cpuPercentOneCore = Measure-Series $points.CpuPercentOneCore
+        workingSetBytes = [ordered]@{
+            start = [double]$first.WorkingSetBytes
+            end = [double]$last.WorkingSetBytes
+            delta = [double]$last.WorkingSetBytes - [double]$first.WorkingSetBytes
+            max = [double](($points.WorkingSetBytes | Measure-Object -Maximum).Maximum)
+        }
+        privateBytes = [ordered]@{
+            start = [double]$first.PrivateBytes
+            end = [double]$last.PrivateBytes
+            delta = [double]$last.PrivateBytes - [double]$first.PrivateBytes
+            max = [double](($points.PrivateBytes | Measure-Object -Maximum).Maximum)
+        }
+        handles = [ordered]@{
+            start = [double]$first.HandleCount
+            end = [double]$last.HandleCount
+            delta = [double]$last.HandleCount - [double]$first.HandleCount
+            max = [double](($points.HandleCount | Measure-Object -Maximum).Maximum)
+        }
+        threads = [ordered]@{
+            start = [double]$first.ThreadCount
+            end = [double]$last.ThreadCount
+            delta = [double]$last.ThreadCount - [double]$first.ThreadCount
+            max = [double](($points.ThreadCount | Measure-Object -Maximum).Maximum)
+        }
+        dedicatedGpuBytes = if ($gpuPoints.Count) {
+            [ordered]@{
+                start = [double]$firstGpu.DedicatedBytes
+                end = [double]$lastGpu.DedicatedBytes
+                delta = [double]$lastGpu.DedicatedBytes - [double]$firstGpu.DedicatedBytes
+                max = [double](($gpuPoints.DedicatedBytes | Measure-Object -Maximum).Maximum)
+            }
+        } else { $null }
+        sharedGpuBytes = if ($gpuPoints.Count) {
+            [ordered]@{
+                start = [double]$firstGpu.SharedBytes
+                end = [double]$lastGpu.SharedBytes
+                delta = [double]$lastGpu.SharedBytes - [double]$firstGpu.SharedBytes
+                max = [double](($gpuPoints.SharedBytes | Measure-Object -Maximum).Maximum)
+            }
+        } else { $null }
+    }
+} else { $null }
+
 $gpuEnginePoints = @()
 foreach ($group in ($gpuEngineRows | Group-Object { "$($_.TimestampUtc)|$($_.Role)|$($_.EngineType)" })) {
     $rows = @($group.Group)
@@ -245,48 +403,213 @@ foreach ($group in ($hardwareRows | Group-Object AdapterIndex)) {
 $presentSummary = $null
 if ($presentRows.Count) {
     $headers = @($presentRows[0].PSObject.Properties.Name)
-    $frameColumn = if ($headers -contains 'FrameTime') { 'FrameTime' } elseif ($headers -contains 'MsBetweenPresents') { 'MsBetweenPresents' } else { $null }
-    $frameStats = if ($frameColumn) { Measure-Series ($presentRows | ForEach-Object { $_.$frameColumn }) } else { $null }
-    $metrics = [ordered]@{}
-    foreach ($metric in @('FrameTime', 'CPUBusy', 'CPUWait', 'GPULatency', 'GPUTime', 'GPUBusy', 'GPUWait', 'DisplayLatency', 'DisplayedTime', 'MsBetweenPresents', 'MsBetweenDisplayChange', 'MsRenderPresentLatency', 'MsUntilDisplayed')) {
-        if ($headers -contains $metric) {
-            $metrics[$metric] = Measure-Series ($presentRows | ForEach-Object { $_.$metric })
+    $allRows = $presentRows.Count
+    $primarySwapChain = $null
+    if ($headers -contains 'SwapChainAddress') {
+        $displayedColumn = if ($headers -contains 'DisplayedTime') {
+            'DisplayedTime'
+        } elseif ($headers -contains 'MsDisplayedTime') {
+            'MsDisplayedTime'
+        } else { $null }
+        $swapChains = @($presentRows | Group-Object SwapChainAddress | ForEach-Object {
+            $rows = @($_.Group)
+            $displayed = if ($displayedColumn) {
+                @($rows | Where-Object {
+                    $value = Convert-ToNumber (Get-PropertyValue $_ $displayedColumn)
+                    $null -ne $value -and $value -gt 0
+                }).Count
+            } else { 0 }
+            [pscustomobject]@{
+                address = [string]$_.Name
+                rows = $rows
+                rowCount = $rows.Count
+                displayedCount = $displayed
+            }
+        } | Sort-Object -Property @{ Expression = 'displayedCount'; Descending = $true },
+            @{ Expression = 'rowCount'; Descending = $true }, @{ Expression = 'address'; Descending = $false })
+        if ($swapChains.Count) {
+            $primarySwapChain = $swapChains[0].address
+            $presentRows = @($swapChains[0].rows)
         }
     }
-    $dropped = if ($headers -contains 'Dropped') {
-        @($presentRows | Where-Object { $_.Dropped -eq '1' -or $_.Dropped -eq 'true' }).Count
+    $overall = Measure-PresentRows -Rows $presentRows -Headers $headers
+    $applicationRows = if ($headers -contains 'FrameType') {
+        @($presentRows | Where-Object {
+            [string]::IsNullOrWhiteSpace([string]$_.FrameType) -or
+            $_.FrameType -in @('Application', 'Unknown', 'NotSet', 'Unspecified')
+        })
+    } else { $presentRows }
+    $generatedRows = if ($headers -contains 'FrameType') {
+        @($presentRows | Where-Object {
+            -not [string]::IsNullOrWhiteSpace([string]$_.FrameType) -and
+            $_.FrameType -notin @('Application', 'Unknown', 'NotSet', 'Unspecified')
+        })
+    } else { @() }
+    $frameTypes = [ordered]@{}
+    if ($headers -contains 'FrameType') {
+        foreach ($group in ($presentRows | Group-Object FrameType)) {
+            $name = if ([string]::IsNullOrWhiteSpace([string]$group.Name)) { 'Unspecified' } else { [string]$group.Name }
+            $frameTypes[$name] = Measure-PresentRows -Rows @($group.Group) -Headers $headers
+        }
+    } else {
+        $frameTypes['Unspecified'] = $overall
+    }
+    $displayedColumn = if ($headers -contains 'DisplayedTime') {
+        'DisplayedTime'
+    } elseif ($headers -contains 'MsDisplayedTime') {
+        'MsDisplayedTime'
     } else { $null }
+    $displayedStats = if ($displayedColumn) {
+        Measure-Series ($presentRows | ForEach-Object { Get-PropertyValue $_ $displayedColumn })
+    } else { $null }
+    $application = Measure-PresentRows -Rows $applicationRows -Headers $headers
+    $generated = Measure-PresentRows -Rows $generatedRows -Headers $headers
     $presentSummary = [ordered]@{
-        rows = $presentRows.Count
-        dropped = $dropped
-        averageFps = if ($frameStats -and $frameStats.mean -gt 0) { 1000.0 / $frameStats.mean } else { $null }
-        onePercentLowFps = if ($frameStats -and $frameStats.p99 -gt 0) { 1000.0 / $frameStats.p99 } else { $null }
-        metricsMilliseconds = $metrics
+        rows = $overall.rows
+        allRows = $allRows
+        auxiliaryRows = $allRows - $overall.rows
+        primarySwapChain = $primarySwapChain
+        dropped = $overall.dropped
+        averageFps = if ($application) { $application.averageFps } else { $null }
+        onePercentLowFps = if ($application) { $application.onePercentLowFps } else { $null }
+        displayedAverageFps = if ($displayedStats -and $displayedStats.mean -gt 0) { 1000.0 / $displayedStats.mean } else { $null }
+        metricsMilliseconds = if ($application) { $application.metricsMilliseconds } else { [ordered]@{} }
+        application = $application
+        generated = $generated
+        frameTypes = $frameTypes
+    }
+}
+
+$fixtureSummary = if ($fixtureRows.Count) {
+    $latest = $fixtureRows[-1]
+    $fixtureDpr = Convert-ToNumber $latest.viewport.devicePixelRatio
+    $fixtureRasterWidth = if ($null -ne $fixtureDpr) {
+        [int][math]::Round([double]$latest.viewport.width * $fixtureDpr)
+    } else { $null }
+    $fixtureRasterHeight = if ($null -ne $fixtureDpr) {
+        [int][math]::Round([double]$latest.viewport.height * $fixtureDpr)
+    } else { $null }
+    [ordered]@{
+        reports = $fixtureRows.Count
+        framework = [string]$latest.framework
+        provider = [string]$latest.provider
+        scenario = [string]$latest.scenario
+        fixtureHash = [string]$latest.fixtureHash
+        viewport = $latest.viewport
+        effectiveRaster = if ($null -ne $fixtureRasterWidth) {
+            [ordered]@{
+                width = $fixtureRasterWidth
+                height = $fixtureRasterHeight
+                megapixels = ($fixtureRasterWidth * $fixtureRasterHeight) / 1000000.0
+            }
+        } else { $null }
+        rafFps = Measure-Series ($fixtureRows | ForEach-Object { $_.raf.fpsThisInterval })
+        workP95Milliseconds = Measure-Series ($fixtureRows | ForEach-Object { $_.workload.workP95Milliseconds })
+        workP99Milliseconds = Measure-Series ($fixtureRows | ForEach-Object { $_.workload.workP99Milliseconds })
+        rafCallbacks = $latest.raf.callbacks
+        workloadTicks = $latest.workload.ticks
+        intervalsOver20ms = $latest.raf.intervalsOver20ms
+        intervalsOver33ms = $latest.raf.intervalsOver33ms
+        intervalsOver50ms = $latest.raf.intervalsOver50ms
+        longTasks = $latest.longTasks
+        frameworkCounters = $latest.frameworkCounters
+    }
+} else { $null }
+
+$derived = $null
+if ($trackedSummary) {
+    $cpuMean = Get-Statistic $trackedSummary.cpuPercentOneCore 'mean'
+    $applicationFps = if ($presentSummary -and $presentSummary.application -and
+        $presentSummary.application.averageFps -gt 0) {
+        [double]$presentSummary.application.averageFps
+    } else { $null }
+    $resolutionText = if ($benchmark) { [string]$benchmark.resolution } else { '' }
+    $megapixels = $null
+    $pixelWidth = $null
+    $pixelHeight = $null
+    if ($resolutionText -match '^(?<w>\d+)x(?<h>\d+)$') {
+        $pixelWidth = [double]$Matches.w
+        $pixelHeight = [double]$Matches.h
+        $megapixels = ($pixelWidth * $pixelHeight) / 1000000.0
+    }
+    $coreMillisecondsPerSecond = if ($null -ne $cpuMean) { [double]$cpuMean * 10.0 } else { $null }
+    $coreMillisecondsPerFrame = if ($null -ne $coreMillisecondsPerSecond -and $null -ne $applicationFps) {
+        $coreMillisecondsPerSecond / $applicationFps
+    } else { $null }
+    $derived = [ordered]@{
+        applicationFps = $applicationFps
+        trackedCpuCoreMillisecondsPerSecond = $coreMillisecondsPerSecond
+        trackedCpuCoreMillisecondsPerApplicationFrame = $coreMillisecondsPerFrame
+        resolutionMegapixels = $megapixels
+        trackedCpuCoreMillisecondsPerFramePerMegapixel = if ($null -ne $coreMillisecondsPerFrame -and $megapixels -gt 0) {
+            $coreMillisecondsPerFrame / $megapixels
+        } else { $null }
+        carbonTheoreticalVisibleBgraBytesPerFrame = if ($framework -eq 'CarbonUI' -and $null -ne $pixelWidth) {
+            [uint64]($pixelWidth * $pixelHeight * 4.0)
+        } else { $null }
+    }
+}
+
+$frameRateValidation = $null
+$frameRateProperty = if ($benchmark) {
+    $benchmark.PSObject.Properties['frameRateMode']
+} else { $null }
+if ($frameRateProperty -and $presentSummary -and $presentSummary.application) {
+    $mode = [string]$frameRateProperty.Value
+    $fps = Convert-ToNumber $presentSummary.application.averageFps
+    $target = switch ($mode) { 'Fixed60' { 60.0 } 'Fixed120' { 120.0 } default { $null } }
+    $tolerance = if ($target) { [math]::Max(3.0, $target * 0.05) } else { $null }
+    $frameRateValidation = [ordered]@{
+        mode = $mode
+        targetFps = $target
+        measuredApplicationFps = $fps
+        toleranceFps = $tolerance
+        valid = if ($target -and $null -ne $fps) {
+            [math]::Abs($fps - $target) -le $tolerance
+        } elseif ($mode -eq 'Uncapped') { $true } else { $false }
     }
 }
 
 $summary = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 3
     captureDirectory = $capture
     label = $manifest.label
+    framework = $framework
     manifest = $manifest
     roles = $roleSummary
+    trackedProcesses = $trackedSummary
     gpuEngines = $gpuEngineSummary
     system = $systemSummary
     hardware = $hardwareSummary
     presentMon = $presentSummary
+    fixture = $fixtureSummary
+    derived = $derived
+    frameRateValidation = $frameRateValidation
 }
 $summaryPath = Join-Path $capture 'summary.json'
 $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8NoBOM
 
 $markdown = [Collections.Generic.List[string]]::new()
-$markdown.Add("# OSF UI performance capture: $($manifest.label)")
+$markdown.Add("# $framework performance capture: $($manifest.label)")
 $markdown.Add('')
 $markdown.Add("- Capture: ``$capture``")
 $markdown.Add("- Status: $($manifest.status)")
 $markdown.Add("- Requested/actual duration: $($manifest.requestedDurationSeconds) s / $($manifest.actualDurationSeconds) s")
 $markdown.Add("- WPR profile: $($manifest.wprProfile)")
 $markdown.Add("- PresentMon: $(if ($presentSummary) { 'captured' } else { 'not captured' })")
+if ($benchmark) {
+    $rateMode = if ($benchmark.PSObject.Properties['frameRateMode']) { $benchmark.frameRateMode } else { 'Unknown' }
+    $markdown.Add("- Condition: $($benchmark.scenario), $($benchmark.resolution), $rateMode, Frame Generation $($benchmark.frameGeneration)")
+    if ($benchmark.PSObject.Properties['rasterizationPolicy']) {
+        $markdown.Add("- Rasterization policy: $($benchmark.rasterizationPolicy)")
+    }
+}
+if ($fixtureSummary) {
+    $markdown.Add("- Fixture: $($fixtureSummary.fixtureHash) ($($fixtureSummary.viewport.width)x$($fixtureSummary.viewport.height), $($fixtureSummary.reports) live reports)")
+    if ($fixtureSummary.effectiveRaster) {
+        $markdown.Add("- Effective fixture raster: $($fixtureSummary.effectiveRaster.width)x$($fixtureSummary.effectiveRaster.height) (DPR $(Format-Number $fixtureSummary.viewport.devicePixelRatio 3))")
+    }
+}
 if ($manifest.notes) { $markdown.Add("- Notes: $($manifest.notes)") }
 $markdown.Add('')
 $markdown.Add('## Process roles')
@@ -311,7 +634,45 @@ foreach ($role in $roleSummary.Keys) {
     ))
 }
 $markdown.Add('')
-$markdown.Add('`Game` includes Starfield and the in-process OSFUI.dll. `OSFUIHost` is the native WGC/D3D11 transport host; `WebView2` contains only its descendant browser processes.')
+if ($framework -eq 'OSFUI') {
+    $markdown.Add('`Game` includes Starfield and the in-process OSFUI.dll. `OSFUIHost` is the native WGC/D3D11 transport host; `WebView2` contains only its descendant browser processes.')
+} elseif ($framework -eq 'CarbonUI') {
+    $markdown.Add('CarbonUI.dll, CarbonUICore.dll, Ultralight, and WebCore run inside `Game`; process sampling cannot split their resource use from Starfield.')
+} else {
+    $markdown.Add('`Game` is the no-framework Starfield baseline. OSF UI and Carbon UI were both rejected by capture preflight if their DLLs were loaded.')
+}
+if ($trackedSummary) {
+    $markdown.Add(('Tracked total: {0} process(es) max, {1} MiB private bytes max, {2} MiB dedicated GPU memory max.' -f @(
+        $trackedSummary.maxProcessCount
+        (Format-Number ($trackedSummary.privateBytes.max / 1MB))
+        $(if ($trackedSummary.dedicatedGpuBytes) { Format-Number ($trackedSummary.dedicatedGpuBytes.max / 1MB) } else { 'n/a' })
+    )))
+}
+
+if ($derived) {
+    $markdown.Add('')
+    $markdown.Add('## Normalized CPU cost')
+    $markdown.Add('')
+    $markdown.Add("- Tracked CPU: $(Format-Number $derived.trackedCpuCoreMillisecondsPerSecond) core-ms/s")
+    $markdown.Add("- Tracked CPU per application frame: $(Format-Number $derived.trackedCpuCoreMillisecondsPerApplicationFrame 3) core-ms/frame")
+    $markdown.Add("- Tracked CPU per application frame per megapixel: $(Format-Number $derived.trackedCpuCoreMillisecondsPerFramePerMegapixel 3) core-ms/frame/MP")
+    $markdown.Add('')
+    $markdown.Add('These are absolute Starfield-plus-framework values. The comparison report subtracts the matched no-framework baseline before making a framework claim.')
+    if ($null -ne $derived.carbonTheoreticalVisibleBgraBytesPerFrame) {
+        $markdown.Add("Carbon full-surface BGRA size: $(Format-Number ($derived.carbonTheoreticalVisibleBgraBytesPerFrame / 1MB)) MiB/frame (theoretical path volume, not a measured bandwidth counter).")
+    }
+}
+
+if ($fixtureSummary) {
+    $markdown.Add('')
+    $markdown.Add('## Fixture cadence')
+    $markdown.Add('')
+    $markdown.Add("- Page RAF mean / p95: $(Format-Number (Get-Statistic $fixtureSummary.rafFps 'mean')) / $(Format-Number (Get-Statistic $fixtureSummary.rafFps 'p95')) FPS")
+    $markdown.Add("- RAF intervals over 20 / 33 / 50 ms: $($fixtureSummary.intervalsOver20ms) / $($fixtureSummary.intervalsOver33ms) / $($fixtureSummary.intervalsOver50ms)")
+    $markdown.Add("- Work function p95 / p99: $(Format-Number (Get-Statistic $fixtureSummary.workP95Milliseconds 'mean') 3) / $(Format-Number (Get-Statistic $fixtureSummary.workP99Milliseconds 'mean') 3) ms")
+    $markdown.Add('')
+    $markdown.Add('RAF/workload values are directly observed inside the identical page. Renderer/upload/publish/consume counters remain unavailable where a stock framework public API does not expose them.')
+}
 
 if ($gpuEngineSummary.Count) {
     $markdown.Add('')
@@ -337,9 +698,20 @@ if ($presentSummary) {
     $markdown.Add('')
     $markdown.Add('## Frame pacing')
     $markdown.Add('')
-    $markdown.Add("- Frames: $($presentSummary.rows)$(if ($null -ne $presentSummary.dropped) { "; dropped: $($presentSummary.dropped)" } else { '' })")
-    $markdown.Add("- Average FPS: $(Format-Number $presentSummary.averageFps)")
-    $markdown.Add("- Approximate 1% low FPS: $(Format-Number $presentSummary.onePercentLowFps)")
+    $markdown.Add("- Captured rows: $($presentSummary.rows)$(if ($null -ne $presentSummary.dropped) { "; not displayed: $($presentSummary.dropped)" } else { '' })")
+    $markdown.Add("- Application FPS / approximate 1% low: $(Format-Number $presentSummary.application.averageFps) / $(Format-Number $presentSummary.application.onePercentLowFps)")
+    $markdown.Add("- Displayed FPS: $(Format-Number $presentSummary.displayedAverageFps)")
+    $markdown.Add("- Generated-frame rows: $(if ($presentSummary.generated) { $presentSummary.generated.rows } else { 0 })")
+    if ($frameRateValidation -and -not $frameRateValidation.valid) {
+        $markdown.Add("- **Invalid fixed-rate run:** measured $(Format-Number $frameRateValidation.measuredApplicationFps) FPS; expected $($frameRateValidation.targetFps) ± $(Format-Number $frameRateValidation.toleranceFps) FPS.")
+    }
+    $markdown.Add('')
+    $markdown.Add('| Frame type | Rows | Average FPS |')
+    $markdown.Add('|---|---:|---:|')
+    foreach ($frameType in $presentSummary.frameTypes.Keys) {
+        $item = $presentSummary.frameTypes[$frameType]
+        $markdown.Add("| $frameType | $($item.rows) | $(Format-Number $item.averageFps) |")
+    }
     $markdown.Add('')
     $markdown.Add('| Metric (ms) | p50 | p95 | p99 | max |')
     $markdown.Add('|---|---:|---:|---:|---:|')
@@ -379,7 +751,7 @@ if ($hardwareSummary.Count) {
 $markdown.Add('')
 $markdown.Add('## Interpretation boundary')
 $markdown.Add('')
-$markdown.Add('Process sampling can isolate the out-of-process browser path, but it cannot subtract OSFUI.dll from Starfield. Use the matching ETL in WPA (`CPU Usage (Sampled)` grouped by Process > Module > Stack, plus GPU Usage queues) and compare the same scene with only one OSF UI state changed.')
+$markdown.Add('Process sampling can isolate OSF UI''s out-of-process browser path, but both OSFUI.dll and all Carbon UI engine modules contribute inside Starfield. Use matched baseline deltas for headline comparisons. When WPR is enabled, cpu-profile-by-module.txt and cpu-profile-ui-modules.txt are exported automatically; WPA remains available for stack- and time-range-level investigation.')
 $markdown.Add('')
 $markdown.Add('Build, deployment, and this script itself do not establish an in-game performance result; the capture is the evidence.')
 

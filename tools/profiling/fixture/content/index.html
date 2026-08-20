@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>UIBench renderer shootout</title>
+  <style>
+    :root { font-family: "Segoe UI", Arial, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body, #workload { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { color: #eef4ff; background: #07101d; }
+    #workload { position: relative; }
+    #identity {
+      position: fixed; z-index: 20; top: 18px; left: 18px; min-width: 390px;
+      padding: 14px 17px; border: 1px solid rgba(109, 167, 202, .4); border-radius: 10px;
+      background: rgba(7, 16, 30, .91); box-shadow: 0 12px 40px rgba(0, 0, 0, .53); pointer-events: none;
+    }
+    #identity h1 { margin: 0 0 7px; color: #7de6ff; font-size: 20px; letter-spacing: .08em; }
+    #identity p { margin: 3px 0; font: 13px/1.35 Consolas, monospace; }
+    #identity .warning { color: #ffcf73; }
+    .static-grid {
+      display: flex; flex-wrap: wrap; align-content: center;
+      width: 100%; height: 100%; padding: 130px 5vw 5vh;
+      background: radial-gradient(circle at 70% 20%, #183d5f, #08111e 58%);
+    }
+    .static-cell {
+      width: 11.5%; height: 17%; margin: .5%;
+      border: 1px solid rgba(134, 205, 235, .27); border-radius: 8px;
+      background: rgba(21, 48, 71, .65);
+    }
+    .transform-field {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: #080f1a;
+    }
+    .transform-tile {
+      position: absolute; width: 70px; height: 45px; border-radius: 7px;
+      border: 1px solid rgba(167, 236, 255, .47); background: linear-gradient(135deg, #2f8eaa, #7658d4);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, .47);
+    }
+    .repaint-field {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background-size: 100% 100%;
+    }
+    .layout-field { height: 100%; padding: 120px 4vw 3vh; overflow: hidden; background: #091321; }
+    .layout-row { height: 4px; margin: 2px 0; background: linear-gradient(90deg, #55ddff, #bc67ff); }
+    .text-scroll {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      padding: 120px 7vw 5vh; overflow-y: scroll; background: #081321;
+    }
+    .text-scroll p { max-width: 1100px; margin: 0 auto 12px; font-size: 17px; line-height: 1.45; color: #d7e9ff; }
+    #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #050b14; }
+  </style>
+</head>
+<body>
+  <main id="workload" aria-label="UI benchmark workload"></main>
+  <aside id="identity">
+    <h1>UIBENCH / IDENTICAL DOCUMENT</h1>
+    <p id="provider">provider: detecting</p>
+    <p id="scenario">scenario: loading</p>
+    <p id="viewport">viewport: measuring</p>
+    <p id="ui-rate">UI RAF: measuring</p>
+    <p id="hash">fixture: unknown</p>
+    <p class="warning">Leave this view open and untouched during capture.</p>
+  </aside>
+  <script>
+  "use strict";
+  (function () {
+    var params = new URLSearchParams(location.search);
+    var scenario = params.get("scenario") || "static";
+    var fixtureHash = params.get("fixtureHash") || "unconfigured";
+    var allowed = ["static", "transforms", "repaint", "layout", "text-scroll", "canvas"];
+    if (allowed.indexOf(scenario) < 0) scenario = "static";
+
+    var provider = window.osfui && typeof window.osfui.postMessage === "function" ? "OSFUI" :
+      (window.carbonui && typeof window.carbonui.call === "function" ? "CarbonUI" :
+      (window.stardeck && typeof window.stardeck.call === "function" ? "CarbonUI" : "Unknown"));
+    var carbonBridge = window.carbonui || window.stardeck;
+    var root = document.getElementById("workload");
+    // Keep the visible pixels identical across engines. The actual provider is
+    // retained in telemetry and validated by Capture-OSFUI.ps1.
+    document.getElementById("provider").textContent = provider === "Unknown" ?
+      "provider: standalone preview" : "provider: framework bridge active";
+    document.getElementById("scenario").textContent = "scenario: " + scenario;
+    document.getElementById("viewport").textContent = "viewport: " + innerWidth + "x" + innerHeight + " @" + devicePixelRatio;
+    var uiRate = document.getElementById("ui-rate");
+    document.getElementById("hash").textContent = "fixture: " + fixtureHash.slice(0, 16);
+
+    function append(tag, className, parent) {
+      var node = document.createElement(tag);
+      if (className) node.className = className;
+      (parent || root).appendChild(node);
+      return node;
+    }
+
+    var tickWork = function () {};
+    if (scenario === "static") {
+      var grid = append("div", "static-grid");
+      for (var s = 0; s < 40; ++s) append("div", "static-cell", grid);
+    } else if (scenario === "transforms") {
+      var field = append("div", "transform-field");
+      var tiles = [];
+      for (var t = 0; t < 192; ++t) {
+        var tile = append("div", "transform-tile", field);
+        tile.style.left = ((t * 71) % 94) + "%";
+        tile.style.top = ((t * 43) % 92) + "%";
+        tiles.push(tile);
+      }
+      tickWork = function (frame) {
+        for (var i = 0; i < tiles.length; ++i) {
+          var phase = frame * 0.027 + i * 0.31;
+          tiles[i].style.transform = "translate(" + (Math.sin(phase) * 23).toFixed(2) + "px," +
+            (Math.cos(phase * 1.17) * 17).toFixed(2) + "px) rotate(" + ((phase * 19) % 360).toFixed(2) + "deg)";
+        }
+      };
+    } else if (scenario === "repaint") {
+      var repaint = append("div", "repaint-field");
+      tickWork = function (frame) {
+        var hue = frame % 360;
+        repaint.style.backgroundImage = "radial-gradient(circle at " + ((frame * 3) % 100) + "% " +
+          ((frame * 7) % 100) + "%,hsl(" + hue + ",82%,62%),hsl(" + ((hue + 122) % 360) +
+          ",72%,22%) 42%,hsl(" + ((hue + 244) % 360) + ",78%,9%))";
+      };
+    } else if (scenario === "layout") {
+      var layout = append("div", "layout-field");
+      var rows = [];
+      for (var l = 0; l < 520; ++l) rows.push(append("div", "layout-row", layout));
+      tickWork = function (frame) {
+        var forced = 0;
+        for (var i = 0; i < rows.length; ++i) {
+          rows[i].style.width = (15 + ((i * 13 + frame * 3) % 85)) + "%";
+          if ((i & 15) === 0) forced += rows[i].offsetWidth;
+        }
+        window.__uibenchLayoutSink = forced + layout.offsetHeight;
+      };
+    } else if (scenario === "text-scroll") {
+      var scroll = append("section", "text-scroll");
+      var sentence = "GPU composition keeps rendered interface pixels on the graphics path; deterministic text motion exposes raster, layout, and upload cadence. ";
+      for (var p = 0; p < 260; ++p) {
+        var paragraph = append("p", "", scroll);
+        paragraph.textContent = (p + 1) + ". " + sentence + sentence + sentence;
+      }
+      tickWork = function (frame) {
+        var span = Math.max(1, scroll.scrollHeight - scroll.clientHeight);
+        var offset = Math.floor((frame * 5) % (span * 2));
+        scroll.scrollTop = offset > span ? span * 2 - offset : offset;
+      };
+    } else if (scenario === "canvas") {
+      var canvas = append("canvas", "");
+      canvas.id = "canvas";
+      var context = canvas.getContext("2d", { alpha: false });
+      function sizeCanvas() {
+        // The benchmark viewport itself is the pixel contract. Do not let a
+        // desktop browser's ambient DPI setting silently change canvas work.
+        canvas.width = Math.max(1, Math.floor(innerWidth));
+        canvas.height = Math.max(1, Math.floor(innerHeight));
+      }
+      sizeCanvas();
+      addEventListener("resize", sizeCanvas);
+      tickWork = function (frame) {
+        var w = canvas.width, h = canvas.height;
+        context.fillStyle = "hsl(" + (frame % 360) + ",45%,8%)";
+        context.fillRect(0, 0, w, h);
+        for (var i = 0; i < 420; ++i) {
+          var x = (i * 977 + frame * (3 + i % 11)) % w;
+          var y = (i * 541 + frame * (2 + i % 7)) % h;
+          context.fillStyle = "hsla(" + ((i * 17 + frame) % 360) + ",85%,60%,.72)";
+          context.fillRect(x, y, 8 + (i % 31), 8 + ((i * 3) % 31));
+        }
+      };
+    }
+
+    var keyScenarios = { "1": "static", "2": "transforms", "3": "repaint", "4": "layout", "5": "text-scroll", "6": "canvas" };
+    addEventListener("keydown", function (event) {
+      var next = keyScenarios[event.key];
+      if (!next || next === scenario) return;
+      params.set("scenario", next);
+      location.search = params.toString();
+    });
+
+    var started = performance.now();
+    var previous = 0;
+    var frames = 0;
+    var workTicks = 0;
+    var over20 = 0, over33 = 0, over50 = 0;
+    var intervalFrames = 0, intervalWork = [];
+    var lastReport = started;
+    var longTasks = 0, longTaskMs = 0;
+    var nextWork = started;
+    var workInterval = 1000 / 60;
+    if (typeof PerformanceObserver === "function") {
+      try {
+        new PerformanceObserver(function (list) {
+          var entries = list.getEntries();
+          longTasks += entries.length;
+          for (var i = 0; i < entries.length; ++i) longTaskMs += entries[i].duration;
+        }).observe({ entryTypes: ["longtask"] });
+      } catch (_) {}
+    }
+
+    function percentile(values, q) {
+      if (!values.length) return null;
+      var sorted = values.slice().sort(function (a, b) { return a - b; });
+      return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * q))];
+    }
+
+    function report(now) {
+      var elapsed = now - started;
+      var interval = now - lastReport;
+      var intervalFps = interval > 0 ? intervalFrames * 1000 / interval : null;
+      if (scenario === "static") {
+        uiRate.textContent = "UI RAF: intentionally idle";
+      } else {
+        uiRate.textContent = intervalFps === null ? "UI RAF: unavailable" :
+          "UI RAF: " + intervalFps.toFixed(1) + " callbacks/s";
+      }
+      var memory = performance.memory ? {
+        usedJsHeapBytes: performance.memory.usedJSHeapSize,
+        totalJsHeapBytes: performance.memory.totalJSHeapSize
+      } : null;
+      var payload = {
+        schemaVersion: 1,
+        framework: provider,
+        scenario: scenario,
+        fixtureHash: fixtureHash,
+        pageUrl: location.href,
+        viewport: { width: innerWidth, height: innerHeight, devicePixelRatio: devicePixelRatio },
+        elapsedMilliseconds: elapsed,
+        intervalMilliseconds: interval,
+        raf: {
+          callbacks: frames,
+          callbacksThisInterval: intervalFrames,
+          fpsThisInterval: intervalFps,
+          intervalsOver20ms: over20,
+          intervalsOver33ms: over33,
+          intervalsOver50ms: over50
+        },
+        workload: {
+          ticks: workTicks,
+          workP50Milliseconds: percentile(intervalWork, 0.50),
+          workP95Milliseconds: percentile(intervalWork, 0.95),
+          workP99Milliseconds: percentile(intervalWork, 0.99),
+          workMaxMilliseconds: intervalWork.length ? Math.max.apply(Math, intervalWork) : null
+        },
+        longTasks: { count: longTasks, totalMilliseconds: longTaskMs },
+        memory: memory,
+        frameworkCounters: {
+          rendered: null,
+          uploaded: null,
+          published: null,
+          consumed: null,
+          stale: null,
+          dropped: null,
+          availability: "not exposed by the common public APIs; RAF and workload counters are page-observed"
+        }
+      };
+      var json = JSON.stringify(payload);
+      try {
+        if (provider === "OSFUI") {
+          window.osfui.postMessage(JSON.stringify({ kind: "send", name: "uibench.report", payload: payload }));
+        } else if (provider === "CarbonUI") {
+          carbonBridge.call("uibench.report", json);
+        }
+      } catch (_) {}
+      intervalFrames = 0;
+      intervalWork = [];
+      lastReport = now;
+    }
+
+    function animate(now) {
+      frames++;
+      intervalFrames++;
+      if (previous) {
+        var delta = now - previous;
+        if (delta > 20) over20++;
+        if (delta > 33.334) over33++;
+        if (delta > 50) over50++;
+      }
+      previous = now;
+      if (now >= nextWork) {
+        var workStart = performance.now();
+        tickWork(workTicks++);
+        intervalWork.push(performance.now() - workStart);
+        nextWork = Math.max(nextWork + workInterval, now);
+      }
+      requestAnimationFrame(animate);
+    }
+    setInterval(function () { report(performance.now()); }, 1000);
+    if (scenario === "static") {
+      uiRate.textContent = "UI RAF: intentionally idle";
+    } else {
+      requestAnimationFrame(animate);
+    }
+  })();
+  </script>
+</body>
+</html>
