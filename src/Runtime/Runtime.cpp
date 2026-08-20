@@ -1,6 +1,5 @@
 #include "Runtime/Runtime.h"
 
-#include <cmath>
 #include <limits>
 
 #include "API/BridgeApi.h"
@@ -38,11 +37,9 @@ namespace OSFUI
 
 		ViewSize ViewSizeForOutput(const OutputSize& a_output)
 		{
-			constexpr std::uint32_t kMaxViewHeight = 1440;
-			const auto height = (std::min)(a_output.height, kMaxViewHeight);
 			return {
-				.width = static_cast<std::uint32_t>(std::lround(static_cast<double>(a_output.width) * height / a_output.height)),
-				.height = height,
+				.width = a_output.width,
+				.height = a_output.height,
 			};
 		}
 	}
