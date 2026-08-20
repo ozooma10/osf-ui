@@ -156,8 +156,20 @@ test('creates a directly deployable plain-JS Papyrus menu', async (t) => {
   assert.match(script, /^ScriptName AcmeWidgetsOSFUI Hidden/m);
   assert.match(script, /Function Refresh\(\) Global/);
   assert.match(script, /Function Bump\(int total\) Global/);
+  assert.match(script, /Function OpenView\(string asModId, string asKey\) Global/);
+  assert.match(script, /OSFUI_View\.Open\(asModId \+ "\/panel"\)/);
   assert.match(script, /OSFUI_View\.SetState\("acme\.widgets", "clicks", total\)/);
   assert.doesNotMatch(script, /ListenForView|RegisterFor/);
+
+  const settings = JSON.parse(await readFile(
+    resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),
+    'utf8',
+  ));
+  const openKey = settings.groups[0].settings.find(({ key }) => key === 'openKey');
+  assert.deepEqual(openKey.onPress, {
+    script: 'AcmeWidgetsOSFUI',
+    function: 'OpenView',
+  });
   await assertPapyrusApis(root);
 
   const build = await readFile(resolve(root, 'build-papyrus.ps1'), 'utf8');

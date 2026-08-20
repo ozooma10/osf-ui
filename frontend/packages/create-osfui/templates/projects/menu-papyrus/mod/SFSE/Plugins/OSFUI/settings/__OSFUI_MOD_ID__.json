@@ -62,7 +62,11 @@
           "label": "Open example view",
           "type": "key",
           "default": "F9",
-          "allowUnbound": true
+          "allowUnbound": true,
+          "onPress": {
+            "script": "__OSFUI_SCRIPT_NAME__",
+            "function": "OpenView"
+          }
         }
       ]
     }

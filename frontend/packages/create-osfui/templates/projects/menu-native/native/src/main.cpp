@@ -36,33 +36,23 @@ namespace
 
     DemoState g_state;
 
-    // STATE, not a push: SetViewState retains the value and OSF UI replays it
-    // to every document of this mod — first open, F5, dev reload, crash
-    // recovery. Its owning view subscribes once with osfui.state.on("state") and is
-    // never blank, and there is no "the view reloaded, re-send me everything"
-    // handshake on either side. The viewId parameter is gone: state is
-    // addressed by MOD, so every view of the mod gets it.
+    // Sets State; SetViewState retains value and ui replays it. 
+    // Owning view subscribes with osfui.state.on("state", (state) => { ... })
     void PushState() noexcept
     {
-        (void)g_json.SetViewState(kModId, "state", g_state);
+        g_json.SetViewState(kModId, "state", g_state);
     }
 
-    // A notice is something that HAPPENED, so it is an event: delivered once,
-    // never replayed. Compare PushState below, which publishes STATE — the
-    // OSF UI runtime replays that to every document, including after an F5, so the
-    // view never has to ask for it.
-    void PushNotice(const char* viewId, const char* message) noexcept
+    // an event; delivered once, never replayed. Owning view subscribes with
+    // osfui.on("notice", (payload) => { ... })
+    void PushEvent(const char* viewId, const char* message) noexcept
     {
-        try {
-            (void)g_json.SendToWeb(viewId, kNoticeType,
-                OSFUI::API::Json{ { "message", message } });
-        } catch (...) {}
+        g_json.SendToWeb(viewId, kNoticeType, OSFUI::API::Json{ { "message", message } });
     }
 
-    // A registered SEND endpoint is one-way, with nothing to settle.
+    // A registered SEND endpoint is one-way, with nothing to return/settlew
     // Owning-view JavaScript: osfui.send("increment", { amount: 1 })
-    void OnIncrement(const char* name, const char* payloadJson,
-        const char* sourceViewId, void*) noexcept
+    void OnIncrement(const char* name, const char* payloadJson, const char* sourceViewId, void*) noexcept
     {
         OSFUI::API::JsonSend event{ name, payloadJson, sourceViewId };
         const char* target = event.SourceViewId().empty() ? kViewId : event.SourceViewId().data();
@@ -85,7 +75,9 @@ namespace
     void OnGetState(const OSFUI::API::Request& raw, void*) noexcept
     {
         OSFUI::API::JsonRequest request{ raw };
-        if (request) (void)request.Respond(g_state);
+        if (request) {
+            request.Respond(g_state);
+        }
     }
 
     // JsonRequest validates required fields and owns request correlation.
@@ -102,7 +94,7 @@ namespace
         const bool excited = request.Value("excited", false);
 
         try {
-            (void)request.Respond("__OSFUI_MOD_ID__.greeting", OSFUI::API::Json{
+            request.Respond("__OSFUI_MOD_ID__.greeting", OSFUI::API::Json{
                 { "message", g_state.greeting + ", " + *name + (excited ? "!!" : "!") },
                 { "receivedFromJs", request.Payload() },
                 { "nativeCount", g_state.count }
@@ -112,8 +104,7 @@ namespace
         }
     }
 
-    // Settings action rows are requests too. The built-in Mod Settings view
-    // shows this reply message as a toast.
+    // Settings action rows are requests too. The built-in Mod Settings view shows this reply message as a toast.
     void OnRecalibrate(const OSFUI::API::Request& raw, void*) noexcept
     {
         OSFUI::API::JsonRequest request{ raw };
@@ -121,7 +112,7 @@ namespace
         g_state.count = 0;
         g_state.lastAction = "Native settings action completed";
         PushState();
-        (void)request.Respond(OSFUI::API::Json{ { "message", "Example recalibration complete" } });
+        request.Respond(OSFUI::API::Json{ { "message", "Example recalibration complete" } });
     }
 
     // Main-thread callback fired when the bridge becomes available (and after recreation).
@@ -162,9 +153,6 @@ namespace
         if (message->type != SFSE::MessagingInterface::kPostLoad) return;
         if (!g_ui.Init()) return;  // OSF UI is optional; degrade silently.
 
-        // The frozen native ABI registers exact, mod-qualified names. An owning
-        // view calls these through the local aliases "increment", "getState",
-        // and "greet"; cross-mod callers use the qualified names below.
         g_ui.RegisterSend("__OSFUI_MOD_ID__.increment", &OnIncrement, nullptr);
         g_ui.RegisterRequest("__OSFUI_MOD_ID__.getState", &OnGetState, nullptr);
         g_ui.RegisterRequest("__OSFUI_MOD_ID__.greet", &OnGreet, nullptr);

@@ -24,6 +24,15 @@ Function Bump(int total) Global
     OSFUI_View.EmitEvent("__OSFUI_MOD_ID__", "notice", noticeArgs)
 EndFunction
 
+; The settings schema's openKey.onPress target dispatches directly here.
+; Declarative hotkey handlers must be GLOBAL and accept exactly (string, string).
+Function OpenView(string asModId, string asKey) Global
+    If !OSFUI_Settings.GetBool(asModId, "enabled", true)
+        Return
+    EndIf
+    OSFUI_View.Open(asModId + "/__OSFUI_VIEW_ID__")
+EndFunction
+
 ; Next steps:
 ;   - Real forms: OSFUI_View.SetState accepts one Form through Var, and SetStateForms publishes a Form array. Runtime FormIDs are session-scoped, so never store a serialized identity across a save.
 ;   - Player-facing options belong in a settings schema and are available through OSFUI_Settings.GetBool/GetInt/GetString.
