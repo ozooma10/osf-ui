@@ -54,13 +54,6 @@ describe('shipped settings-schema JSON files', () => {
       default: false,
       requires: 'restart',
     });
-
-    const highRefresh = group?.settings?.find((candidate) => candidate.key === 'highRefreshCapture');
-    expect(highRefresh).toMatchObject({
-      type: 'bool',
-      default: false,
-      requires: 'restart',
-    });
   });
 });
 

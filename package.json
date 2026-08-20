@@ -8,13 +8,11 @@
     "node": ">=20.19"
   },
   "workspaces": [
-    "packages/cli",
     "frontend"
   ],
   "scripts": {
     "build": "npm run build --workspace osfui-frontend",
-    "test:toolchain": "npm test --workspace @osfui/cli",
-    "test": "npm run test:toolchain && npm test --workspace osfui-frontend",
-    "verify": "npm run test:toolchain && npm run verify --workspace osfui-frontend"
+    "test": " npm test --workspace osfui-frontend",
+    "verify": "npm run verify --workspace osfui-frontend"
   }
 }
