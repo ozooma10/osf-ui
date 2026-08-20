@@ -129,6 +129,21 @@ describe('author-friendly bridge helpers', () => {
     await expect(result).resolves.toBe(125);
   });
 
+  it('request() wraps direct Papyrus arguments and resolves the raw reply', async () => {
+    const { helper, sent } = loadHelper();
+    const result = helper.request<number>('calculatePrice', 42, true, { timeoutMs: 0 });
+
+    const envelope = lastPosted(sent);
+    expect(envelope).toMatchObject({
+      kind: 'request',
+      name: 'calculatePrice',
+      payload: { args: [42, true] },
+    });
+
+    deliver(helper, { kind: 'reply', id: envelope.id, payload: 125 });
+    await expect(result).resolves.toBe(125);
+  });
+
   it('does not expose a second papyrus send/request messaging surface', () => {
     const { helper } = loadHelper();
     expect((helper.papyrus as unknown as Record<string, unknown>).send).toBeUndefined();

@@ -23,6 +23,7 @@ interface Helper {
     payload?: Record<string, unknown>,
     opts?: { timeoutMs?: number },
   ): Promise<unknown>;
+  request(name: string, firstArg: null | string | number | boolean, ...args: unknown[]): Promise<unknown>;
   papyrus: {
     float(value: number): { $papyrus: 'float'; value: number };
     call(script: string, fn: string, ...args: unknown[]): boolean;
@@ -197,6 +198,19 @@ describe('request envelopes', () => {
       name: 'GetWeight',
       id: 'q1',
       payload: { args: [0x14] },
+    });
+  });
+
+  it('wraps direct scalar and variadic Papyrus request arguments', () => {
+    const { helper, sent } = loadHelper();
+
+    void helper.request('CalculatePrice', 2, 3, 4).catch(() => {});
+
+    expect(sent[1]).toEqual({
+      kind: 'request',
+      name: 'CalculatePrice',
+      id: 'q1',
+      payload: { args: [2, 3, 4] },
     });
   });
 });

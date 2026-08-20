@@ -186,7 +186,7 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
       assert.doesNotMatch(script, /Function (?:OpenSettings|Greet)\(/);
       assert.match(readme, /papyrus\.call\(\)/);
       assert.match(readme, /GLOBAL call[\s\S]*intentional escape hatch/);
-      assert.match(readme, /request\('localName', \{ args: \[\.\.\.\] \}\)/);
+      assert.match(readme, /request\('localName', \.\.\.args\)/);
       assert.match(readme, /Reply` value is[\s\S]*raw value/);
       assert.doesNotMatch(`${source}\n${script}\n${readme}`, /papyrus\.(?:send|request)/);
       assert.doesNotMatch(source, /ui\.papyrusRequest/);

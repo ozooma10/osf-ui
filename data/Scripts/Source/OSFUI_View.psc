@@ -54,8 +54,9 @@ int Function RegisterSendStatic(string asScript, string asModId, string asName) 
 ; A name cannot simultaneously be a send and request endpoint. The first registration wins.
 ;
 ; JavaScript
-;   const count = await osfui.request("getCount", { args: [] })
-;   const count = await osfui.request("acme.inventory.getCount", { args: [] }) ; cross-mod caller
+;   const count = await osfui.request("getCount")
+;   const total = await osfui.request("sum", 2, 3, 4)
+;   const count = await osfui.request("acme.inventory.getCount") ; cross-mod caller
 ;
 ; Receiver callback example:
 ;   Function OnOSFUIRequest(string asName, Var[] akArgs, string asSourceViewId, string asReplyToken)

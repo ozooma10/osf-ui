@@ -20,6 +20,8 @@
 //                                            remote outcome. Wanting one means
 //                                            it is a request.
 //   osfui.request(name, payload?, opts?)  -> Promise of the reply PAYLOAD.
+//   osfui.request(name, arg, ...args)      -> Papyrus shorthand; posts
+//                                            { args: [arg, ...args] }.
 //                                            Settles exactly once: payload,
 //                                            typed error (err.code), or timeout
 //                                            (default 10000 ms; 0 disables only
@@ -132,6 +134,25 @@
     return { args: values };
   }
 
+  function isRequestOptions(value) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.keys(value).length === 0 || Object.prototype.hasOwnProperty.call(value, "timeoutMs");
+  }
+
+  function requestCall(values) {
+    let opts;
+
+    // Preserve request(name, payload, opts), including the common
+    // request(name, undefined, opts) spelling. A trailing timeout object also
+    // works with the direct Papyrus shorthand.
+    if (values.length > 1 &&
+        (values[values.length - 1] === undefined || isRequestOptions(values[values.length - 1]))) {
+      opts = values.pop();
+    }
+
+    return { payload: sendPayload(values), opts: opts };
+  }
+
   g.send = function (name) {
     if (!bridged) return false;
     const values = Array.prototype.slice.call(arguments, 1);
@@ -139,14 +160,15 @@
     return true;
   };
 
-  g.request = function (name, payload, opts) {
+  g.request = function (name) {
     const endpoint = String(name);
     if (!bridged) {
       report('request "' + endpoint + '" failed: no-bridge (standalone preview)');
       return Promise.reject(bridgeError("no-bridge", "no bridge (standalone preview)"));
     }
+    const call = requestCall(Array.prototype.slice.call(arguments, 1));
     const id = "q" + (++seq);
-    const timeoutMs = opts && "timeoutMs" in opts ? opts.timeoutMs : 10000;
+    const timeoutMs = call.opts && "timeoutMs" in call.opts ? call.opts.timeoutMs : 10000;
     return new Promise(function (resolve, reject) {
       let timer = 0;
       if (timeoutMs > 0) {
@@ -161,7 +183,7 @@
         resolve: resolve, reject: reject, timer: timer, name: endpoint,
         startedAt: TRACE ? Date.now() : 0,
       });
-      post({ kind: "request", name: endpoint, id: id, payload: payload || {} });
+      post({ kind: "request", name: endpoint, id: id, payload: call.payload });
     });
   };
 

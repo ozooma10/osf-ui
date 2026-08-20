@@ -55,8 +55,10 @@ int Function RegisterSendStatic(string asScript, string asModId, string asName) 
 ; asModId uses the short local name; other views use "<asModId>.<asName>".
 ;
 ; JavaScript:
-;   const value = await osfui.request(asName, { args: [...] })
-;   const value = await osfui.request(asModId + "." + asName, { args: [...] }) ; cross-view
+;   const count = await osfui.request("getCount")
+;   const price = await osfui.request("getPrice", 2)
+;   const total = await osfui.request("sum", 2, 3, 4)
+;   const count = await osfui.request("acme.inventory.getCount") ; cross-mod caller
 ;
 ; Receiver callback:
 ;   Function OnOSFUIRequest(

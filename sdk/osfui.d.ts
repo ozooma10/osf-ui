@@ -661,8 +661,18 @@ export interface OSFUIHelper {
    * runtime-side 30 s deadline still answers "no-response". An OSFUI_View
    * request token has its own 10 s deadline and answers "papyrus-timeout".
    * OSFUI_View.Reply resolves this promise directly with its scalar value; no
-   * `{ value }` wrapper is added.
+   * `{ value }` wrapper is added. As with send(), scalar or multiple arguments
+   * after `name` are wrapped as `{ args: [...] }` for portable Papyrus
+   * endpoints. One object remains a generic payload, so pass a lone Form as
+   * `{ args: [form] }`. A trailing `{ timeoutMs }` remains request options.
    */
+  request<T = unknown>(
+    name: string,
+    firstArg: null | string | number | boolean,
+    ...args: [...PapyrusArgument[], { timeoutMs?: number }]
+  ): Promise<T>;
+  request<T = unknown>(name: string, firstArg: null | string | number | boolean, ...args: PapyrusArgument[]): Promise<T>;
+  request<T = unknown>(name: string, firstArg: PapyrusArgument, secondArg: PapyrusArgument, ...args: PapyrusArgument[]): Promise<T>;
   request<T = unknown>(name: string, payload?: JsonObject, opts?: { timeoutMs?: number }): Promise<T>;
 
   /**
