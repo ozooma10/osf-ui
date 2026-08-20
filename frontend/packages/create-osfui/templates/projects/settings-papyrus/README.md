@@ -22,18 +22,17 @@ Without `-Mo2Mods` the script only compiles.
 1. Refresh MO2 (F5) and enable the mod.
 2. Load a save, then press **F10** and open **__OSFUI_DISPLAY_NAME__**.
 3. Close every menu and press **F8**. A notification appears.
-s
+
 Hotkeys are dropped while a game menu or the console is open, so the press only works during gameplay. 
 Rebind the key in the menu and the new key works immediately.
 
-Then **save, reload, and press it again**. This is what `onPress` buys you:
-the target is read from the schema at delivery time, so unlike `OSFUI.RegisterForHotkey` there is no registration to lose and no `OnPlayerLoadGame` hook to write.
+Then **save, reload, and press it again**. This is what `onPress` buys you: the target is read from the schema at delivery time, so unlike `OSFUI.RegisterForHotkey` there is no registration to lose and no `OnPlayerLoadGame` hook to write.
 
 ## Edit it
 
 - **Settings page** - edit the JSON. Rows support `bool`, `int`, `float`, `enum`, `flags`, `string`, and `key` types. Read values back with `OSFUI.GetBool` / `GetInt` / `GetFloat` / `GetString`. 
   See [authoring-settings.md](https://github.com/ozooma10/osf-ui/blob/main/docs/authoring-settings.md).
-- **Hotkey** - a `"type": "key"` row with an `onPress` target. Its `script` must match the `ScriptName` exactly and the function must be GLOBAL with an exact `(string, string)` signature. Stored key names identify physical positions; OSF UI shows the player's current keyboard-layout label.
+- **Hotkey** - a `"type": "key"` row with an `onPress` target. Its `script` must match the `ScriptName` exactly and the function must be GLOBAL with an exact `(string, string)` signature.
 - **Add a view later** - run `npm create osfui@latest` and pick the menu or HUD view; the schema and script here move across unchanged.
 
 ## Ship it
