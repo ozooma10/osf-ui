@@ -19,7 +19,7 @@ namespace OSFUI
 		};
 
 		// Existing keys still update after a mod reaches this capacity.
-		static constexpr std::size_t kMaxKeysPerMod = 64;
+		static constexpr std::size_t kMaxKeysPerMod = 1024;
 
 		// Bound caller-supplied mod buckets as well as keys within each bucket.
 		static constexpr std::size_t kMaxMods = 256;

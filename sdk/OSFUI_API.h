@@ -274,7 +274,7 @@ namespace OSFUI::API
 		// retained value of a_key for YOUR mod, not for one individual view;
 		// every current and future document of that mod receives it through
 		// osfui.state.on("<a_modId>/<a_key>"). Latest wins per case-insensitive
-		// key, at most 64 keys per mod, and any JSON value is accepted.
+		// key, at most 1024 keys per mod, and any JSON value is accepted.
 		// Native state is not session-scoped; Papyrus state is because it may
 		// contain form identities. Validation is synchronous.
 		virtual bool SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) = 0;
