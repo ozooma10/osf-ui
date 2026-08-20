@@ -9,8 +9,8 @@ const defaults = {"enabled":true,"mode":"detailed","intensity":65,"greeting":"He
 const settingValues: Record<string, unknown> = { ...defaults };
 
 export default defineMock({
-  // Mirrors the script's opening OSFUI.SetView* publish; the harness replays
-  // these as data.state on every reload, exactly like the real cache.
+  // Mirrors the script's opening OSFUI_View.SetState publish; the harness
+  // replays these retained state values on every reload, like the real cache.
   state,
   locales: {
     en: {},
@@ -76,21 +76,15 @@ export function install(ctx: MockContext) {
           notice('Mod-backend actions are disabled in Mod Settings');
           return true;
         }
-        // Assigns the view's total, exactly as SetViewInt does.
+        // Assigns the view's total, exactly as OSFUI_View.SetState does.
         state.clicks = Number(args[0]) || 0;
         publish();
         notice('JavaScript called a GLOBAL Papyrus function');
-      } else if (payload.function === 'OpenSettings') {
-        ctx.notify('Papyrus would call OSFUI.OpenMenu()');
-      } else if (payload.function === 'Greet') {
-        state.greeting = String(settingValues.greeting ?? state.greeting) + ', ' + String(args[0] ?? '');
-        publishGreeting();
       }
       return true;
     }
   };
-  if (ctx.onEndpoint) ctx.onEndpoint(handleEndpoint);
-  else ctx.onCommand(handleEndpoint as Parameters<MockContext['onCommand']>[0]);
+  ctx.onEndpoint(handleEndpoint);
 
   ctx.registerTools([
     { id: 'papyrus-enabled', kind: 'toggle', label: 'Mod backend enabled', value: true },

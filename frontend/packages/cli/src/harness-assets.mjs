@@ -10,6 +10,7 @@ html, body, .app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 #tools { display: contents; }
 button, select { min-height: 28px; padding: 3px 8px; font: inherit; color: inherit; background: #111d24; border: 1px solid #37505c; }
 button { cursor: pointer; }
+.active > button, button[aria-pressed="true"] { border-color: #72c7e7; color: #b9edff; }
 .status { color: #9fb1b9; }
 .error { color: #ff8c78; }
 .stage-shell { min-width: 0; min-height: 0; overflow: hidden; display: grid; place-items: center; background: #10161a; }
@@ -22,7 +23,7 @@ export const HARNESS_HTML = String.raw`<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OSF UI Animation Harness</title>
+  <title>OSF UI Harness</title>
   <link rel="stylesheet" href="/__osfui/harness.css">
 </head>
 <body>

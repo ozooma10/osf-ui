@@ -65,7 +65,7 @@ test('loads, checks, and builds the OSF Animation project shape', async (t) => {
   assert.equal(await access(resolve(output, 'index.html')).then(() => true, () => false), true);
 });
 
-test('injects only the harness marker and Animation tool loader', async (t) => {
+test('injects the protocol-aware harness bootstrap and mock loader', async (t) => {
   const project = await loadProject(await animationFixture(t));
   const plugin = harnessPlugin(project, project.views[0]);
   const tags = plugin.transformIndexHtml.handler('', {
@@ -77,6 +77,17 @@ test('injects only the harness marker and Animation tool loader', async (t) => {
   assert.equal(tags[2].attrs.src, '/__osfui/mock-loader.js');
 
   const loader = await readFile(resolve(import.meta.dirname, '../src/browser/mock-loader.js'), 'utf8');
-  assert.match(loader, /registerTools/);
-  assert.doesNotMatch(loader, /scenario|onEndpoint|pseudo|traffic/i);
+  assert.match(loader, /installMock/);
+  assert.match(loader, /loadError/);
+
+  const runtime = await readFile(resolve(import.meta.dirname, '../src/browser/mock-runtime.js'), 'utf8');
+  assert.match(runtime, /onEndpoint/);
+  assert.match(runtime, /kind: 'ready'/);
+  assert.match(runtime, /kind: 'reply'/);
+  assert.doesNotMatch(runtime, /papyrus\.(?:send|request)/);
+
+  const shell = await readFile(resolve(import.meta.dirname, '../src/browser/shell.js'), 'utf8');
+  for (const kind of ['button', 'toggle', 'cycle', 'select', 'tool-state']) {
+    assert.match(shell, new RegExp(kind));
+  }
 });

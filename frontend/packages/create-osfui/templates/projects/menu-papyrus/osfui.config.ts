@@ -2,9 +2,6 @@ import { defineConfig } from '@osfui/cli';
 
 export default defineConfig({
   modId: '__OSFUI_MOD_ID_SQ__',
-  papyrus: {
-    scriptsOnly: true,
-  },
   views: [{
     id: '__OSFUI_VIEW_ID__',
     title: '__OSFUI_VIEW_TITLE__',

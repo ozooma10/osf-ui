@@ -38,7 +38,7 @@ namespace
 
     // STATE, not a push: SetViewState retains the value and OSF UI replays it
     // to every document of this mod — first open, F5, dev reload, crash
-    // recovery. The view subscribes once with osfui.state.on("<mod>/state") and is
+    // recovery. Its owning view subscribes once with osfui.state.on("state") and is
     // never blank, and there is no "the view reloaded, re-send me everything"
     // handshake on either side. The viewId parameter is gone: state is
     // addressed by MOD, so every view of the mod gets it.
@@ -60,7 +60,7 @@ namespace
     }
 
     // A registered SEND endpoint is one-way, with nothing to settle.
-    // JavaScript: osfui.send("__OSFUI_MOD_ID__.increment", { amount: 1 })
+    // Owning-view JavaScript: osfui.send("increment", { amount: 1 })
     void OnIncrement(const char* name, const char* payloadJson,
         const char* sourceViewId, void*) noexcept
     {
@@ -81,7 +81,7 @@ namespace
     }
 
     // A registered REQUEST settles exactly once, with a payload or a code.
-    // JavaScript: const state = await osfui.request("__OSFUI_MOD_ID__.getState")
+    // Owning-view JavaScript: const state = await osfui.request("getState")
     void OnGetState(const OSFUI::API::Request& raw, void*) noexcept
     {
         OSFUI::API::JsonRequest request{ raw };
@@ -162,6 +162,9 @@ namespace
         if (message->type != SFSE::MessagingInterface::kPostLoad) return;
         if (!g_ui.Init()) return;  // OSF UI is optional; degrade silently.
 
+        // The frozen native ABI registers exact, mod-qualified names. An owning
+        // view calls these through the local aliases "increment", "getState",
+        // and "greet"; cross-mod callers use the qualified names below.
         g_ui.RegisterSend("__OSFUI_MOD_ID__.increment", &OnIncrement, nullptr);
         g_ui.RegisterRequest("__OSFUI_MOD_ID__.getState", &OnGetState, nullptr);
         g_ui.RegisterRequest("__OSFUI_MOD_ID__.greet", &OnGreet, nullptr);

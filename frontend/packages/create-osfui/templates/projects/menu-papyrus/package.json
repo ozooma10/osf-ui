@@ -7,8 +7,9 @@
     "dev": "osfui dev",
     "dev:game": "osfui dev --game",
     "check": "osfui check",
-    "build": "osfui build",
-    "package": "osfui package",
+    "build": "npm run build:papyrus && npm run build:view",
+    "build:papyrus": "pwsh -NoProfile -File ./build-papyrus.ps1",
+    "build:view": "osfui build",
     "doctor": "osfui doctor"
   },
   "devDependencies": {

@@ -6,8 +6,8 @@ test('offers only Papyrus and Native Plugin workflows', () => {
   assert.deepEqual(CHOICES.integration.map(({ value }) => value), ['papyrus', 'native']);
 });
 
-test('offers settings-only beside the two view starter types', () => {
-  assert.deepEqual(CHOICES.surface.map(({ value }) => value), ['menu', 'hud', 'settings']);
+test('offers only starter types backed by authored templates', () => {
+  assert.deepEqual(CHOICES.surface.map(({ value }) => value), ['menu', 'settings']);
 });
 
 test('accepts opaque mod ids while reserving osfui and unsafe path names', () => {
@@ -37,7 +37,7 @@ function recordingPrompt(textAnswers, selectAnswers, questions) {
 test('walks through missing choices as visible select lists', async () => {
   const questions = [];
   const textAnswers = ['custom-view', 'acme.widgets', 'panel'];
-  const selectAnswers = ['hud', 'native'];
+  const selectAnswers = ['menu', 'native'];
   const prompt = {
     intro: (title) => questions.push({ kind: 'intro', title }),
     isCancel: () => false,
@@ -63,7 +63,7 @@ test('walks through missing choices as visible select lists', async () => {
     directory: 'custom-view',
     modId: 'acme.widgets',
     view: 'panel',
-    surface: 'hud',
+    surface: 'menu',
     integration: 'native',
   });
   // Starter type is asked before View name so settings-only can skip it.
@@ -136,7 +136,7 @@ test('the settings-only starter skips the view and workflow prompts', async () =
 test('keeps explicit flags and fills only missing values without a TTY', async () => {
   const options = {
     directory: 'widgets',
-    surface: 'hud',
+    surface: 'menu',
     integration: 'native',
   };
 
@@ -151,7 +151,7 @@ test('keeps explicit flags and fills only missing values without a TTY', async (
     directory: 'widgets',
     modId: 'widgets',
     view: 'main',
-    surface: 'hud',
+    surface: 'menu',
     integration: 'native',
   });
 });

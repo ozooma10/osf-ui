@@ -11,13 +11,13 @@ import {
   slug,
   validModId,
 } from './prompts.mjs';
-import { MAX_MOD_ID_LENGTH, OSFUI_RELEASE_VERSION } from '@osfui/cli/constants';
+import { MAX_MOD_ID_LENGTH, OSFUI_RELEASE_VERSION } from './constants.mjs';
 import { resolveCliSpec } from './cli-spec.mjs';
 import { renderProjectTemplate } from './project-template.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-// Closed sets: a typo'd flag ("--surfce hud") must fail here, not scaffold
+// Closed sets: a typo'd flag ("--surfce menu") must fail here, not scaffold
 // the default starter type and exit 0. `--surface` remains the stable flag name.
 const VALUE_FLAGS = {
   '--mod-id': 'modId',
@@ -59,28 +59,27 @@ function validate(options) {
     throw new Error(`--mod-id must be a safe name other than osfui and at most ${MAX_MOD_ID_LENGTH} UTF-8 bytes.`);
   }
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
-  if (!['menu', 'hud', 'settings'].includes(options.surface)) {
-    throw new Error('--surface must be menu, hud, or settings.');
+  if (!['menu', 'settings'].includes(options.surface)) {
+    throw new Error('--surface must be menu or settings; this package does not include a HUD starter.');
   }
   if (!['papyrus', 'native'].includes(options.integration)) {
     throw new Error('--integration must be papyrus or native.');
   }
-  // A settings row's only code path back into the game is Papyrus: onPress
-  // targets a GLOBAL function, and an action row needs a whole SFSE plugin to
-  // answer its request — that is the menu/native preset, not this one.
+  // This settings-only preset is a recordless GLOBAL onPress handler. It has no
+  // quest/alias load lifecycle with which to maintain an OSFUI_View request
+  // registration, and the native project belongs to the menu/native preset.
   if (options.surface === 'settings' && options.integration !== 'papyrus') {
     throw new Error('--surface settings is Papyrus-only; ' +
       'use --surface menu --integration native for an SFSE-plugin project.');
   }
 }
 
-async function copyPapyrusApi(root) {
+async function copyPapyrusApis(root) {
   const papyrusRoot = resolve(root, 'tools/papyrus');
   await mkdir(papyrusRoot, { recursive: true });
-  await cp(
-    resolve(HERE, '..', 'templates/papyrus/OSFUI.psc'),
-    resolve(papyrusRoot, 'OSFUI.psc'),
-  );
+  for (const name of ['OSFUI.psc', 'OSFUI_Settings.psc', 'OSFUI_View.psc']) {
+    await cp(resolve(HERE, '..', `templates/papyrus/${name}`), resolve(papyrusRoot, name));
+  }
 }
 
 export async function scaffold(options) {
@@ -105,7 +104,7 @@ export async function scaffold(options) {
       await cp(resolve(HERE, '..', `templates/native/${name}`), resolve(includeRoot, name));
     }
   } else {
-    await copyPapyrusApi(root);
+    await copyPapyrusApis(root);
   }
   return root;
 }
@@ -125,7 +124,7 @@ async function main() {
   const options = parse(process.argv.slice(2));
   if (options.help) {
     console.log('npm create osfui@latest [directory] ' +
-      '[-- --mod-id my-mod --view main --surface menu|hud|settings --integration papyrus|native]');
+      '[-- --mod-id my-mod --view main --surface menu|settings --integration papyrus|native]');
     return;
   }
   options.directory = options._[0];
@@ -136,14 +135,12 @@ async function main() {
   if (!options.noInstall && options.surface !== 'settings') await install(root);
   const firstCommands = options.surface === 'settings'
     ? './build-deploy.ps1 -Mo2Mods "path-to-MO2-mods"'
-    : options.integration === 'papyrus'
-      ? 'npm run doctor\n  npm run dev'
-      : 'npm run dev';
+    : 'npm run dev';
   const next = root === process.cwd()
     ? firstCommands
     : `cd ${options.directory}\n  ${firstCommands}`;
   const result = `Created ${root}\n\nNext:\n  ${next}`;
-  if (interactive) finishPrompt(result);
+  if (interactive) await finishPrompt(result);
   else console.log(`\n${result}`);
 }
 

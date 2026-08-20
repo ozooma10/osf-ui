@@ -1,7 +1,6 @@
-import * as prompts from '@clack/prompts';
 import { stdin, stdout } from 'node:process';
 import { basename, resolve } from 'node:path';
-import { MAX_MOD_ID_LENGTH, isThirdPartyModId } from '@osfui/cli/constants';
+import { MAX_MOD_ID_LENGTH, isThirdPartyModId } from './constants.mjs';
 
 export const ID = /^[a-z0-9-]+$/;
 export const validModId = (value) => isThirdPartyModId(value);
@@ -9,7 +8,6 @@ export const validModId = (value) => isThirdPartyModId(value);
 export const CHOICES = {
   surface: [
     { value: 'menu', label: 'Menu', hint: 'a focused screen with user input' },
-    { value: 'hud', label: 'HUD', hint: 'a persistent view shown during gameplay' },
     { value: 'settings', label: 'Settings only', hint: 'a settings page and a hotkey, no view code' },
   ],
   integration: [
@@ -40,7 +38,7 @@ function fillDefaults(options) {
 
 export async function promptMissing(
   options,
-  prompt = prompts,
+  prompt,
   terminal = { input: stdin, output: stdout },
 ) {
   const interactive = !options.yes && terminal.input.isTTY && terminal.output.isTTY;
@@ -48,6 +46,8 @@ export async function promptMissing(
     fillDefaults(options);
     return false;
   }
+
+  prompt ||= await import('@clack/prompts');
 
   prompt.intro('Create an OSF UI starter');
 
@@ -102,6 +102,7 @@ export async function promptMissing(
   return true;
 }
 
-export function finishPrompt(message, prompt = prompts) {
+export async function finishPrompt(message, prompt) {
+  prompt ||= await import('@clack/prompts');
   prompt.outro(message);
 }

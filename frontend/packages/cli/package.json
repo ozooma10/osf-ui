@@ -1,7 +1,7 @@
 {
   "name": "@osfui/cli",
   "version": "0.1.0",
-  "description": "Compatibility authoring tools used by OSF Animation.",
+  "description": "Authoring, build, and browser-preview tools for OSF UI views.",
   "license": "GPL-3.0-or-later",
   "publishConfig": {
     "access": "public"

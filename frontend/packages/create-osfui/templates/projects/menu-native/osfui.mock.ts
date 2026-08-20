@@ -53,11 +53,11 @@ export function install(ctx: MockContext) {
   };
 
   const handleEndpoint: Parameters<NonNullable<MockContext['onEndpoint']>>[0] = (kind, name, payload, io) => {
-    if (kind === 'request' && name === '__OSFUI_MOD_ID_SQ__.getState') {
+    if (kind === 'request' && name === 'getState') {
       io.resolve({ ...state });
       return true;
     }
-    if (kind === 'send' && name === '__OSFUI_MOD_ID_SQ__.increment') {
+    if (kind === 'send' && name === 'increment') {
       const requested = Number(payload.amount);
       const amount = Number.isFinite(requested) ? Math.max(-10, Math.min(10, requested)) : 1;
       if (state.enabled) {
@@ -69,7 +69,7 @@ export function install(ctx: MockContext) {
       }
       return true;
     }
-    if (kind === 'request' && name === '__OSFUI_MOD_ID_SQ__.greet') {
+    if (kind === 'request' && name === 'greet') {
       const who = typeof payload.name === 'string' ? payload.name : '';
       if (!who) {
         io.reject('invalid-payload', 'name is required');
@@ -84,8 +84,7 @@ export function install(ctx: MockContext) {
       return true;
     }
   };
-  if (ctx.onEndpoint) ctx.onEndpoint(handleEndpoint);
-  else ctx.onCommand(handleEndpoint as Parameters<MockContext['onCommand']>[0]);
+  ctx.onEndpoint(handleEndpoint);
 
   ctx.registerTools([
     { id: 'native-enabled', kind: 'toggle', label: 'Native enabled', value: true },

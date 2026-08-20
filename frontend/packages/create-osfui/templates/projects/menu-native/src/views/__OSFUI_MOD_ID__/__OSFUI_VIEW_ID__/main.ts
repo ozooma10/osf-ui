@@ -66,7 +66,7 @@ function describe(error: unknown): string {
 }
 
 // C++ -> JS event: a notice happened once, so it is not replayed after reload.
-osfui.on<{ message: string }>('__OSFUI_MOD_ID_SQ__.notice', (payload) => {
+osfui.on<{ message: string }>('notice', (payload) => {
   status.textContent = payload.message;
 });
 
@@ -74,8 +74,8 @@ osfui.on<{ message: string }>('__OSFUI_MOD_ID_SQ__.notice', (payload) => {
 // no reload handling: the handler runs with the current value now, and again on
 // every change and on every future document. This is the path you want for
 // anything the mod backend owns.
-osfui.state.on<DemoState>('__OSFUI_MOD_ID_SQ__/state', showState);
-const initialState = osfui.state.get<DemoState>('__OSFUI_MOD_ID_SQ__/state');
+osfui.state.on<DemoState>('state', showState);
+const initialState = osfui.state.get<DemoState>('state');
 if (initialState) showState(initialState); // get() is useful for one-off snapshots; on() is the normal render path.
 
 osfui.ready.then(async (info) => {
@@ -90,7 +90,7 @@ osfui.ready.then(async (info) => {
   // right now. Here it is redundant with the subscription above — kept as the
   // smallest working example of the verb.
   try {
-    showState(await osfui.request<DemoState>('__OSFUI_MOD_ID_SQ__.getState'));
+    showState(await osfui.request<DemoState>('getState'));
   } catch (error) {
     status.textContent = describe(error);
   }
@@ -98,7 +98,7 @@ osfui.ready.then(async (info) => {
 
 // JS -> C++ fire-and-forget; OnIncrement answers by publishing retained state.
 increment.addEventListener('click', () => {
-  if (!osfui.send('__OSFUI_MOD_ID_SQ__.increment', { amount: 1 })) {
+  if (!osfui.send('increment', { amount: 1 })) {
     status.textContent = 'OSF UI bridge is unavailable';
   }
 });
@@ -108,7 +108,7 @@ increment.addEventListener('click', () => {
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    const reply = await osfui.request<Greeting>('__OSFUI_MOD_ID_SQ__.greet', {
+    const reply = await osfui.request<Greeting>('greet', {
       name: name.value,
       excited: excited.checked,
     });
@@ -152,4 +152,3 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') osfui.send('close');
 });
 close.addEventListener('click', () => osfui.send('close'));
-

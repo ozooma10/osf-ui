@@ -48,7 +48,6 @@ if (-not $PapyrusSource) {
 if (-not $PapyrusCompiler -or -not (Test-Path -LiteralPath $PapyrusCompiler -PathType Leaf)) {
     throw 'PapyrusCompiler.exe not found. Install the Starfield Creation Kit (Steam > Library > Tools), or pass -PapyrusCompiler.'
 }
-# Both files come from the Creation Kit; either one missing means the imports directory is not the CK script sources.
 $flagsFile = if ($PapyrusSource) { Join-Path $PapyrusSource 'Starfield_Papyrus_Flags.flg' } else { $null }
 if (-not $PapyrusSource -or -not (Test-Path -LiteralPath (Join-Path $PapyrusSource 'Quest.psc') -PathType Leaf) -or -not (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
     throw "Creation Kit script sources not found at '$PapyrusSource'. Unpack Tools/ContentResources.zip, or pass -PapyrusSource."
@@ -57,7 +56,8 @@ if (-not $PapyrusSource -or -not (Test-Path -LiteralPath (Join-Path $PapyrusSour
 New-Item -ItemType Directory -Force -Path $scriptOutput | Out-Null
 Push-Location $sourceRoot
 try {
-    # tools/papyrus holds the OSF UI compiler APIs; without it on -i the OSFUI_Settings calls below will not resolve.
+    # The three files under tools/papyrus are compiler declarations only. The
+    # installed OSF UI mod supplies their matching PEX files at runtime.
     & $PapyrusCompiler `
         '__OSFUI_SCRIPT_NAME__.psc' `
         "-i=$sourceRoot;$osfuiApis;$PapyrusSource" `
@@ -71,11 +71,10 @@ try {
 Write-Host "[osfui] Compiled __OSFUI_SCRIPT_NAME__.pex"
 
 if (-not $Mo2Mods) {
-    Write-Host '[osfui] Pass -Mo2Mods "path-to-MO2-mods" to also deploy this mod.'
+    Write-Host '[osfui] Pass -Mo2Mods "path-to-MO2-mods" to also deploy the Papyrus backend and settings.'
     exit 0
 }
-$deployRoot = Join-Path $Mo2Mods '__OSFUI_DISPLAY_NAME__'
+$deployRoot = Join-Path $Mo2Mods '__OSFUI_DISPLAY_NAME__ Backend'
 New-Item -ItemType Directory -Force -Path $deployRoot | Out-Null
 Copy-Item -Path (Join-Path $modRoot '*') -Destination $deployRoot -Recurse -Force
-Write-Host "[osfui] Deployed to $deployRoot"
-Write-Host '[osfui] Refresh MO2 (F5), enable the mod, load a save, close all menus, and press F8.'
+Write-Host "[osfui] Deployed backend and settings to $deployRoot"

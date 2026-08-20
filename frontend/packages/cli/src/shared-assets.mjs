@@ -8,7 +8,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export async function sharedAssetPath(name) {
   const candidates = [
     resolve(HERE, '..', 'assets', name),
-    resolve(HERE, '..', '..', '..', 'frontend', 'src', 'shared-kit', name),
+    resolve(HERE, '..', '..', '..', 'src', 'shared-kit', name),
   ];
   for (const path of candidates) {
     try {

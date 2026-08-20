@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..');
-const repoRoot = resolve(packageRoot, '..', '..');
+const repoRoot = resolve(packageRoot, '..', '..', '..');
 const { composeHelper } = await import(pathToFileURL(
   resolve(repoRoot, 'frontend/scripts/compose-helper.mjs'),
 ).href);

@@ -1,6 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/ozooma10/osf-ui/refs/heads/main/docs/schema/settings-schema.schema.json",
   "id": "__OSFUI_MOD_ID__",
+  "targetVersion": "__OSFUI_RELEASE_VERSION__",
   "title": "__OSFUI_DISPLAY_NAME__",
   "description": "Settings and hotkeys for __OSFUI_DISPLAY_NAME__.",
   "groups": [

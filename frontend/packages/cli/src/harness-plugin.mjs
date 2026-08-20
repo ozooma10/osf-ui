@@ -52,7 +52,7 @@ export function harnessPlugin(project, selectedView) {
     project.views.find((view) => path.startsWith(`/${project.modId}/${view.id}/`)) || selectedView;
 
   return {
-    name: 'osfui-animation-harness',
+    name: 'osfui-authoring-harness',
     enforce: 'pre',
     resolveId(source) {
       if (source === '/shared/osfui.js') return `${SHARED_PREFIX}osfui.js`;

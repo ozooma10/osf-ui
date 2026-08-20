@@ -8,14 +8,15 @@ const check = process.argv.slice(2).includes('--check');
 const unknown = process.argv.slice(2).filter((arg) => arg !== '--check');
 if (unknown.length > 0) throw new Error(`unknown argument: ${unknown.join(' ')}`);
 const repositoryRoot = resolve(packageRoot, '..', '..', '..');
+const papyrusApiFiles = ['OSFUI.psc', 'OSFUI_Settings.psc', 'OSFUI_View.psc'];
 
 const files = [
   [resolve(repositoryRoot, 'sdk', 'OSFUI_API.h'), resolve(packageRoot, 'templates', 'native', 'OSFUI_API.h')],
   [resolve(repositoryRoot, 'sdk', 'OSFUI_JSON.h'), resolve(packageRoot, 'templates', 'native', 'OSFUI_JSON.h')],
-  [
-    resolve(repositoryRoot, 'data', 'Scripts', 'Source', 'OSFUI.psc'),
-    resolve(packageRoot, 'templates', 'papyrus', 'OSFUI.psc'),
-  ],
+  ...papyrusApiFiles.map((name) => [
+    resolve(repositoryRoot, 'data', 'Scripts', 'Source', name),
+    resolve(packageRoot, 'templates', 'papyrus', name),
+  ]),
 ];
 
 if (check) {
@@ -31,7 +32,7 @@ if (check) {
   if (drifted.length > 0) {
     throw new Error(
       `scaffolder SDK templates are stale:\n${drifted.map((file) => `  ${file}`).join('\n')}\n` +
-        'Run: npm run sync:sdk --workspace create-osfui',
+        'Run from frontend/packages/create-osfui: npm run sync:sdk',
     );
   }
 } else {
