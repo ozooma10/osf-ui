@@ -71,20 +71,20 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /npm run dev/);
 
-    const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
-    const config = await readFile(resolve(root, 'osfui.config.ts'), 'utf8');
     const isPapyrusMenu = integration === 'papyrus';
+    const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
+    const configFile = isPapyrusMenu ? 'osfui.config.js' : 'osfui.config.ts';
+    const mockFile = isPapyrusMenu ? 'osfui.mock.js' : 'osfui.mock.ts';
+    const config = await readFile(resolve(root, configFile), 'utf8');
     const sourceFile = isPapyrusMenu ? 'main.js' : 'main.ts';
     const viewRoot = resolve(root, 'src/views/acme.widgets/panel');
     const source = await readFile(
       resolve(viewRoot, sourceFile),
       'utf8',
     );
-    const mock = await readFile(resolve(root, 'osfui.mock.ts'), 'utf8');
+    const mock = await readFile(resolve(root, mockFile), 'utf8');
     const html = await readFile(resolve(viewRoot, 'index.html'), 'utf8');
-    const style = isPapyrusMenu
-      ? null
-      : await readFile(resolve(viewRoot, 'style.css'), 'utf8');
+    const style = await readFile(resolve(viewRoot, 'style.css'), 'utf8');
 
     assert.match(packageJson.devDependencies['@osfui/cli'], /^file:/);
     assert.equal(packageJson.dependencies, undefined);
@@ -95,8 +95,8 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
     // Only fields that differ from the CLI defaults are scaffolded.
     assert.doesNotMatch(config, /transparent:|hub:|permissions:/);
     assert.equal(config.match(/\bviews:/g)?.length, 1);
-    assert.match(mock, /defineMock/);
-    assert.match(mock, /OSF-UI-Starter/);
+    if (integration === 'native') assert.match(mock, /defineMock/);
+    if (integration === 'native') assert.match(mock, /OSF-UI-Starter/);
     // The generated project stays a focused starter, not a second reference.
     await assert.rejects(readFile(resolve(root, 'FEATURES.md'), 'utf8'));
     const readme = await readFile(resolve(root, 'README.md'), 'utf8');
@@ -116,10 +116,14 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
     assert.doesNotMatch(mock, /\btype: 'ui\./);
     assert.match(mock, /ctx\.onEndpoint\(handleEndpoint\)/);
     assert.doesNotMatch(mock, /onCommand/);
-    const tsconfig = JSON.parse(await readFile(resolve(root, 'tsconfig.json'), 'utf8'));
-    assert.equal(tsconfig.compilerOptions.strict, true);
-    // Hand-written .js view files stay a supported authoring path.
-    assert.equal(tsconfig.compilerOptions.allowJs, true);
+    if (isPapyrusMenu) {
+      await assert.rejects(readFile(resolve(root, 'tsconfig.json'), 'utf8'));
+      await assert.rejects(readFile(resolve(root, 'src/vite-env.d.ts'), 'utf8'));
+    } else {
+      const tsconfig = JSON.parse(await readFile(resolve(root, 'tsconfig.json'), 'utf8'));
+      assert.equal(tsconfig.compilerOptions.strict, true);
+      assert.equal(tsconfig.compilerOptions.allowJs, true);
+    }
 
     const sourceMarker = integration === 'native'
       ? 'request<DemoState>'
@@ -165,17 +169,18 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
       assert.doesNotMatch(readme, /npm run package/);
       assert.equal(readme.match(/npm run dev`/g)?.length, 1);
 
-      // The simplest backend gets a two-file view: static HTML with inline CSS
-      // and small browser-ready JavaScript using only the OSF UI API.
+      // The simplest backend gets an ordinary HTML/CSS/JS view with no
+      // TypeScript project surface.
       assert.equal(sourceFile, 'main.js');
       await assert.rejects(readFile(resolve(viewRoot, 'main.ts'), 'utf8'));
-      await assert.rejects(readFile(resolve(viewRoot, 'style.css'), 'utf8'));
-      assert.match(html, /<style>[\s\S]*<\/style>/);
+      assert.match(style, /body\s*\{/);
       assert.match(html, /<button id="bump"/);
       assert.match(html, /<p id="status" role="status">/);
       assert.match(html, /<script type="module" src="\.\/main\.js"><\/script>/);
-      assert.doesNotMatch(html, /<link|osfui\.css|style\.css/);
+      assert.match(html, /<link rel="stylesheet" href="\.\/style\.css">/);
+      assert.doesNotMatch(html, /<style>/);
       assert.doesNotMatch(source, /import type|<number>|<string>|<\{ args:|:\s*(?:string|unknown|OSFUIHelper)\b/);
+      assert.doesNotMatch(mock, /import type|MockContext|Record<string|:\s*(?:string|unknown)\b/);
       assert.match(source, /^import '\/shared\/osfui\.js';/);
       assert.doesNotMatch(source, /i18n|theme|settings\.changed|ui\.hotkey|handleBack/);
       assert.match(script, /Function Bump\(int total\) Global/);
@@ -190,14 +195,15 @@ for (const [surface, integration, modBackendPath, modBackendPattern] of [
       assert.match(readme, /Reply` value is[\s\S]*raw value/);
       assert.doesNotMatch(`${source}\n${script}\n${readme}`, /papyrus\.(?:send|request)/);
       assert.doesNotMatch(source, /ui\.papyrusRequest/);
-      assert.match(mock, /name === 'papyrus\.call'/);
+      assert.match(mock, /name !== 'papyrus\.call'/);
       for (const fn of ['Refresh', 'Bump']) {
         assert.match(script, new RegExp(`Function ${fn}\\(`), `.psc implements ${fn}`);
         assert.match(mock, new RegExp(`payload\\.function === '${fn}'`), `mock implements ${fn}`);
       }
       assert.match(script, /OSFUI_View\.SetState\("acme\.widgets", "clicks", total\)/);
-      assert.match(mock, /state\.clicks = Number\(args\[0\]\) \|\| 0;/);
-      assert.match(mock, /if \(!settingValues\.enabled\)/);
+      assert.match(mock, /state\.clicks = Number\(payload\.args\?\.\[0\]\) \|\| 0;/);
+      assert.doesNotMatch(mock, /settingValues|settings\.changed|registerTools|keyboard|locales/);
+      assert.doesNotMatch(`${config}\n${mock}`, /from ['"]@osfui\/cli['"]/);
     }
 
     if (integration === 'native') {

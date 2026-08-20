@@ -3,6 +3,7 @@
 A small OSF UI menu with a recordless Papyrus backend. The view demonstrates
 the normal JavaScript state/event API; its one direct GLOBAL call is the
 intentional escape hatch for a script with no quest or alias lifecycle.
+The view itself is plain `index.html`, `style.css`, and `main.js`.
 
 ## Build
 
@@ -30,7 +31,7 @@ and pass `-StarfieldRoot`, `-PapyrusCompiler`, or `-PapyrusSource`.
 
 ## Debug
 
-- Run `npm run dev` for browser hot reload. Edit `osfui.mock.ts` to provide
+- Run `npm run dev` for browser hot reload. Edit `osfui.mock.js` to provide
   test Papyrus data and responses.
 - Compile and deploy the backend/settings as a separate MO2 mod:
 

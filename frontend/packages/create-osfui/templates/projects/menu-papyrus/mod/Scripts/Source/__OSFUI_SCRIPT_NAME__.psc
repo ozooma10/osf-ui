@@ -25,6 +25,5 @@ Function Bump(int total) Global
 EndFunction
 
 ; Next steps:
-;   - Real forms: OSFUI_View.SetState accepts one Form through Var, and SetStateForms publishes a Form array.
-;     Runtime FormIDs are session-scoped, so never store a serialized identity across a save.
+;   - Real forms: OSFUI_View.SetState accepts one Form through Var, and SetStateForms publishes a Form array. Runtime FormIDs are session-scoped, so never store a serialized identity across a save.
 ;   - Player-facing options belong in a settings schema and are available through OSFUI_Settings.GetBool/GetInt/GetString.

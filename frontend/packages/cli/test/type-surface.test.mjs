@@ -5,7 +5,7 @@ import { relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-test('generated menu mocks typecheck against the singular MockContext', async (t) => {
+test('generated TypeScript menu mock typechecks against the singular MockContext', async (t) => {
   const cliRoot = resolve(import.meta.dirname, '..');
   const repositoryRoot = resolve(cliRoot, '..', '..', '..');
   const templates = resolve(repositoryRoot, 'frontend/packages/create-osfui/templates/projects');
@@ -16,7 +16,6 @@ test('generated menu mocks typecheck against the singular MockContext', async (t
   await writeFile(configPath, JSON.stringify({
     files: [
       resolve(templates, 'menu-native/osfui.mock.ts'),
-      resolve(templates, 'menu-papyrus/osfui.mock.ts'),
     ],
     compilerOptions: {
       noEmit: true,

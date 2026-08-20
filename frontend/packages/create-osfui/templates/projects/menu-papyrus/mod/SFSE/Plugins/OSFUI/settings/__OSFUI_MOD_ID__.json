@@ -1,6 +1,5 @@
 {
   "$schema": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
-  "id": "__OSFUI_MOD_ID__",
   "title": "__OSFUI_DISPLAY_NAME__",
   "description": "Settings for __OSFUI_VIEW_TITLE__.",
   "version": 1,

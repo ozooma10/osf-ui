@@ -33,11 +33,7 @@ Then **save, reload, and press it again**. This is what `onPress` buys you: the 
 - **Settings page** - edit the JSON. Rows support `bool`, `int`, `float`, `enum`, `flags`, `string`, and `key` types. Read values back with `OSFUI_Settings.GetBool` / `GetInt` / `GetFloat` / `GetString`.
   See [authoring-settings.md](https://github.com/ozooma10/osf-ui/blob/main/docs/authoring-settings.md).
 - **Hotkey** - a `"type": "key"` row with an `onPress` target. Its `script` must match the `ScriptName` exactly and the function must be GLOBAL with an exact `(string, string)` signature.
-- **Action requests** - the minimal starter omits them. To add one, give its
-  schema row a qualified command such as `__OSFUI_MOD_ID__.reset`, then have a
-  quest- or alias-backed script register the local `reset` endpoint through
-  `OSFUI_View.RegisterRequest` after each game load and settle it with `Reply`
-  or `Reject`.
+- **Action buttons** - A button in settings that triggers a papyrus function. To add one, give its schema row a qualified command such as `__OSFUI_MOD_ID__.reset`, then have a quest- or alias-backed script register the local `reset` endpoint through `OSFUI_View.RegisterRequest` after each game load and settle it with `Reply` or `Reject`.
 - **Add a view later** - run `npm create osfui@latest` and pick the menu starter; the schema and script here move across unchanged.
 
 ## Ship it

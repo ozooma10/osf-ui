@@ -1,6 +1,4 @@
-import { defineConfig } from '@osfui/cli';
-
-export default defineConfig({
+export default {
   modId: '__OSFUI_MOD_ID_SQ__',
   views: [{
     id: '__OSFUI_VIEW_ID__',
@@ -12,4 +10,4 @@ export default defineConfig({
     targetVersion: '__OSFUI_RELEASE_VERSION__',
     pausesGame: false,
   }],
-});
+};
