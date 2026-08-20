@@ -46,7 +46,7 @@ describe('author-friendly bridge helpers', () => {
     expect(sent).toEqual([{ kind: 'send', name: 'osfui.hello', payload: {} }]);
   });
 
-  it('send() is the fire-and-forget spelling, and posts no id', () => {
+  it('send() preserves the explicit object payload form and posts no id', () => {
     const { helper, sent } = loadHelper();
     const payload: PapyrusEndpointPayload = { args: [42] };
     expect(helper.send('equip', payload)).toBe(true);
@@ -55,6 +55,24 @@ describe('author-friendly bridge helpers', () => {
       kind: 'send',
       name: 'equip',
       payload: { args: [42] },
+    });
+  });
+
+  it('send() wraps direct Papyrus arguments in the portable endpoint payload', () => {
+    const { helper, sent } = loadHelper();
+
+    expect(helper.send('equip', 2)).toBe(true);
+    expect(lastPosted(sent)).toEqual({
+      kind: 'send',
+      name: 'equip',
+      payload: { args: [2] },
+    });
+
+    expect(helper.send('equip', 2, 3, 4)).toBe(true);
+    expect(lastPosted(sent)).toEqual({
+      kind: 'send',
+      name: 'equip',
+      payload: { args: [2, 3, 4] },
     });
   });
 

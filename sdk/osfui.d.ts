@@ -644,9 +644,14 @@ export interface OSFUIHelper {
 
   /**
    * One-way. Returns whether the message could be POSTED LOCALLY — never a
-   * remote outcome. Wanting one means it is a request. A portable Papyrus
-   * endpoint registered through OSFUI_View receives `{ args: [...] }`.
+   * remote outcome. Wanting one means it is a request. Pass one JSON object for
+   * a generic/native endpoint payload. For a portable Papyrus endpoint, scalar
+   * or multiple arguments after `name` are wrapped as `{ args: [...] }`.
+   * Because one object remains a generic payload, pass a lone Form explicitly
+   * as `{ args: [form] }`.
    */
+  send(name: string, firstArg: null | string | number | boolean, ...args: PapyrusArgument[]): boolean;
+  send(name: string, firstArg: PapyrusArgument, secondArg: PapyrusArgument, ...args: PapyrusArgument[]): boolean;
   send(name: string, payload?: JsonObject): boolean;
 
   /**

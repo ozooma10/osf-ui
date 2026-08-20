@@ -13,9 +13,12 @@
 //                                 code "no-bridge" in a plain browser rather
 //                                 than hanging forever
 //
-//   osfui.send(name, payload?)            -> one-way. Returns "posted locally",
-//                                            never a remote outcome. Wanting one
-//                                            means it is a request.
+//   osfui.send(name, payload?)            -> one-way with a named JSON payload.
+//   osfui.send(name, arg, ...args)        -> Papyrus shorthand; posts
+//                                            { args: [arg, ...args] }.
+//                                            Returns "posted locally", never a
+//                                            remote outcome. Wanting one means
+//                                            it is a request.
 //   osfui.request(name, payload?, opts?)  -> Promise of the reply PAYLOAD.
 //                                            Settles exactly once: payload,
 //                                            typed error (err.code), or timeout
@@ -117,9 +120,22 @@
     g.postMessage(json);
   }
 
-  g.send = function (name, payload) {
+  function sendPayload(values) {
+    if (values.length === 0 || (values.length === 1 && values[0] === undefined)) return {};
+
+    // Preserve the original generic/native API: one object is the payload.
+    // Scalars and multiple values are Papyrus endpoint argument shorthand.
+    if (values.length === 1 && values[0] !== null &&
+        typeof values[0] === "object" && !Array.isArray(values[0])) {
+      return values[0];
+    }
+    return { args: values };
+  }
+
+  g.send = function (name) {
     if (!bridged) return false;
-    post({ kind: "send", name: String(name), payload: payload || {} });
+    const values = Array.prototype.slice.call(arguments, 1);
+    post({ kind: "send", name: String(name), payload: sendPayload(values) });
     return true;
   };
 

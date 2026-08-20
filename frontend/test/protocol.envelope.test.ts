@@ -17,6 +17,7 @@ interface Frame {
 interface Helper {
   readonly available: boolean;
   send(name: string, payload?: Record<string, unknown>): boolean;
+  send(name: string, firstArg: null | string | number | boolean, ...args: unknown[]): boolean;
   request(
     name: string,
     payload?: Record<string, unknown>,
@@ -78,13 +79,11 @@ describe('send envelopes', () => {
     expect('id' in sent[1]!).toBe(false);
   });
 
-  it('defaults a missing or falsy payload to {} rather than omitting it', () => {
+  it('defaults a missing or explicitly undefined payload to {} rather than omitting it', () => {
     const { helper, sent } = loadHelper();
 
     helper.send('close');
     helper.send('log', undefined);
-    helper.send('log', null as unknown as Record<string, unknown>);
-    helper.send('log', 0 as unknown as Record<string, unknown>);
 
     for (const frame of sent.slice(1)) expect(frame.payload).toEqual({});
   });
@@ -113,6 +112,18 @@ describe('send envelopes', () => {
     const { helper, sent } = loadHelper();
 
     helper.send('OnThing', { args: [1, 'two', true] });
+
+    expect(sent[1]).toEqual({
+      kind: 'send',
+      name: 'OnThing',
+      payload: { args: [1, 'two', true] },
+    });
+  });
+
+  it('wraps direct scalar and variadic Papyrus arguments without changing the wire protocol', () => {
+    const { helper, sent } = loadHelper();
+
+    helper.send('OnThing', 1, 'two', true);
 
     expect(sent[1]).toEqual({
       kind: 'send',
