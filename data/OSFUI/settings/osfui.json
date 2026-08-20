@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/ozooma10/osf-ui/refs/heads/main/docs/schema/settings-schema.schema.json",
   "id": "osfui",
   "title": "OSF UI",
   "description": "OSF UI behavior and overlay presentation.",
@@ -30,18 +31,12 @@
           "hint": "Use auto for Starfield's language, or enter a locale such as en, de, or pt-BR."
         },
         {
-          "key": "pauseMenuEntry",
-          "label": "Pause-menu entry",
+          "key": "highRefreshCapture",
+          "label": "240 Hz focused capture",
           "type": "bool",
-          "default": true,
-          "hint": "Add a MOD SETTINGS entry to the game's pause menu. Takes effect on the next launch."
-        },
-        {
-          "key": "vanillaKeyConflicts",
-          "label": "Warn about game-binding collisions",
-          "type": "bool",
-          "default": true,
-          "hint": "Show hard and possible warnings when mod hotkeys overlap Starfield's live bindings. The read-only game catalog stays visible when this is off."
+          "default": false,
+          "requires": "restart",
+          "hint": "Allow focused menus to request capture at up to 240 Hz. May increase GPU use."
         }
       ]
     },
@@ -57,14 +52,6 @@
           "default": false,
           "requires": "restart",
           "hint": "Enable verbose diagnostics, F12 WebView DevTools, schema and loose-view hot reload, and developer-only views on the next launch. Security and validation rules remain unchanged."
-        },
-        {
-          "key": "highRefreshCapture",
-          "label": "240 Hz focused capture",
-          "type": "bool",
-          "default": false,
-          "requires": "restart",
-          "hint": "Allow focused menus to request capture at up to 240 Hz. Published frames remain paced by Starfield consumption. May increase CPU and GPU use."
         }
       ]
     }

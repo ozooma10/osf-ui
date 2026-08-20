@@ -339,18 +339,7 @@ namespace OSFUI
 		// Push the initial policy derived from whatever is open (incl. nothing).
 		ApplyViewPresentationPolicy();
 
-		bool pauseMenuEntryEnabled = true;
-		if (_settings) {
-			if (const auto* value = _settings->Store().GetValue("osfui", "pauseMenuEntry");
-				value && value->is_boolean()) {
-				pauseMenuEntryEnabled = value->get<bool>();
-			}
-		}
-		if (pauseMenuEntryEnabled) {
-			PauseMenuEntry::Install();
-		} else {
-			REX::INFO("PauseMenuEntry: disabled by startup setting");
-		}
+		PauseMenuEntry::Install();
 
 		return true;
 	}
@@ -1022,8 +1011,6 @@ namespace OSFUI
 			if (_localization.SetLocale(locale)) {
 				RefreshLocalizedData();
 			}
-		} else if (a_key == "pauseMenuEntry" && a_value.is_boolean()) {
-			REX::INFO("Runtime: pause-menu entry setting changed to {}; takes effect on the next launch", a_value.get<bool>());
 		} else if (a_key == "developerMode" && a_value.is_boolean()) {
 			const auto desired = a_value.get<bool>();
 			if (desired != _developerMode) {
