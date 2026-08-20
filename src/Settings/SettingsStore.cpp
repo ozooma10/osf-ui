@@ -443,26 +443,21 @@ namespace OSFUI
 					if (Json::Get(a_setting, "type", "") != "key") {
 						return false;
 					}
-					const auto migrate = [&](const std::string& a_savedKey) {
-						if (a_savedKey.empty()) {
-							return;
-						}
-						const auto it = saved.find(a_savedKey);
-						if (it == saved.end() || !it->is_string()) {
-							return;
-						}
-						const auto& oldName = it->get_ref<const std::string&>();
-						if (oldName.empty()) {
-							return;  // deliberate unbound (allowUnbound)
-						}
-						if (auto renamed = _legacyKeyMigrator(oldName); renamed != oldName) {
-							REX::INFO("SettingsStore: '{}.{}' = '{}' re-anchored to '{}' (values format v{} -> v{})", mod.id, a_savedKey, oldName, renamed, fileFormat, kValuesFormatVersion);
-							*it = std::move(renamed);
-						}
-					};
-					migrate(Json::Get(a_setting, "key", ""));
-					for (const auto& alias : Json::GetStringArray(a_setting, "aliases")) {
-						migrate(alias);
+					const auto savedKey = Json::Get(a_setting, "key", "");
+					if (savedKey.empty()) {
+						return false;
+					}
+					const auto it = saved.find(savedKey);
+					if (it == saved.end() || !it->is_string()) {
+						return false;
+					}
+					const auto& oldName = it->get_ref<const std::string&>();
+					if (oldName.empty()) {
+						return false;  // deliberate unbound (allowUnbound)
+					}
+					if (auto renamed = _legacyKeyMigrator(oldName); renamed != oldName) {
+						REX::INFO("SettingsStore: '{}.{}' = '{}' re-anchored to '{}' (values format v{} -> v{})", mod.id, savedKey, oldName, renamed, fileFormat, kValuesFormatVersion);
+						*it = std::move(renamed);
 					}
 					return false;
 				});
@@ -491,22 +486,8 @@ namespace OSFUI
 				return false;
 			}
 
-			for (const auto& alias : Json::GetStringArray(a_setting, "aliases")) {
-				accounted.insert(alias);
-			}
 			if (const auto it = saved.find(key); it != saved.end()) {
 				if (auto valid = Validate(a_setting, *it)) {
-					mod.values[key] = std::move(*valid);
-					return false;
-				}
-			}
-			for (const auto& alias : Json::GetStringArray(a_setting, "aliases")) {
-				const auto it = saved.find(alias);
-				if (it == saved.end()) {
-					continue;
-				}
-				if (auto valid = Validate(a_setting, *it)) {
-					REX::INFO("SettingsStore: '{}.{}' adopted from alias '{}'", mod.id, key, alias);
 					mod.values[key] = std::move(*valid);
 					return false;
 				}

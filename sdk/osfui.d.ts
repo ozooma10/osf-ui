@@ -66,6 +66,7 @@ export type JsonObject = Record<string, unknown>;
  *   "unknown-endpoint"     no such endpoint
  *   "invalid-request"      malformed envelope (bad kind/name/id/payload)
  *   "request-capacity"     too many of this view's requests are already in flight
+ *   "papyrus-timeout"      an OSFUI_View request token was not settled within 10s
  *   anything else          the handler's own rejection code
  */
 export interface BridgeErrorPayload {
@@ -82,14 +83,16 @@ export interface RuntimeInfo {
   bridgeVersion: string; // protocol version — informational
   /** This document's own qualified view id, e.g. "acme.mymod/dashboard". */
   view: string;
-  /** Its owning mod id — the prefix to build this view's own state keys with. */
+  /** Its owning mod id — the helper uses this to expose own state/events by local name. */
   mod: string;
 }
 
 // ---------------------------------------------------------------------------
-// Platform endpoints. Mod endpoint names are opaque; "<modId>.<name>" is the
-// recommended convention. The native bridge explicitly reserves this surface
-// and the case-insensitive osfui.* namespace.
+// Platform endpoints. A mod-defined endpoint owned by this document's mod uses
+// its local name; use "<modId>.<name>" only to address another mod. The native
+// bridge explicitly reserves this surface and the case-insensitive osfui.*
+// namespace. A portable Papyrus registration is also rejected unless its full
+// "<modId>.<name>" address fits the bridge's 128-byte name limit.
 // ---------------------------------------------------------------------------
 
 /** `osfui.send(name, payload)` targets. */
@@ -115,9 +118,7 @@ export type PlatformSend =
    */
   | { name: "osfui.handleBack"; payload: { handle: boolean; view?: string } }
   /** Queue an arbitrary GLOBAL Papyrus function. Sugar: osfui.papyrus.call(). */
-  | { name: "papyrus.call"; payload: { script: string; function: string; args?: PapyrusCallArgument[] } }
-  /** Fire a one-way message at the owning mod's Papyrus listener. Sugar: osfui.papyrus.send(). */
-  | { name: "papyrus.send"; payload: { name: string; args?: PapyrusArgument[] } };
+  | { name: "papyrus.call"; payload: { script: string; function: string; args?: PapyrusCallArgument[] } };
 
 /** `osfui.request(name, payload)` targets. Each settles payload-or-error. */
 export type PlatformRequest =
@@ -148,10 +149,7 @@ export type PlatformRequest =
   | { name: "settings.captureKey"; payload: { mod: string; key: string };
       reply: { armed: true; mod: string; key: string } }
   /** (platform-private) Set a HUD's auto-start for the NEXT launch. */
-  | { name: "osfui.setViewAutoStart"; payload: { view: string; enabled: boolean }; reply: Record<string, never> }
-  /** Correlated request to the owning mod's Papyrus listener. Sugar: osfui.papyrus.request(). */
-  | { name: "papyrus.request"; payload: { name: string; args?: PapyrusArgument[] };
-      reply: { value: unknown } };
+  | { name: "osfui.setViewAutoStart"; payload: { view: string; enabled: boolean }; reply: Record<string, never> };
 
 // ---------------------------------------------------------------------------
 // Platform STATE keys. Subscribe with osfui.state.on(key, fn): the handler runs
@@ -373,16 +371,16 @@ export interface ViewsData {
 }
 
 /**
- * One real game form, serialized by OSFUI.SetViewForms. Identity only — richer
- * display data is published by the script under a parallel state key,
- * index-aligned with this array.
+ * One real game form, serialized by OSFUI_View.SetStateForms or ReplyForms.
+ * Identity only — richer display data is published by the script under a
+ * parallel state key, index-aligned with this array.
  *
- * To reference the form later, echo `formId` back in a papyrus.send/request arg
- * list; the script resolves it with `OSFUI.GetFormById`. Runtime FormIDs are
- * SESSION-scoped — never persist one.
+ * To pass it back as a Papyrus Form, echo this object (or `{ formId }`) in the
+ * generic endpoint's `{ args: [...] }` list. A bare number remains a Papyrus
+ * int. Runtime FormIDs are SESSION-scoped — never persist one.
  */
 export interface SerializedForm {
-  formId: number;    // runtime FormID — also the echo token (send it back verbatim)
+  formId: number;    // unsigned 32-bit runtime FormID — also the echo token (send it back verbatim)
   formType: string;  // record signature ("KYWD" | "WEAP" | "FLST" | ...); numeric string for unknown types
   name?: string;     // TESFullName when the form has one
   editorId?: string; // best-effort: usually UNAVAILABLE at runtime in Starfield
@@ -482,7 +480,6 @@ export interface PapyrusHotkeyTarget {
 
 export interface Setting {
   key: string;
-  aliases?: string[]; // former persisted keys; on load the current key's value is adopted from the first still-valid alias, then rewritten under `key` (§11). Native-only; the renderer ignores it.
   label?: string;
   hint?: string;      // optional helper text shown under the control label
   type: SettingType;
@@ -618,9 +615,19 @@ export interface OSFUIBridge {
   onMessage?: (json: string) => void;
 }
 
-export type PapyrusArgument = string | number | boolean;
+/**
+ * One portable value in a mod-defined `{ args: [...] }` endpoint payload.
+ * JSON whole numbers marshal as Papyrus int; fractional numbers marshal as
+ * float. JSON cannot preserve a JavaScript spelling such as `4.0` separately
+ * from `4`, so whole-valued endpoint numbers cannot be forced to float. Ints
+ * must fit signed 32-bit; floats must be finite Papyrus float values. A Form
+ * object requires an unsigned 32-bit `formId`; extra SerializedForm fields are
+ * ignored. Arrays as individual arguments and other/nested objects are rejected.
+ */
+export type PapyrusArgument = null | string | number | boolean | Pick<SerializedForm, "formId"> | SerializedForm;
+export type PapyrusEndpointPayload = { args?: PapyrusArgument[] };
 export interface PapyrusFloatArgument { $papyrus: "float"; value: number }
-export type PapyrusCallArgument = PapyrusArgument | PapyrusFloatArgument;
+export type PapyrusCallArgument = string | number | boolean | PapyrusFloatArgument;
 
 /**
  * The API added by the shipped helper,
@@ -637,28 +644,33 @@ export interface OSFUIHelper {
 
   /**
    * One-way. Returns whether the message could be POSTED LOCALLY — never a
-   * remote outcome. Wanting one means it is a request.
+   * remote outcome. Wanting one means it is a request. A portable Papyrus
+   * endpoint registered through OSFUI_View receives `{ args: [...] }`.
    */
   send(name: string, payload?: JsonObject): boolean;
 
   /**
    * Settles exactly once: the reply PAYLOAD, or a rejection whose `.code` is a
    * stable machine string (see BridgeErrorPayload). Default client timeout
-   * 10000 ms; `timeoutMs: 0` disables only the client timer — the OSF UI runtime-side
-   * 30 s deadline still answers "no-response".
+   * 10000 ms; `timeoutMs: 0` disables only the client timer — the OSF UI
+   * runtime-side 30 s deadline still answers "no-response". An OSFUI_View
+   * request token has its own 10 s deadline and answers "papyrus-timeout".
+   * OSFUI_View.Reply resolves this promise directly with its scalar value; no
+   * `{ value }` wrapper is added.
    */
   request<T = unknown>(name: string, payload?: JsonObject, opts?: { timeoutMs?: number }): Promise<T>;
 
   /**
-   * Subscribe to a one-shot happening. Request replies never reach here (1.x
-   * fired both). Returns the unsubscribe fn.
+   * Subscribe to a one-shot happening. Use the local name for an event emitted
+   * by this document's mod; qualified "<modId>.<name>" names still work.
+   * Request replies never reach here (1.x fired both). Returns unsubscribe.
    */
   on<T = unknown>(event: string, fn: (payload: T) => void): () => void;
 
   /**
-   * Named state values. `key` is always "<mod>/<key>"; platform keys use the
-   * `osfui` namespace and mod-owned keys include their owning mod id. Matched
-   * case-insensitively (Papyrus string interning).
+   * Named state values. This document's own values use their local key. Fully
+   * qualified "<mod>/<key>" keys remain available, and platform keys use the
+   * `osfui` namespace. Matched case-insensitively (Papyrus string interning).
    */
   state: {
     get<T = unknown>(key: string): T | undefined;
@@ -666,14 +678,12 @@ export interface OSFUIHelper {
     on<T = unknown>(key: string, fn: (value: T) => void): () => void;
   };
 
-  /** Direct GLOBAL calls plus the owning-mod listener endpoints. */
+  /** Advanced escape hatch for direct GLOBAL calls. Mod endpoints use send/request. */
   papyrus: {
     /** Force a whole-valued JavaScript number to marshal as Papyrus float rather than int. */
     float(value: number): PapyrusFloatArgument;
     /** Fire-and-forget GLOBAL call. Integer/float/string/bool arguments retain their types. */
     call(script: string, fn: string, ...args: PapyrusCallArgument[]): boolean;
-    send(name: string, ...args: PapyrusArgument[]): boolean;
-    request<T = unknown>(name: string, ...args: PapyrusArgument[]): Promise<T>;
   };
 
   /** Pure functions over the `osfui/i18n` state key. No bridge semantics. */

@@ -6,6 +6,8 @@ The runtime provides shared settings and keybinds, localization, and player-faci
 
 An isolated WebView2 helper renders pages out of process and shares their frames with Starfield.
 
+Mod authors can start with the concise [settings authoring guide](docs/authoring-settings.md).
+
 ## Build
 
 ```powershell

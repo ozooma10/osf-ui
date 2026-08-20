@@ -151,15 +151,17 @@ namespace OSFUI::API
 		// methods RegisterSend or RegisterRequest for new endpoints.
 		//
 		//   * Id: opaque non-empty string outside the reserved platform endpoints and osfui.* namespace.
-		//     "<modId>.<name>" remains a useful convention; dots carry no runtime meaning.
+		//     Register mod endpoints as "<modId>.<name>". A document owned by that
+		//     mod may call the short <name>; cross-mod callers use the qualified id.
 		//   * Duplicates: first-wins. To replace your OWN handler, UnregisterCommand then re-register (works within one tick).
 		virtual void RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user) = 0;
 		virtual void UnregisterCommand(const char* a_name) = 0;
 
 		// --- native -> web EVENTS. Thread-safe; queued to the target view. ---
 		// Delivers { kind:"event", name: a_type, payload: <a_payloadJson> } to
-		// a_viewId, where it arrives at osfui.on(a_type). a_payloadJson must be
-		// valid JSON. A known discovered-but-uninstantiated target retains a bounded
+		// a_viewId, where it arrives at osfui.on(a_type). When a_type is
+		// "<ownMod>.<name>", that owning document may subscribe to short <name>.
+		// a_payloadJson must be valid JSON. A known discovered-but-uninstantiated target retains a bounded
 		// FIFO until its page is created and greets the bridge.
 		//
 		// An event is a ONE-SHOT HAPPENING: delivered at most once, never
@@ -272,8 +274,9 @@ namespace OSFUI::API
 		// --- native -> web retained MOD STATE. Thread-safe; applied next main tick.
 		// SetViewState is the frozen ABI name. It publishes a_payloadJson as the
 		// retained value of a_key for YOUR mod, not for one individual view;
-		// every current and future document of that mod receives it through
-		// osfui.state.on("<a_modId>/<a_key>"). Latest wins per case-insensitive
+		// every current and future document of that mod receives it through the
+		// local osfui.state.on("<a_key>") address; the qualified
+		// "<a_modId>/<a_key>" address remains available. Latest wins per case-insensitive
 		// key, at most 1024 keys per mod, and any JSON value is accepted.
 		// Native state is not session-scoped; Papyrus state is because it may
 		// contain form identities. Validation is synchronous.

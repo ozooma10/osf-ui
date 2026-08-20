@@ -100,14 +100,6 @@ int main()
 	Check(Json::GetArray(Value("not-an-object"), "arr") == nullptr,
 		"GetArray on a non-object receiver is null");
 
-	// ---- GetStringArray skips non-strings rather than failing the whole read.
-	{
-		const Value mixed{ { "a", Value::array({ "x", 1, "y", nullptr }) } };
-		const auto  got = Json::GetStringArray(mixed, "a");
-		Check(got.size() == 2 && got[0] == "x" && got[1] == "y", "non-string elements skipped");
-		Check(Json::GetStringArray(obj, "s").empty(), "non-array reads empty");
-	}
-
 	Check(Json::Parse(R"({"a":1})").has_value(), "plain object parses");
 	Check(Json::Parse("{\n// a comment\n\"a\":1}").has_value(), "line comments are accepted");
 	Check(Json::Parse("{/* block */\"a\":1}").has_value(), "block comments are accepted");

@@ -450,8 +450,7 @@ int main()
 		WriteFile(schemaPath, R"json({
 			"id": "t.replace-guard", "title": "Replace Guard v2",
 			"groups": [ { "settings": [
-				{ "key": "velocity", "type": "int", "default": 5, "min": 0, "max": 10,
-				  "aliases": ["speed"] },
+				{ "key": "speed", "type": "int", "default": 5, "min": 0, "max": 10 },
 				{ "key": "added", "type": "bool", "default": true }
 			] } ] })json");
 		CHECK(!guarded.ReloadDropInFile(schemaPath));
@@ -460,7 +459,6 @@ int main()
 		CHECK(persisted == 0);
 		CHECK(guarded.GetValue("t.replace-guard", "speed") &&
 		      *guarded.GetValue("t.replace-guard", "speed") == 8);
-		CHECK(guarded.GetValue("t.replace-guard", "velocity") == nullptr);
 		CHECK(guarded.GetValue("t.replace-guard", "added") == nullptr);
 		CHECK(guarded.DataView()["mods"][0]["title"] == "Replace Guard v1");
 
@@ -478,9 +476,8 @@ int main()
 		}
 		CHECK(guarded.ReloadDropInFile(schemaPath));
 		CHECK(registryFires == 1);
-		CHECK(guarded.GetValue("t.replace-guard", "speed") == nullptr);
-		CHECK(guarded.GetValue("t.replace-guard", "velocity") &&
-		      *guarded.GetValue("t.replace-guard", "velocity") == 8);
+		CHECK(guarded.GetValue("t.replace-guard", "speed") &&
+		      *guarded.GetValue("t.replace-guard", "speed") == 8);
 		CHECK(guarded.GetValue("t.replace-guard", "added") &&
 		      *guarded.GetValue("t.replace-guard", "added") == true);
 	}
@@ -572,40 +569,6 @@ int main()
 		CHECK((saved == nlohmann::json{ { "b", true }, { "junk", 1 }, { "n", 7 }, { "$formatVersion", 1 } }));  // ~SettingsStore flushed, opaque kept
 	}
 
-	// --- §11 renamed keys: per-setting `aliases` ----------------------------------
-	{
-		const auto sd = root / "settings-alias";
-		const auto vd = root / "values-alias";
-		WriteFile(sd / "t.ren.json", R"json({
-			"id": "t.ren", "title": "Rename",
-			"groups": [ { "settings": [
-				{ "key": "opacity", "type": "int", "default": 50, "min": 0, "max": 100, "aliases": ["alpha", "hudAlpha"] },
-				{ "key": "size",    "type": "int", "default": 10, "aliases": ["scale"] },
-				{ "key": "plain",   "type": "int", "default": 1 }
-			] } ] })json");
-		WriteFile(vd / "t.ren.json", R"json({ "alpha": 80, "scale": 25 })json");
-
-		SettingsStore s;
-		s.LoadAll(sd, vd);
-		CHECK(s.GetValue("t.ren", "opacity") && *s.GetValue("t.ren", "opacity") == 80);  // adopted from "alpha"
-		CHECK(s.GetValue("t.ren", "size") && *s.GetValue("t.ren", "size") == 25);        // adopted from "scale"
-		CHECK(s.GetValue("t.ren", "plain") && *s.GetValue("t.ren", "plain") == 1);       // untouched default
-		CHECK(LoggedContaining("INFO", "adopted from alias 'alpha'"));
-
-		// The rename rewrites under the NEW key; the old alias keys drop.
-		s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
-		{
-			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.ren.json"), nullptr, false);
-			CHECK((saved == nlohmann::json{ { "opacity", 80 }, { "size", 25 }, { "$formatVersion", 1 } }));  // no "alpha"/"scale" left
-		}
-
-		WriteFile(vd / "t.ren.json", R"json({ "opacity": 30, "alpha": 99, "scale": "nope" })json");
-		SettingsStore s2;
-		s2.LoadAll(sd, vd);
-		CHECK(s2.GetValue("t.ren", "opacity") && *s2.GetValue("t.ren", "opacity") == 30);  // current key wins
-		CHECK(s2.GetValue("t.ren", "size") && *s2.GetValue("t.ren", "size") == 10);        // "nope" invalid -> default
-	}
-
 	// --- §11 `$schemaVersion` meta key --------------------------------------------
 	{
 		const auto sd = root / "settings-ver";
@@ -678,16 +641,15 @@ int main()
 		WriteFile(sd / "t.hot.json", R"json({
 			"id": "t.hot", "title": "Hot v2",
 			"groups": [ { "settings": [
-				{ "key": "velocity", "type": "int", "default": 5, "min": 0, "max": 10, "aliases": ["speed"] },
+				{ "key": "speed", "type": "int", "default": 5, "min": 0, "max": 10 },
 				{ "key": "brandNew", "type": "bool", "default": true },
 				{ "key": "hot", "type": "key", "default": "F6",
 				  "onPress": { "script": "HotV2", "function": "FireAgain" } }
 			] } ] })json");
 		CHECK(s.ReloadDropInFile(sd / "t.hot.json"));
 		CHECK(registryFires == 1);
-		CHECK(s.GetValue("t.hot", "velocity") && *s.GetValue("t.hot", "velocity") == 8);  // dirty value survived + renamed
+		CHECK(s.GetValue("t.hot", "speed") && *s.GetValue("t.hot", "speed") == 8);  // dirty value survived
 		CHECK(s.GetValue("t.hot", "brandNew") && *s.GetValue("t.hot", "brandNew") == true);
-		CHECK(s.GetValue("t.hot", "speed") == nullptr);  // the old key is gone
 		const auto hotV2 = s.GetHotkeyTarget("t.hot", "hot");
 		CHECK(hotV2 && hotV2->script == "HotV2");
 		{
@@ -698,7 +660,7 @@ int main()
 		// Invalid JSON: refused, registered schema untouched.
 		WriteFile(sd / "t.hot.json", "{ not json");
 		CHECK(!s.ReloadDropInFile(sd / "t.hot.json"));
-		CHECK(s.GetValue("t.hot", "velocity") != nullptr);
+		CHECK(s.GetValue("t.hot", "speed") != nullptr);
 
 		// An unseen id registers as a fresh drop-in.
 		WriteFile(sd / "t.newcomer.json", R"json({
@@ -740,7 +702,7 @@ int main()
 		WriteFile(sd / "t.future.json", R"json({
 			"id": "t.future", "title": "Future",
 			"groups": [ { "settings": [
-				{ "key": "vec", "type": "vector3", "default": [0,0,0], "aliases": ["oldvec"] },
+				{ "key": "vec", "type": "vector3", "default": [0,0,0] },
 				{ "key": "n",   "type": "int", "default": 1 }
 			] } ] })json");
 		WriteFile(vd / "t.future.json", R"json({ "vec": [1,2,3], "oldvec": [9,9,9], "mystery": {"a":1}, "n": 5 })json");
@@ -883,7 +845,6 @@ int main()
 			"id": "t.mig", "groups": [ { "settings": [
 				{ "key": "hot", "type": "key", "default": "F8" },
 				{ "key": "alt", "type": "key", "default": "", "allowUnbound": true },
-				{ "key": "renamed", "type": "key", "default": "F7", "aliases": ["oldname"] },
 				{ "key": "n", "type": "int", "default": 3 }
 			] } ] })json");
 
@@ -893,20 +854,18 @@ int main()
 			return a_name;
 		};
 
-		WriteFile(vd / "t.mig.json", R"json({ "hot": "Z", "alt": "", "oldname": "Semicolon", "n": 5 })json");
+		WriteFile(vd / "t.mig.json", R"json({ "hot": "Z", "alt": "", "n": 5 })json");
 		{
 			SettingsStore s;
 			s.SetLegacyKeyMigrator(qwertz);
 			s.LoadAll(sd, vd);
 			CHECK(s.GetValue("t.mig", "hot") && *s.GetValue("t.mig", "hot") == "Y");
-			CHECK(s.GetValue("t.mig", "renamed") && *s.GetValue("t.mig", "renamed") == "Grave");
 			CHECK(s.GetValue("t.mig", "alt") && *s.GetValue("t.mig", "alt") == "");
 			CHECK(LoggedContaining("INFO", "re-anchored to 'Y'"));
 			s.PumpPersistence(SettingsStore::kPersistDelaySeconds);
 			auto saved = nlohmann::json::parse(std::ifstream(vd / "t.mig.json"), nullptr, false);
 			CHECK(saved["$formatVersion"] == 2);
 			CHECK(saved["hot"] == "Y");
-			CHECK(saved["renamed"] == "Grave");  // adopted under the NEW key
 			CHECK(saved["n"] == 5);
 		}
 		{

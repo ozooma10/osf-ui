@@ -192,12 +192,7 @@
         "key": {
           "type": "string",
           "minLength": 1,
-          "description": "Stable identifier, unique within the mod. Used as the persisted key, in the settings.set / settings.reset requests, and as the `key` field of the settings.changed and ui.hotkey events. Renaming it orphans the stored value — use `aliases` instead."
-        },
-        "aliases": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Former keys this setting was persisted under. On load, if the current `key` is absent from the values file, the first listed alias whose stored value still validates is adopted, then rewritten under `key` (the old alias key drops). Declarative one-way rename; no version arithmetic. The current key always wins over an alias."
+          "description": "Stable identifier, unique within the mod. Used as the persisted key, in the settings.set / settings.reset requests, and as the `key` field of the settings.changed and ui.hotkey events. Keep it unchanged after release; changing it creates a new setting identity, so the previous saved value is not applied."
         },
         "label": {
           "type": "string",
@@ -314,7 +309,7 @@
         "hint": { "type": "string", "description": "Optional English helper text; localized at actions.<key>.hint." },
         "command": {
           "type": "string",
-          "description": "Compatibility field containing the bridge REQUEST endpoint name fired on click. It MUST be namespaced with the mod id (\"<id>.something\"); Mod Settings refuses any other name, and refuses a leading segment from a framework namespace (ui, menu, hud, settings, views, game, runtime) even if a schema claims one as its id. Register it in your SFSE plugin with RegisterRequest, NOT RegisterSend — a button needs an outcome, and that is exactly what separates the two endpoint kinds; registering the name as a send instead makes the card's request come back `wrong-endpoint-kind` and the button report a failure. Settle it exactly once: Respond with an object — an optional string `message` is shown as a toast, `{}` is a silent success — or Reject with a code and sentence, which is shown as an error toast. The button sends { mod, key } and waits 5s; a handler that never settles rejects with `timeout`, which Mod Settings renders as 'No response from <mod>'. Papyrus cannot serve an action row: it registers listeners for the fixed papyrus.send/papyrus.request endpoints, not for named endpoints of its own."
+          "description": "Compatibility field containing the bridge REQUEST endpoint name fired on click. It MUST be namespaced with the mod id (\"<id>.something\"); Mod Settings refuses any other name, and refuses a leading segment from a framework namespace (ui, menu, hud, settings, views, game, runtime) even if a schema claims one as its id. Register it as a request endpoint, NOT a send endpoint — a button needs an outcome, and that is exactly what separates the two endpoint kinds; registering the name as a send instead makes the card's request come back `wrong-endpoint-kind` and the button report a failure. Native plugins use RegisterRequest. Papyrus registers the local portion with OSFUI_View.RegisterRequest; owning views use that local name and cross-view callers use the qualified command. Settle it exactly once: native handlers may Respond with `{ message: string }` or `{}`; Papyrus may Reply with a string message or None. Reject with a stable code and sentence for an error toast. The button sends { mod, key } and waits 5s; a handler that never settles rejects with `timeout`, which Mod Settings renders as 'No response from <mod>'."
         },
         "style": { "enum": ["default", "accent", "danger"], "description": "Button tone (default 'default')." },
         "confirm": { "type": "string", "description": "English inline confirmation message; localized at actions.<key>.confirm." },

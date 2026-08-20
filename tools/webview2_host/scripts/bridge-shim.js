@@ -174,8 +174,9 @@
 								event.data : JSON.stringify(event.data);
 							try {
 								const m = JSON.parse(json);
-								if (m && m.type === 'ui.visibility' && m.payload &&
-									m.payload.visible === false) {
+								const visibility = m && (m.type === 'ui.visibility' ||
+									(m.kind === 'event' && m.name === 'ui.visibility'));
+								if (visibility && m.payload && m.payload.visible === false) {
 									const el = document.activeElement;
 									if (el && el !== document.body && typeof el.blur === 'function') el.blur();
 								}
