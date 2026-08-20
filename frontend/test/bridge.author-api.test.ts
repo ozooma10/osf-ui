@@ -144,20 +144,12 @@ describe('author-friendly bridge helpers', () => {
     await expect(result).resolves.toBe(125);
   });
 
-  it('does not expose a second papyrus send/request messaging surface', () => {
+  it('exposes no convenience API beyond the four core operations', () => {
     const { helper } = loadHelper();
-    expect((helper.papyrus as unknown as Record<string, unknown>).send).toBeUndefined();
-    expect((helper.papyrus as unknown as Record<string, unknown>).request).toBeUndefined();
-  });
-
-  it('papyrus.call() targets an arbitrary GLOBAL function', () => {
-    const { helper, sent } = loadHelper();
-    expect(helper.papyrus.call('AcmeWidgets', 'Bump', 1, true)).toBe(true);
-    expect(lastPosted(sent)).toEqual({
-      kind: 'send',
-      name: 'papyrus.call',
-      payload: { script: 'AcmeWidgets', function: 'Bump', args: [1, true] },
-    });
+    for (const removed of ['available', 'ready', 'papyrus', 'i18n', 'theme']) {
+      expect(removed in helper).toBe(false);
+    }
+    expect('get' in helper.state).toBe(false);
   });
 
   it('state caches values and replays them by case-insensitive key', () => {
@@ -169,9 +161,6 @@ describe('author-friendly bridge helpers', () => {
       key: 'Inventory.Counts',
       value: [2, 5],
     });
-
-    expect(helper.state.get<number[]>('acme.mod/inventory.counts')).toEqual([2, 5]);
-    expect(helper.state.get<number[]>('inventory.counts')).toEqual([2, 5]);
 
     const listener = vi.fn();
     const off = helper.state.on<number[]>('ACME.MOD/INVENTORY.COUNTS', listener);
@@ -186,13 +175,10 @@ describe('author-friendly bridge helpers', () => {
     deliver(helper, { kind: 'state', mod: 'acme.mod', key: 'inventory.counts', value: [8] });
     expect(listener).toHaveBeenCalledTimes(2);
     expect(localListener).toHaveBeenCalledTimes(2);
-    expect(helper.state.get<number[]>('Acme.Mod/Inventory.Counts')).toEqual([8]);
 
     off();
     deliver(helper, { kind: 'state', mod: 'acme.mod', key: 'inventory.counts', value: [13] });
     expect(listener).toHaveBeenCalledTimes(2);
-    // Unsubscribing stops delivery, not caching: the value is still current.
-    expect(helper.state.get<number[]>('acme.mod/inventory.counts')).toEqual([13]);
   });
 
   it('delivers a state value verbatim — no unwrapping, no per-shape rules', () => {
@@ -214,10 +200,14 @@ describe('author-friendly bridge helpers', () => {
 
   it('keeps mods separate: same key, two owners, two values', () => {
     const { helper } = loadHelper();
+    const own = vi.fn();
+    const other = vi.fn();
+    helper.state.on<number[]>('acme.mod/counts', own);
+    helper.state.on<number[]>('other.mod/counts', other);
     deliver(helper, { kind: 'state', mod: 'acme.mod', key: 'counts', value: [1] });
     deliver(helper, { kind: 'state', mod: 'other.mod', key: 'counts', value: [2] });
 
-    expect(helper.state.get<number[]>('acme.mod/counts')).toEqual([1]);
-    expect(helper.state.get<number[]>('other.mod/counts')).toEqual([2]);
+    expect(own).toHaveBeenLastCalledWith([1]);
+    expect(other).toHaveBeenLastCalledWith([2]);
   });
 });

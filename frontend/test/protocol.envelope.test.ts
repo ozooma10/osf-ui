@@ -15,7 +15,6 @@ interface Frame {
 }
 
 interface Helper {
-  readonly available: boolean;
   send(name: string, payload?: Record<string, unknown>): boolean;
   send(name: string, firstArg: null | string | number | boolean, ...args: unknown[]): boolean;
   request(
@@ -24,10 +23,6 @@ interface Helper {
     opts?: { timeoutMs?: number },
   ): Promise<unknown>;
   request(name: string, firstArg: null | string | number | boolean, ...args: unknown[]): Promise<unknown>;
-  papyrus: {
-    float(value: number): { $papyrus: 'float'; value: number };
-    call(script: string, fn: string, ...args: unknown[]): boolean;
-  };
 }
 
 function loadHelper(opts?: { bridge?: boolean }): { helper: Helper; raw: string[]; sent: Frame[] } {
@@ -61,11 +56,9 @@ describe('the handshake is page-initiated — hello is the first thing on the wi
     expect(sent.map((f) => f.name)).toEqual(['osfui.hello', 'close']);
   });
 
-  it('posts NOTHING without a bridge, and reports itself unavailable', () => {
+  it('posts NOTHING without a bridge, and send() reports that locally', () => {
     const { helper, raw } = loadHelper({ bridge: false });
 
-    // `available` is a property in 2.0, not a call.
-    expect(helper.available).toBe(false);
     expect(helper.send('close')).toBe(false);
     expect(raw).toEqual([]);
   });
@@ -133,11 +126,14 @@ describe('send envelopes', () => {
     });
   });
 
-  it('papyrus.call() names a GLOBAL target and preserves scalar arguments', () => {
+  it('the papyrus.call platform endpoint preserves an explicit GLOBAL payload', () => {
     const { helper, sent } = loadHelper();
 
-    helper.papyrus.call('Acme:Widgets', 'SetEnabled', true, 3, 1.5,
-      helper.papyrus.float(4), 'panel');
+    helper.send('papyrus.call', {
+      script: 'Acme:Widgets',
+      function: 'SetEnabled',
+      args: [true, 3, 1.5, { $papyrus: 'float', value: 4 }, 'panel'],
+    });
 
     expect(sent[1]).toEqual({
       kind: 'send',
@@ -277,7 +273,7 @@ describe('OSF UI runtime envelope validation — 2.0 REJECTS where 1.x silently 
 
     helper.send('close');
     helper.send('log', { level: 'info', message: 'hi' });
-    helper.papyrus.call('AcmeWidgets', 'Refresh');
+    helper.send('papyrus.call', { script: 'AcmeWidgets', function: 'Refresh', args: [] });
     helper.send('OnThing', { args: [1] });
     void helper.request('ping').catch(() => {});
     void helper.request('settings.set', { mod: 'm', key: 'k', value: 1 }).catch(() => {});

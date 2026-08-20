@@ -34,7 +34,6 @@ describe('nullBridge — one-way members', () => {
     expect(nullBridge.send('close')).toBe(false);
     expect(nullBridge.send('setVisible', { visible: false })).toBe(false);
     expect(nullBridge.send('doorOpened', { args: ['airlock', 3] })).toBe(false);
-    expect(nullBridge.papyrusCall('AcmeWidgets', 'Refresh')).toBe(false);
   });
 });
 
@@ -89,26 +88,6 @@ describe('nullBridge — on / state', () => {
     expect(() => off()).not.toThrow();
   });
 
-  it('peeks undefined for every key', () => {
-    expect(nullBridge.peek('osfui/settings')).toBeUndefined();
-    expect(nullBridge.peek('osfui/views')).toBeUndefined();
-  });
-});
-
-describe('nullBridge — ready / i18n', () => {
-  it('REJECTS ready() with "no-bridge" rather than hanging', async () => {
-    const err = await caught(nullBridge.ready());
-    expect(err.code).toBe('no-bridge');
-    expect(err.message).toBe('no bridge (standalone preview)');
-  });
-
-  it('resolves i18nReady immediately with the empty English catalog', async () => {
-    await expect(nullBridge.i18nReady()).resolves.toEqual({ locale: 'en', strings: {} });
-  });
-
-  it('reports locale "en"', () => {
-    expect(nullBridge.locale()).toBe('en');
-  });
 });
 
 describe('nullBridge — t()', () => {

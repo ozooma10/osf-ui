@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,6 +9,7 @@ const unknown = process.argv.slice(2).filter((arg) => arg !== '--check');
 if (unknown.length > 0) throw new Error(`unknown argument: ${unknown.join(' ')}`);
 const repositoryRoot = resolve(packageRoot, '..', '..', '..');
 const papyrusApiFiles = ['OSFUI.psc', 'OSFUI_Settings.psc', 'OSFUI_View.psc'];
+const frontendText = (source) => source.replace(/\r\n?/g, '\n');
 
 const files = [
   [resolve(repositoryRoot, 'sdk', 'OSFUI_API.h'), resolve(packageRoot, 'templates', 'native', 'OSFUI_API.h')],
@@ -23,8 +24,11 @@ if (check) {
   const drifted = [];
   for (const [source, template] of files) {
     try {
-      const [expected, actual] = await Promise.all([readFile(source), readFile(template)]);
-      if (!expected.equals(actual)) drifted.push(template);
+      const [expected, actual] = await Promise.all([
+        readFile(source, 'utf8'),
+        readFile(template, 'utf8'),
+      ]);
+      if (frontendText(expected) !== actual) drifted.push(template);
     } catch {
       drifted.push(template);
     }
@@ -38,6 +42,6 @@ if (check) {
 } else {
   for (const [source, template] of files) {
     await mkdir(dirname(template), { recursive: true });
-    await copyFile(source, template);
+    await writeFile(template, frontendText(await readFile(source, 'utf8')));
   }
 }

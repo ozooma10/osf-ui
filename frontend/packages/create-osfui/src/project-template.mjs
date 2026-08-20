@@ -30,8 +30,6 @@ export const pascalIdentifier = (value) => {
 };
 
 const displayName = (modId) => words(modId).join(' ') || 'My Mod';
-const singleQuoted = (value) => String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'");
-const jsonStringContent = (value) => JSON.stringify(String(value)).slice(1, -1);
 
 function renderTokens(source, values, context) {
   return source.replace(TOKEN, (token) => {
@@ -87,10 +85,8 @@ export async function renderProjectTemplate(root, options) {
   const sourceRoot = resolve(PROJECT_TEMPLATES, preset);
   const pluginName = pascalIdentifier(options.modId);
   const values = {
-    '__OSFUI_CLI_SPEC_JSON__': jsonStringContent(options.cliSpec || ''),
     '__OSFUI_DISPLAY_NAME__': displayName(options.modId),
     '__OSFUI_MOD_ID__': options.modId,
-    '__OSFUI_MOD_ID_SQ__': singleQuoted(options.modId),
     '__OSFUI_PLUGIN_NAME__': pluginName,
     '__OSFUI_PROJECT_NAME__': options.projectName,
     '__OSFUI_RELEASE_VERSION__': options.releaseVersion,

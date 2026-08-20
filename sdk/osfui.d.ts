@@ -117,7 +117,7 @@ export type PlatformSend =
    * overlay toggle key always closes natively, so this cannot strand the player.
    */
   | { name: "osfui.handleBack"; payload: { handle: boolean; view?: string } }
-  /** Queue an arbitrary GLOBAL Papyrus function. Sugar: osfui.papyrus.call(). */
+  /** Queue an arbitrary GLOBAL Papyrus function. */
   | { name: "papyrus.call"; payload: { script: string; function: string; args?: PapyrusCallArgument[] } };
 
 /** `osfui.request(name, payload)` targets. Each settles payload-or-error. */
@@ -168,7 +168,7 @@ export interface PlatformState {
   "osfui/keybindings": KeybindingsData;
   /** The exact active engine input-context stack and OSF UI's derived semantic gameplay mode. */
   "osfui/input-context": EngineInputContextState;
-  /** Active-locale overrides for THIS document's owning mod. Consumed by the i18n namespace for you. */
+  /** Active-locale overrides for this document's owning mod. */
   "osfui/i18n": I18nCatalog;
 }
 
@@ -637,11 +637,6 @@ export type PapyrusCallArgument = string | number | boolean | PapyrusFloatArgume
  * bridge is present, so these members exist even in a plain browser).
  */
 export interface OSFUIHelper {
-  /** True when a native bridge (or the harness mock) is present. A PROPERTY, not a call. */
-  readonly available: boolean;
-  /** Resolves with OSF UI runtime handshake info. REJECTS with code "no-bridge" in a plain browser rather than hanging. */
-  readonly ready: Promise<RuntimeInfo>;
-
   /**
    * One-way. Returns whether the message could be POSTED LOCALLY — never a
    * remote outcome. Wanting one means it is a request. Pass one JSON object for
@@ -691,30 +686,6 @@ export interface OSFUIHelper {
     get<T = unknown>(key: string): T | undefined;
     /** Replays the current value SYNCHRONOUSLY on subscribe, then fires on every change. */
     on<T = unknown>(key: string, fn: (value: T) => void): () => void;
-  };
-
-  /** Advanced escape hatch for direct GLOBAL calls. Mod endpoints use send/request. */
-  papyrus: {
-    /** Force a whole-valued JavaScript number to marshal as Papyrus float rather than int. */
-    float(value: number): PapyrusFloatArgument;
-    /** Fire-and-forget GLOBAL call. Integer/float/string/bool arguments retain their types. */
-    call(script: string, fn: string, ...args: PapyrusCallArgument[]): boolean;
-  };
-
-  /** Pure functions over the `osfui/i18n` state key. No bridge semantics. */
-  i18n: {
-    readonly ready: Promise<I18nCatalog | { locale: string; strings: Record<string, string> }>;
-    readonly locale: string;
-    /** Active-locale override for a stable structural address, falling back to your inline English. */
-    t(address: string, english: string, vars?: Record<string, string | number>): string;
-    /** Apply data-i18n / data-i18n-* attributes below a DOM root. */
-    localize(root?: ParentNode): void;
-  };
-
-  /** Never touches the wire. */
-  theme: {
-    /** Apply a mod accent hex to a subtree; a missing/invalid hex clears the whole derived set. */
-    applyAccent(element: HTMLElement, hex?: string | null): void;
   };
 }
 

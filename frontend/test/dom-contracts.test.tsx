@@ -9,7 +9,7 @@ import { KeyField } from '@ui/KeyField';
 import { ActionButton } from '@ui/ActionButton';
 import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
-import type { KeybindingsData, RuntimeInfo, SettingsData } from '@sdk';
+import type { KeybindingsData, SettingsData } from '@sdk';
 
 // Harness
 
@@ -32,15 +32,6 @@ interface FakeBridge extends Bridge {
   reject(index: number, err: unknown): void;
 }
 
-const RUNTIME: RuntimeInfo = {
-  game: 'Starfield',
-  plugin: 'OSF UI',
-  version: '2.0.0',
-  bridgeVersion: '2.0',
-  view: 'osfui/keybinds',
-  mod: 'osfui',
-};
-
 function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
   const eventListeners = new Map<string, Set<Handler>>();
   const stateListeners = new Map<string, Set<Handler>>();
@@ -62,7 +53,6 @@ function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
   const bridge: FakeBridge = {
     ...nullBridge,
     available: () => true,
-    ready: () => Promise.resolve(RUNTIME),
     sent: [],
     requests: [],
     send(name: string, payload?: Record<string, unknown>) {
@@ -85,9 +75,6 @@ function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
       const off = subscribe(stateListeners, key, fn as Handler);
       if (values.has(key)) (fn as Handler)(values.get(key));
       return off;
-    },
-    peek(key: string) {
-      return values.get(key) as never;
     },
     deliver(event, payload) {
       const set = eventListeners.get(event);

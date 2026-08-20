@@ -5,16 +5,7 @@ import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { App } from '@views/osfui/keybinds/App';
 import { nullBridge, type Bridge } from '@lib/bridge';
-import type { KeybindingsData, RuntimeInfo, SettingsData } from '@sdk';
-
-const RUNTIME: RuntimeInfo = {
-  game: 'Starfield',
-  plugin: 'OSF UI',
-  version: '2.0.0',
-  bridgeVersion: '2.0',
-  view: 'osfui/keybinds',
-  mod: 'osfui',
-};
+import type { KeybindingsData, SettingsData } from '@sdk';
 
 type Handler = (value: unknown) => void;
 
@@ -55,7 +46,6 @@ function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
   const bridge: FakeBridge = {
     ...nullBridge,
     available: () => true,
-    ready: () => Promise.resolve(RUNTIME),
     sent: [],
     requests: [],
     send(name: string, payload?: Record<string, unknown>) {
@@ -79,9 +69,6 @@ function makeBridge(state: Record<string, unknown> = {}): FakeBridge {
       // Subscribing IS the read.
       if (values.has(key)) (fn as Handler)(values.get(key));
       return off;
-    },
-    peek(key: string) {
-      return values.get(key) as never;
     },
     deliver(event, payload) {
       const set = eventListeners.get(event);

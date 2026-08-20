@@ -71,10 +71,10 @@ try {
 Write-Host "[osfui] Compiled __OSFUI_SCRIPT_NAME__.pex"
 
 if (-not $Mo2Mods) {
-    Write-Host '[osfui] Pass -Mo2Mods "path-to-MO2-mods" to also deploy the Papyrus backend and settings.'
+    Write-Host '[osfui] Pass -Mo2Mods "path-to-MO2-mods" to also deploy the complete mod.'
     exit 0
 }
-$deployRoot = Join-Path $Mo2Mods '__OSFUI_DISPLAY_NAME__ Backend'
+$deployRoot = Join-Path $Mo2Mods '__OSFUI_DISPLAY_NAME__'
 New-Item -ItemType Directory -Force -Path $deployRoot | Out-Null
 Copy-Item -Path (Join-Path $modRoot '*') -Destination $deployRoot -Recurse -Force
-Write-Host "[osfui] Deployed backend and settings to $deployRoot"
+Write-Host "[osfui] Deployed mod to $deployRoot"

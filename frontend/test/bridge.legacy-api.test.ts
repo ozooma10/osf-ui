@@ -154,7 +154,8 @@ describe('frozen 1.x helper facade', () => {
 
   it('is absent from a 2.0 navigation', () => {
     const { helper } = load('?scenario=strict');
-    expect(typeof (helper as any).available).toBe('boolean');
+    expect((helper as any).available).toBeUndefined();
+    expect((helper as any).ready).toBeUndefined();
     expect((helper as any).emit).toBeUndefined();
     expect((helper as any).action).toBeUndefined();
     expect((helper as any).call).toBeUndefined();
@@ -164,7 +165,10 @@ describe('frozen 1.x helper facade', () => {
     expect((helper as any).t).toBeUndefined();
     expect((helper as any).localize).toBeUndefined();
     expect((helper as any).applyAccent).toBeUndefined();
-    expect((helper as any).papyrus.action).toBeUndefined();
+    expect((helper as any).papyrus).toBeUndefined();
+    expect((helper as any).i18n).toBeUndefined();
+    expect((helper as any).theme).toBeUndefined();
+    expect((helper as any).state.get).toBeUndefined();
   });
 
   it('restores aliases while preserving query and fragment selection', async () => {

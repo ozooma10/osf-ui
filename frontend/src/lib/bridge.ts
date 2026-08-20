@@ -1,6 +1,6 @@
 
 import type { EventName, EventPayload, StateKey, StateValue, BridgeError } from './protocol';
-import type { RuntimeInfo, JsonObject, I18nCatalog, PapyrusCallArgument } from '@sdk';
+import type { JsonObject, I18nCatalog } from '@sdk';
 
 export interface RequestOptions {
   timeoutMs?: number;
@@ -24,26 +24,12 @@ export interface Bridge {
 
   state<T extends StateKey>(key: T, fn: (value: StateValue<T>) => void): () => void;
 
-  /** Latest value of a state key, or undefined. Imperative escape hatch; prefer state(). */
-  peek<T extends StateKey>(key: T): StateValue<T> | undefined;
-
-  /** Resolves with OSF UI runtime handshake info. Rejects "no-bridge" standalone. */
-  ready(): Promise<RuntimeInfo>;
-
-  /** Resolves once the first i18n catalog has arrived (or failed over to English). */
-  i18nReady(): Promise<I18nCatalog | { locale: string; strings: Record<string, string> }>;
-
-  /** Active normalised locale ("en", "de", "pt-BR", ...). */
-  locale(): string;
-
   /** Translate a structural address, falling back to the inline English. */
   t(address: string, english: string, vars?: Record<string, string | number>): string;
 
   /** Apply a mod accent hex to a subtree; a missing/invalid hex clears it. */
   applyAccent(el: HTMLElement, hex: string | null | undefined): void;
 
-  /** Fire-and-forget call to an arbitrary GLOBAL Papyrus function. */
-  papyrusCall(script: string, fn: string, ...args: PapyrusCallArgument[]): boolean;
 }
 
 function noBridgeError(): BridgeError {
@@ -58,8 +44,45 @@ function interpolateEnglish(english: string, vars?: Record<string, string | numb
   );
 }
 
+let locale = 'en';
+let strings: Record<string, string> = {};
+
+function adoptI18n(value: unknown): void {
+  const catalog = value && typeof value === 'object' ? value as Partial<I18nCatalog> : {};
+  locale = typeof catalog.locale === 'string' ? catalog.locale : 'en';
+  strings = catalog.strings && typeof catalog.strings === 'object' ? catalog.strings : {};
+  document.documentElement.lang = locale;
+}
+
+function translate(address: string, english: string, vars?: Record<string, string | number>): string {
+  const value = Object.prototype.hasOwnProperty.call(strings, address) ? strings[address] : english;
+  return interpolateEnglish(value ?? '', vars);
+}
+
+const ACCENT_TOKENS = [
+  '--osf-accent',
+  '--osf-accent-hover',
+  '--osf-accent-quiet',
+  '--osf-accent-strong',
+];
+
+function applyAccent(el: HTMLElement, hex: string | null | undefined): void {
+  if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hex)) {
+    for (const token of ACCENT_TOKENS) el.style.removeProperty(token);
+    return;
+  }
+  const rgb = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
+  const mix = (target: number, amount: number) => '#' + rgb.map((channel) =>
+    Math.round(channel + (target - channel) * amount).toString(16).padStart(2, '0'),
+  ).join('');
+  el.style.setProperty('--osf-accent', hex.slice(0, 7));
+  el.style.setProperty('--osf-accent-hover', mix(255, 0.34));
+  el.style.setProperty('--osf-accent-strong', mix(0, 0.42));
+  el.style.setProperty('--osf-accent-quiet', `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.14)`);
+}
+
 export const windowBridge: Bridge = {
-  available: () => window.osfui?.available === true,
+  available: () => typeof window.osfui?.postMessage === 'function',
 
   send: (name, payload) => window.osfui?.send?.(name, payload) ?? false,
 
@@ -84,29 +107,14 @@ export const windowBridge: Bridge = {
   state: <T extends StateKey>(key: T, fn: (value: StateValue<T>) => void) => {
     const on = window.osfui?.state?.on;
     if (!on) return () => {};
-    return on.call(window.osfui!.state, key, fn as (v: unknown) => void);
+    return on.call(window.osfui!.state, key, (value: unknown) => {
+      if (String(key).toLowerCase() === 'osfui/i18n') adoptI18n(value);
+      fn(value as StateValue<T>);
+    });
   },
 
-  peek: <T extends StateKey>(key: T) =>
-    window.osfui?.state?.get?.call(window.osfui!.state, key) as StateValue<T> | undefined,
-
-  ready: () => window.osfui?.ready ?? Promise.reject(noBridgeError()),
-
-  i18nReady: () => window.osfui?.i18n?.ready ?? Promise.resolve({ locale: 'en', strings: {} }),
-
-  locale: () => window.osfui?.i18n?.locale ?? 'en',
-
-  t: (address, english, vars) => {
-    const t = window.osfui?.i18n?.t;
-    if (t) return t.call(window.osfui!.i18n, address, english, vars);
-    return interpolateEnglish(english, vars);
-  },
-
-  applyAccent: (el, hex) => {
-    window.osfui?.theme?.applyAccent?.call(window.osfui!.theme, el, hex);
-  },
-
-  papyrusCall: (script, fn, ...args) => window.osfui?.papyrus?.call?.(script, fn, ...args) ?? false,
+  t: translate,
+  applyAccent,
 };
 
 export const nullBridge: Bridge = {
@@ -116,11 +124,6 @@ export const nullBridge: Bridge = {
   on: () => () => {},
   onAny: () => () => {},
   state: () => () => {},
-  peek: () => undefined,
-  ready: () => Promise.reject(noBridgeError()),
-  i18nReady: () => Promise.resolve({ locale: 'en', strings: {} }),
-  locale: () => 'en',
   t: (_address, english, vars) => interpolateEnglish(english, vars),
   applyAccent: () => {},
-  papyrusCall: () => false,
 };

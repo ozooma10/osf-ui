@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { cp, mkdir, readdir } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   finishPrompt,
@@ -12,7 +11,6 @@ import {
   validModId,
 } from './prompts.mjs';
 import { MAX_MOD_ID_LENGTH, OSFUI_RELEASE_VERSION } from './constants.mjs';
-import { resolveCliSpec } from './cli-spec.mjs';
 import { renderProjectTemplate } from './project-template.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -24,8 +22,8 @@ const VALUE_FLAGS = {
   '--view': 'view',
   '--surface': 'surface',
   '--integration': 'integration',
-  '--cli-spec': 'cliSpec',
 };
+// Kept as a compatibility no-op: baseline starters never install dependencies.
 const BOOLEAN_FLAGS = { '--yes': 'yes', '--no-install': 'noInstall', '--help': 'help' };
 
 function parse(argv) {
@@ -87,12 +85,8 @@ export async function scaffold(options) {
   await mkdir(root, { recursive: true });
   if ((await readdir(root)).length) throw new Error(`Directory is not empty: ${root}`);
 
-  const cliSpec = options.surface === 'settings'
-    ? ''
-    : await resolveCliSpec(root, options.cliSpec);
   await renderProjectTemplate(root, {
     ...options,
-    cliSpec,
     projectName: slug(basename(root)),
     releaseVersion: OSFUI_RELEASE_VERSION,
   });
@@ -109,17 +103,6 @@ export async function scaffold(options) {
   return root;
 }
 
-function install(root) {
-  return new Promise((resolvePromise, reject) => {
-    const executable = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
-    const args = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm install'] : ['install'];
-    const child = spawn(executable, args, { cwd: root, stdio: 'inherit' });
-    child.once('exit', (code) => code === 0
-      ? resolvePromise()
-      : reject(new Error(`npm install exited with ${code}`)));
-  });
-}
-
 async function main() {
   const options = parse(process.argv.slice(2));
   if (options.help) {
@@ -131,11 +114,11 @@ async function main() {
   const interactive = await promptMissing(options);
   validate(options);
   const root = await scaffold(options);
-  // The settings-only starter has no package.json to install into.
-  if (!options.noInstall && options.surface !== 'settings') await install(root);
   const firstCommands = options.surface === 'settings'
     ? './build-deploy.ps1 -Mo2Mods "path-to-MO2-mods"'
-    : 'npm run dev';
+    : options.integration === 'papyrus'
+      ? './build-papyrus.ps1 -Mo2Mods "path-to-MO2-mods"'
+      : 'Open README.md to build the native plugin; the web view is ready to deploy.';
   const next = root === process.cwd()
     ? firstCommands
     : `cd ${options.directory}\n  ${firstCommands}`;

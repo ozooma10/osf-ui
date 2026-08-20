@@ -28,7 +28,7 @@ export interface SettingsRegistry {
   viewsRef: { current: ViewRecord[] };
   discoveredViews: ViewRecord[];
   health: HealthModel;
-  /** From the bridge `ready` handshake; "" until it arrives. */
+  /** From the retained diagnostics state; "" until it arrives. */
   osfuiReleaseVersion: string;
   baseline: Baseline;
   applyLocal: (modId: string, entries: Array<[string, SettingValue]>) => void;
@@ -87,7 +87,10 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
       captureBaseline(list);
     });
 
-    const offHealth = bridge.state('osfui/diagnostics', (data) => setHealth(readHealth(data)));
+    const offHealth = bridge.state('osfui/diagnostics', (data) => {
+      setHealth(readHealth(data));
+      setOsfuiReleaseVersion(typeof data?.system?.version === 'string' ? data.system.version : '');
+    });
 
     const offViews = bridge.state('osfui/views', (data) => {
       const all = (data?.views || []) as ViewRecord[];
@@ -126,11 +129,6 @@ export function useSettingsRegistry(opts: SettingsRegistryOptions): SettingsRegi
       }
       setMods(patchModValues(modsRef.current, modId, { [key]: p.value as SettingValue }));
     });
-
-    void bridge
-      .ready()
-      .then((info) => setOsfuiReleaseVersion(info.version || ''))
-      .catch(() => {});
 
     return () => {
       offSettings();

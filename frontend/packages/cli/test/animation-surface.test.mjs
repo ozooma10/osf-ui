@@ -97,7 +97,9 @@ test('dev server serves the complete protocol harness module graph', async (t) =
   const server = await createServer({
     root: project.viewsRoot,
     plugins: [harnessPlugin(project, project.views[0])],
-    server: { host: '127.0.0.1', port: 0, open: false, fs: { strict: false } },
+    // This test only exercises serving. Disabling the unused watcher also avoids
+    // a Node 24/libuv Windows assertion while its temporary directory is removed.
+    server: { host: '127.0.0.1', port: 0, open: false, watch: null, fs: { strict: false } },
     logLevel: 'silent',
   });
   await server.listen();

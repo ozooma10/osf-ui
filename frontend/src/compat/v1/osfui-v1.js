@@ -7,6 +7,7 @@
 
   const core = window.osfui;
   if (!core || typeof core.send !== "function" || typeof core.request !== "function") return;
+  const bridged = typeof core.postMessage === "function";
   // The injected transport keeps its native inbound sink on the original
   // bridge object. Capture the strict handler before replacing window.osfui,
   // then install the compatibility wrapper back into that transport slot.
@@ -17,8 +18,85 @@
   const platformState = new Map();
   const captureWaiters = [];
   let requestSeq = 0;
+  let readySeen = false;
+  let resolveReady, rejectReady;
+  const ready = new Promise(function (resolve, reject) { resolveReady = resolve; rejectReady = reject; });
+  ready.catch(function () {});
+  if (!bridged) rejectReady(Object.assign(new Error("no bridge (standalone preview)"), { code: "no-bridge" }));
+
+  let locale = "en";
+  let strings = Object.create(null);
+  let i18nSeen = false;
+  let resolveI18n;
+  const i18nReady = new Promise(function (resolve) { resolveI18n = resolve; });
+  if (!bridged) resolveI18n({ locale: locale, strings: strings });
+
+  const sourceText = new WeakMap();
+  const sourceAttrs = new WeakMap();
+  const i18nAttrs = [["i18nPlaceholder", "placeholder"], ["i18nAriaLabel", "aria-label"], ["i18nTitle", "title"]];
+  const i18nSelector = "[data-i18n], [data-i18n-placeholder], [data-i18n-aria-label], [data-i18n-title]";
 
   function dataKey(key) { return String(key).toLowerCase(); }
+
+  function translate(address, english, vars) {
+    let value = Object.prototype.hasOwnProperty.call(strings, address) ? strings[address] : english;
+    value = value == null ? "" : String(value);
+    return value.replace(/\{([A-Za-z0-9_]+)\}/g, function (all, name) {
+      return vars && Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : all;
+    });
+  }
+
+  function localize(root) {
+    root = root || document;
+    const nodes = [];
+    if (root.nodeType === 1 && root.matches(i18nSelector)) nodes.push(root);
+    if (root.querySelectorAll) nodes.push.apply(nodes, root.querySelectorAll(i18nSelector));
+    for (const node of nodes) {
+      if (node.dataset.i18n) {
+        if (!sourceText.has(node)) sourceText.set(node, node.textContent);
+        node.textContent = translate(node.dataset.i18n, sourceText.get(node));
+      }
+      let attrs = sourceAttrs.get(node);
+      if (!attrs) sourceAttrs.set(node, (attrs = Object.create(null)));
+      for (const pair of i18nAttrs) {
+        const address = node.dataset[pair[0]];
+        if (!address) continue;
+        if (!(pair[1] in attrs)) attrs[pair[1]] = node.getAttribute(pair[1]) || "";
+        node.setAttribute(pair[1], translate(address, attrs[pair[1]]));
+      }
+    }
+  }
+
+  function adoptI18n(value) {
+    const catalog = value || {};
+    locale = typeof catalog.locale === "string" ? catalog.locale : "en";
+    strings = catalog.strings && typeof catalog.strings === "object" ? catalog.strings : Object.create(null);
+    document.documentElement.lang = locale;
+    localize(document);
+    if (!i18nSeen) {
+      i18nSeen = true;
+      resolveI18n({ locale: locale, strings: strings });
+    }
+  }
+
+  const accentTokens = ["--osf-accent", "--osf-accent-hover", "--osf-accent-quiet", "--osf-accent-strong"];
+  function applyAccent(el, hex) {
+    if (!el || !el.style) return;
+    if (typeof hex !== "string" || !/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hex)) {
+      accentTokens.forEach(function (token) { el.style.removeProperty(token); });
+      return;
+    }
+    const rgb = [1, 3, 5].map(function (index) { return parseInt(hex.slice(index, index + 2), 16); });
+    const mix = function (target, amount) {
+      return "#" + rgb.map(function (channel) {
+        return Math.round(channel + (target - channel) * amount).toString(16).padStart(2, "0");
+      }).join("");
+    };
+    el.style.setProperty("--osf-accent", hex.slice(0, 7));
+    el.style.setProperty("--osf-accent-hover", mix(255, 0.34));
+    el.style.setProperty("--osf-accent-strong", mix(0, 0.42));
+    el.style.setProperty("--osf-accent-quiet", "rgba(" + rgb[0] + ", " + rgb[1] + ", " + rgb[2] + ", 0.14)");
+  }
 
   function stateValue(payload) {
     if (payload && Object.prototype.hasOwnProperty.call(payload, "value")) return payload.value;
@@ -55,6 +133,10 @@
   function translateInbound(message) {
     if (!message || typeof message.kind !== "string") return;
     if (message.kind === "ready") {
+      if (!readySeen) {
+        readySeen = true;
+        resolveReady(message.payload || {});
+      }
       dispatch("runtime.ready", message.payload || {}, {
         type: "runtime.ready",
         payload: message.payload || {},
@@ -86,6 +168,7 @@
 
     const scoped = dataKey(message.mod + "/" + message.key);
     platformState.set(scoped, message.value);
+    if (scoped === "osfui/i18n") adoptI18n(message.value);
     const registryType = stateReplies[scoped];
     if (registryType) {
       const registry = { type: registryType, payload: message.value || {} };
@@ -142,8 +225,8 @@
   };
 
   function readState(scoped) {
-    const cached = core.state.get(scoped);
-    if (cached !== undefined) return Promise.resolve(cached);
+    const wanted = dataKey(scoped);
+    if (platformState.has(wanted)) return Promise.resolve(platformState.get(wanted));
     return new Promise(function (resolve) {
       let off = function () {};
       off = core.state.on(scoped, function (value) {
@@ -183,7 +266,7 @@
           if (!hasRefresh) {
             fallback = setTimeout(function () {
               off();
-              resolve(core.state.get("osfui/settings") || {});
+              resolve(platformState.get("osfui/settings") || {});
             }, 1000);
           }
         }, function (error) {
@@ -287,15 +370,15 @@
       translateInbound(message);
       coreOnMessage(json);
     },
-    available: function () { return Boolean(core.available); },
-    ready: core.ready,
+    available: function () { return bridged; },
+    ready: ready,
     send: function (command, fields) {
       const original = String(command);
       if (original === "osfui.textFocus") return true;
       const translated = translateEndpoint(original, fields);
       if (requestOnly.has(original)) {
         legacyRequest(original, fields).catch(function () {});
-        return Boolean(core.available);
+        return bridged;
       }
       return core.send(translated.name, translated.payload);
     },
@@ -338,7 +421,13 @@
     },
   };
   legacy.papyrus = {
-    call: function () { return core.papyrus.call.apply(core.papyrus, arguments); },
+    call: function (script, fn) {
+      return core.send("papyrus.call", {
+        script: String(script),
+        function: String(fn),
+        args: Array.prototype.slice.call(arguments, 2),
+      });
+    },
     action: function () { return legacy.action.apply(legacy, arguments); },
     request: function (name) {
       const args = Array.prototype.slice.call(arguments, 1);
@@ -346,11 +435,11 @@
         .then(function (payload) { return payload ? payload.value : undefined; });
     },
   };
-  legacy.i18nReady = core.i18n.ready;
-  legacy.locale = function () { return core.i18n.locale; };
-  legacy.t = function () { return core.i18n.t.apply(core.i18n, arguments); };
-  legacy.localize = function () { return core.i18n.localize.apply(core.i18n, arguments); };
-  legacy.applyAccent = function () { return core.theme.applyAccent.apply(core.theme, arguments); };
+  legacy.i18nReady = i18nReady;
+  legacy.locale = function () { return locale; };
+  legacy.t = translate;
+  legacy.localize = localize;
+  legacy.applyAccent = applyAccent;
 
   core.onMessage = legacy.onMessage;
   window.osfui = legacy;

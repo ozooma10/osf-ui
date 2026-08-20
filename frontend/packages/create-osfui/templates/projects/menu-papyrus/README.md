@@ -1,64 +1,56 @@
 # __OSFUI_PROJECT_NAME__
 
-A small OSF UI menu with a recordless Papyrus backend. The view demonstrates
-the normal JavaScript state/event API; its one direct GLOBAL call is the
-intentional escape hatch for a script with no quest or alias lifecycle.
-The view itself is plain `index.html`, `style.css`, and `main.js`.
+A directly deployable OSF UI menu with a recordless Papyrus backend. The view
+is plain `index.html`, `main.js`, and `style.css`; it has no TypeScript, npm
+dependencies, config module, or frontend build step.
 
-## Build
+The browser files and `manifest.json` already live in their final location:
+
+`mod/SFSE/Plugins/OSFUI/views/__OSFUI_MOD_ID__/__OSFUI_VIEW_ID__/`
+
+## Build the Papyrus script
 
 Install the Starfield Creation Kit through Steam (Library > Tools), then run:
 
 ```powershell
-npm run build
+./build-papyrus.ps1
 ```
 
-The project deliberately keeps the two output trees visible:
+The script compiles `mod/Scripts/Source/__OSFUI_SCRIPT_NAME__.psc` to
+`mod/Scripts/` using the three compiler declarations under `tools/papyrus/`.
+There is nothing to build for the web view. Deploy or archive `mod/` with
+`Scripts` and `SFSE` at the mod root.
 
-- `build-papyrus.ps1` compiles
-  `mod/Scripts/Source/__OSFUI_SCRIPT_NAME__.psc` to `mod/Scripts/` using the
-  three compiler declarations under `tools/papyrus/`.
-- `osfui build` builds the web view to
-  `dist/SFSE/Plugins/OSFUI/views/__OSFUI_MOD_ID__/__OSFUI_VIEW_ID__/`.
+For a portable or nonstandard game install, pass `-StarfieldRoot`,
+`-PapyrusCompiler`, or `-PapyrusSource`. To compile and copy the complete mod
+into MO2 in one command, run:
 
-The current `@osfui/cli` is a view builder; it does not merge those trees or
-create an archive. To ship, copy `dist/SFSE` into a staging copy of `mod/`, omit
-the `.osfui-build.json` authoring marker, and zip the staging directory so
-`Scripts` and `SFSE` are at the archive root.
-
-For a portable or nonstandard game install, run `build-papyrus.ps1` directly
-and pass `-StarfieldRoot`, `-PapyrusCompiler`, or `-PapyrusSource`.
+```powershell
+./build-papyrus.ps1 -Mo2Mods "C:\path\to\MO2\mods"
+```
 
 ## Debug
 
-- Run `npm run dev` for browser hot reload. Edit `osfui.mock.js` to provide
-  test Papyrus data and responses.
-- Compile and deploy the backend/settings as a separate MO2 mod:
-
-  ```powershell
-  ./build-papyrus.ps1 -Mo2Mods "C:\path\to\MO2\mods"
-  ```
-
-- Run `npm run dev:game -- --deploy "C:\path\to\MO2\mods"` to sync the
-  generated view into its own authoring mod. Enable both mods in MO2.
-
-`dev:game` mirrors only the view build. It intentionally does not compile,
-deploy, or preserve files from the Papyrus backend mod.
+Open the generated view in Starfield and use F12 for Chromium DevTools. Edit
+the HTML, CSS, or JavaScript in the deployed view and reload the page to
+iterate. The runtime supplies `../../shared/osfui.js`; do not copy or bundle it
+into the view.
 
 The compiled GLOBAL library is discovered on demand when JavaScript calls one
 of its functions; there is no plugin to enable and no ESM, startup quest,
 alias, or registration to maintain. This is why the starter uses
-`osfui.papyrus.call()` for the direct round trip. A quest- or alias-backed
-backend should instead register ordinary `OSFUI_View.RegisterSend` or
-`RegisterRequest` endpoints after each game load, which JavaScript calls with
-`osfui.send('localName', ...args)` or
-`osfui.request('localName', ...args)`. The `OSFUI_View.Reply` value is
-the raw value returned by the JavaScript promise. Use a qualified endpoint only
-when intentionally addressing another mod.
+the platform's `papyrus.call` endpoint through `osfui.send()` for the direct
+round trip. A quest- or alias-backed backend should instead register ordinary
+`OSFUI_View.RegisterSend` or
+`RegisterRequest` endpoints after each game load. Its owning JavaScript calls
+them with `osfui.send("localName", ...args)` or
+`osfui.request("localName", ...args)`. `OSFUI_View.Reply` becomes the raw value
+resolved by the JavaScript promise. Use a qualified endpoint only when
+intentionally addressing another mod.
 
-The starter's retained `clicks` value and transient `notice` event are likewise
-consumed through their local owner names: `osfui.state.on('clicks', ...)` and
-`osfui.on('notice', ...)`.
+The starter's retained `clicks` value and transient `notice` event are consumed
+through their local owner names: `osfui.state.on("clicks", ...)` and
+`osfui.on("notice", ...)`.
 
 ## API references
 

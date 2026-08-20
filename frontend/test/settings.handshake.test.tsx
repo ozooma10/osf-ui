@@ -12,9 +12,9 @@ const REPLAY = { 'osfui/settings': WIDGETS, 'osfui/views': VIEWS };
 /** The reads 2.0 deleted. None of these may ever leave the view again. */
 const DELETED_READS = ['settings.get', 'views.get', 'diagnostics.get', 'i18n.get'];
 
-describe('a handshake that never completes', () => {
+describe('state-only startup', () => {
   it('issues no read at all — subscribing is the read', async () => {
-    const bridge = makeBridge({ state: REPLAY, readyNeverResolves: true });
+    const bridge = makeBridge({ state: REPLAY });
     await mount(bridge);
     await flush();
 
@@ -24,39 +24,33 @@ describe('a handshake that never completes', () => {
   });
 
   it('paints the replayed registry and catalog on the FIRST render', async () => {
-    const bridge = makeBridge({ state: REPLAY, readyNeverResolves: true });
+    const bridge = makeBridge({ state: REPLAY });
     const el = await mount(bridge);
 
     expect(el.querySelectorAll('.rail-item').length).toBeGreaterThan(0);
     expect(el.textContent).toContain('Acme Kit');
   });
 
-  it('leaves only the OSF UI release-version badge blank', async () => {
-    const bridge = makeBridge({ state: REPLAY, readyNeverResolves: true });
+  it('leaves the release-version badge blank until diagnostics state arrives', async () => {
+    const bridge = makeBridge({ state: REPLAY });
     const el = await mount(bridge);
     await flush();
 
     expect(el.textContent).not.toMatch(/\bv1\.0\.0\b/);
-  });
-
-  it('survives a ready() that REJECTS, which is what standalone does', async () => {
-    const bridge = makeBridge({ state: REPLAY, readyRejects: true });
-    const el = await mount(bridge);
+    bridge.publish('osfui/diagnostics', { system: { version: '1.0.0' }, issues: [] });
     await flush();
-
-    expect(el.textContent).toContain('Acme Kit');
-    expect(el.textContent).not.toMatch(/\bv1\.0\.0\b/);
+    expect(el.textContent).toContain('v1.0.0');
   });
 });
 
-describe('a completed handshake', () => {
-  it('feeds the OSF UI release-version badge, and nothing else', async () => {
+describe('replayed diagnostics', () => {
+  it('feeds the OSF UI release-version badge without issuing a read', async () => {
     const bridge = makeBridge({ state: REPLAY, version: '2.0.0' });
     const el = await mount(bridge);
     await flush();
 
     expect(el.textContent).toContain('v2.0.0');
-    // Still no read: a resolved handshake is not a cue to fetch anything.
+    // Still no read: retained state is already the complete value.
     expect(bridge.outbound.map((m) => m.name)).toEqual(['osfui.handleBack']);
   });
 });

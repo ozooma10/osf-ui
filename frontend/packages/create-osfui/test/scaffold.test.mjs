@@ -17,11 +17,24 @@ const PAPYRUS_APIS = [
   ['OSFUI_View.psc', 'OSFUI_View'],
 ];
 
+const slash = (path) => path.replaceAll('\\', '/');
+
+async function createProject(t, args) {
+  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+  const root = resolve(parent, 'project');
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const result = spawnSync(process.execPath, [CLI, root, '--yes', ...args], { encoding: 'utf8' });
+  return { parent, root, result };
+}
+
+async function assertMissing(path) {
+  await assert.rejects(readFile(path, 'utf8'), { code: 'ENOENT' });
+}
+
 async function assertPapyrusApis(root) {
   assert.deepEqual(
     (await readdir(resolve(root, 'tools/papyrus'))).sort(),
     PAPYRUS_APIS.map(([file]) => file).sort(),
-    'Papyrus projects get the three split compiler APIs and no aggregate',
   );
   for (const [file, scriptName] of PAPYRUS_APIS) {
     assert.match(
@@ -31,495 +44,311 @@ async function assertPapyrusApis(root) {
   }
 }
 
+async function assertStaticView(root, modId = 'acme.widgets', viewId = 'panel') {
+  const viewRoot = resolve(root, 'mod/SFSE/Plugins/OSFUI/views', modId, viewId);
+  assert.deepEqual((await readdir(viewRoot)).sort(), [
+    'index.html',
+    'main.js',
+    'manifest.json',
+    'style.css',
+  ]);
+
+  const html = await readFile(resolve(viewRoot, 'index.html'), 'utf8');
+  const source = await readFile(resolve(viewRoot, 'main.js'), 'utf8');
+  const style = await readFile(resolve(viewRoot, 'style.css'), 'utf8');
+  const manifest = JSON.parse(await readFile(resolve(viewRoot, 'manifest.json'), 'utf8'));
+
+  assert.equal(manifest.kind, 'menu');
+  assert.equal(manifest.entry, 'index.html');
+  assert.equal(manifest.pausesGame, false);
+  assert.equal(manifest.targetVersion, OSFUI_RELEASE_VERSION);
+  assert.match(html, /<link rel="stylesheet" href="\.\/style\.css">/);
+  assert.match(html, /<script src="\.\.\/\.\.\/shared\/osfui\.js"><\/script>/);
+  assert.match(html, /<script src="\.\/main\.js"><\/script>/);
+  assert.doesNotMatch(html, /type="module"|\.tsx?\b/);
+  assert.doesNotMatch(source, /^\s*(?:import|export)\b/m);
+  assert.doesNotMatch(
+    source,
+    /osfui\.(?:available|ready|papyrus|i18n|theme)|osfui\.state\.get/,
+  );
+  assert.match(style, /body\s*\{/);
+
+  const paths = (await readdir(root, { recursive: true })).map(slash);
+  for (const forbidden of [
+    'package.json',
+    'package-lock.json',
+    'tsconfig.json',
+    'osfui.config.js',
+    'osfui.config.ts',
+    'osfui.mock.js',
+    'osfui.mock.ts',
+    'src/vite-env.d.ts',
+  ]) {
+    assert.equal(paths.includes(forbidden), false, `baseline starter must not emit ${forbidden}`);
+  }
+  assert.equal(paths.some((path) => /\.(?:ts|tsx|jsx)$/i.test(path)), false);
+  assert.equal(paths.some((path) => /(?:^|\/)node_modules(?:\/|$)/.test(path)), false);
+  return { viewRoot, html, source, style, manifest };
+}
+
 test('stores each supported starter as an authored project tree', async () => {
   for (const [preset, representative] of [
-    ['menu-papyrus', 'src/views/__OSFUI_MOD_ID__/__OSFUI_VIEW_ID__/main.js'],
+    [
+      'menu-papyrus',
+      'mod/SFSE/Plugins/OSFUI/views/__OSFUI_MOD_ID__/__OSFUI_VIEW_ID__/main.js',
+    ],
     ['menu-native', 'native/src/main.cpp'],
     ['settings-papyrus', 'build-deploy.ps1'],
   ]) {
     const root = resolve(PROJECT_TEMPLATES, preset);
-    const paths = (await readdir(root, { recursive: true }))
-      .map((path) => path.replaceAll('\\', '/'));
+    const paths = (await readdir(root, { recursive: true })).map(slash);
     assert.ok(paths.includes('_gitignore'), `${preset} owns its gitignore template`);
     assert.ok(paths.includes(representative), `${preset} owns ${representative}`);
     assert.match(
       await readFile(resolve(root, representative), 'utf8'),
       /__OSFUI_[A-Z0-9_]+__/,
-      `${representative} exposes explicit scaffold tokens`,
     );
   }
 });
 
-for (const [surface, integration, modBackendPath, modBackendPattern] of [
-  ['menu', 'papyrus', 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc', /Function Bump\(int total\) Global/],
-  ['menu', 'native', 'native/src/main.cpp', /OSFUI::API::JsonSend/],
-]) {
-  test(`creates the ${surface}/${integration} preset`, async (t) => {
-    const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-    const root = resolve(parent, 'project');
-    t.after(() => rm(parent, { recursive: true, force: true }));
-    const result = spawnSync(process.execPath, [
-      CLI,
-      root,
-      '--yes',
-      '--no-install',
-      '--mod-id', 'acme.widgets',
-      '--view', 'panel',
-      '--surface', surface,
-      '--integration', integration,
-    ], { encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /npm run dev/);
+test('creates a directly deployable plain-JS Papyrus menu', async (t) => {
+  const { root, result } = await createProject(t, [
+    '--mod-id', 'acme.widgets',
+    '--view', 'panel',
+    '--surface', 'menu',
+    '--integration', 'papyrus',
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /build-papyrus\.ps1/);
+  assert.doesNotMatch(result.stdout, /npm (?:install|run)/);
 
-    const isPapyrusMenu = integration === 'papyrus';
-    const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
-    const configFile = isPapyrusMenu ? 'osfui.config.js' : 'osfui.config.ts';
-    const mockFile = isPapyrusMenu ? 'osfui.mock.js' : 'osfui.mock.ts';
-    const config = await readFile(resolve(root, configFile), 'utf8');
-    const sourceFile = isPapyrusMenu ? 'main.js' : 'main.ts';
-    const viewRoot = resolve(root, 'src/views/acme.widgets/panel');
-    const source = await readFile(
-      resolve(viewRoot, sourceFile),
-      'utf8',
-    );
-    const mock = await readFile(resolve(root, mockFile), 'utf8');
-    const html = await readFile(resolve(viewRoot, 'index.html'), 'utf8');
-    const style = await readFile(resolve(viewRoot, 'style.css'), 'utf8');
+  const { source, html } = await assertStaticView(root);
+  assert.match(html, /<button id="bump"/);
+  assert.match(source, /osfui\.state\.on\("clicks"/);
+  assert.match(source, /osfui\.on\("notice"/);
+  assert.match(source, /osfui\.send\("papyrus\.call", \{/);
+  assert.match(source, /script: "AcmeWidgetsOSFUI"/);
+  assert.match(source, /function: "Bump"/);
+  assert.doesNotMatch(source, /markReady|papyrus\.(?:send|request)/);
 
-    assert.match(packageJson.devDependencies['@osfui/cli'], /^file:/);
-    assert.equal(packageJson.dependencies, undefined);
-    assert.doesNotMatch(source, /preact/i);
-    assert.match(config, new RegExp(`kind: '${surface}'`));
-    assert.match(config, new RegExp(`targetVersion: '${OSFUI_RELEASE_VERSION.replaceAll('.', '\\.')}`));
-    assert.match(config, /description: 'Generated/);
-    // Only fields that differ from the CLI defaults are scaffolded.
-    assert.doesNotMatch(config, /transparent:|hub:|permissions:/);
-    assert.equal(config.match(/\bviews:/g)?.length, 1);
-    if (integration === 'native') assert.match(mock, /defineMock/);
-    if (integration === 'native') assert.match(mock, /OSF-UI-Starter/);
-    // The generated project stays a focused starter, not a second reference.
-    await assert.rejects(readFile(resolve(root, 'FEATURES.md'), 'utf8'));
-    const readme = await readFile(resolve(root, 'README.md'), 'utf8');
-    assert.match(readme, /## (?:API references|Native bridge example)/);
-    assert.match(readme, /authoring-settings\.md/);
-    assert.doesNotMatch(readme, /FEATURES\.md/);
-    if (integration === 'native') {
-      assert.match(
-        await readFile(resolve(root, 'mod/SFSE/Plugins/OSFUI/l10n/acme.widgets_de.json'), 'utf8'),
-        /views\.panel\.heading/,
-      );
-    } else {
-      await assert.rejects(
-        readFile(resolve(root, 'mod/SFSE/Plugins/OSFUI/l10n/acme.widgets_de.json'), 'utf8'),
-      );
-    }
-    assert.doesNotMatch(mock, /\btype: 'ui\./);
-    assert.match(mock, /ctx\.onEndpoint\(handleEndpoint\)/);
-    assert.doesNotMatch(mock, /onCommand/);
-    if (isPapyrusMenu) {
-      await assert.rejects(readFile(resolve(root, 'tsconfig.json'), 'utf8'));
-      await assert.rejects(readFile(resolve(root, 'src/vite-env.d.ts'), 'utf8'));
-    } else {
-      const tsconfig = JSON.parse(await readFile(resolve(root, 'tsconfig.json'), 'utf8'));
-      assert.equal(tsconfig.compilerOptions.strict, true);
-      assert.equal(tsconfig.compilerOptions.allowJs, true);
-    }
+  const script = await readFile(
+    resolve(root, 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc'),
+    'utf8',
+  );
+  assert.match(script, /^ScriptName AcmeWidgetsOSFUI Hidden/m);
+  assert.match(script, /Function Refresh\(\) Global/);
+  assert.match(script, /Function Bump\(int total\) Global/);
+  assert.match(script, /OSFUI_View\.SetState\("acme\.widgets", "clicks", total\)/);
+  assert.doesNotMatch(script, /ListenForView|RegisterFor/);
+  await assertPapyrusApis(root);
 
-    const sourceMarker = integration === 'native'
-      ? 'request<DemoState>'
-      : 'osfui.papyrus.call';
-    assert.match(source, new RegExp(sourceMarker.replaceAll('.', '\\.')));
-    assert.match(await readFile(resolve(root, modBackendPath), 'utf8'), modBackendPattern);
+  const build = await readFile(resolve(root, 'build-papyrus.ps1'), 'utf8');
+  assert.match(build, /compiler declarations only/);
+  assert.match(build, /deploy the complete mod/);
+  assert.match(build, /Copy-Item -Path \(Join-Path \$modRoot '\*'\)/);
 
-    if (integration === 'papyrus') {
-      const generatedPaths = await readdir(root, { recursive: true });
-      assert.equal(
-        generatedPaths.some((path) => /\.(?:esm|esp|esl)$/i.test(path)),
-        false,
-        'Papyrus presets must not generate a game plugin',
-      );
-      assert.equal(
-        generatedPaths.some((path) => /(?:^|[\\/])spriggit(?:[\\/]|$)/i.test(path)),
-        false,
-        'Papyrus presets must not generate a Spriggit project',
-      );
-      assert.equal(packageJson.scripts.setup, undefined);
-      assert.equal(packageJson.scripts.package, undefined);
-      assert.equal(packageJson.scripts.build, 'npm run build:papyrus && npm run build:view');
-      assert.equal(packageJson.scripts['build:papyrus'], 'pwsh -NoProfile -File ./build-papyrus.ps1');
-      assert.equal(packageJson.scripts['build:view'], 'osfui build');
-      const script = await readFile(resolve(root, modBackendPath), 'utf8');
-      assert.match(script, /ScriptName AcmeWidgetsOSFUI Hidden/);
-      assert.match(script, /Function Refresh\(\) Global/);
-      assert.match(script, /OSFUI_View\.SetState/);
-      assert.doesNotMatch(
-        script,
-        /\bOSFUI\.(?:Get|Set|Reset|Register|Listen|Reply|Reject|Unregister|Open|Close|Send)/,
-      );
-      assert.doesNotMatch(config, /\bpapyrus\s*:/);
-      await assertPapyrusApis(root);
-      const papyrusBuild = await readFile(resolve(root, 'build-papyrus.ps1'), 'utf8');
-      assert.match(papyrusBuild, /-i=\$sourceRoot;\$osfuiApis;\$PapyrusSource/);
-      assert.match(papyrusBuild, /compiler declarations only/);
-      assert.match(readme, /current `@osfui\/cli` is a view builder/);
-      assert.match(readme, /no ESM,[\s\S]*registration to maintain/);
-      assert.doesNotMatch(readme, /Spriggit/i);
-      assert.match(readme, /## Build/);
-      assert.match(readme, /## Debug/);
-      assert.doesNotMatch(readme, /npm run package/);
-      assert.equal(readme.match(/npm run dev`/g)?.length, 1);
+  const readme = await readFile(resolve(root, 'README.md'), 'utf8');
+  assert.match(readme, /nothing to build for the web view/i);
+  assert.match(readme, /request\("localName", \.\.\.args\)/);
+  assert.match(readme, /Reply` becomes the raw value/);
+  assert.doesNotMatch(readme, /npm run|Vite|osfui build/);
+});
 
-      // The simplest backend gets an ordinary HTML/CSS/JS view with no
-      // TypeScript project surface.
-      assert.equal(sourceFile, 'main.js');
-      await assert.rejects(readFile(resolve(viewRoot, 'main.ts'), 'utf8'));
-      assert.match(style, /body\s*\{/);
-      assert.match(html, /<button id="bump"/);
-      assert.match(html, /<p id="status" role="status">/);
-      assert.match(html, /<script type="module" src="\.\/main\.js"><\/script>/);
-      assert.match(html, /<link rel="stylesheet" href="\.\/style\.css">/);
-      assert.doesNotMatch(html, /<style>/);
-      assert.doesNotMatch(source, /import type|<number>|<string>|<\{ args:|:\s*(?:string|unknown|OSFUIHelper)\b/);
-      assert.doesNotMatch(mock, /import type|MockContext|Record<string|:\s*(?:string|unknown)\b/);
-      assert.match(source, /^import '\/shared\/osfui\.js';/);
-      assert.doesNotMatch(source, /i18n|theme|settings\.changed|ui\.hotkey|handleBack/);
-      assert.match(script, /Function Bump\(int total\) Global/);
-      assert.match(source, /osfui\.state\.on\('clicks'/);
-      assert.match(source, /osfui\.on\('notice', \(\{ args \}\) =>/);
-      assert.match(source, /osfui\.papyrus\.call\('AcmeWidgetsOSFUI', 'Bump', clickTotal \+ 1\)/);
-      assert.doesNotMatch(script, /ListenForView|RegisterFor/);
-      assert.doesNotMatch(script, /Function (?:OpenSettings|Greet)\(/);
-      assert.match(readme, /papyrus\.call\(\)/);
-      assert.match(readme, /GLOBAL call[\s\S]*intentional escape hatch/);
-      assert.match(readme, /request\('localName', \.\.\.args\)/);
-      assert.match(readme, /Reply` value is[\s\S]*raw value/);
-      assert.doesNotMatch(`${source}\n${script}\n${readme}`, /papyrus\.(?:send|request)/);
-      assert.doesNotMatch(source, /ui\.papyrusRequest/);
-      assert.match(mock, /name !== 'papyrus\.call'/);
-      for (const fn of ['Refresh', 'Bump']) {
-        assert.match(script, new RegExp(`Function ${fn}\\(`), `.psc implements ${fn}`);
-        assert.match(mock, new RegExp(`payload\\.function === '${fn}'`), `mock implements ${fn}`);
-      }
-      assert.match(script, /OSFUI_View\.SetState\("acme\.widgets", "clicks", total\)/);
-      assert.match(mock, /state\.clicks = Number\(payload\.args\?\.\[0\]\) \|\| 0;/);
-      assert.doesNotMatch(mock, /settingValues|settings\.changed|registerTools|keyboard|locales/);
-      assert.doesNotMatch(`${config}\n${mock}`, /from ['"]@osfui\/cli['"]/);
-    }
+test('creates a directly deployable plain-JS native menu', async (t) => {
+  const { root, result } = await createProject(t, [
+    '--mod-id', 'acme.widgets',
+    '--view', 'panel',
+    '--surface', 'menu',
+    '--integration', 'native',
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /web view is ready to deploy/i);
+  assert.doesNotMatch(result.stdout, /npm (?:install|run)/);
 
-    if (integration === 'native') {
-      assert.equal(packageJson.scripts['build:native'], 'node native/build.mjs');
-      assert.equal(packageJson.scripts['build:view'], 'osfui build');
-      assert.equal(packageJson.scripts.build, 'npm run build:native && npm run build:view');
-      assert.equal(packageJson.scripts.package, undefined);
-      const xmake = await readFile(resolve(root, 'xmake.lua'), 'utf8');
-      assert.match(xmake, /commonlibsf\.plugin/);
-      assert.match(xmake, /set_installdir\("mod"\)/);
-      assert.match(xmake, /add_requires\("nlohmann_json"\)/);
-      assert.match(xmake, /add_packages\("nlohmann_json"\)/);
-      const nativeSource = await readFile(resolve(root, 'native/src/main.cpp'), 'utf8');
-      assert.match(nativeSource, /#include "OSFUI_JSON\.h"/);
-      assert.match(nativeSource, /OSFUI::API::JsonSend/);
-      assert.match(nativeSource, /OSFUI::API::JsonRequest/);
-      // The frozen C++ ABI remains exact and qualified. MessageBridge gives the
-      // owning browser document the short aliases asserted below.
-      assert.match(nativeSource, /constexpr const char\* kModId = "acme\.widgets"/);
-      assert.match(nativeSource, /SetViewState\(kModId, "state"/);
-      assert.match(nativeSource, /RegisterSend\("acme\.widgets\.increment"/);
-      for (const endpoint of ['getState', 'greet', 'recalibrate']) {
-        assert.match(nativeSource, new RegExp(`RegisterRequest\\("acme\\.widgets\\.${endpoint}"`));
-      }
-      assert.doesNotMatch(
-        nativeSource,
-        /Register(?:Send|Request)\("(?:increment|getState|greet|recalibrate)"/,
-      );
-      assert.match(nativeSource, /SubscribeSettings/);
-      assert.match(nativeSource, /SubscribeHotkey/);
-      assert.doesNotMatch(nativeSource, /RegisterSettingsSchema/);
-      const schema = JSON.parse(await readFile(
-        resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),
-        'utf8',
-      ));
-      assert.equal(schema.id, 'acme.widgets');
-      assert.equal(schema.targetVersion, OSFUI_RELEASE_VERSION);
-      assert.deepEqual(
-        schema.groups[0].settings.map(({ key }) => key),
-        ['enabled', 'mode', 'intensity', 'greeting', 'accent', 'openKey', 'recalibrate'],
-      );
-      assert.match(source, /request<DemoState>\('getState'/);
-      assert.match(source, /osfui\.state\.on<DemoState>\('state'/);
-      assert.match(source, /osfui\.send\('increment'/);
-      assert.match(source, /osfui\.request<Greeting>\('greet'/);
-      assert.match(source, /osfui\.on<\{ message: string \}>\('notice'/);
-      assert.doesNotMatch(source, /['"]acme\.widgets\.(?:increment|getState|greet|notice)['"]/);
-      assert.doesNotMatch(source, /['"]acme\.widgets\/state['"]/);
-      assert.doesNotMatch(source, /on\?\.<DemoState>\('acme\.widgets\.state'/);
-      assert.doesNotMatch(mock, /\bcommand ===|\breply\(/);
-      assert.match(mock, /io\.reject\('invalid-payload'/);
-      assert.match(nativeSource, /OnRecalibrate/);
-      assert.match(nativeSource, /\.recalibrate"/);
-      const nativeBuild = await readFile(resolve(root, 'native/build.mjs'), 'utf8');
-      assert.match(nativeBuild, /delete env\.XSE_SF_MODS_PATH/);
-      assert.match(nativeBuild, /\['build', '-P', projectRoot\]/);
-      assert.match(await readFile(resolve(root, 'native/include/OSFUI_API.h'), 'utf8'), /struct IOSFUIBridge/);
-      assert.match(await readFile(resolve(root, 'native/include/OSFUI_JSON.h'), 'utf8'), /class JsonClient/);
-      assert.match(readme, /current `@osfui\/cli` does not merge those trees or create an archive/);
-      assert.match(readme, /owning view calls local endpoint names/);
-      assert.match(readme, /request\(\)[\s\S]*raw reply/);
-      assert.doesNotMatch(readme, /npm run package/);
-    }
+  const { source, html } = await assertStaticView(root);
+  assert.match(html, /<link rel="stylesheet" href="\.\.\/\.\.\/shared\/osfui\.css">/);
+  assert.match(source, /osfui\.state\.on\("state"/);
+  assert.match(source, /osfui\.on\("notice"/);
+  assert.match(source, /osfui\.send\("increment", \{ amount: 1 \}\)/);
+  assert.match(source, /await osfui\.request\("greet", \{ name: name\.value \}\)/);
+  assert.doesNotMatch(source, /settings\.changed|ui\.hotkey|i18n|theme/);
 
-    assert.doesNotMatch(config, /openOnStart: true/);
-    assert.match(config, /pausesGame: false/);
-    assert.match(isPapyrusMenu ? html : source, /<button/);
-    assert.doesNotMatch(source, /osfui\.markReady\(\)/);
-    if (integration === 'native') {
-      assert.match(source, /osfui\.i18n\.localize/);
-      assert.match(source, /osfui\.theme\.applyAccent/);
-      assert.match(source, /registry\.keyboard\?\.labels/);
-      assert.match(source, /never store the label/);
-      assert.match(mock, /keyboard: \{ layout: 'en-US', labels:/);
-      assert.match(source, /osfui\.send\('osfui\.handleBack'/);
-    } else {
-      assert.doesNotMatch(source, /i18n|theme|settings\.changed|ui\.hotkey|handleBack/);
-    }
-    // Settings writes, key capture, and platform-service endpoints stay in the
-    // existing settings guide instead of expanding either menu starter.
-    assert.doesNotMatch(source, /settings\.captureKey|settings\.set'|settings\.reset'/);
-    assert.doesNotMatch(source, /'game\.get'|'ping'/);
-    assert.doesNotMatch(source, /feature-grid/);
-    if (integration === 'papyrus') {
-      const schema = JSON.parse(await readFile(
-        resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),
-        'utf8',
-      ));
-      // One group, no pages, no presets: a starting point, not a catalogue.
-      assert.equal(schema.groups.length, 1);
-      assert.equal(schema.pages, undefined);
-      assert.equal(schema.presets, undefined);
-      assert.deepEqual(
-        schema.groups[0].settings.map(({ key }) => key),
-        ['enabled', 'mode', 'intensity', 'greeting', 'accent', 'openKey'],
-      );
-    }
-  });
-}
+  const nativeSource = await readFile(resolve(root, 'native/src/main.cpp'), 'utf8');
+  assert.match(nativeSource, /#include "OSFUI_JSON\.h"/);
+  assert.match(nativeSource, /OSFUI::API::JsonSend/);
+  assert.match(nativeSource, /OSFUI::API::JsonRequest/);
+  assert.match(nativeSource, /SetViewState\(kModId, "state"/);
+  assert.match(nativeSource, /RegisterSend\("acme\.widgets\.increment"/);
+  for (const endpoint of ['getState', 'greet', 'recalibrate']) {
+    assert.match(nativeSource, new RegExp(`RegisterRequest\\("acme\\.widgets\\.${endpoint}"`));
+  }
+  assert.match(nativeSource, /SubscribeSettings/);
+  assert.match(nativeSource, /SubscribeHotkey/);
 
-test('escapes punctuation when an opaque mod id becomes generated TypeScript', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  const root = resolve(parent, 'project');
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  const modId = 'Pilot\'s HUD';
-  const result = spawnSync(process.execPath, [
-    CLI,
-    root,
-    '--yes',
-    '--no-install',
+  const schema = JSON.parse(await readFile(
+    resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),
+    'utf8',
+  ));
+  assert.equal(schema.id, 'acme.widgets');
+  assert.equal(schema.targetVersion, OSFUI_RELEASE_VERSION);
+  assert.deepEqual(
+    schema.groups[0].settings.map(({ key }) => key),
+    ['enabled', 'mode', 'intensity', 'greeting', 'accent', 'openKey', 'recalibrate'],
+  );
+
+  assert.match(await readFile(resolve(root, 'xmake.lua'), 'utf8'), /set_installdir\("mod"\)/);
+  await assertMissing(resolve(root, 'native/build.mjs'));
+  assert.match(await readFile(resolve(root, 'native/include/OSFUI_API.h'), 'utf8'), /struct IOSFUIBridge/);
+  assert.match(await readFile(resolve(root, 'native/include/OSFUI_JSON.h'), 'utf8'), /class JsonClient/);
+  assert.match(
+    await readFile(resolve(root, 'mod/SFSE/Plugins/OSFUI/l10n/acme.widgets_de.json'), 'utf8'),
+    /views\.panel\.heading/,
+  );
+
+  const readme = await readFile(resolve(root, 'README.md'), 'utf8');
+  assert.match(readme, /nothing to build for the web view/i);
+  assert.match(readme, /owning view calls local endpoints/);
+  assert.doesNotMatch(readme, /npm run|Vite|osfui build/);
+});
+
+test('keeps opaque mod IDs valid in direct-layout projects', async (t) => {
+  const modId = "Pilot's HUD";
+  const { root, result } = await createProject(t, [
     '--mod-id', modId,
     '--view', 'panel',
     '--surface', 'menu',
     '--integration', 'native',
-  ], { encoding: 'utf8' });
+  ]);
   assert.equal(result.status, 0, result.stderr);
 
-  for (const file of [
-    resolve(root, 'osfui.config.ts'),
-    resolve(root, 'osfui.mock.ts'),
-    resolve(root, `src/views/${modId}/panel/main.ts`),
-  ]) {
-    const source = await readFile(file, 'utf8');
-    assert.match(source, /Pilot\\'s HUD/);
-    assert.doesNotMatch(source, /'Pilot's HUD/);
-  }
+  const { manifest } = await assertStaticView(root, modId);
+  assert.equal(manifest.description, `Generated menu starter for ${modId}`);
+  const schema = JSON.parse(await readFile(
+    resolve(root, `mod/SFSE/Plugins/OSFUI/settings/${modId}.json`),
+    'utf8',
+  ));
+  assert.equal(schema.id, modId);
+  assert.match(await readFile(resolve(root, 'native/src/main.cpp'), 'utf8'), /Pilot's HUD/);
 });
 
-test('creates the settings/papyrus preset', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  const root = resolve(parent, 'project');
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  // No --integration and no --view: the settings-only starter implies Papyrus and
-  // ships no view at all.
-  const result = spawnSync(process.execPath, [
-    CLI, root, '--yes', '--no-install', '--mod-id', 'acme.widgets', '--surface', 'settings',
-  ], { encoding: 'utf8' });
+test('creates the settings/papyrus preset without frontend files', async (t) => {
+  const { root, result } = await createProject(t, [
+    '--mod-id', 'acme.widgets',
+    '--surface', 'settings',
+  ]);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /build-deploy\.ps1/);
   assert.doesNotMatch(result.stdout, /npm run/);
 
-  // None of the view toolchain: this is a drop-in mod folder, not a project.
-  for (const absent of ['package.json', 'osfui.config.ts', 'osfui.mock.ts', 'tsconfig.json', 'src']) {
-    await assert.rejects(readFile(resolve(root, absent), 'utf8'), absent);
-  }
+  const paths = (await readdir(root, { recursive: true })).map(slash);
+  assert.equal(paths.some((path) => /(?:^|\/)views(?:\/|$)/.test(path)), false);
+  assert.equal(paths.includes('package.json'), false);
+  assert.equal(paths.some((path) => /\.(?:ts|tsx)$/i.test(path)), false);
 
   const schema = JSON.parse(await readFile(
-    resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'), 'utf8',
+    resolve(root, 'mod/SFSE/Plugins/OSFUI/settings/acme.widgets.json'),
+    'utf8',
   ));
   assert.equal(schema.id, 'acme.widgets');
   assert.equal(schema.targetVersion, OSFUI_RELEASE_VERSION);
-  const rows = schema.groups[0].settings;
-  assert.deepEqual(rows.map(({ key }) => key), ['enabled', 'strength', 'mode', 'notifyKey']);
-  // Keep the settings-only starter focused on stored values and a hotkey. Authors
-  // can add an action row later and target a qualified OSFUI_View request endpoint.
-  assert.equal(rows.some((row) => row.type === 'action'), false);
+  assert.deepEqual(
+    schema.groups[0].settings.map(({ key }) => key),
+    ['enabled', 'strength', 'mode', 'notifyKey'],
+  );
 
   const script = await readFile(
-    resolve(root, 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc'), 'utf8',
+    resolve(root, 'mod/Scripts/Source/AcmeWidgetsOSFUI.psc'),
+    'utf8',
   );
-  // onPress resolves the target by NAME at delivery time, so the schema and
-  // the script must agree exactly or the press silently does nothing.
-  const hotkey = rows.find(({ key }) => key === 'notifyKey');
-  assert.deepEqual(hotkey.onPress, { script: 'AcmeWidgetsOSFUI', function: 'OnHotkey' });
-  assert.equal(hotkey.type, 'key');
   assert.match(script, /^ScriptName AcmeWidgetsOSFUI Hidden/m);
   assert.match(script, /Function OnHotkey\(string asModId, string asKey\) Global/);
-  // Reads the toggle, the slider, and the dropdown back out.
-  assert.match(script, /OSFUI_Settings\.GetBool\(asModId, "enabled"/);
-  assert.match(script, /OSFUI_Settings\.GetInt\(asModId, "strength"/);
-  assert.match(script, /OSFUI_Settings\.GetString\(asModId, "mode"/);
-  assert.doesNotMatch(script, /\bOSFUI\.(?:Get|Set|Reset|Register|Listen|Unregister)/);
-  assert.doesNotMatch(script, /RegisterForHotkey|OnPlayerLoadGame/);
-
-  const build = await readFile(resolve(root, 'build-deploy.ps1'), 'utf8');
-  // Without tools/papyrus on the import path the OSFUI_Settings.* calls above will not
-  // resolve and the compile fails.
-  assert.match(build, /-i=\$sourceRoot;\$osfuiApis;\$PapyrusSource/);
-  assert.match(build, /Starfield_Papyrus_Flags\.flg/);
   await assertPapyrusApis(root);
-  await assert.rejects(
-    readFile(resolve(root, 'mod/SFSE/Plugins/OSFUI/l10n/acme.widgets_de.json'), 'utf8'),
-  );
-
-  const readme = await readFile(resolve(root, 'README.md'), 'utf8');
-  assert.match(readme, /build-deploy\.ps1/);
-  assert.match(readme, /save, reload, and press it again/);
-  assert.match(readme, /OSFUI_View\.RegisterRequest/);
-  assert.match(readme, /qualified command/);
-  assert.doesNotMatch(readme, /npm run/);
 });
 
-test('rejects a native settings project it has no way to generate', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  const result = spawnSync(process.execPath, [
-    CLI, resolve(parent, 'project'), '--yes', '--no-install',
-    '--mod-id', 'acme.widgets', '--surface', 'settings', '--integration', 'native',
-  ], { encoding: 'utf8' });
-
+test('rejects a native settings project', async (t) => {
+  const { result } = await createProject(t, [
+    '--mod-id', 'acme.widgets',
+    '--surface', 'settings',
+    '--integration', 'native',
+  ]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /--surface settings is Papyrus-only/);
 });
 
 test('rejects HUD until an authored starter exists', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  const result = spawnSync(process.execPath, [
-    CLI, resolve(parent, 'project'), '--yes', '--no-install',
-    '--mod-id', 'acme.widgets', '--view', 'panel',
-    '--surface', 'hud', '--integration', 'papyrus',
-  ], { encoding: 'utf8' });
-
+  const { result } = await createProject(t, [
+    '--mod-id', 'acme.widgets',
+    '--view', 'panel',
+    '--surface', 'hud',
+    '--integration', 'papyrus',
+  ]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /does not include a HUD starter/);
 });
 
-test('rejects --template as unknown (never shipped in a published release)', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  const result = spawnSync(process.execPath, [
-    CLI,
-    resolve(parent, 'project'),
-    '--yes',
+test('--no-install remains a harmless compatibility flag', async (t) => {
+  const { root, result } = await createProject(t, [
     '--no-install',
     '--mod-id', 'acme.widgets',
     '--view', 'panel',
-    '--template', 'typescript',
     '--surface', 'menu',
     '--integration', 'papyrus',
-  ], { encoding: 'utf8' });
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /npm (?:install|run)/);
+  await assertStaticView(root);
+});
 
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Unknown option "--template"/);
+test('rejects obsolete or unknown flags', async (t) => {
+  for (const flag of ['--template', '--cli-spec', '--surfce']) {
+    const { result } = await createProject(t, [
+      '--mod-id', 'acme.widgets',
+      '--view', 'panel',
+      '--surface', 'menu',
+      '--integration', 'papyrus',
+      flag,
+      'value',
+    ]);
+    assert.notEqual(result.status, 0, flag);
+    assert.match(result.stderr, new RegExp(`Unknown option "${flag}"`));
+  }
 });
 
 for (const integration of ['settings', 'static']) {
   test(`rejects the removed ${integration} workflow`, async (t) => {
-    const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-    t.after(() => rm(parent, { recursive: true, force: true }));
-    const result = spawnSync(process.execPath, [
-      CLI,
-      resolve(parent, 'project'),
-      '--yes',
-      '--no-install',
+    const { result } = await createProject(t, [
       '--mod-id', 'acme.widgets',
       '--view', 'panel',
       '--surface', 'menu',
       '--integration', integration,
-    ], { encoding: 'utf8' });
-
+    ]);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /--integration must be papyrus or native/);
   });
 }
 
-test('rejects an unknown flag instead of silently scaffolding defaults', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  // "--surfce menu": with a camel-case-anything parser this scaffolded the
-  // default Menu starter and exited 0 — the author finds out much later.
-  const result = spawnSync(process.execPath, [
-    CLI,
-    resolve(parent, 'project'),
-    '--yes',
-    '--no-install',
-    '--mod-id', 'acme.widgets',
-    '--view', 'panel',
-    '--surfce', 'menu',
-    '--integration', 'native',
-  ], { encoding: 'utf8' });
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Unknown option "--surfce"/);
-});
-
-test('rejects a mod id over the native 64-character cap', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  const result = spawnSync(process.execPath, [
-    CLI,
-    resolve(parent, 'project'),
-    '--yes',
-    '--no-install',
+test('rejects a mod ID over the native cap', async (t) => {
+  const { result } = await createProject(t, [
     '--mod-id', `acme.${'w'.repeat(64)}`,
     '--view', 'panel',
     '--surface', 'menu',
     '--integration', 'papyrus',
-  ], { encoding: 'utf8' });
-
+  ]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /64/);
 });
 
-test('a digit-leading mod id still yields a legal Papyrus ScriptName', async (t) => {
-  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
-  const root = resolve(parent, 'project');
-  t.after(() => rm(parent, { recursive: true, force: true }));
-  // "3dscanner.hudpanel" is legal per Ids.h, but a ScriptName and a quest
-  // EditorID must start with a letter or the CK compiler refuses the project.
-  const result = spawnSync(process.execPath, [
-    CLI,
-    root,
-    '--yes',
-    '--no-install',
+test('a digit-leading mod ID still yields a legal Papyrus ScriptName', async (t) => {
+  const { root, result } = await createProject(t, [
     '--mod-id', '3dscanner.hudpanel',
     '--view', 'panel',
     '--surface', 'menu',
     '--integration', 'papyrus',
-  ], { encoding: 'utf8' });
+  ]);
   assert.equal(result.status, 0, result.stderr);
   const sources = await readdir(resolve(root, 'mod/Scripts/Source'));
-  assert.ok(sources.length > 0);
   for (const source of sources) {
-    assert.match(source, /^[A-Za-z]/, source);
-    const script = await readFile(resolve(root, 'mod/Scripts/Source', source), 'utf8');
-    assert.match(script, /^ScriptName [A-Za-z]/m, source);
+    assert.match(source, /^[A-Za-z]/);
+    assert.match(await readFile(resolve(root, 'mod/Scripts/Source', source), 'utf8'), /^ScriptName [A-Za-z]/m);
   }
 });

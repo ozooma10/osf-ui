@@ -14,15 +14,12 @@ interface Frame {
 }
 
 interface Helper {
-  readonly available: boolean;
-  ready: Promise<unknown>;
   send(name: string, payload?: Record<string, unknown>): boolean;
   request(
     name: string,
     payload?: Record<string, unknown>,
     opts?: { timeoutMs?: number | undefined },
   ): Promise<unknown>;
-  i18n: { ready: Promise<{ locale: string; strings: Record<string, string> }> };
   onMessage(json: string): void;
 }
 
@@ -200,7 +197,6 @@ describe('BridgeError contract — payload', () => {
 
   it('is ABSENT on the no-bridge rejection', async () => {
     const { helper } = loadHelper({ bridge: false });
-    expect(helper.available).toBe(false);
 
     const err = await caught(helper.request('ping'));
     expect(err.code).toBe('no-bridge');
@@ -210,28 +206,12 @@ describe('BridgeError contract — payload', () => {
 });
 
 describe('no bridge — a plain-browser preview fails fast instead of hanging', () => {
-  it('rejects ready with code "no-bridge"', async () => {
-    const { helper } = loadHelper({ bridge: false });
-
-    const err = await caught(helper.ready);
-    expect(err.code).toBe('no-bridge');
-    expect(err.message).toBe('no bridge (standalone preview)');
-  });
-
   it('reports the missing bridge as a NOTICE, not an authoring error', () => {
     loadHelper({ bridge: false });
 
     expect(logged).toEqual([]);
     expect(warned).toHaveLength(1);
     expect(String(warned[0]![0])).toContain('[osfui] no bridge');
-  });
-
-  it('still resolves i18n.ready, so a view can render its inline English', async () => {
-    const { helper } = loadHelper({ bridge: false });
-
-    const catalog = await helper.i18n.ready;
-    expect(catalog.locale).toBe('en');
-    expect(Object.keys(catalog.strings)).toEqual([]);
   });
 
   it('makes a FRESH error per call, so a caller may annotate it safely', async () => {

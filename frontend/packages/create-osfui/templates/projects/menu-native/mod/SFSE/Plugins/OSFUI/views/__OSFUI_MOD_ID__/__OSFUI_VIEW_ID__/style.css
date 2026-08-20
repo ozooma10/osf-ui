@@ -1,0 +1,48 @@
+body {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.card {
+  width: min(640px, 94vw);
+  margin: 0 auto;
+  padding: 32px;
+}
+
+.card h1 {
+  margin: 6px 0 8px;
+  font-size: var(--osf-text-3xl);
+}
+
+.card > p,
+output {
+  color: var(--osf-text-muted);
+}
+
+.state {
+  display: grid;
+  gap: 6px;
+  margin: 22px 0;
+  padding: 18px;
+  background: var(--osf-accent-quiet);
+  border: 1px solid var(--osf-line);
+}
+
+.state strong {
+  font-family: var(--osf-font-display);
+  font-size: 42px;
+}
+
+.actions,
+form {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+output {
+  display: block;
+  min-height: 24px;
+  margin-top: 16px;
+  overflow-wrap: anywhere;
+}

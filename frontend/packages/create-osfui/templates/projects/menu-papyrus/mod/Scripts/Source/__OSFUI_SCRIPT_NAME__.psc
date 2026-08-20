@@ -9,7 +9,7 @@ Function Refresh() Global
     OSFUI_View.SetState("__OSFUI_MOD_ID__", "enabled", actionsEnabled)
 EndFunction
 
-; JavaScript: osfui.papyrus.call("__OSFUI_SCRIPT_NAME__", "Bump", total)
+; JavaScript: osfui.send("papyrus.call", { script: "__OSFUI_SCRIPT_NAME__", function: "Bump", args: [total] })
 ; The VIEW owns the running total and passes it in. A recordless GLOBAL script has nowhere to accumulate
 Function Bump(int total) Global
     If !OSFUI_Settings.GetBool("__OSFUI_MOD_ID__", "enabled", true)

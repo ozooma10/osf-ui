@@ -7,7 +7,8 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tests = (await readdir(resolve(packageRoot, 'test')))
   .filter((name) => name.endsWith('.test.mjs'))
   .sort();
-const testFlags = Number.parseInt(process.versions.node, 10) >= 22
+const nodeMajor = Number.parseInt(process.versions.node, 10);
+const testFlags = nodeMajor >= 22 && nodeMajor < 24
   ? ['--test', '--test-force-exit']
   : ['--test'];
 

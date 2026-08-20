@@ -1,0 +1,13 @@
+{
+  "$schema": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
+  "title": "__OSFUI_VIEW_TITLE__",
+  "description": "Generated menu starter for __OSFUI_MOD_ID__",
+  "entry": "index.html",
+  "kind": "menu",
+  "width": 1200,
+  "height": 720,
+  "transparent": true,
+  "capturesInput": true,
+  "pausesGame": false,
+  "targetVersion": "__OSFUI_RELEASE_VERSION__"
+}

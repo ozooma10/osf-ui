@@ -14,19 +14,11 @@ interface Frame {
 }
 
 interface Helper {
-  ready: Promise<unknown>;
   send(name: string, payload?: Record<string, unknown>): boolean;
   request(name: string, payload?: Record<string, unknown>): Promise<unknown>;
   on(event: string, fn: (payload: unknown) => void): () => void;
   state: {
-    get(key: string): unknown;
     on(key: string, fn: (value: unknown) => void): () => void;
-  };
-  i18n: {
-    ready: Promise<{ locale: string; strings: Record<string, string> }>;
-    readonly locale: string;
-    t(address: string, english: string, vars?: Record<string, string | number>): string;
-    localize(root?: ParentNode): void;
   };
   onMessage(json: string): void;
 }
@@ -47,12 +39,6 @@ function loadHelper(): { helper: Helper; sent: Frame[] } {
 /** Deliver a native->web frame as the runtime does: as JSON text. */
 function deliver(helper: Helper, message: unknown): void {
   helper.onMessage(JSON.stringify(message));
-}
-
-/** True when `promise` has not settled by the next microtask drain. */
-async function stillPending(promise: Promise<unknown>): Promise<boolean> {
-  const sentinel = Symbol('pending');
-  return (await Promise.race([promise.then(() => 'settled' as const), Promise.resolve(sentinel)])) === sentinel;
 }
 
 let logged: unknown[][] = [];
@@ -88,7 +74,7 @@ describe('frame parsing', () => {
     expect(calls).toBe(0);
   });
 
-  it('ignores a 1.x envelope entirely', async () => {
+  it('ignores a 1.x envelope entirely', () => {
     const { helper } = loadHelper();
     const seen: unknown[] = [];
     helper.on('ui.result', (p) => seen.push(p));
@@ -99,61 +85,35 @@ describe('frame parsing', () => {
     deliver(helper, { type: 'ui.result', requestId: 'q1', payload: { ok: true } });
 
     expect(seen).toEqual([]);
-    expect(await stillPending(helper.ready)).toBe(true);
   });
 });
 
-describe('kind:"ready" — the answer to the page hello', () => {
-  it('resolves the ready promise with the RuntimeInfo payload', async () => {
+describe('kind:"ready" — private routing metadata', () => {
+  it('establishes local aliases without exposing another author operation', () => {
     const { helper } = loadHelper();
-
     deliver(helper, {
       kind: 'ready',
-      payload: {
-        game: 'Starfield',
-        plugin: 'OSF UI',
-        version: '2.0.0',
-        bridgeVersion: '2.0',
-        view: 'acme.mymod/dashboard',
-        mod: 'acme.mymod',
-      },
+      payload: { mod: 'acme.mymod', version: '2.0.0' },
     });
+    const seen: unknown[] = [];
+    helper.state.on('fuel', (value) => seen.push(value));
+    deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'fuel', value: 73 });
 
-    await expect(helper.ready).resolves.toMatchObject({
-      version: '2.0.0',
-      bridgeVersion: '2.0',
-      view: 'acme.mymod/dashboard',
-      mod: 'acme.mymod',
-    });
+    expect(seen).toEqual([73]);
+    expect('ready' in helper).toBe(false);
   });
 
-  it('resolves with {} when the ready frame carries no payload', async () => {
-    const { helper } = loadHelper();
-    deliver(helper, { kind: 'ready' });
-    await expect(helper.ready).resolves.toEqual({});
-  });
-
-  it('triggers NO follow-up traffic — state arrives unasked', async () => {
+  it('triggers no follow-up traffic — state arrives unasked', () => {
     const { helper, sent } = loadHelper();
 
     deliver(helper, { kind: 'ready', payload: { version: '2.0.0' } });
-    await helper.ready;
 
     expect(sent).toEqual([{ kind: 'send', name: 'osfui.hello', payload: {} }]);
-  });
-
-  it('keeps the first value when a second ready arrives', async () => {
-    const { helper } = loadHelper();
-
-    deliver(helper, { kind: 'ready', payload: { version: '2.0.0' } });
-    deliver(helper, { kind: 'ready', payload: { version: '9.9.9' } });
-
-    await expect(helper.ready).resolves.toMatchObject({ version: '2.0.0' });
   });
 });
 
 describe('kind:"state" — latest-wins values with replay', () => {
-  it('delivers to subscribers and caches for state.get', () => {
+  it('delivers to subscribers', () => {
     const { helper } = loadHelper();
     const seen: unknown[] = [];
     helper.state.on('osfui/views', (v) => seen.push(v));
@@ -161,7 +121,6 @@ describe('kind:"state" — latest-wins values with replay', () => {
     deliver(helper, { kind: 'state', mod: 'osfui', key: 'views', value: { views: [] } });
 
     expect(seen).toEqual([{ views: [] }]);
-    expect(helper.state.get('osfui/views')).toEqual({ views: [] });
   });
 
   it('replays the current value SYNCHRONOUSLY on subscribe', () => {
@@ -186,7 +145,6 @@ describe('kind:"state" — latest-wins values with replay', () => {
     deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'fuel', value: 3 });
 
     expect(seen).toEqual([2, 3]);
-    expect(helper.state.get('acme.mymod/fuel')).toBe(3);
   });
 
   it('matches keys case-insensitively in both directions', () => {
@@ -197,7 +155,6 @@ describe('kind:"state" — latest-wins values with replay', () => {
     deliver(helper, { kind: 'state', mod: 'acme.mymod', key: 'ship', value: 'Frontier' });
 
     expect(seen).toEqual(['Frontier']);
-    expect(helper.state.get('acme.mymod/SHIP')).toBe('Frontier');
   });
 
   it('aliases the ready payload mod\'s state to its local key while retaining the qualified key', () => {
@@ -212,17 +169,19 @@ describe('kind:"state" — latest-wins values with replay', () => {
 
     expect(local).toEqual([73]);
     expect(qualified).toEqual([73]);
-    expect(helper.state.get('FUEL')).toBe(73);
-    expect(helper.state.get('acme.mymod/fuel')).toBe(73);
   });
 
   it('does not create a local alias for another mod\'s state', () => {
     const { helper } = loadHelper();
     deliver(helper, { kind: 'ready', payload: { mod: 'acme.mymod' } });
+    const local: unknown[] = [];
+    const qualified: unknown[] = [];
+    helper.state.on('fuel', (value) => local.push(value));
+    helper.state.on('other.mod/fuel', (value) => qualified.push(value));
     deliver(helper, { kind: 'state', mod: 'other.mod', key: 'fuel', value: 5 });
 
-    expect(helper.state.get('fuel')).toBeUndefined();
-    expect(helper.state.get('other.mod/fuel')).toBe(5);
+    expect(local).toEqual([]);
+    expect(qualified).toEqual([5]);
   });
 
   it('delivers a null value as a value', () => {
@@ -246,7 +205,6 @@ describe('kind:"state" — latest-wins values with replay', () => {
 
     // A half-addressed value would cache under a key nothing can subscribe to.
     expect(seen).toEqual([]);
-    expect(helper.state.get('osfui/settings')).toBeUndefined();
   });
 
   it('isolates a throwing state handler and prints it', () => {
@@ -434,7 +392,6 @@ describe('the event and state channels never cross', () => {
 
     deliver(helper, { kind: 'event', name: 'settings.changed', payload: { mod: 'm' } });
     expect(seen).toEqual([]);
-    expect(helper.state.get('settings.changed')).toBeUndefined();
   });
 });
 
@@ -494,78 +451,17 @@ describe('OSF UI runtime-detected protocol faults arrive as osfui.debug.error an
   });
 });
 
-describe('i18n rides the osfui/i18n state key', () => {
-  it('adopts a catalog: locale, strings, <html lang>, t() and the DOM', async () => {
+describe('platform utility data stays ordinary state', () => {
+  it('delivers the i18n catalog without adding an i18n namespace', () => {
     const { helper } = loadHelper();
-    document.body.innerHTML = '<span data-i18n="settings.title">Settings</span>';
+    const seen: unknown[] = [];
+    helper.state.on('osfui/i18n', (value) => seen.push(value));
 
-    deliver(helper, {
-      kind: 'state',
-      mod: 'osfui',
-      key: 'i18n',
-      value: {
-        mod: 'osfui',
-        locale: 'pt-BR',
-        strings: { 'settings.title': 'Configurações', 'settings.hi': 'Olá, {name}' },
-      },
-    });
+    const catalog = { locale: 'pt-BR', strings: { 'settings.title': 'Configurações' } };
+    deliver(helper, { kind: 'state', mod: 'osfui', key: 'i18n', value: catalog });
 
-    await expect(helper.i18n.ready).resolves.toMatchObject({ locale: 'pt-BR' });
-    expect(helper.i18n.locale).toBe('pt-BR');
-    expect(document.documentElement.lang).toBe('pt-BR');
-    expect(helper.i18n.t('settings.title', 'Settings')).toBe('Configurações');
-    expect(helper.i18n.t('settings.hi', 'Hello, {name}', { name: 'Sam' })).toBe('Olá, Sam');
-    // Unknown address falls back to the authored English, still interpolated.
-    expect(helper.i18n.t('nope', 'Bye, {name}', { name: 'Sam' })).toBe('Bye, Sam');
-    expect(document.body.textContent).toBe('Configurações');
-  });
-
-  it('exposes locale as a PROPERTY, not a call', () => {
-    const { helper } = loadHelper();
-    expect(typeof helper.i18n.locale).toBe('string');
-    expect(helper.i18n.locale).toBe('en');
-  });
-
-  it('falls back to locale "en" and an empty catalog on a malformed value', () => {
-    const { helper } = loadHelper();
-    deliver(helper, {
-      kind: 'state',
-      mod: 'osfui',
-      key: 'i18n',
-      value: { locale: 42, strings: 'nope' },
-    });
-
-    expect(helper.i18n.locale).toBe('en');
-    expect(helper.i18n.t('settings.title', 'Settings')).toBe('Settings');
-  });
-
-  it('resolves i18n.ready even on a malformed value, so first paint is never blocked', async () => {
-    const { helper } = loadHelper();
-    deliver(helper, { kind: 'state', mod: 'osfui', key: 'i18n', value: null });
-
-    await expect(helper.i18n.ready).resolves.toMatchObject({ locale: 'en' });
-  });
-
-  it('re-adopts a later catalog (a live locale change)', async () => {
-    const { helper } = loadHelper();
-
-    deliver(helper, {
-      kind: 'state',
-      mod: 'osfui',
-      key: 'i18n',
-      value: { locale: 'de', strings: { 'a.b': 'Hallo' } },
-    });
-    deliver(helper, {
-      kind: 'state',
-      mod: 'osfui',
-      key: 'i18n',
-      value: { locale: 'fr', strings: { 'a.b': 'Bonjour' } },
-    });
-
-    expect(helper.i18n.locale).toBe('fr');
-    expect(helper.i18n.t('a.b', 'Hello')).toBe('Bonjour');
-    // The promise keeps its first resolution; `locale` is the live value.
-    await expect(helper.i18n.ready).resolves.toMatchObject({ locale: 'de' });
+    expect(seen).toEqual([catalog]);
+    expect('i18n' in helper).toBe(false);
   });
 });
 

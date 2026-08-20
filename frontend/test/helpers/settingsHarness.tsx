@@ -3,7 +3,6 @@ import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { nullBridge, type Bridge } from '@lib/bridge';
 import { App } from '@views/osfui/settings/App';
-import type { RuntimeInfo } from '@sdk';
 
 type Handler = (value: unknown) => void;
 
@@ -16,7 +15,7 @@ export interface OutboundMessage {
 export interface FakeBridge extends Bridge {
   /** Fire a one-shot EVENT at whatever subscribed through on(). Not replayed. */
   deliver(event: string, payload: unknown): void;
-  /** Publish a STATE key. Replayed to every later subscriber, and to peek(). */
+  /** Publish a STATE key. Replayed to every later subscriber. */
   publish(key: string, value: unknown): void;
   sent: OutboundMessage[];
   requests: Array<OutboundMessage & { opts?: unknown }>;
@@ -32,26 +31,21 @@ export interface MakeBridgeOptions {
   version?: string;
   available?: boolean;
   state?: Record<string, unknown>;
-  readyNeverResolves?: boolean;
-  /** Reject `ready()`, as the 2.0 helper does with no bridge underneath it. */
-  readyRejects?: boolean;
 }
 
 export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
   const eventListeners = new Map<string, Set<Handler>>();
   const stateListeners = new Map<string, Set<Handler>>();
-  const values = new Map<string, unknown>(Object.entries(opts.state ?? {}));
+  const initialState = { ...(opts.state ?? {}) };
+  if (opts.version) {
+    initialState['osfui/diagnostics'] = {
+      system: { version: opts.version },
+      issues: [],
+    };
+  }
+  const values = new Map<string, unknown>(Object.entries(initialState));
   const pending: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
   const available = opts.available ?? true;
-
-  const info: RuntimeInfo = {
-    game: 'Starfield',
-    plugin: 'OSF UI',
-    version: opts.version ?? '1.0.0',
-    bridgeVersion: '2.0',
-    view: 'osfui/settings',
-    mod: 'osfui',
-  };
 
   const subscribe = (map: Map<string, Set<Handler>>, key: string, fn: Handler) => {
     let set = map.get(key);
@@ -101,20 +95,6 @@ export function makeBridge(opts: MakeBridgeOptions = {}): FakeBridge {
       if (values.has(key)) (fn as Handler)(values.get(key));
       return off;
     },
-    peek(key: string) {
-      return values.get(key) as never;
-    },
-
-    ready() {
-      if (opts.readyNeverResolves) return new Promise(() => {}) as never;
-      if (opts.readyRejects) {
-        return Promise.reject(
-          Object.assign(new Error('no bridge (standalone preview)'), { code: 'no-bridge' }),
-        ) as never;
-      }
-      return Promise.resolve(info) as never;
-    },
-
     applyAccent() {
       // DOM side-effect is not under test.
     },
