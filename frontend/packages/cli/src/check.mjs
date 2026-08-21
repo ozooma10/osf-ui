@@ -11,7 +11,7 @@ const UNSUPPORTED = [
   /\b(?:fetch|importScripts)\s*\([^)]*https?:\/\//i,
   /\bimport\s*\(\s*["'`]https?:\/\//i,
   /\b(?:sendBeacon|WebSocket|WebTransport|RTCPeerConnection|SharedWorker|Worker|XMLHttpRequest|EventSource)\b/,
-  /<(?:script|img|iframe|audio|video|source|link|embed|object)\b[^>]*\b(?:src|href|data)\s*=\s*["']https?:\/\/(?!osfui-assets\.example\/(?:osfui\.js|osfui\.css|gamepadnav\.js)(?:[?#][^"']*)?["'])/i,
+  /<(?:script|img|iframe|audio|video|source|link|embed|object)\b[^>]*\b(?:src|href|data)\s*=\s*["']https?:\/\//i,
   /\burl\(\s*["']?https?:\/\//i,
   /@import\s+(?:url\(\s*)?["']?https?:\/\//i,
 ];

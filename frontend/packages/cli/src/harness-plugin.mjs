@@ -71,7 +71,7 @@ export function harnessPlugin(project, selectedView) {
       handler(html, context) {
         if (context.path.startsWith('/__osfui/')) return html;
         return {
-          html: html.replaceAll('https://osfui-assets.example/', '/shared/'),
+          html,
           tags: [{
             tag: 'script',
             children: `window.__OSFUI_HARNESS_META__=${JSON.stringify(metaFor(viewForPath(context.path)))};`,

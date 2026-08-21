@@ -43,9 +43,9 @@ async function animationFixture(t) {
     }
   `);
   await writeFile(resolve(view, 'index.html'),
-    '<link rel="stylesheet" href="https://osfui-assets.example/osfui.css"><div id="app"></div>' +
-    '<script src="https://osfui-assets.example/osfui.js"></script>' +
-    '<script src="https://osfui-assets.example/gamepadnav.js"></script>' +
+    '<link rel="stylesheet" href="/shared/osfui.css"><div id="app"></div>' +
+    '<script src="/shared/osfui.js"></script>' +
+    '<script src="/shared/gamepadnav.js"></script>' +
     '<script type="module" src="./main.ts"></script>');
   await writeFile(resolve(view, 'main.ts'), 'document.querySelector("#app").textContent = "Animation";');
   return root;
@@ -72,9 +72,9 @@ test('injects the protocol-aware harness bootstrap and mock loader', async (t) =
   const project = await loadProject(await animationFixture(t));
   const plugin = harnessPlugin(project, project.views[0]);
   const transformed = plugin.transformIndexHtml.handler(
-    '<link rel="stylesheet" href="https://osfui-assets.example/osfui.css">' +
-    '<script src="https://osfui-assets.example/osfui.js"></script>' +
-    '<script src="https://osfui-assets.example/gamepadnav.js"></script>', {
+    '<link rel="stylesheet" href="/shared/osfui.css">' +
+    '<script src="/shared/osfui.js"></script>' +
+    '<script src="/shared/gamepadnav.js"></script>', {
     path: '/osf.animation/browser/index.html',
   });
   const tags = transformed.tags;

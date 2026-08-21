@@ -44,6 +44,9 @@ namespace OSFUI::ViewCache
 
 	[[nodiscard]] std::string GenerationName(std::uint64_t a_fingerprint);
 
+	// Each virtual host maps to one isolated mod directory. Materialize the canonical root shared/ tree beneath every mod so /shared/* stays on that mod's origin without exposing sibling mods through the mapping.
+	[[nodiscard]] bool MaterializeSharedAssets(const std::filesystem::path& a_viewsRoot, std::string& a_error);
+
 	// Reuse a complete immutable generation, or copy into a private staging tree and atomically publish it. Callers serialize this across processes.
 	[[nodiscard]] std::optional<Prepared> Prepare(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error);
 

@@ -70,7 +70,7 @@ async function assertStaticView(root, modId = 'acme.widgets', viewId = 'panel') 
   assert.equal(manifest.pausesGame, false);
   assert.equal(manifest.targetVersion, OSFUI_RELEASE_VERSION);
   assert.match(html, /<link rel="stylesheet" href="\.\/style\.css">/);
-  assert.match(html, /<script src="https:\/\/osfui-assets\.example\/osfui\.js"><\/script>/);
+  assert.match(html, /<script src="\/shared\/osfui\.js"><\/script>/);
   assert.match(html, /<script src="\.\/main\.js"><\/script>/);
   assert.doesNotMatch(html, /type="module"|\.tsx?\b/);
   assert.doesNotMatch(source, /^\s*(?:import|export)\b/m);
@@ -196,7 +196,7 @@ test('creates a directly deployable plain-JS native menu', async (t) => {
   assert.doesNotMatch(result.stdout, /npm (?:install|run)/);
 
   const { source, html } = await assertStaticView(root);
-  assert.match(html, /<link rel="stylesheet" href="https:\/\/osfui-assets\.example\/osfui\.css">/);
+  assert.match(html, /<link rel="stylesheet" href="\/shared\/osfui\.css">/);
   assert.match(source, /osfui\.state\.on\("state"/);
   assert.match(source, /osfui\.on\("notice"/);
   assert.match(source, /osfui\.send\("increment", \{ amount: 1 \}\)/);

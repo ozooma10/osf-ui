@@ -632,10 +632,10 @@ export type PapyrusCallArgument = string | number | boolean | PapyrusFloatArgume
 /**
  * The API added by the shipped helper,
  * SFSE/Plugins/OSFUI/views/shared/osfui.js — load it before your own script:
- *   <script src="https://osfui-assets.example/osfui.js"></script>
+ *   <script src="/shared/osfui.js"></script>
  * The shared stylesheet and optional directional-navigation helper are:
- *   https://osfui-assets.example/osfui.css
- *   https://osfui-assets.example/gamepadnav.js
+ *   /shared/osfui.css
+ *   /shared/gamepadnav.js
  * It decorates the same window.osfui object (creating a stub when no native
  * bridge is present, so these members exist even in a plain browser).
  */
