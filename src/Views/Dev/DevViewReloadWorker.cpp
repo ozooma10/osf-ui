@@ -66,24 +66,19 @@ namespace OSFUI
 			std::unordered_set<std::string> watched;
 			for (const auto& target : targets) {
 				watched.insert(target.id);
-				// Settle the whole mod and canonical shared assets because both are
-				// projected beneath the mod's virtual-host root.
-				const auto modFingerprint =
+				// Settle the whole mod because view entries load sibling hashed assets.
+				const auto fingerprint =
 					DevViewFiles::Fingerprint(_viewsRoot / DevViewFiles::ModFolder(target.id));
-				const auto sharedFingerprint = DevViewFiles::Fingerprint(_viewsRoot / "shared");
-				if (!modFingerprint || !sharedFingerprint)
+				if (!fingerprint)
 					continue;
-				const auto fingerprint = *modFingerprint ^
-					(*sharedFingerprint + 0x9e3779b97f4a7c15ull +
-						(*modFingerprint << 6) + (*modFingerprint >> 2));
 				auto& state = _states[target.id];
 				if (!state.initialized) {
-					state.fingerprint = fingerprint;
+					state.fingerprint = *fingerprint;
 					state.initialized = true;
 					continue;
 				}
-				if (state.fingerprint != fingerprint) {
-					state.fingerprint = fingerprint;
+				if (state.fingerprint != *fingerprint) {
+					state.fingerprint = *fingerprint;
 					state.changedAt = now;
 					state.pending = true;
 					continue;

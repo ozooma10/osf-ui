@@ -13,7 +13,7 @@ namespace OSFUI::ViewCache
 	{
 		constexpr std::uint64_t kFnvOffset = 1469598103934665603ull;
 		constexpr std::uint64_t kFnvPrime = 1099511628211ull;
-		constexpr std::uint64_t kCacheFormat = 2;
+		constexpr std::uint64_t kCacheFormat = 1;
 
 		struct FileStamp
 		{
@@ -263,9 +263,6 @@ namespace OSFUI::ViewCache
 				}
 				result.bytes += file.size;
 			}
-			if (!MaterializeSharedAssets(a_destination, a_error)) {
-				return std::nullopt;
-			}
 			result.files = snapshot.files.size();
 			return result;
 		}
@@ -284,61 +281,6 @@ namespace OSFUI::ViewCache
 	std::string GenerationName(std::uint64_t a_fingerprint)
 	{
 		return std::format("{}{:016x}", kGenerationPrefix, a_fingerprint);
-	}
-
-	bool MaterializeSharedAssets(const std::filesystem::path& a_viewsRoot, std::string& a_error)
-	{
-		a_error.clear();
-		const auto shared = a_viewsRoot / "shared";
-		std::error_code ec;
-		if (!std::filesystem::is_directory(shared, ec) || ec) {
-			a_error = ec ? ec.message() : "shared asset directory is missing";
-			return false;
-		}
-
-		std::vector<std::filesystem::path> mods;
-		for (std::filesystem::directory_iterator it(a_viewsRoot, ec), end;
-			 !ec && it != end; it.increment(ec)) {
-			if (!it->is_directory(ec)) {
-				if (ec) break;
-				continue;
-			}
-			const auto name = it->path().filename().string();
-			if (name == "shared" || name.starts_with('.')) continue;
-			mods.push_back(it->path());
-		}
-		if (ec) return Fail(a_error, a_viewsRoot, ec);
-		std::ranges::sort(mods);
-
-		for (const auto& mod : mods) {
-			const auto destination = mod / "shared";
-			std::filesystem::remove_all(destination, ec);
-			if (ec) return Fail(a_error, destination, ec);
-			std::filesystem::create_directories(destination, ec);
-			if (ec) return Fail(a_error, destination, ec);
-
-			for (std::filesystem::recursive_directory_iterator it(shared, ec), end;
-				 !ec && it != end; it.increment(ec)) {
-				const auto relative = it->path().lexically_relative(shared);
-				const auto target = destination / relative;
-				if (it->is_directory(ec)) {
-					if (ec) break;
-					std::filesystem::create_directories(target, ec);
-					if (ec) break;
-					continue;
-				}
-				if (!it->is_regular_file(ec)) {
-					if (ec) break;
-					continue;
-				}
-				std::filesystem::create_directories(target.parent_path(), ec);
-				if (ec) break;
-				std::filesystem::copy_file(it->path(), target, std::filesystem::copy_options::overwrite_existing, ec);
-				if (ec) break;
-			}
-			if (ec) return Fail(a_error, destination, ec);
-		}
-		return true;
 	}
 
 	std::optional<Prepared> Prepare(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error)

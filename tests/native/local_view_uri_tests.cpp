@@ -1,4 +1,3 @@
-
 #include "../../tools/webview2_shared/Wv2LocalUri.h"
 
 #include <cassert>
@@ -7,64 +6,49 @@
 int main()
 {
 	using namespace osfui::wv2;
-	const std::wstring host = L"m-abc234.example";
+	const std::wstring host(kViewHost);
+	const std::wstring modId = L"acme.widgets";
+	const std::wstring viewName = L"inventory";
 
-	// Resource checks accept only exact HTTPS virtual hosts.
-	assert(IsHttpsUriForHost(L"https://m-abc234.example", host));
-	assert(IsHttpsUriForHost(L"HTTPS://M-ABC234.EXAMPLE/view/app.js?x=1#y", host));
-	assert(!IsHttpsUriForHost(L"http://m-abc234.example/view/app.js", host));
-	assert(!IsHttpsUriForHost(L"https://m-abc234.example.evil.com/", host));
-	assert(!IsHttpsUriForHost(L"https://m-abc234.examplehost/", host));
-	assert(!IsHttpsUriForHost(L"https://m-abc234.example:443/", host));
-	assert(!IsHttpsUriForHost(L"https://m-abc234.example@evil.com/", host));
-	assert(!IsHttpsUriForHost(L"https://evil.com/m-abc234.example/", host));
-	assert(!IsHttpsUriForHost(L"https://m-abc234.example\\view\\index.html", host));
+	// Resource checks accept only the exact shared HTTPS virtual host.
+	assert(IsHttpsUriForHost(L"https://osfui.example", host));
+	assert(IsHttpsUriForHost(L"HTTPS://OSFUI.EXAMPLE/acme.widgets/inventory/app.js?x=1#y", host));
+	assert(!IsHttpsUriForHost(L"http://osfui.example/acme.widgets/inventory/app.js", host));
+	assert(!IsHttpsUriForHost(L"https://osfui.example.evil.com/", host));
+	assert(!IsHttpsUriForHost(L"https://osfui.examplehost/", host));
+	assert(!IsHttpsUriForHost(L"https://osfui.example:443/", host));
+	assert(!IsHttpsUriForHost(L"https://osfui.example@evil.com/", host));
+	assert(!IsHttpsUriForHost(L"https://evil.com/osfui.example/", host));
+	assert(!IsHttpsUriForHost(L"https://osfui.example\\acme.widgets\\inventory\\index.html", host));
 
-	// One WebView may navigate only within its assigned view-name subtree.
+	// One WebView may navigate and send native messages only within its assigned
+	// mod/view document subtree, despite all static files sharing one origin.
 	assert(IsTrustedViewDocumentUri(
-		L"https://m-abc234.example/inventory/index.html", host, L"inventory"));
+		L"https://osfui.example/acme.widgets/inventory/index.html", host, modId, viewName));
 	assert(IsTrustedViewDocumentUri(
-		L"https://m-abc234.example/inventory", host, L"inventory"));
+		L"https://osfui.example/acme.widgets/inventory", host, modId, viewName));
 	assert(IsTrustedViewDocumentUri(
-		L"https://m-abc234.example/inventory/pages/detail.html?id=4", host, L"inventory"));
+		L"https://osfui.example/acme.widgets/inventory/pages/detail.html?id=4", host, modId, viewName));
 	assert(!IsTrustedViewDocumentUri(
-		L"https://m-abc234.example/inventory-old/index.html", host, L"inventory"));
+		L"https://osfui.example/acme.widgets/inventory-old/index.html", host, modId, viewName));
 	assert(!IsTrustedViewDocumentUri(
-		L"https://m-abc234.example/other/index.html", host, L"inventory"));
+		L"https://osfui.example/acme.widgets/other/index.html", host, modId, viewName));
 	assert(!IsTrustedViewDocumentUri(
-		L"https://m-abc234.example/inventory/../other/index.html", host, L"inventory"));
+		L"https://osfui.example/other.mod/inventory/index.html", host, modId, viewName));
 	assert(!IsTrustedViewDocumentUri(
-		L"https://m-abc234.example/inventory/%2e%2e/other/index.html", host, L"inventory"));
+		L"https://osfui.example/acme.widgets/inventory/../other/index.html", host, modId, viewName));
 	assert(!IsTrustedViewDocumentUri(
-		L"https://m-abc234.example/shared/osfui.js", host, L"inventory"));
+		L"https://osfui.example/acme.widgets/inventory/%2e%2e/other/index.html", host, modId, viewName));
+	assert(!IsTrustedViewDocumentUri(
+		L"https://osfui.example/shared/osfui.js", host, modId, viewName));
 
-	// Shared assets are served directly from each mod's own origin.
-	assert(IsSharedAssetUri(L"https://m-abc234.example/shared/osfui.js", host));
-	assert(IsSharedAssetUri(L"HTTPS://M-ABC234.EXAMPLE/shared/osfui.css?v=2", host));
-	assert(IsSharedAssetUri(L"https://m-abc234.example/shared/gamepadnav.js", host));
-	assert(!IsSharedAssetUri(L"https://m-abc234.example/shared/other.js", host));
-	assert(!IsSharedAssetUri(L"https://other.example/shared/osfui.js", host));
-	assert(!IsSharedAssetUri(L"http://m-abc234.example/shared/osfui.js", host));
-	assert(LegacySharedAssetRedirectUri(
-		L"https://osfui-assets.example/osfui.js", host) ==
-		L"https://m-abc234.example/shared/osfui.js");
-	assert(LegacySharedAssetRedirectUri(
-		L"HTTPS://OSFUI-ASSETS.EXAMPLE/osfui.css?v=2#theme", host) ==
-		L"https://m-abc234.example/shared/osfui.css?v=2#theme");
-	assert(LegacySharedAssetRedirectUri(
-		L"https://osfui-assets.example/gamepadnav.js", host) ==
-		L"https://m-abc234.example/shared/gamepadnav.js");
-	assert(!LegacySharedAssetRedirectUri(
-		L"https://osfui-assets.example/other.js", host));
-	assert(!LegacySharedAssetRedirectUri(
-		L"http://osfui-assets.example/osfui.css", host));
-	assert(!LegacySharedAssetRedirectUri(
-		L"https://other.example/osfui.css", host));
-	assert(IsAllowedViewResourceUri(
-		L"https://m-abc234.example/shared/osfui.css", host));
-	assert(IsAllowedViewResourceUri(
-		L"https://m-abc234.example/inventory/app.js", host));
+	// Static subresources deliberately share the root mapping. The network guard
+	// still rejects every other host and unsafe virtual path.
+	assert(IsAllowedViewResourceUri(L"https://osfui.example/shared/osfui.css", host));
+	assert(IsAllowedViewResourceUri(L"https://osfui.example/acme.widgets/inventory/app.js", host));
+	assert(IsAllowedViewResourceUri(L"https://osfui.example/other.mod/other/app.js", host));
 	assert(!IsAllowedViewResourceUri(L"https://example.org/app.js", host));
+	assert(!IsAllowedViewResourceUri(L"https://osfui.example/acme.widgets/../other/app.js", host));
 
 	assert(IsAllowedBlankFrameUri(L"about:blank"));
 	assert(IsAllowedBlankFrameUri(L"ABOUT:SRCDOC"));

@@ -836,33 +836,46 @@ int main()
 	const auto onController = FunctionBody(hostSource,
 		"HRESULT OnController(View& a_view");
 	Check(onController.find(
-		"SetVirtualHostNameToFolderMapping(a_view.virtualHost.c_str(), modRoot.c_str()") !=
+		"SetVirtualHostNameToFolderMapping(kViewHost.data(), viewsRoot.c_str()") !=
 		std::string::npos &&
-		onController.find("shared-asset virtual-host mapping") == std::string::npos,
-		"each isolated mod origin must stay rooted at only that mod's files");
+		onController.find("modRoot") == std::string::npos,
+		"every WebView must map the one OSF UI host to the complete prepared views root");
 	const auto installNetworkGuard = FunctionBody(hostSource,
 		"HRESULT InstallNetworkGuard(View& a_view)");
 	Check(ContainsInOrder(installNetworkGuard, {
-		"LegacySharedAssetRedirectUri(uri, view->virtualHost)",
-		"CreateWebResourceResponse(nullptr, 307",
+		"IsAllowedViewResourceUri(uri, kViewHost)",
+		"CreateWebResourceResponse(nullptr, 403",
 		"a_args->put_Response(response.Get())" }),
-		"legacy shared-asset URLs must redirect onto the requesting mod origin");
+		"the shared origin must remain the only allowed network resource host");
+	Check(hostSource.find("VirtualHostForMod") == std::string::npos &&
+		hostSource.find("BCrypt") == std::string::npos &&
+		hostSource.find("LegacySharedAsset") == std::string::npos &&
+		hostSource.find("virtualHost") == std::string::npos &&
+		hostGraphics.find("VirtualHostForMod") == std::string::npos &&
+		hostGraphics.find("virtualHost") == std::string::npos,
+		"the browser host must not retain per-mod or legacy asset-origin machinery");
+	Check(ContainsInOrder(hostSource, {
+		"L\"https://\" + std::wstring(kViewHost)",
+		"view->modId",
+		"view->viewName" }) &&
+		hostSource.find("source, kViewHost, view->modId, view->viewName") != std::string::npos &&
+		hostSource.find("uri, kViewHost, a_view.modId, a_view.viewName") != std::string::npos,
+		"documents and native-bound messages must stay scoped to /<mod>/<view> on the shared host");
 	Check(hostSource.find("SHCreateStreamOnFileEx") == std::string::npos,
 		"virtual-host resources must not rely on WebResourceRequested, which WebView2 does not raise for mapped files");
 	const auto resolveMappedViews = FunctionBody(rendererSource,
 		"bool ResolveMappedViewsRoot()");
-	Check(resolveMappedViews.find("if (!::GetModuleHandleW(L\"usvfs_x64.dll\")) return true") ==
+	Check(resolveMappedViews.find("if (!::GetModuleHandleW(L\"usvfs_x64.dll\")) return true") !=
 			std::string::npos &&
-		resolveMappedViews.find("ViewCache::MaterializeSharedAssets(mirror, error)") !=
-			std::string::npos,
-		"every launch path must build isolated mod roots with a physical shared projection");
+		resolveMappedViews.find("MaterializeSharedAssets") == std::string::npos,
+		"only USVFS launches should mirror the already-complete views root");
 	const auto refreshViewFiles = FunctionBody(rendererSource,
 		"bool RefreshViewFiles(std::string_view a_viewId)");
-	Check(ContainsInOrder(refreshViewFiles, {
-		"DevViewFiles::SyncTree(viewsRoot / \"shared\"",
-		"DevViewFiles::SyncTree(source, destination",
-		"ViewCache::MaterializeSharedAssets(mappedViewsRoot, error)" }),
-		"developer reload must refresh canonical assets before rebuilding each mod-local shared projection");
+	Check(refreshViewFiles.find("DevViewFiles::SyncTree(source, destination, error)") !=
+			std::string::npos &&
+		refreshViewFiles.find("viewsRoot / \"shared\"") == std::string::npos &&
+		refreshViewFiles.find("MaterializeSharedAssets") == std::string::npos,
+		"developer reload should mirror only the changed mod subtree without rebuilding shared projections");
 	const auto finishControllerSetup = FunctionBody(hostSource,
 		"void FinishControllerSetup(View& a_view)");
 	Check(ContainsInOrder(finishControllerSetup, {

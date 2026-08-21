@@ -1,16 +1,12 @@
 #pragma once
 
-#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
 
 namespace osfui::wv2
 {
-	inline constexpr std::wstring_view kBuiltInViewHost = L"osfui.example";
-	inline constexpr std::wstring_view kLegacySharedAssetHost = L"osfui-assets.example";
-	inline constexpr std::array<std::wstring_view, 3> kSharedAssetPaths{L"/shared/osfui.js", L"/shared/osfui.css", L"/shared/gamepadnav.js"};
-	inline constexpr std::array<std::wstring_view, 3> kLegacySharedAssetPaths{L"/osfui.js", L"/osfui.css", L"/gamepadnav.js"};
+	inline constexpr std::wstring_view kViewHost = L"osfui.example";
 
 	struct HttpsUri
 	{
@@ -107,57 +103,17 @@ namespace osfui::wv2
 		return parsed && IsSafeVirtualPath(parsed->path) && EqualsAsciiCaseInsensitive(parsed->host, a_host);
 	}
 
-	[[nodiscard]] inline bool IsTrustedViewDocumentUri(std::wstring_view a_uri, std::wstring_view a_host, std::wstring_view a_viewName)
+	[[nodiscard]] inline bool IsTrustedViewDocumentUri(std::wstring_view a_uri, std::wstring_view a_host,
+		std::wstring_view a_modId, std::wstring_view a_viewName)
 	{
 		const auto parsed = ParseHttpsUri(a_uri);
 		if (!parsed || !IsSafeVirtualPath(parsed->path) ||
-			!EqualsAsciiCaseInsensitive(parsed->host, a_host) || a_viewName.empty())
+			!EqualsAsciiCaseInsensitive(parsed->host, a_host) || a_modId.empty() || a_viewName.empty())
 		{
 			return false;
 		}
-		const auto root = std::wstring(L"/") + std::wstring(a_viewName);
+		const auto root = std::wstring(L"/") + std::wstring(a_modId) + L"/" + std::wstring(a_viewName);
 		return parsed->path == root || parsed->path.starts_with(root + L"/");
-	}
-
-	[[nodiscard]] inline bool IsSharedAssetUri(std::wstring_view a_uri, std::wstring_view a_viewHost)
-	{
-		const auto parsed = ParseHttpsUri(a_uri);
-		if (!parsed || !IsSafeVirtualPath(parsed->path) ||
-			!EqualsAsciiCaseInsensitive(parsed->host, a_viewHost))
-		{
-			return false;
-		}
-		for (const auto path : kSharedAssetPaths)
-		{
-			if (parsed->path == path)
-				return true;
-		}
-		return false;
-	}
-
-	// Transitional support for views authored while shared assets used a dedicated origin.
-	// Redirect those exact URLs to the requesting mod origin; the asset response itself is always served from /shared there.
-	[[nodiscard]] inline std::optional<std::wstring> LegacySharedAssetRedirectUri(std::wstring_view a_uri, std::wstring_view a_viewHost)
-	{
-		const auto parsed = ParseHttpsUri(a_uri);
-		if (!parsed || !IsSafeVirtualPath(parsed->path) ||
-			!EqualsAsciiCaseInsensitive(parsed->host, kLegacySharedAssetHost))
-		{
-			return std::nullopt;
-		}
-		for (std::size_t i = 0; i < kLegacySharedAssetPaths.size(); ++i)
-		{
-			if (parsed->path != kLegacySharedAssetPaths[i])
-				continue;
-			std::wstring target = L"https://" + std::wstring(a_viewHost) + std::wstring(kSharedAssetPaths[i]);
-			if (const auto suffix = a_uri.find_first_of(L"?#", std::wstring_view(L"https://").size());
-				suffix != std::wstring_view::npos)
-			{
-				target.append(a_uri.substr(suffix));
-			}
-			return target;
-		}
-		return std::nullopt;
 	}
 
 	[[nodiscard]] inline bool IsAllowedViewResourceUri(std::wstring_view a_uri, std::wstring_view a_viewHost)

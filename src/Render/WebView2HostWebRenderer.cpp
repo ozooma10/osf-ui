@@ -594,6 +594,8 @@ namespace OSFUI
 				::CloseHandle(viewsCacheLease);
 				viewsCacheLease = INVALID_HANDLE_VALUE;
 			}
+			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return true;
+
 			ScopedCacheMutex cacheMutex;
 			if (!cacheMutex.Owned()) {
 				REX::ERROR("WebView2HostWebRenderer: timed out acquiring the shared views-cache lock");
@@ -616,10 +618,6 @@ namespace OSFUI
 					REX::ERROR("WebView2HostWebRenderer: developer views mirror failed ({})", error);
 					return false;
 				}
-				if (!ViewCache::MaterializeSharedAssets(mirror, error)) {
-					REX::ERROR("WebView2HostWebRenderer: developer shared assets failed ({})", error);
-					return false;
-				}
 				{
 					std::ofstream lock(mirror / ViewCache::kUseLock, std::ios::binary | std::ios::trunc);
 					if (!lock) {
@@ -635,7 +633,7 @@ namespace OSFUI
 				mappedViewsRoot = mirror;
 				usesViewsMirror = true;
 				removeViewsMirrorOnStop = true;
-				REX::INFO("WebView2HostWebRenderer: developer views mirrored to {}", ToUtf8(mirror.native()));
+				REX::INFO("WebView2HostWebRenderer: USVFS developer views mirrored to {}", ToUtf8(mirror.native()));
 				return true;
 			}
 
@@ -662,7 +660,7 @@ namespace OSFUI
 				});
 			const auto legacyRemoved = ScavengeLegacyViewMirrors(localRoot);
 			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-			REX::INFO("WebView2HostWebRenderer: views cache {} {} ({} source files, {:.2f} MiB, {} ms; removed {} old generation(s) + {} legacy mirror(s), retained {} generation(s))",
+			REX::INFO("WebView2HostWebRenderer: USVFS views cache {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s) + {} legacy mirror(s), retained {} generation(s))",
 				prepared->reused ? "reused" : "published", ToUtf8(mappedViewsRoot.native()), prepared->fingerprint.files, static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), elapsed, scavenged.removed, legacyRemoved, scavenged.retained);
 			if (scavenged.failed) {
 				REX::WARN("WebView2HostWebRenderer: {} views-cache item(s) could not be scavenged; they will be retried next launch", scavenged.failed);
@@ -677,15 +675,12 @@ namespace OSFUI
 			std::scoped_lock mirrorLock(viewsMirrorMutex);
 			if (!usesViewsMirror) return true;
 
-			// Mirror the canonical shared tree and whole mod folder before rebuilding
-			// the mod-local /shared projection used by its isolated virtual host.
+			// Mirror the whole mod folder because view entries load sibling hashed assets.
 			const auto modFolder = std::filesystem::path(DevViewFiles::ModFolder(a_viewId));
 			const auto source = viewsRoot / modFolder;
 			const auto destination = mappedViewsRoot / modFolder;
 			std::string error;
-			if (!DevViewFiles::SyncTree(viewsRoot / "shared", mappedViewsRoot / "shared", error) ||
-				!DevViewFiles::SyncTree(source, destination, error) ||
-				!ViewCache::MaterializeSharedAssets(mappedViewsRoot, error)) {
+			if (!DevViewFiles::SyncTree(source, destination, error)) {
 				REX::WARN("WebView2HostWebRenderer: dev reload could not mirror '{}' ({})", a_viewId, error);
 				return false;
 			}

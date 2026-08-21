@@ -29,7 +29,6 @@
 #include <DispatcherQueue.h>
 #include <WebView2.h>
 #include <WebView2EnvironmentOptions.h>
-#include <bcrypt.h>
 #include <shellapi.h>
 #include <wrl.h>
 #include <wrl/client.h>
@@ -60,69 +59,6 @@ namespace osfui::wv2
 
 		// Wire message shapes, compiled by the game side too (Wv2Messages.h).
 		namespace msg = osfui::wv2::msg;
-
-		[[nodiscard]] std::string NormalizeModIdForOrigin(std::string_view a_modId)
-		{
-			std::string normalized(a_modId);
-			for (auto& ch : normalized) {
-				if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
-			}
-			return normalized;
-		}
-
-		[[nodiscard]] std::string Base32Lower(const std::array<unsigned char, 32>& a_bytes)
-		{
-			constexpr std::string_view alphabet = "abcdefghijklmnopqrstuvwxyz234567";
-			std::string encoded;
-			encoded.reserve(52);
-			std::uint32_t bits = 0;
-			std::uint32_t bitCount = 0;
-			for (const auto byte : a_bytes) {
-				bits = (bits << 8) | byte;
-				bitCount += 8;
-				while (bitCount >= 5) {
-					bitCount -= 5;
-					encoded.push_back(alphabet[(bits >> bitCount) & 0x1Fu]);
-				}
-			}
-			if (bitCount != 0) {
-				encoded.push_back(alphabet[(bits << (5 - bitCount)) & 0x1Fu]);
-			}
-			return encoded;
-		}
-
-		[[nodiscard]] std::optional<std::wstring> VirtualHostForMod(std::string_view a_modId)
-		{
-			if (a_modId == OSFUI::Ids::kBuiltInModId) {
-				return std::wstring(kBuiltInViewHost);
-			}
-
-			const auto normalized = NormalizeModIdForOrigin(a_modId);
-			BCRYPT_ALG_HANDLE algorithm = nullptr;
-			BCRYPT_HASH_HANDLE hash = nullptr;
-			std::optional<std::wstring> result;
-			std::vector<unsigned char> object;
-			std::array<unsigned char, 32> digest{};
-			DWORD objectSize = 0;
-			DWORD digestSize = 0;
-			DWORD copied = 0;
-
-			if (::BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) >= 0 &&
-				::BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectSize), sizeof(objectSize), &copied, 0) >= 0 &&
-				::BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&digestSize), sizeof(digestSize), &copied, 0) >= 0 &&
-				digestSize == static_cast<DWORD>(digest.size())) {
-				object.resize(objectSize);
-				if (::BCryptCreateHash(algorithm, &hash, object.data(), objectSize, nullptr, 0, 0) >= 0 &&
-					::BCryptHashData(hash, const_cast<PUCHAR>(reinterpret_cast<const UCHAR*>(normalized.data())), static_cast<ULONG>(normalized.size()), 0) >= 0 &&
-					::BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) >= 0) {
-					const auto encoded = Base32Lower(digest);
-					result = L"m-" + std::wstring(encoded.begin(), encoded.end()) + L".example";
-				}
-			}
-			if (hash) ::BCryptDestroyHash(hash);
-			if (algorithm) ::BCryptCloseAlgorithmProvider(algorithm, 0);
-			return result;
-		}
 
 		std::uint32_t ComposeAcceleratorScan(std::uint32_t a_vk, std::uint32_t a_rawScan, bool a_extended)
 		{
@@ -317,9 +253,8 @@ namespace osfui::wv2
 			struct View
 			{
 				std::string id;
-				std::string modId;
+				std::wstring modId;
 				std::wstring viewName;
-				std::wstring virtualHost;
 				HWND        window{ nullptr };
 				winrt::Windows::UI::Composition::ContainerVisual visual{ nullptr };
 				ComPtr<ICoreWebView2Controller>            controller;
@@ -334,7 +269,6 @@ namespace osfui::wv2
 				bool nonGestureOpenWarned{ false };
 				bool navigationBlockedWarned{ false };
 				bool frameNavigationBlockedWarned{ false };
-				bool legacySharedAssetRedirected{ false };
 				std::uint64_t pageMessageWindowStarted{ 0 };
 				std::uint32_t pageMessagesThisWindow{ 0 };
 				bool pageMessageTooLargeWarned{ false };
@@ -807,7 +741,7 @@ namespace osfui::wv2
 				}
 				std::wstring uri(raw);
 				::CoTaskMemFree(raw);
-				const bool allowed = IsTrustedViewDocumentUri(uri, a_view.virtualHost, a_view.viewName) || (a_frame && IsAllowedBlankFrameUri(uri));
+				const bool allowed = IsTrustedViewDocumentUri(uri, kViewHost, a_view.modId, a_view.viewName) || (a_frame && IsAllowedBlankFrameUri(uri));
 				if (allowed) {
 					if (!a_frame) RecoverPressedMouseButtons(a_view, "main-frame navigation");
 					return S_OK;
@@ -897,10 +831,9 @@ namespace osfui::wv2
 					ReportSecurityFailure(a_view, E_NOINTERFACE, "virtual-host mapping API unavailable");
 					return S_OK;
 				}
-				const auto modRoot = viewsRoot / ToWide(a_view.modId);
-				result = webView3->SetVirtualHostNameToFolderMapping(a_view.virtualHost.c_str(), modRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
+				result = webView3->SetVirtualHostNameToFolderMapping(kViewHost.data(), viewsRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
 				if (FAILED(result)) {
-					ReportSecurityFailure(a_view, result, "per-mod virtual-host mapping failed");
+					ReportSecurityFailure(a_view, result, "OSF UI virtual-host mapping failed");
 					return S_OK;
 				}
 				result = InstallOriginGuards(a_view);
@@ -1030,24 +963,7 @@ namespace osfui::wv2
 							}
 							std::wstring uri(raw);
 							::CoTaskMemFree(raw);
-							if (const auto target = LegacySharedAssetRedirectUri(uri, view->virtualHost)) {
-								const auto headers = L"Location: " + *target + L"\r\nCache-Control: no-store";
-								ComPtr<ICoreWebView2WebResourceResponse> response;
-								const auto responseHr = environment ? environment->CreateWebResourceResponse(nullptr, 307, L"Temporary Redirect", headers.c_str(), &response) : E_POINTER;
-								const auto putHr = SUCCEEDED(responseHr) && response ?
-									a_args->put_Response(response.Get()) : E_POINTER;
-								if (FAILED(responseHr) || !response || FAILED(putHr)) {
-									ReportSecurityFailure(*view, FAILED(responseHr) ? responseHr : FAILED(putHr) ? putHr : E_POINTER, "could not redirect a legacy shared-asset URL to the mod origin");
-									return S_OK;
-								}
-								if (!view->legacySharedAssetRedirected) {
-									view->legacySharedAssetRedirected = true;
-									log.Info(std::format("view '{}': legacy shared-asset URLs redirected to {}",
-										view->id, ToUtf8(*target)));
-								}
-								return S_OK;
-							}
-							if (IsAllowedViewResourceUri(uri, view->virtualHost)) return S_OK;
+							if (IsAllowedViewResourceUri(uri, kViewHost)) return S_OK;
 							ComPtr<ICoreWebView2WebResourceResponse> response;
 							const auto responseHr = environment ? environment->CreateWebResourceResponse(nullptr, 403, L"Forbidden", L"", &response) : E_POINTER;
 							const auto putHr = SUCCEEDED(responseHr) && response ? a_args->put_Response(response.Get()) : E_POINTER;
@@ -1290,7 +1206,7 @@ namespace osfui::wv2
 							std::wstring source(sourceRaw);
 							::CoTaskMemFree(sourceRaw);
 							if (!IsTrustedViewDocumentUri(
-									source, view->virtualHost, view->viewName)) {
+									source, kViewHost, view->modId, view->viewName)) {
 								log.Error(std::format("view '{}': rejected native-bound message from {}", view->id, ToUtf8(source)));
 								ReportSecurityFailure(*view, E_ACCESSDENIED, "web-message source violated the view origin policy");
 								return S_OK;

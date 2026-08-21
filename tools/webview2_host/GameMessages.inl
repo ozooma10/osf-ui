@@ -63,7 +63,7 @@
 					entry = OSFUI::Compat::V1::WithLegacyApiQuery(entry);
 				}
 				std::ranges::replace(entry, '\\', '/');
-				view->pendingNavigate = L"https://" + view->virtualHost + L"/" + view->viewName + L"/" + ToWide(entry);
+				view->pendingNavigate = L"https://" + std::wstring(kViewHost) + L"/" + view->modId + L"/" + view->viewName + L"/" + ToWide(entry);
 				if (view->webView) DrainQueuedViewWork(*view);
 				else RequestController(*view);
 			}

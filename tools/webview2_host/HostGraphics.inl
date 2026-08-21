@@ -427,11 +427,8 @@
 				auto owned = std::make_unique<View>();
 				owned->id = a_id;
 				const auto slash = a_id.find('/');
-				owned->modId = a_id.substr(0, slash);
+				owned->modId = ToWide(a_id.substr(0, slash));
 				owned->viewName = ToWide(a_id.substr(slash + 1));
-				if (const auto host = VirtualHostForMod(owned->modId)) {
-					owned->virtualHost = *host;
-				}
 				owned->hidden = defaultHidden;
 				owned->window = ::CreateWindowExW(0, L"STATIC", L"OSFUI WebView2 View", WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, hostWindow, nullptr, ::GetModuleHandleW(nullptr), nullptr);
 				if (!owned->window) {
@@ -441,11 +438,7 @@
 				auto& view = *views.back();
 				RefreshCaptureVisibility();
 				if (!inputTarget) inputTarget = &view;
-				if (view.virtualHost.empty()) {
-					ReportSecurityFailure(view, E_FAIL, "could not derive a stable isolated origin for the mod");
-				} else {
-					RequestController(view);
-				}
+				RequestController(view);
 				return view;
 			}
 

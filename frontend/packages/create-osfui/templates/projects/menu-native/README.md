@@ -27,10 +27,9 @@ There is nothing to build for the web view. Deploy or archive `mod/` with
 
 Deploy `mod/`, open the generated view in Starfield, and use F12 for Chromium
 DevTools. Edit the HTML, CSS, or JavaScript in the deployed view and reload the
-page to iterate. The runtime supplies `/shared/osfui.js`,
-`/shared/osfui.css`, and the optional `/shared/gamepadnav.js` on your mod's
-origin; do not copy or bundle them into
-the view.
+page to iterate. The runtime supplies `/shared/osfui.js`, `/shared/osfui.css`,
+and the optional `/shared/gamepadnav.js` from the common
+`https://osfui.example` origin; do not copy or bundle them into the view.
 
 ## Native bridge example
 

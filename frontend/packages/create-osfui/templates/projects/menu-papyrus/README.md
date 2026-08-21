@@ -34,8 +34,8 @@ into MO2 in one command, run:
 Open the generated view in Starfield and use F12 for Chromium DevTools. Edit
 the HTML, CSS, or JavaScript in the deployed view and reload the page to
 iterate. The runtime supplies `/shared/osfui.js` (plus `/shared/osfui.css` and
-optional `/shared/gamepadnav.js` on your mod's origin); do not copy or
-bundle those files into the view.
+optional `/shared/gamepadnav.js`) from the common `https://osfui.example`
+origin; do not copy or bundle those files into the view.
 
 The compiled GLOBAL library is discovered on demand when JavaScript calls one
 of its functions; there is no plugin to enable and no ESM, startup quest,
