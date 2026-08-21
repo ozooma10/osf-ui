@@ -252,7 +252,7 @@ namespace OSFUI
 
     void Runtime::InitializeStartupViews()
     {
-		std::size_t instantiated = 0;
+		std::size_t queued = 0;
 		for (const auto& manifest : _views.All()) {
 			if (manifest.kind != ViewKind::Hud) {
 				continue;
@@ -266,14 +266,10 @@ namespace OSFUI
 			if (!_viewPolicy.HudAutoStart(manifest.id, manifest.openOnStart)) {
 				continue;
 			}
-			if (InstantiateView(manifest, "for HUD auto-start")) {
-				++instantiated;
-				if (_presentation.IsInstantiated(manifest.id)) {
-					_presentation.Open(manifest.id);
-				}
-			}
+			EnqueueOpenView(manifest.id);
+			++queued;
 		}
-		REX::INFO("Runtime: instantiated {} auto-start HUD view(s); default menu = '{}'", instantiated, Ids::kSettingsViewId);
+		REX::INFO("Runtime: queued {} auto-start HUD view(s) for the first main-thread presentation tick; default menu = '{}'", queued, Ids::kSettingsViewId);
 		if (!_views.Find(Ids::kSettingsViewId)) {
 			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open", Ids::kSettingsViewId);
 		}
@@ -420,37 +416,6 @@ namespace OSFUI
 		return work;
 	}
 
-	void Runtime::PreparePresentationRequests(const PendingPresentationWork& a_work)
-	{
-		const auto prepare = [this](std::string_view a_id, std::string_view a_reason,
-			std::optional<ViewTimingClock::time_point> a_requestedAt) {
-			const auto* manifest = _views.Find(a_id);
-			if (!manifest) {
-				return;
-			}
-			if (manifest->kind == ViewKind::Menu &&
-				m_viewLoads.GetState(a_id) != ViewLoadState::Finished) {
-				BeginColdOpenTiming(a_id, a_requestedAt);
-			}
-			if (!_presentation.IsInstantiated(a_id) && !InstantiateView(*manifest, a_reason)) {
-				CancelColdOpenTiming(a_id);
-			}
-		};
-
-		for (const auto& request : a_work.openViews) {
-			prepare(request.view, "on demand", request.requestedAt);
-		}
-		for (const auto& request : a_work.plugin) {
-			if (request.open) {
-				prepare(request.view, "on demand", request.requestedAt);
-			}
-		}
-		if (!_pendingViewOpen && !_presentation.ActiveMenu() &&
-			std::ranges::find(a_work.local, ViewPresentationRequest::ToggleDefault) != a_work.local.end()) {
-			prepare(Ids::kSettingsViewId, "for the default-menu toggle", std::nullopt);
-		}
-	}
-
 	void Runtime::ApplyPresentationRequests(const PendingPresentationWork& a_work)
 	{
 		const auto& reqs = a_work.local;
@@ -466,7 +431,7 @@ namespace OSFUI
 				} else if (_presentation.ActiveMenu()) {
 					_presentation.CloseActiveMenu();
 				} else {
-					BeginViewOpen(Ids::kSettingsViewId);
+					BeginViewOpen(Ids::kSettingsViewId, "for the default-menu toggle");
 				}
 				break;
 			case ViewPresentationRequest::Back: {
@@ -475,7 +440,7 @@ namespace OSFUI
 					CancelPendingOpen();
 				} else if (active) {
 					if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
-						BeginViewOpen(*target);
+						BeginViewOpen(*target, "for native back navigation");
 					} else if (m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
 						constexpr std::uint32_t kVkEscape = 0x1B;
 						_renderer->InjectKeyEvent(kVkEscape, true);
@@ -490,28 +455,19 @@ namespace OSFUI
 			}
 			case ViewPresentationRequest::CloseAll:
 				CancelPendingOpen();
+				_viewWillOpenBarriers.clear();
 				_presentation.CloseAll();
 				break;
 			}
 		}
 		for (const auto& request : a_work.openViews) {
-			if (!_presentation.IsInstantiated(request.view)) {
-				REX::WARN("Runtime: EnqueueOpenView('{}') ignored — no discovered view could be instantiated", request.view);
-			} else {
-				BeginViewOpen(request.view);
-			}
+			BeginViewOpen(request.view, "on demand", request.requestedAt);
 		}
 		for (const auto& r : pluginReqs) {
 			if (r.open) {
-				if (!_presentation.IsInstantiated(r.view)) {
-					REX::WARN("Runtime: plugin RequestMenu('{}', open) could not instantiate the discovered view", r.view);
-				} else {
-					BeginViewOpen(r.view);
-				}
+				BeginViewOpen(r.view, "on demand", r.requestedAt);
 			} else {
-				if (_pendingViewOpen && *_pendingViewOpen == r.view) {
-					CancelPendingOpen();
-				}
+				CancelPendingOpen(r.view);
 				_presentation.Close(r.view);
 			}
 		}
@@ -523,8 +479,20 @@ namespace OSFUI
 		return UiPass::DrawEnabled();
 	}
 
-	bool Runtime::BeginViewOpen(std::string_view a_id)
+	bool Runtime::BeginViewOpen(std::string_view a_id, std::string_view a_reason,
+		std::optional<ViewTimingClock::time_point> a_requestedAt)
 	{
+		if (_presentation.IsOpen(a_id) ||
+			(_pendingViewOpen && *_pendingViewOpen == a_id) ||
+			_viewWillOpenBarriers.contains(std::string(a_id))) {
+			return false;
+		}
+		const auto* manifest = _views.Find(a_id);
+		if (!manifest) {
+			CancelColdOpenTiming(a_id);
+			REX::WARN("Runtime: cannot open '{}' — no discovered view has that id", a_id);
+			return false;
+		}
 		// Require both installation and the lazy render-worker self-test before allowing input capture.
 		if (!OverlayCanDraw()) {
 			CancelColdOpenTiming(a_id);
@@ -546,39 +514,56 @@ namespace OSFUI
 			}
 			return false;
 		}
-		if (!_presentation.IsInstantiated(a_id)) {
-			CancelColdOpenTiming(a_id);
-			return false;
-		}
-		const auto* manifest = _views.Find(a_id);
-		const bool requiresCaptureIntegration = manifest && manifest->kind == ViewKind::Menu && manifest->capturesInput;
+		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
 		if (requiresCaptureIntegration && _captureIntegrationInitialized &&
 			!_captureIntegrationAvailable) {
 			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
 			return false;
 		}
-		if (!manifest || manifest->kind == ViewKind::Hud) {
-			CancelPendingOpen();
-			return _presentation.Open(a_id);
+
+		const auto willOpen = API::BridgeApi::Get().DispatchViewWillOpen(a_id);
+		if (willOpen == API::BridgeApi::ViewWillOpenResult::kDenied) {
+			CancelColdOpenTiming(a_id);
+			REX::WARN("Runtime: native view-will-open callback denied '{}'; current presentation retained", a_id);
+			return false;
+		}
+		const bool requiresStateBarrier = willOpen == API::BridgeApi::ViewWillOpenResult::kAllowed;
+		if (requiresStateBarrier) {
+			REX::DEBUG("Runtime: native view-will-open callback allowed '{}'; holding presentation through the next main tick", a_id);
+		}
+
+		if (manifest->kind == ViewKind::Menu &&
+			m_viewLoads.GetState(a_id) != ViewLoadState::Finished) {
+			BeginColdOpenTiming(a_id, a_requestedAt);
+		}
+		if (!_presentation.IsInstantiated(a_id) && !InstantiateView(*manifest, a_reason)) {
+			CancelColdOpenTiming(a_id);
+			return false;
+		}
+
+		if (requiresStateBarrier) {
+			_viewWillOpenBarriers.emplace(std::string(a_id), _mainTickSerial + 1);
+		}
+		if (manifest->kind == ViewKind::Hud) {
+			return requiresStateBarrier || _presentation.Open(a_id);
 		}
 
 		const bool waitingForCaptureIntegration = requiresCaptureIntegration && !_captureIntegrationAvailable;
 		const auto loadState = m_viewLoads.GetState(a_id);
-		if (!waitingForCaptureIntegration && loadState == ViewLoadState::Finished) {
+		if (!requiresStateBarrier && !waitingForCaptureIntegration && loadState == ViewLoadState::Finished) {
 			CancelPendingOpen();
 			return _presentation.Open(a_id);
-		}
-		if (_pendingViewOpen && *_pendingViewOpen == a_id) {
-			return false;
 		}
 
 		CancelPendingOpen();
 		if (!_coldOpenTiming || _coldOpenTiming->viewId != a_id) {
-			BeginColdOpenTiming(a_id, ViewTimingClock::now());
+			BeginColdOpenTiming(a_id, a_requestedAt.value_or(ViewTimingClock::now()));
 		}
 		_pendingViewOpen = std::string(a_id);
-		if (waitingForCaptureIntegration) {
+		if (requiresStateBarrier) {
+			REX::DEBUG("Runtime: holding open of '{}' for its native retained-state barrier", a_id);
+		} else if (waitingForCaptureIntegration) {
 			REX::DEBUG("Runtime: holding open of '{}' until required input integration initializes", a_id);
 		} else {
 			REX::DEBUG("Runtime: holding first open of '{}' until its main-frame load succeeds", a_id);
@@ -593,9 +578,22 @@ namespace OSFUI
 		}
 		const auto target = std::move(*_pendingViewOpen);
 		_pendingViewOpen.reset();
+		_viewWillOpenBarriers.erase(target);
 		CancelColdOpenTiming(target);
 		REX::DEBUG("Runtime: cancelled pending open of '{}'", target);
 		return true;
+	}
+
+	bool Runtime::CancelPendingOpen(std::string_view a_id)
+	{
+		if (_pendingViewOpen && *_pendingViewOpen == a_id) {
+			return CancelPendingOpen();
+		}
+		if (_viewWillOpenBarriers.erase(std::string(a_id)) > 0) {
+			REX::DEBUG("Runtime: cancelled pending open of '{}'", a_id);
+			return true;
+		}
+		return false;
 	}
 
 	void Runtime::BeginColdOpenTiming(std::string_view a_viewId,
@@ -689,6 +687,29 @@ namespace OSFUI
 
 	void Runtime::DrivePendingOpen()
 	{
+		bool policyChanged = false;
+		for (auto it = _viewWillOpenBarriers.begin(); it != _viewWillOpenBarriers.end();) {
+			if (it->second > _mainTickSerial) {
+				++it;
+				continue;
+			}
+			const auto* manifest = _views.Find(it->first);
+			if (!manifest || !_presentation.IsInstantiated(it->first)) {
+				REX::WARN("Runtime: cancelling deferred open of '{}' because the view is no longer available", it->first);
+				it = _viewWillOpenBarriers.erase(it);
+				continue;
+			}
+			if (manifest->kind == ViewKind::Menu) {
+				++it;
+				continue;
+			}
+			policyChanged = _presentation.Open(it->first) || policyChanged;
+			REX::DEBUG("Runtime: retained-state barrier completed; opening HUD '{}'", it->first);
+			it = _viewWillOpenBarriers.erase(it);
+		}
+		if (policyChanged) {
+			ApplyViewPresentationPolicy();
+		}
 		if (!_pendingViewOpen) {
 			return;
 		}
@@ -708,6 +729,10 @@ namespace OSFUI
 			CancelPendingOpen();
 			return;
 		}
+		if (const auto barrier = _viewWillOpenBarriers.find(target);
+			barrier != _viewWillOpenBarriers.end() && barrier->second > _mainTickSerial) {
+			return;
+		}
 
 		if (m_viewLoads.GetState(target) != ViewLoadState::Finished) {
 			return;
@@ -715,7 +740,9 @@ namespace OSFUI
 
 		_presentation.Open(target);
 		_pendingViewOpen.reset();
-		REX::DEBUG("Runtime: main-frame load completed; opening '{}'", target);
+		const bool completedStateBarrier = _viewWillOpenBarriers.erase(target) > 0;
+		REX::DEBUG("Runtime: {} completed; opening '{}'",
+			completedStateBarrier ? "retained-state barrier and main-frame load" : "main-frame load", target);
 		ApplyViewPresentationPolicy();
 	}
 
@@ -744,15 +771,7 @@ namespace OSFUI
 				continue;
 			}
 			if (m->openOnStart) {
-				if (m->kind == ViewKind::Menu) {
-					BeginColdOpenTiming(id, ViewTimingClock::now());
-				}
-				if (!InstantiateView(*m, "via plugin RegisterView openOnStart")) {
-					CancelColdOpenTiming(id);
-					continue;
-				}
-				BeginViewOpen(id);
-				catalogChanged = true;
+				catalogChanged = BeginViewOpen(id, "via plugin RegisterView openOnStart") || catalogChanged;
 			} else {
 				// Discovery catalogues the view; registration validates intent without creating the page.
 				REX::DEBUG("Runtime: plugin RegisterView('{}') accepted; creation deferred until first open", id);
@@ -990,6 +1009,7 @@ namespace OSFUI
 		_hiddenPrewarmTiming.reset();
 
 		CancelPendingOpen();
+		_viewWillOpenBarriers.clear();
 		_presentation.CloseAll();
 		ApplyViewPresentationPolicy();
 
@@ -1173,6 +1193,7 @@ namespace OSFUI
 		REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s - closing it and releasing input/pause state", active, decision.heldSeconds);
 		_coldOpenTiming.reset();
 		CancelPendingOpen();
+		_viewWillOpenBarriers.clear();
 		_presentation.CloseAll();
 		ApplyViewPresentationPolicy();
 

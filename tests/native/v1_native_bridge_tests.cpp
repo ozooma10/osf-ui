@@ -93,7 +93,7 @@ int main()
 	using namespace OSFUI;
 	auto& api = API::BridgeApi::Get();
 	auto* bridgeVtable = reinterpret_cast<FrozenAbi18Bridge*>(&api);
-	CHECK(bridgeVtable->GetInterfaceVersion() == ((1u << 16) | 10u));
+	CHECK(bridgeVtable->GetInterfaceVersion() == ((1u << 16) | 11u));
 	std::uint32_t major = 0, minor = 0, patch = 0;
 	bridgeVtable->GetPluginVersion(major, minor, patch);
 	CHECK(major == 2 && minor == 0 && patch == 0);

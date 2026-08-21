@@ -369,14 +369,15 @@ int main()
 			.find("std::lock_guard") != std::string::npos,
 		"Bridge runtime queues must be extracted as one batch");
 	Check(ContainsInOrder(tick, {
+		"++_mainTickSerial",
 		"ProcessPauseMenuEntry()",
 		"auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch()",
 		"TakePresentationRequests(std::move(bridgeBatch.presentation))",
-		"PreparePresentationRequests(presentationWork)",
 		"auto papyrusBatch = API::Papyrus::TakePendingBatch()",
 		"ProcessBackendQueues(std::move(papyrusBatch)",
-		"ApplyPresentationRequests(presentationWork)" }),
-		"Tick must instantiate requested views hidden, flush native sends, then apply visibility");
+		"ApplyPresentationRequests(presentationWork)",
+		"ProcessRendererFrame(a_deltaSeconds)" }),
+		"Tick must drain retained-state writes before presentation and advance the pre-open barrier once per main tick");
 	const auto pauseMenuEntry = FunctionBody(runtimeSource, "void Runtime::ProcessPauseMenuEntry()");
 	Check(ContainsInOrder(pauseMenuEntry, {
 		"PauseMenuEntry::TakeOpenRequest()",
@@ -389,15 +390,9 @@ int main()
 
 	const auto applyRequests = FunctionBody(runtimeSource,
 		"void Runtime::ApplyPresentationRequests(const PendingPresentationWork& a_work)");
-	const auto prepareRequests = FunctionBody(runtimeSource,
-		"void Runtime::PreparePresentationRequests(const PendingPresentationWork& a_work)");
-	Check(ContainsInOrder(prepareRequests, {
-		"manifest->kind == ViewKind::Menu",
-		"m_viewLoads.GetState(a_id) != ViewLoadState::Finished",
-		"BeginColdOpenTiming(a_id, a_requestedAt)",
-		"InstantiateView(*manifest, a_reason)" }) &&
-		Count(prepareRequests, "request.requestedAt") == 2,
-		"every cold internal or native mod-menu request must begin timing before instantiation");
+	Check(runtimeSource.find("PreparePresentationRequests") == std::string::npos &&
+		runtimeHeader.find("PreparePresentationRequests") == std::string::npos,
+		"requested views must not be instantiated in a preparation pass before the native pre-open decision");
 	Check(ContainsInOrder(applyRequests, {
 		"case ViewPresentationRequest::ToggleDefault:",
 		"CancelPendingOpen()",
@@ -410,72 +405,88 @@ int main()
 	Check(ContainsInOrder(applyRequests, {
 		"case ViewPresentationRequest::Back:",
 		"BackTargetFor(*active)",
-		"BeginViewOpen(*target)",
+		"BeginViewOpen(*target, \"for native back navigation\")",
 		"OwnsBackAction(*active)",
 		"InjectKeyEvent(kVkEscape, true)" }),
 		"a native back target must bypass the synthetic browser round trip");
 	Check(ContainsInOrder(applyRequests, {
 		"if (r.open)",
-		"*_pendingViewOpen == r.view",
-		"CancelPendingOpen()",
+		"BeginViewOpen(r.view, \"on demand\", r.requestedAt)",
+		"CancelPendingOpen(r.view)",
 		"_presentation.Close(r.view)" }),
 		"a native close request must cancel its pending open before closing the view");
+	Check(ContainsInOrder(applyRequests, {
+		"BeginViewOpen(Ids::kSettingsViewId, \"for the default-menu toggle\")",
+		"BeginViewOpen(request.view, \"on demand\", request.requestedAt)",
+		"BeginViewOpen(r.view, \"on demand\", r.requestedAt)" }),
+		"toggle, internal/web/Papyrus opens, and native RequestMenu opens must converge on BeginViewOpen");
 
-	const auto beginOpen = FunctionBody(runtimeSource, "bool Runtime::BeginViewOpen(std::string_view a_id)");
+	const auto beginOpen = FunctionBody(runtimeSource,
+		"bool Runtime::BeginViewOpen(std::string_view a_id, std::string_view a_reason");
 	Check(ContainsInOrder(beginOpen, {
+		"_presentation.IsOpen(a_id)",
+		"_pendingViewOpen && *_pendingViewOpen == a_id",
+		"_viewWillOpenBarriers.contains",
+		"return false",
 		"const bool requiresCaptureIntegration",
 		"_captureIntegrationInitialized &&",
 		"!_captureIntegrationAvailable",
 		"required input integration is unavailable",
-		"const bool waitingForCaptureIntegration",
-		"!waitingForCaptureIntegration && loadState == ViewLoadState::Finished",
-		"_pendingViewOpen = std::string(a_id)",
-		"until required input integration initializes" }),
-		"an early input-capturing open must remain pending, while a completed integration failure still fails closed");
+		"DispatchViewWillOpen(a_id)",
+		"ViewWillOpenResult::kDenied",
+		"current presentation retained",
+		"return false",
+		"BeginColdOpenTiming(a_id, a_requestedAt)",
+		"InstantiateView(*manifest, a_reason)" }),
+		"duplicate and ineligible opens must be suppressed before the synchronous callback, and denial must precede instantiation");
 	Check(ContainsInOrder(beginOpen, {
+		"ViewWillOpenResult::kAllowed",
+		"InstantiateView(*manifest, a_reason)",
+		"_viewWillOpenBarriers.emplace(std::string(a_id), _mainTickSerial + 1)",
 		"manifest->kind == ViewKind::Hud",
-		"return _presentation.Open(a_id)",
-		"const auto loadState = m_viewLoads.GetState(a_id)",
-		"loadState == ViewLoadState::Finished",
-		"return _presentation.Open(a_id)",
-		"_pendingViewOpen = std::string(a_id)" }),
-		"menus must stay closed while loading; only HUDs and load-complete menus open immediately");
-	Check(ContainsInOrder(beginOpen, {
-		"CancelPendingOpen()",
-		"BeginColdOpenTiming(a_id, ViewTimingClock::now())",
-		"_pendingViewOpen = std::string(a_id)" }),
-		"direct opens of an already-loading menu must still gain a cold-open timing record");
+		"requiresStateBarrier || _presentation.Open(a_id)",
+		"const bool waitingForCaptureIntegration",
+		"!requiresStateBarrier && !waitingForCaptureIntegration && loadState == ViewLoadState::Finished",
+		"_pendingViewOpen = std::string(a_id)",
+		"native retained-state barrier" }),
+		"an approved callback must defer both HUD and menu presentation while ordinary loaded opens retain their immediate path");
 
 	const auto cancelPending = FunctionBody(runtimeSource, "bool Runtime::CancelPendingOpen()");
 	Check(ContainsInOrder(cancelPending, {
 		"const auto target = std::move(*_pendingViewOpen)",
-		"_pendingViewOpen.reset()" }),
+		"_pendingViewOpen.reset()",
+		"_viewWillOpenBarriers.erase(target)" }),
 		"pending-open cancellation must drop ownership without changing presentation");
 	const auto drivePending = FunctionBody(runtimeSource, "void Runtime::DrivePendingOpen()");
 	Check(ContainsInOrder(drivePending, {
+		"it->second > _mainTickSerial",
+		"manifest->kind == ViewKind::Menu",
+		"_presentation.Open(it->first)",
+		"_viewWillOpenBarriers.erase(it)",
 		"_presentation.IsInstantiated(target)",
 		"requiresCaptureIntegration && !_captureIntegrationInitialized",
 		"return",
 		"requiresCaptureIntegration && !_captureIntegrationAvailable",
 		"CancelPendingOpen()",
+		"barrier->second > _mainTickSerial",
+		"return",
 		"m_viewLoads.GetState(target) != ViewLoadState::Finished",
 		"_presentation.Open(target)",
 		"_pendingViewOpen.reset()",
+		"_viewWillOpenBarriers.erase(target)",
 		"ApplyViewPresentationPolicy()" }),
-		"a pending menu must remain closed until main-frame load succeeds, then enter normal presentation policy");
+		"approved opens must wait at least one main tick and menus must also wait for input and load readiness");
 
 	const auto endpoints = FunctionBody(runtimeSource,
 		"void Runtime::RegisterPlatformEndpoints(MessageBridge& a_bridge)");
 	Check(ContainsInOrder(endpoints, {
 		"RegisterSend(\"close\"",
-		"*_pendingViewOpen == source",
-		"CancelPendingOpen()",
+		"CancelPendingOpen(source)",
 		"_presentation.Close(source)" }),
 		"browser close must cancel a pending open or close the calling view");
 	Check(ContainsInOrder(endpoints, {
 		"RegisterRequest(\"menu.close\"",
-		"*_pendingViewOpen == id",
-		"cancelled = CancelPendingOpen()",
+		"cancelled = CancelPendingOpen(id)",
 		"_presentation.Close(id)" }),
 		"browser menu.close must cancel a pending open before applying the closed state");
 	Check(ContainsInOrder(endpoints, {
@@ -490,8 +501,7 @@ int main()
 		"RegisterRequest(\"setViewHidden\"",
 		"_presentation.IsInstantiated(id)",
 		"const bool hidden = Json::Get(a_p, \"hidden\", false)",
-		"*_pendingViewOpen == id",
-		"CancelPendingOpen()",
+		"CancelPendingOpen(id)",
 		"_presentation.Close(id)",
 		"BeginViewOpen(id)",
 		"ApplyViewPresentationPolicy()" }),
@@ -858,8 +868,23 @@ int main()
 			"manifest.kind != ViewKind::Hud",
 			"HudAutoStartEligible(manifest)",
 			"_viewPolicy.HudAutoStart",
-			"InstantiateView(manifest, \"for HUD auto-start\")" }),
-		"startup must instantiate only HUDs whose effective auto-start policy is on");
+			"EnqueueOpenView(manifest.id)" }) &&
+		startup.find("InstantiateView") == std::string::npos &&
+		startup.find("_presentation.Open") == std::string::npos,
+		"startup must queue eligible HUD opens so native pre-open handlers can run before instantiation");
+	const auto registrations = FunctionBody(runtimeSource,
+		"void Runtime::DrainViewRegistrations(std::vector<std::string> a_ids)");
+	Check(ContainsInOrder(registrations, {
+		"if (m->openOnStart)",
+		"BeginViewOpen(id, \"via plugin RegisterView openOnStart\")" }) &&
+		registrations.find("InstantiateView(*m") == std::string::npos,
+		"plugin openOnStart must use the same pre-open lifecycle path");
+	Check(ContainsInOrder(postDataIntegration, {
+		"BeginHiddenPrewarmTiming(settings->id)",
+		"InstantiateView(*settings, \"for hidden startup prewarm\")" }) &&
+		postDataIntegration.find("BeginViewOpen") == std::string::npos &&
+		postDataIntegration.find("DispatchViewWillOpen") == std::string::npos,
+		"hidden prewarming must instantiate directly without firing the pre-open lifecycle callback");
 
 	Check(runtimeSource.find("DriveViewLifecycle") == std::string::npos &&
 		runtimeSource.find("IdleReclaim") == std::string::npos,
@@ -935,7 +960,8 @@ int main()
 		teardownFailed.find("IdleReclaim") == std::string::npos,
 		"terminally failed documents may be destroyed without creating an idle-reclaim policy");
 
-	Check(Count(applyRequests, "CancelPendingOpen()") >= 4,
+	Check(Count(applyRequests, "CancelPendingOpen()") >= 3 &&
+		Count(applyRequests, "CancelPendingOpen(r.view)") >= 1,
 		"all four queued close paths must retain pending-open cancellation");
 
 	if (failures == 0) {

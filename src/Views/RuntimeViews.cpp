@@ -134,6 +134,7 @@ namespace OSFUI
 	void Runtime::TearDownFailedView(const std::string& a_id)
 	{
 		m_viewRecovery.Clear(a_id);
+		CancelPendingOpen(a_id);
 		if (_renderer) {
 			_renderer->DestroyView(a_id);
 		}

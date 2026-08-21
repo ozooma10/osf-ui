@@ -10,7 +10,7 @@
 //
 // THREADING: status reads and typed getters are synchronous, callable from ANY thread.
 // Mutating calls are thread-safe; their effect lands on the game main thread.
-// All callbacks (SendFn/RequestFn/ReadyFn/SettingChangedFn/HotkeyFn/RelativePointerFn) run on the game main thread - keep them cheap.
+// All callbacks (SendFn/RequestFn/ReadyFn/SettingChangedFn/HotkeyFn/RelativePointerFn/ViewWillOpenFn) run on the game main thread - keep them cheap.
 //
 // LIFETIME: const char* params into callbacks are valid only for the call - copy what you retain.
 // ============================================================================
@@ -51,8 +51,9 @@ namespace OSFUI::API
 	// remain inert tombstones. New capabilities append at the vtable tail and
 	// bump MINOR. ABI
 	// 1.8 added retained view state, 1.9 added strict one-way send endpoints,
-	// and 1.10 adds view-owned relative-pointer capture.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 10u;
+	// 1.10 added view-owned relative-pointer capture, and 1.11 adds a native
+	// pre-open lifecycle decision.
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 11u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -145,6 +146,11 @@ namespace OSFUI::API
 	                                   float a_dy,
 	                                   float a_wheel,
 	                                   void* a_user) noexcept;
+
+	// Runs synchronously on the game main thread immediately before OSF UI
+	// instantiates or presents an exact hidden view. Return true to allow the
+	// transition or false to leave the current presentation unchanged.
+	using ViewWillOpenFn = bool (*)(const char* a_viewId, void* a_user) noexcept;
 
 	enum class IssueSeverity : std::uint32_t
 	{
@@ -319,6 +325,16 @@ namespace OSFUI::API
 		virtual bool RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) = 0;
 		virtual void UnregisterRelativePointer(const char* a_viewId) = 0;
 
+		// --- view pre-open lifecycle (ABI 1.11). Appended; every older slot is frozen. ---
+		// Register one handler for an exact qualified view id. Registration is
+		// first-wins and thread-safe. The handler runs once for a real
+		// hidden-to-visible transition, after renderer/input eligibility checks and
+		// before instantiation or presentation. An allowed transition is held for at
+		// least one main tick so retained state queued by the handler is drained
+		// before the view's first visible frame. Returns false for invalid/duplicate ids.
+		virtual bool RegisterViewWillOpen(const char* a_viewId, ViewWillOpenFn a_handler, void* a_user) = 0;
+		virtual void UnregisterViewWillOpen(const char* a_viewId) = 0;
+
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; consumers never delete it.
 	};
@@ -378,6 +394,7 @@ namespace OSFUI::API
 		kSends = 9,
 		kEndpointShape = 9,
 		kRelativePointer = 10,
+		kViewWillOpen = 11,
 	};
 
 	class Client
@@ -474,6 +491,18 @@ namespace OSFUI::API
 		{
 			if (Has(Feature::kRelativePointer)) {
 				_bridge->UnregisterRelativePointer(a_viewId);
+			}
+		}
+
+		// --- 1.11 native view pre-open lifecycle ---
+		bool RegisterViewWillOpen(const char* a_viewId, ViewWillOpenFn a_handler, void* a_user) const noexcept
+		{
+			return Has(Feature::kViewWillOpen) && _bridge->RegisterViewWillOpen(a_viewId, a_handler, a_user);
+		}
+		void UnregisterViewWillOpen(const char* a_viewId) const noexcept
+		{
+			if (Has(Feature::kViewWillOpen)) {
+				_bridge->UnregisterViewWillOpen(a_viewId);
 			}
 		}
 		bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) const noexcept

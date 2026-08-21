@@ -166,6 +166,7 @@ namespace OSFUI
 		if (!_initialized) {
 			return;
 		}
+		++_mainTickSerial;
 		_uptime += a_deltaSeconds;
 		ProcessLifecycleWork();
 		ProcessPauseMenuEntry();
@@ -173,7 +174,6 @@ namespace OSFUI
 		DrainSchemaOps(std::move(bridgeBatch.schemas));
 		DrainViewRegistrations(std::move(bridgeBatch.viewRegistrations));
 		const auto presentationWork = TakePresentationRequests(std::move(bridgeBatch.presentation));
-		PreparePresentationRequests(presentationWork);
 		auto papyrusBatch = API::Papyrus::TakePendingBatch();
 
 		ProcessControlMapUpdates();

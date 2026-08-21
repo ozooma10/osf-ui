@@ -1,5 +1,6 @@
 #pragma once
 
+#include <unordered_map>  // not in pch.h
 #include <unordered_set>  // not in pch.h
 
 #include "API/BridgeApi.h"
@@ -105,11 +106,12 @@ namespace OSFUI
 			std::vector<API::BridgeApi::ViewPresentationRequest> plugin;
 		};
 		PendingPresentationWork TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin);
-		void                          PreparePresentationRequests(const PendingPresentationWork& a_work);
 		void                          ApplyPresentationRequests(const PendingPresentationWork& a_work);
 
-		bool BeginViewOpen(std::string_view a_id);
+		bool BeginViewOpen(std::string_view a_id, std::string_view a_reason = "on demand",
+			std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);
 		bool CancelPendingOpen();
+		bool CancelPendingOpen(std::string_view a_id);
 		void DrivePendingOpen();
 		void BeginColdOpenTiming(std::string_view a_viewId, std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);
 		void CancelColdOpenTiming(std::string_view a_viewId);
@@ -214,6 +216,8 @@ namespace OSFUI
 		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
 
 		std::optional<std::string> _pendingViewOpen;
+		std::uint64_t _mainTickSerial{ 0 };
+		std::unordered_map<std::string, std::uint64_t> _viewWillOpenBarriers;
 
 		using ViewTimingClock = std::chrono::steady_clock;
 		struct ColdOpenTiming
