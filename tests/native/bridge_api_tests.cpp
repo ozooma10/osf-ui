@@ -359,6 +359,8 @@ int main()
 	bridge.HandleWebMessage("someview", SendMsg("acme.mymod.ping", R"({"x":1})"));
 	CHECK(g_firedA.size() == 1);
 	CHECK(g_firedB.empty());  // the duplicate registration never took
+	CHECK(LoggedContaining("TRACE", "'acme.mymod.ping' from view 'someview'"));
+	CHECK(!LoggedContaining("DEBUG", "'acme.mymod.ping' from view 'someview'"));
 	if (!g_firedA.empty()) {
 		CHECK(g_firedA[0].command == "acme.mymod.ping");
 		CHECK(g_firedA[0].source == "someview");

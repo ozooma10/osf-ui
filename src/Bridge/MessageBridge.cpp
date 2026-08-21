@@ -127,16 +127,23 @@ namespace OSFUI
 		_currentName.clear();
 		_settled = false;
 		_inMessage = true;
+		_sendDelivered = false;
 		_trace.clear();
 
 		// The transport catches handler exceptions above us. This guard still restores the in-flight context while the exception unwinds, so a later Respond/Reject cannot accidentally settle the abandoned request.
 		const ScopeExit cleanup([this] {
 			_inMessage = false;
-			REX::DEBUG("MessageBridge: '{}' from view '{}' -> {}", _currentName, _currentSource, _trace.empty() ? std::string_view{ "(nothing)" } : std::string_view{ _trace });
+			const auto result = _trace.empty() ? std::string_view{ "(nothing)" } : std::string_view{ _trace };
+			if (_sendDelivered) {
+				REX::TRACE("MessageBridge: '{}' from view '{}' -> {}", _currentName, _currentSource, result);
+			} else {
+				REX::DEBUG("MessageBridge: '{}' from view '{}' -> {}", _currentName, _currentSource, result);
+			}
 			_currentSource.clear();
 			_currentRequestId.clear();
 			_currentName.clear();
 			_settled = false;
+			_sendDelivered = false;
 			_trace.clear();
 		});
 
@@ -196,7 +203,7 @@ namespace OSFUI
 				NoteTracedReply("invalid-request");
 				return;
 			}
-			DispatchSend(name, payload);
+			_sendDelivered = DispatchSend(name, payload);
 			return;
 		}
 
@@ -217,20 +224,20 @@ namespace OSFUI
 		DispatchRequest(name, id, payload);
 	}
 
-	void MessageBridge::DispatchSend(const std::string& a_name, const nlohmann::json& a_payload)
+	bool MessageBridge::DispatchSend(const std::string& a_name, const nlohmann::json& a_payload)
 	{
 		if (a_name == "osfui.hello") {
 			HandleHello(_currentSource);
 			NoteTracedReply("ready+state");
-			return;
+			return true;
 		}
 		if (const auto it = _sends.find(a_name); it != _sends.end()) {
 			it->second(a_payload, *this);
-			return;
+			return true;
 		}
 		if (const auto it = _commands.find(a_name); it != _commands.end()) {
 			it->second(a_payload, *this);
-			return;
+			return true;
 		}
 		// Drop and report wrong-kind sends rather than executing the mutation.
 		if (_requests.contains(a_name)) {
@@ -238,18 +245,18 @@ namespace OSFUI
 				std::format("'{}' is a request endpoint — use request(), not send()", a_name),
 				{ { "name", a_name } });
 			NoteTracedReply("wrong-endpoint-kind");
-			return;
+			return false;
 		}
 		const auto ownerName = OwnerQualifiedEndpoint(_currentSource, a_name);
 		if (!ownerName.empty()) {
 			if (const auto it = _sends.find(ownerName); it != _sends.end()) {
 				it->second(a_payload, *this);
-				return;
+				return true;
 			}
 			if (_requests.contains(ownerName)) {
 				ReportProtocolFault(_currentSource, "wrong-endpoint-kind", std::format("'{}' is a request endpoint — use request(), not send()", a_name), { { "name", a_name }, { "resolvedName", ownerName } });
 				NoteTracedReply("wrong-endpoint-kind");
-				return;
+				return false;
 			}
 		}
 		if (_fallbackProbe) {
@@ -257,11 +264,11 @@ namespace OSFUI
 			if (kind == FallbackEndpointKind::kRequest) {
 				ReportProtocolFault(_currentSource, "wrong-endpoint-kind", std::format("'{}' is a request endpoint — use request(), not send()", a_name), { { "name", a_name } });
 				NoteTracedReply("wrong-endpoint-kind");
-				return;
+				return false;
 			}
 			if (kind == FallbackEndpointKind::kSend && _fallbackSend) {
 				_fallbackSend(a_name, a_payload, *this);
-				return;
+				return true;
 			}
 		}
 		// Deduplicate log warnings while still reporting every fault to the page.
@@ -271,6 +278,7 @@ namespace OSFUI
 		}
 		ReportProtocolFault(_currentSource, "unknown-endpoint", "no such endpoint", { { "name", a_name } });
 		NoteTracedReply("unknown-endpoint");
+		return false;
 	}
 
 	void MessageBridge::DispatchRequest(const std::string& a_name, const std::string& a_id, const nlohmann::json& a_payload)

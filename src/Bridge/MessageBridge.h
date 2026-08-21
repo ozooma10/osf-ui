@@ -131,7 +131,7 @@ namespace OSFUI
 		[[nodiscard]] static std::string EncodeError(std::string_view a_requestId, std::string_view a_code, std::string_view a_message);
 
 		void HandleHello(std::string_view a_viewId);
-		void DispatchSend(const std::string& a_name, const nlohmann::json& a_payload);
+		[[nodiscard]] bool DispatchSend(const std::string& a_name, const nlohmann::json& a_payload);
 		void DispatchRequest(const std::string& a_name, const std::string& a_id, const nlohmann::json& a_payload);
 		void SendReady(std::string_view a_viewId);
 		void DeliverEvent(std::string_view a_viewId, const std::string& a_encoded, std::string_view a_name);
@@ -156,6 +156,7 @@ namespace OSFUI
 		std::string _currentName;       // endpoint name of the in-flight message
 		bool        _settled{ false };  // the in-flight request was answered, rejected or deferred
 		bool        _inMessage{ false };  // inside HandleWebMessage dispatch (arms trace folding)
+		bool        _sendDelivered{ false };  // one-way completions are trace detail; faults/requests stay debug
 		std::string _trace;               // what went back while _inMessage
 
 		std::unordered_set<std::string> _warnedUnknownEndpoints;  // warn-once-per-name log dedupe
