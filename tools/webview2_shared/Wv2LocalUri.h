@@ -9,6 +9,9 @@ namespace osfui::wv2
 {
 	inline constexpr std::wstring_view kBuiltInViewHost = L"osfui.example";
 	inline constexpr std::wstring_view kSharedAssetHost = L"osfui-assets.example";
+	inline constexpr std::array<std::wstring_view, 3> kSharedAssetPaths{
+		L"/osfui.js", L"/osfui.css", L"/gamepadnav.js"
+	};
 
 	struct HttpsUri
 	{
@@ -105,13 +108,42 @@ namespace osfui::wv2
 		if (!parsed || !IsSafeVirtualPath(parsed->path) || !EqualsAsciiCaseInsensitive(parsed->host, kSharedAssetHost)) {
 			return false;
 		}
-		constexpr std::array<std::wstring_view, 3> paths{
-			L"/osfui.js", L"/osfui.css", L"/gamepadnav.js"
-		};
-		for (const auto path : paths) {
+		for (const auto path : kSharedAssetPaths) {
 			if (parsed->path == path) return true;
 		}
 		return false;
+	}
+
+	// Published views used ../../shared/<asset> while every view shared one virtual host. 
+	// Dedicated per-mod hosts resolve that spelling inside the mod instead.
+	// Return the canonical shared-origin URL for only the three public assets.
+	[[nodiscard]] inline std::optional<std::wstring> LegacySharedAssetTargetUri(
+		std::wstring_view a_uri, std::wstring_view a_viewHost)
+	{
+		const auto parsed = ParseHttpsUri(a_uri);
+		if (!parsed || !IsSafeVirtualPath(parsed->path) ||
+			!EqualsAsciiCaseInsensitive(parsed->host, a_viewHost)) {
+			return std::nullopt;
+		}
+
+		constexpr std::wstring_view prefix = L"/shared";
+		if (!parsed->path.starts_with(prefix)) return std::nullopt;
+		const auto assetPath = std::wstring_view(parsed->path).substr(prefix.size());
+		bool allowed = false;
+		for (const auto path : kSharedAssetPaths) {
+			if (assetPath == path) {
+				allowed = true;
+				break;
+			}
+		}
+		if (!allowed) return std::nullopt;
+
+		std::wstring target = L"https://" + std::wstring(kSharedAssetHost) + std::wstring(assetPath);
+		if (const auto suffix = a_uri.find_first_of(L"?#", std::wstring_view(L"https://").size());
+			suffix != std::wstring_view::npos) {
+			target.append(a_uri.substr(suffix));
+		}
+		return target;
 	}
 
 	[[nodiscard]] inline bool IsAllowedViewResourceUri(std::wstring_view a_uri, std::wstring_view a_viewHost)

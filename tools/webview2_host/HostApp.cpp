@@ -333,6 +333,7 @@ namespace osfui::wv2
 				bool nonGestureOpenWarned{ false };
 				bool navigationBlockedWarned{ false };
 				bool frameNavigationBlockedWarned{ false };
+				bool legacySharedAssetAliased{ false };
 				std::uint64_t pageMessageWindowStarted{ 0 };
 				std::uint32_t pageMessagesThisWindow{ 0 };
 				bool pageMessageTooLargeWarned{ false };
@@ -1027,6 +1028,18 @@ namespace osfui::wv2
 							}
 							std::wstring uri(raw);
 							::CoTaskMemFree(raw);
+							if (const auto target = LegacySharedAssetTargetUri(uri, view->virtualHost)) {
+								const auto rewriteHr = request->put_Uri(target->c_str());
+								if (FAILED(rewriteHr)) {
+									ReportSecurityFailure(*view, rewriteHr, "could not map a legacy shared-asset request to the dedicated origin");
+									return S_OK;
+								}
+								if (!view->legacySharedAssetAliased) {
+									view->legacySharedAssetAliased = true;
+									log.Info(std::format("view '{}': legacy /shared asset URL mapped to the dedicated shared origin", view->id));
+								}
+								return S_OK;
+							}
 							if (IsAllowedViewResourceUri(uri, view->virtualHost)) return S_OK;
 							ComPtr<ICoreWebView2WebResourceResponse> response;
 							const auto responseHr = environment ? environment->CreateWebResourceResponse(nullptr, 403, L"Forbidden", L"", &response) : E_POINTER;

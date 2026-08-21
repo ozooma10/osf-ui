@@ -50,6 +50,28 @@ int main()
 		L"https://m-abc234.example/inventory/app.js", host));
 	assert(!IsAllowedViewResourceUri(L"https://example.org/app.js", host));
 
+	// Published ../../shared/<asset> imports now resolve under a dedicated mod
+	// host. Map only those exact public assets to the canonical shared origin.
+	assert(LegacySharedAssetTargetUri(
+		L"https://m-abc234.example/shared/osfui.js", host) ==
+		L"https://osfui-assets.example/osfui.js");
+	assert(LegacySharedAssetTargetUri(
+		L"HTTPS://M-ABC234.EXAMPLE/shared/osfui.css?v=2#theme", host) ==
+		L"https://osfui-assets.example/osfui.css?v=2#theme");
+	assert(LegacySharedAssetTargetUri(
+		L"https://m-abc234.example/shared/gamepadnav.js", host) ==
+		L"https://osfui-assets.example/gamepadnav.js");
+	assert(!LegacySharedAssetTargetUri(
+		L"https://other.example/shared/osfui.js", host));
+	assert(!LegacySharedAssetTargetUri(
+		L"http://m-abc234.example/shared/osfui.js", host));
+	assert(!LegacySharedAssetTargetUri(
+		L"https://m-abc234.example/shared/other.js", host));
+	assert(!LegacySharedAssetTargetUri(
+		L"https://m-abc234.example/shared/osfui.js/extra", host));
+	assert(!LegacySharedAssetTargetUri(
+		L"https://m-abc234.example/inventory/../shared/osfui.js", host));
+
 	assert(IsAllowedBlankFrameUri(L"about:blank"));
 	assert(IsAllowedBlankFrameUri(L"ABOUT:SRCDOC"));
 	assert(!IsAllowedBlankFrameUri(L"data:text/html,hello"));
