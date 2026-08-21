@@ -32,6 +32,18 @@ function version(value, label) {
   return value;
 }
 
+async function viteConfig(value, command) {
+  const mode = command === 'serve' ? 'development' : 'production';
+  const resolved = typeof value === 'function'
+    ? await value({ command, mode })
+    : value;
+  if (resolved === undefined) return {};
+  if (!resolved || typeof resolved !== 'object' || Array.isArray(resolved)) {
+    throw new Error('vite must be a Vite configuration object or a function returning one.');
+  }
+  return resolved;
+}
+
 async function findMock(root, viewsRoot, authored) {
   let path = null;
   if (authored !== undefined) {
@@ -51,6 +63,7 @@ async function findMock(root, viewsRoot, authored) {
 
 export async function loadProject(cwd, command = 'serve') {
   const root = resolve(cwd);
+  const viteCommand = command === 'serve' ? 'serve' : 'build';
   let configName = null;
   for (const name of CONFIG_FILES) {
     if (await exists(resolve(root, name))) { configName = name; break; }
@@ -59,7 +72,7 @@ export async function loadProject(cwd, command = 'serve') {
 
   const configPath = resolve(root, configName);
   const loaded = await loadConfigFromFile(
-    { command, mode: command === 'serve' ? 'development' : 'production' },
+    { command: viteCommand, mode: viteCommand === 'serve' ? 'development' : 'production' },
     configPath,
     root,
     'silent',
@@ -134,6 +147,7 @@ export async function loadProject(cwd, command = 'serve') {
     outDir,
     outputViewsRoot: resolve(outDir, 'SFSE/Plugins/OSFUI/views'),
     mockPath,
+    vite: await viteConfig(raw.vite, viteCommand),
   };
 }
 

@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { build as viteBuild } from 'vite';
+import { build as viteBuild, mergeConfig } from 'vite';
 
 import { BUILD_MARKER, CLI_VERSION } from './constants.mjs';
 import { exists } from './fsutil.mjs';
@@ -54,15 +54,24 @@ export async function buildProject(project, { quiet = false } = {}) {
     resolve(project.outDir, BUILD_MARKER),
     `${JSON.stringify({ source: '@osfui/cli', version: CLI_VERSION }, null, 2)}\n`,
   );
+  const configured = mergeConfig(project.vite, {
+    plugins: [sharedKitPlugin()],
+  });
   await viteBuild({
+    ...configured,
+    // These paths define the OSF UI view/package contract and cannot be moved
+    // by a project-level Vite extension.
     root: resolve(project.viewsRoot, project.modId),
     base: './',
-    plugins: [sharedKitPlugin()],
     build: {
+      ...configured.build,
       outDir: resolve(project.outputViewsRoot, project.modId),
       assetsDir: 'assets',
       emptyOutDir: false,
-      rollupOptions: { input: project.views.map((view) => view.entryPath) },
+      rollupOptions: {
+        ...configured.build?.rollupOptions,
+        input: project.views.map((view) => view.entryPath),
+      },
     },
     logLevel: quiet ? 'error' : 'info',
   });

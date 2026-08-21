@@ -1,4 +1,14 @@
+import type { UserConfig } from 'vite';
+
 export type ViewKind = 'menu' | 'hud';
+
+export interface OsfuiViteEnv {
+  command: 'serve' | 'build';
+  mode: 'development' | 'production';
+}
+
+export type OsfuiViteConfig = UserConfig | ((env: OsfuiViteEnv) =>
+  UserConfig | Promise<UserConfig>);
 
 export interface ViewConfig {
   id: string;
@@ -25,8 +35,7 @@ export interface OsfuiConfig {
   views?: ViewConfig[];
   outDir?: string;
   mock?: string;
-  vite?: Record<string, unknown> | ((env: { command: 'serve' }) =>
-    Record<string, unknown> | Promise<Record<string, unknown>>);
+  vite?: OsfuiViteConfig;
 }
 
 export type JsonPrimitive = null | boolean | number | string;
