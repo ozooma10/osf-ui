@@ -152,7 +152,7 @@ describe('frozen 1.x helper facade', () => {
     expect(document.activeElement).not.toBe(input);
   });
 
-  it('is absent from a 2.0 navigation', () => {
+  it('keeps legacy aliases absent from a 2.0 navigation', () => {
     const { helper } = load('?scenario=strict');
     expect((helper as any).available).toBeUndefined();
     expect((helper as any).ready).toBeUndefined();
@@ -168,7 +168,10 @@ describe('frozen 1.x helper facade', () => {
     expect((helper as any).papyrus).toBeUndefined();
     expect((helper as any).i18n).toBeUndefined();
     expect((helper as any).theme).toBeUndefined();
-    expect((helper as any).state.get).toBeUndefined();
+    expect(typeof (helper as any).state.get).toBe('function');
+
+    deliver(helper, { kind: 'state', mod: 'acme.widgets', key: 'count', value: 4 });
+    expect((helper as any).state.get('acme.widgets/count')).toBe(4);
   });
 
   it('restores aliases while preserving query and fragment selection', async () => {

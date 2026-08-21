@@ -144,16 +144,18 @@ describe('author-friendly bridge helpers', () => {
     await expect(result).resolves.toBe(125);
   });
 
-  it('exposes no convenience API beyond the four core operations', () => {
+  it('exposes no unrelated convenience aliases alongside the compact author API', () => {
     const { helper } = loadHelper();
     for (const removed of ['available', 'ready', 'papyrus', 'i18n', 'theme']) {
       expect(removed in helper).toBe(false);
     }
-    expect('get' in helper.state).toBe(false);
+    expect(typeof helper.state.get).toBe('function');
   });
 
   it('state caches values and replays them by case-insensitive key', () => {
     const { helper } = loadHelper();
+    expect(helper.state.get('inventory.counts')).toBeUndefined();
+
     deliver(helper, { kind: 'ready', payload: { mod: 'acme.mod' } });
     deliver(helper, {
       kind: 'state',
@@ -161,6 +163,8 @@ describe('author-friendly bridge helpers', () => {
       key: 'Inventory.Counts',
       value: [2, 5],
     });
+    expect(helper.state.get<number[]>('ACME.MOD/INVENTORY.COUNTS')).toEqual([2, 5]);
+    expect(helper.state.get<number[]>('Inventory.Counts')).toEqual([2, 5]);
 
     const listener = vi.fn();
     const off = helper.state.on<number[]>('ACME.MOD/INVENTORY.COUNTS', listener);
@@ -173,6 +177,7 @@ describe('author-friendly bridge helpers', () => {
     expect(localListener).toHaveBeenLastCalledWith([2, 5]);
 
     deliver(helper, { kind: 'state', mod: 'acme.mod', key: 'inventory.counts', value: [8] });
+    expect(helper.state.get<number[]>('inventory.counts')).toEqual([8]);
     expect(listener).toHaveBeenCalledTimes(2);
     expect(localListener).toHaveBeenCalledTimes(2);
 

@@ -13,6 +13,7 @@ function installBridge(): { emitState(value: unknown): void } {
     request: vi.fn(() => Promise.resolve(undefined)),
     on: vi.fn(() => () => {}),
     state: {
+      get: vi.fn(() => undefined),
       on: vi.fn((_key: string, fn: StateHandler) => {
         stateHandler = fn;
         return () => {};
