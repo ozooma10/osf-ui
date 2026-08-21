@@ -22,6 +22,7 @@
   "files": [
     "assets/osfui.css",
     "assets/osfui.js",
+    "assets/gamepadnav.js",
     "src",
     "types/osfui.d.ts"
   ],

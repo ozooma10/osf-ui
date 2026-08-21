@@ -6,7 +6,6 @@
 				gameTopLevel = reinterpret_cast<HWND>(
 					static_cast<std::uintptr_t>(a_msg.topLevelHwnd));
 				viewsRoot = std::filesystem::path(ToWide(a_msg.viewsPath));
-				virtualHost = ToWide(a_msg.virtualHost);
 				width = (std::max)(1u, a_msg.width);
 				height = (std::max)(1u, a_msg.height);
 				userData = std::filesystem::path(ToWide(a_msg.userDataDir));
@@ -51,8 +50,8 @@
 			void HandleNavigate(const json& a_raw)
 			{
 				const auto a_msg = msg::FromJson<msg::Navigate>(a_raw);
-				if (a_msg.id.empty()) {
-					log.Warn("navigate without id ignored");
+				if (!OSFUI::Ids::IsValidQualifiedViewId(a_msg.id)) {
+					log.Warn(std::format("navigate with invalid qualified id '{}' ignored", a_msg.id));
 					return;
 				}
 				auto* view = FindView(a_msg.id);
@@ -63,9 +62,8 @@
 				if (a_msg.legacyApi) {
 					entry = OSFUI::Compat::V1::WithLegacyApiQuery(entry);
 				}
-				std::string path = a_msg.id + "/" + entry;
-				std::ranges::replace(path, '\\', '/');
-				view->pendingNavigate = L"https://" + virtualHost + L"/" + ToWide(path);
+				std::ranges::replace(entry, '\\', '/');
+				view->pendingNavigate = L"https://" + view->virtualHost + L"/" + view->viewName + L"/" + ToWide(entry);
 				if (view->webView) DrainQueuedViewWork(*view);
 				else RequestController(*view);
 			}

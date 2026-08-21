@@ -151,7 +151,7 @@ try {
         # Third-party views depend on the shared asset paths exactly.
         'SFSE\Plugins\OSFUI\views\shared\osfui.js',
         'SFSE\Plugins\OSFUI\views\shared\osfui.css',
-        'SFSE\Plugins\OSFUI\views\osfui\padnav.js',
+        'SFSE\Plugins\OSFUI\views\shared\gamepadnav.js',
         'Scripts\OSFUI.pex',          # Runtime/version API
         'Scripts\OSFUI_Settings.pex', # Settings/hotkey API
         'Scripts\OSFUI_View.pex'      # View bridge/presentation API

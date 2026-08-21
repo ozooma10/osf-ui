@@ -15,6 +15,7 @@ function sharedKitPlugin() {
     resolveId(source) {
       if (source === '/shared/osfui.js') return `${prefix}osfui.js`;
       if (source === '/shared/osfui.css') return `${prefix}osfui.css`;
+      if (source === '/shared/gamepadnav.js') return `${prefix}gamepadnav.js`;
     },
     async load(id) {
       if (!id.startsWith(prefix)) return null;

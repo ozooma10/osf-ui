@@ -11,6 +11,7 @@ const { composeHelper } = await import(pathToFileURL(
 
 const copies = [
   ['frontend/src/shared-kit/osfui.css', 'assets/osfui.css'],
+  ['frontend/src/legacy/padnav.js', 'assets/gamepadnav.js'],
   ['sdk/osfui.d.ts', 'types/osfui.d.ts'],
 ];
 

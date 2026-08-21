@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -70,7 +70,7 @@ async function assertStaticView(root, modId = 'acme.widgets', viewId = 'panel') 
   assert.equal(manifest.pausesGame, false);
   assert.equal(manifest.targetVersion, OSFUI_RELEASE_VERSION);
   assert.match(html, /<link rel="stylesheet" href="\.\/style\.css">/);
-  assert.match(html, /<script src="\.\.\/\.\.\/shared\/osfui\.js"><\/script>/);
+  assert.match(html, /<script src="https:\/\/osfui-assets\.example\/osfui\.js"><\/script>/);
   assert.match(html, /<script src="\.\/main\.js"><\/script>/);
   assert.doesNotMatch(html, /type="module"|\.tsx?\b/);
   assert.doesNotMatch(source, /^\s*(?:import|export)\b/m);
@@ -196,7 +196,7 @@ test('creates a directly deployable plain-JS native menu', async (t) => {
   assert.doesNotMatch(result.stdout, /npm (?:install|run)/);
 
   const { source, html } = await assertStaticView(root);
-  assert.match(html, /<link rel="stylesheet" href="\.\.\/\.\.\/shared\/osfui\.css">/);
+  assert.match(html, /<link rel="stylesheet" href="https:\/\/osfui-assets\.example\/osfui\.css">/);
   assert.match(source, /osfui\.state\.on\("state"/);
   assert.match(source, /osfui\.on\("notice"/);
   assert.match(source, /osfui\.send\("increment", \{ amount: 1 \}\)/);
@@ -303,6 +303,29 @@ test('creates the settings/papyrus preset without frontend files', async (t) => 
   assert.match(script, /^ScriptName AcmeWidgetsOSFUI Hidden/m);
   assert.match(script, /Function OnHotkey\(string asModId, string asKey\) Global/);
   await assertPapyrusApis(root);
+});
+
+test('refuses a non-empty destination without changing it', async (t) => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'create-osfui-'));
+  const root = resolve(parent, 'project');
+  const sentinel = resolve(root, 'keep.txt');
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  await mkdir(root);
+  await writeFile(sentinel, 'keep me');
+
+  const result = spawnSync(process.execPath, [
+    CLI,
+    root,
+    '--yes',
+    '--mod-id', 'acme.widgets',
+    '--surface', 'menu',
+    '--integration', 'papyrus',
+  ], { encoding: 'utf8' });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Directory is not empty/);
+  assert.deepEqual(await readdir(root), ['keep.txt']);
+  assert.equal(await readFile(sentinel, 'utf8'), 'keep me');
 });
 
 test('rejects a native settings project', async (t) => {

@@ -4,6 +4,7 @@
 #include "EmbeddedScripts.h"
 
 #include "Core/Version.h"
+#include "Core/Ids.h"
 #include "Input/ScanCode.h"
 #include "Core/Json.h"
 #include "Views/ViewCache.h"
@@ -27,6 +28,7 @@
 #include <DispatcherQueue.h>
 #include <WebView2.h>
 #include <WebView2EnvironmentOptions.h>
+#include <bcrypt.h>
 #include <shellapi.h>
 #include <wrl.h>
 #include <wrl/client.h>
@@ -58,11 +60,72 @@ namespace osfui::wv2
 		// Wire message shapes, compiled by the game side too (Wv2Messages.h).
 		namespace msg = osfui::wv2::msg;
 
-		std::uint32_t ComposeAcceleratorScan(std::uint32_t a_vk,
-			std::uint32_t a_rawScan, bool a_extended)
+		[[nodiscard]] std::string NormalizeModIdForOrigin(std::string_view a_modId)
 		{
-			const auto scan = OSFUI::ComposeScanCode(a_vk,
-				static_cast<std::uint8_t>(a_rawScan & 0xFF), a_extended);
+			std::string normalized(a_modId);
+			for (auto& ch : normalized) {
+				if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
+			}
+			return normalized;
+		}
+
+		[[nodiscard]] std::string Base32Lower(const std::array<unsigned char, 32>& a_bytes)
+		{
+			constexpr std::string_view alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+			std::string encoded;
+			encoded.reserve(52);
+			std::uint32_t bits = 0;
+			std::uint32_t bitCount = 0;
+			for (const auto byte : a_bytes) {
+				bits = (bits << 8) | byte;
+				bitCount += 8;
+				while (bitCount >= 5) {
+					bitCount -= 5;
+					encoded.push_back(alphabet[(bits >> bitCount) & 0x1Fu]);
+				}
+			}
+			if (bitCount != 0) {
+				encoded.push_back(alphabet[(bits << (5 - bitCount)) & 0x1Fu]);
+			}
+			return encoded;
+		}
+
+		[[nodiscard]] std::optional<std::wstring> VirtualHostForMod(std::string_view a_modId)
+		{
+			if (a_modId == OSFUI::Ids::kBuiltInModId) {
+				return std::wstring(kBuiltInViewHost);
+			}
+
+			const auto normalized = NormalizeModIdForOrigin(a_modId);
+			BCRYPT_ALG_HANDLE algorithm = nullptr;
+			BCRYPT_HASH_HANDLE hash = nullptr;
+			std::optional<std::wstring> result;
+			std::vector<unsigned char> object;
+			std::array<unsigned char, 32> digest{};
+			DWORD objectSize = 0;
+			DWORD digestSize = 0;
+			DWORD copied = 0;
+
+			if (::BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) >= 0 &&
+				::BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectSize), sizeof(objectSize), &copied, 0) >= 0 &&
+				::BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&digestSize), sizeof(digestSize), &copied, 0) >= 0 &&
+				digestSize == static_cast<DWORD>(digest.size())) {
+				object.resize(objectSize);
+				if (::BCryptCreateHash(algorithm, &hash, object.data(), objectSize, nullptr, 0, 0) >= 0 &&
+					::BCryptHashData(hash, const_cast<PUCHAR>(reinterpret_cast<const UCHAR*>(normalized.data())), static_cast<ULONG>(normalized.size()), 0) >= 0 &&
+					::BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) >= 0) {
+					const auto encoded = Base32Lower(digest);
+					result = L"m-" + std::wstring(encoded.begin(), encoded.end()) + L".example";
+				}
+			}
+			if (hash) ::BCryptDestroyHash(hash);
+			if (algorithm) ::BCryptCloseAlgorithmProvider(algorithm, 0);
+			return result;
+		}
+
+		std::uint32_t ComposeAcceleratorScan(std::uint32_t a_vk, std::uint32_t a_rawScan, bool a_extended)
+		{
+			const auto scan = OSFUI::ComposeScanCode(a_vk, static_cast<std::uint8_t>(a_rawScan & 0xFF), a_extended);
 			if (scan != OSFUI::kInvalidScanCode) {
 				return scan;
 			}
@@ -238,7 +301,6 @@ namespace osfui::wv2
 			HWND                  gameTopLevel{ nullptr };
 			std::filesystem::path viewsRoot, userData;
 			SharedReadLease       viewsLease;  // released after every WebView member
-			std::wstring          virtualHost{ L"osfui.example" };
 			std::uint32_t         width{ 1 }, height{ 1 };
 			bool                  devMode{ false };
 			bool                  highRefreshCapture{ false };
@@ -254,6 +316,9 @@ namespace osfui::wv2
 			struct View
 			{
 				std::string id;
+				std::string modId;
+				std::wstring viewName;
+				std::wstring virtualHost;
 				HWND        window{ nullptr };
 				winrt::Windows::UI::Composition::ContainerVisual visual{ nullptr };
 				ComPtr<ICoreWebView2Controller>            controller;
@@ -266,6 +331,8 @@ namespace osfui::wv2
 				bool hidden{ true };
 				bool nativePopupOpen{ false };
 				bool nonGestureOpenWarned{ false };
+				bool navigationBlockedWarned{ false };
+				bool frameNavigationBlockedWarned{ false };
 				std::uint64_t pageMessageWindowStarted{ 0 };
 				std::uint32_t pageMessagesThisWindow{ 0 };
 				bool pageMessageTooLargeWarned{ false };
@@ -709,16 +776,62 @@ namespace osfui::wv2
 				byeReason = "security-policy-failed";
 				const auto code = static_cast<unsigned>(a_hr);
 				log.Error(std::format("view '{}': {} (0x{:08X}); refusing to run "
-									 "untrusted content without the egress policy",
+									 "without the complete browser security policy",
 					a_view.id, a_description, code));
 				Send(msg::ToJson(msg::Fatal{
-					.stage = "network-policy",
+					.stage = "browser-security",
 					.view = a_view.id,
 					.description = std::string(a_description),
 					.code = code,
 				}));
+				if (a_view.webView) a_view.webView->Stop();
 				quit.store(true);
 				if (wakeEvent) ::SetEvent(wakeEvent);
+			}
+
+			HRESULT HandleNavigationStarting(View& a_view, ICoreWebView2NavigationStartingEventArgs* a_args, bool a_frame)
+			{
+				LPWSTR raw = nullptr;
+				const auto uriHr = a_args ? a_args->get_Uri(&raw) : E_POINTER;
+				if (FAILED(uriHr) || !raw) {
+					if (a_args) a_args->put_Cancel(TRUE);
+					ReportSecurityFailure(a_view, FAILED(uriHr) ? uriHr : E_POINTER, a_frame ? "frame navigation source was unavailable" : "top-level navigation source was unavailable");
+					return S_OK;
+				}
+				std::wstring uri(raw);
+				::CoTaskMemFree(raw);
+				const bool allowed = IsTrustedViewDocumentUri(uri, a_view.virtualHost, a_view.viewName) || (a_frame && IsAllowedBlankFrameUri(uri));
+				if (allowed) return S_OK;
+
+				const auto cancelHr = a_args->put_Cancel(TRUE);
+				if (FAILED(cancelHr)) {
+					ReportSecurityFailure(a_view, cancelHr, a_frame ? "could not cancel an untrusted frame navigation" : "could not cancel an untrusted top-level navigation");
+					return S_OK;
+				}
+				auto& warned = a_frame ? a_view.frameNavigationBlockedWarned : a_view.navigationBlockedWarned;
+				if (!warned) {
+					warned = true;
+					log.Warn(std::format("view '{}': blocked {} navigation to {} (further attempts are silent)", a_view.id, a_frame ? "frame" : "top-level", ToUtf8(uri)));
+				}
+				return S_OK;
+			}
+
+			HRESULT InstallOriginGuards(View& a_view)
+			{
+				View* view = &a_view;
+				EventRegistrationToken token{};
+				auto hr = a_view.webView->add_NavigationStarting(
+					Callback<ICoreWebView2NavigationStartingEventHandler>(
+						[this, view](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* a_args) -> HRESULT {
+							return HandleNavigationStarting(*view, a_args, false);
+						}).Get(), &token);
+				if (FAILED(hr)) return hr;
+				hr = a_view.webView->add_FrameNavigationStarting(
+					Callback<ICoreWebView2NavigationStartingEventHandler>(
+						[this, view](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* a_args) -> HRESULT {
+							return HandleNavigationStarting(*view, a_args, true);
+						}).Get(), &token);
+				return hr;
 			}
 
 			HRESULT OnController(View& a_view, HRESULT a_hr,
@@ -771,27 +884,35 @@ namespace osfui::wv2
 				}
 				ComPtr<ICoreWebView2_3> webView3;
 				if (FAILED(a_view.webView.As(&webView3))) {
-					log.Error("virtual host mapping API unavailable");
+					ReportSecurityFailure(a_view, E_NOINTERFACE, "virtual-host mapping API unavailable");
 					return S_OK;
 				}
-				result = webView3->SetVirtualHostNameToFolderMapping(
-					virtualHost.c_str(), viewsRoot.c_str(),
-					COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+				const auto modRoot = viewsRoot / ToWide(a_view.modId);
+				result = webView3->SetVirtualHostNameToFolderMapping(a_view.virtualHost.c_str(), modRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
 				if (FAILED(result)) {
-					log.Error(std::format("SetVirtualHostNameToFolderMapping failed (0x{:08X})",
-						static_cast<unsigned>(result)));
+					ReportSecurityFailure(a_view, result, "per-mod virtual-host mapping failed");
+					return S_OK;
+				}
+				const auto sharedRoot = viewsRoot / L"shared";
+				const std::wstring sharedHost(kSharedAssetHost);
+				result = webView3->SetVirtualHostNameToFolderMapping(sharedHost.c_str(), sharedRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
+				if (FAILED(result)) {
+					ReportSecurityFailure(a_view, result, "shared-asset virtual-host mapping failed");
+					return S_OK;
+				}
+				result = InstallOriginGuards(a_view);
+				if (FAILED(result)) {
+					ReportSecurityFailure(a_view, result, "navigation origin-policy installation failed");
 					return S_OK;
 				}
 				result = InstallNetworkGuard(a_view);
 				if (FAILED(result)) {
-					ReportSecurityFailure(a_view, result,
-						"network egress policy installation failed");
+					ReportSecurityFailure(a_view, result, "network egress policy installation failed");
 				}
 				return S_OK;
 			}
 
-			HRESULT AddDocumentScript(View& a_view, const EmbeddedScript a_script,
-				std::function<void(HRESULT)> a_completion)
+			HRESULT AddDocumentScript(View& a_view, const EmbeddedScript a_script, std::function<void(HRESULT)> a_completion)
 			{
 				const auto& source = GetEmbeddedScript(a_script);
 				if (!a_view.webView) return E_POINTER;
@@ -861,11 +982,6 @@ namespace osfui::wv2
 					end == std::wstring::npos ? std::wstring::npos : end - start);
 			}
 
-			[[nodiscard]] bool IsLocalViewUri(std::wstring a_uri) const
-			{
-				return osfui::wv2::IsLocalViewUri(std::move(a_uri), virtualHost);
-			}
-
 			HRESULT InstallNetworkGuard(View& a_view)
 			{
 				View* view = &a_view;
@@ -893,30 +1009,38 @@ namespace osfui::wv2
 					Callback<ICoreWebView2WebResourceRequestedEventHandler>(
 						[this, view](ICoreWebView2*,
 							ICoreWebView2WebResourceRequestedEventArgs* a_args) -> HRESULT {
+							if (!a_args) {
+								ReportSecurityFailure(*view, E_POINTER, "intercepted web-request arguments were unavailable");
+								return S_OK;
+							}
 							ComPtr<ICoreWebView2WebResourceRequest> request;
-							if (FAILED(a_args->get_Request(&request)) || !request) return S_OK;
+							const auto requestHr = a_args->get_Request(&request);
+							if (FAILED(requestHr) || !request) {
+								ReportSecurityFailure(*view, FAILED(requestHr) ? requestHr : E_POINTER, "could not inspect an intercepted web request");
+								return S_OK;
+							}
 							LPWSTR raw = nullptr;
-							if (FAILED(request->get_Uri(&raw)) || !raw) return S_OK;
+							const auto uriHr = request->get_Uri(&raw);
+							if (FAILED(uriHr) || !raw) {
+								ReportSecurityFailure(*view, FAILED(uriHr) ? uriHr : E_POINTER, "could not inspect an intercepted request URI");
+								return S_OK;
+							}
 							std::wstring uri(raw);
 							::CoTaskMemFree(raw);
-							if (IsLocalViewUri(uri)) return S_OK;
+							if (IsAllowedViewResourceUri(uri, view->virtualHost)) return S_OK;
 							ComPtr<ICoreWebView2WebResourceResponse> response;
-							if (environment && SUCCEEDED(environment->CreateWebResourceResponse(
-									nullptr, 403, L"Forbidden", L"", &response))) {
-								a_args->put_Response(response.Get());
+							const auto responseHr = environment ? environment->CreateWebResourceResponse(nullptr, 403, L"Forbidden", L"", &response) : E_POINTER;
+							const auto putHr = SUCCEEDED(responseHr) && response ? a_args->put_Response(response.Get()) : E_POINTER;
+							if (FAILED(responseHr) || !response || FAILED(putHr)) {
+								ReportSecurityFailure(*view, FAILED(responseHr) ? responseHr : FAILED(putHr) ? putHr : E_POINTER, "could not synthesize the blocked-request response");
+								return S_OK;
 							}
 							auto& warned = egressWarned[view->id];
 							if (warned.size() < kMaxEgressWarnsPerView &&
 								warned.insert(ToUtf8(UriHost(uri))).second) {
-								log.Warn(std::format(
-									"view '{}': blocked network egress to {} (further "
-									"denials for this origin are silent)",
-									view->id, ToUtf8(uri)));
+								log.Warn(std::format("view '{}': blocked network egress to {} (further denials for this origin are silent)", view->id, ToUtf8(uri)));
 								if (warned.size() == kMaxEgressWarnsPerView) {
-									log.Warn(std::format(
-										"view '{}': {} distinct blocked origins — further "
-										"egress denials for this view are silent",
-										view->id, kMaxEgressWarnsPerView));
+									log.Warn(std::format("view '{}': {} distinct blocked origins — further " "egress denials for this view are silent", view->id, kMaxEgressWarnsPerView));
 								}
 							}
 							return S_OK;
@@ -1130,6 +1254,23 @@ namespace osfui::wv2
 							constexpr std::size_t kMaxPageMessageChars = 64 * 1024;
 							constexpr std::size_t kMaxPageMessageBytes = 64 * 1024;
 							constexpr std::uint32_t kMaxPageMessagesPerSecond = 128;
+							if (!a_args) {
+								ReportSecurityFailure(*view, E_POINTER, "web-message arguments were unavailable");
+								return S_OK;
+							}
+							LPWSTR sourceRaw = nullptr;
+							const auto sourceHr = a_args->get_Source(&sourceRaw);
+							if (FAILED(sourceHr) || !sourceRaw) {
+								ReportSecurityFailure(*view, FAILED(sourceHr) ? sourceHr : E_POINTER, "web-message source was unavailable");
+								return S_OK;
+							}
+							std::wstring source(sourceRaw);
+							::CoTaskMemFree(sourceRaw);
+							if (!IsTrustedViewDocumentUri(source, view->virtualHost, view->viewName)) {
+								log.Error(std::format("view '{}': rejected native-bound message from {}", view->id, ToUtf8(source)));
+								ReportSecurityFailure(*view, E_ACCESSDENIED, "web-message source violated the view origin policy");
+								return S_OK;
+							}
 							LPWSTR value = nullptr;
 							if (FAILED(a_args->TryGetWebMessageAsString(&value)) || !value)
 								return S_OK;

@@ -32,7 +32,7 @@ target("osfui-webview2-host")
     add_packages("nlohmann_json")
     add_syslinks(
         "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",
-        "ole32", "oleaut32", "uuid", "advapi32", "user32", "shell32")
+        "ole32", "oleaut32", "uuid", "advapi32", "bcrypt", "user32", "shell32")
     add_ldflags("/SUBSYSTEM:WINDOWS", { force = true })
     on_load(function(target)
         local sdk = os.getenv("WEBVIEW2_SDK_DIR")

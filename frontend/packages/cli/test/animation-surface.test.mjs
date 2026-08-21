@@ -43,7 +43,10 @@ async function animationFixture(t) {
     }
   `);
   await writeFile(resolve(view, 'index.html'),
-    '<div id="app"></div><script src="../../shared/osfui.js"></script><script type="module" src="./main.ts"></script>');
+    '<link rel="stylesheet" href="https://osfui-assets.example/osfui.css"><div id="app"></div>' +
+    '<script src="https://osfui-assets.example/osfui.js"></script>' +
+    '<script src="https://osfui-assets.example/gamepadnav.js"></script>' +
+    '<script type="module" src="./main.ts"></script>');
   await writeFile(resolve(view, 'main.ts'), 'document.querySelector("#app").textContent = "Animation";');
   return root;
 }
@@ -68,10 +71,17 @@ test('loads, checks, and builds the OSF Animation project shape', async (t) => {
 test('injects the protocol-aware harness bootstrap and mock loader', async (t) => {
   const project = await loadProject(await animationFixture(t));
   const plugin = harnessPlugin(project, project.views[0]);
-  const tags = plugin.transformIndexHtml.handler('', {
+  const transformed = plugin.transformIndexHtml.handler(
+    '<link rel="stylesheet" href="https://osfui-assets.example/osfui.css">' +
+    '<script src="https://osfui-assets.example/osfui.js"></script>' +
+    '<script src="https://osfui-assets.example/gamepadnav.js"></script>', {
     path: '/osf.animation/browser/index.html',
   });
+  const tags = transformed.tags;
   assert.equal(tags.length, 3);
+  assert.match(transformed.html, /href="\/shared\/osfui\.css"/);
+  assert.match(transformed.html, /src="\/shared\/osfui\.js"/);
+  assert.match(transformed.html, /src="\/shared\/gamepadnav\.js"/);
   assert.match(tags[0].children, /__OSFUI_HARNESS_META__/);
   assert.equal(tags[1].attrs.src, '/__osfui/bootstrap.js');
   assert.equal(tags[2].attrs.src, '/__osfui/mock-loader.js');
@@ -111,6 +121,15 @@ test('dev server serves the complete protocol harness module graph', async (t) =
     assert.equal(page.status, 200);
     assert.match(html, /__osfui\/bootstrap\.js/);
     assert.match(html, /__osfui\/mock-loader\.js/);
+    assert.match(html, /href="\/shared\/osfui\.css"/);
+    assert.match(html, /src="\/shared\/osfui\.js"/);
+    assert.match(html, /src="\/shared\/gamepadnav\.js"/);
+
+    for (const path of ['/shared/osfui.css', '/shared/osfui.js', '/shared/gamepadnav.js']) {
+      const response = await fetch(origin + path);
+      assert.equal(response.status, 200, `${path} must be served`);
+      assert.ok((await response.text()).length > 0, `${path} must not be empty`);
+    }
 
     const expectedImports = new Map([
       ['/__osfui/bootstrap.js', null],

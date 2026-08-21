@@ -58,6 +58,7 @@ export function harnessPlugin(project, selectedView) {
     resolveId(source) {
       if (source === '/shared/osfui.js') return `${SHARED_PREFIX}osfui.js`;
       if (source === '/shared/osfui.css') return `${SHARED_PREFIX}osfui.css`;
+      if (source === '/shared/gamepadnav.js') return `${SHARED_PREFIX}gamepadnav.js`;
       const bare = source.split('?')[0];
       if (bare === MOCK_ENTRY && project.mockPath) return normalizePath(project.mockPath);
     },
@@ -69,15 +70,17 @@ export function harnessPlugin(project, selectedView) {
       order: 'pre',
       handler(html, context) {
         if (context.path.startsWith('/__osfui/')) return html;
-        return [
-          {
+        return {
+          html: html.replaceAll('https://osfui-assets.example/', '/shared/'),
+          tags: [{
             tag: 'script',
             children: `window.__OSFUI_HARNESS_META__=${JSON.stringify(metaFor(viewForPath(context.path)))};`,
             injectTo: 'head-prepend',
           },
           { tag: 'script', attrs: { src: '/__osfui/bootstrap.js' }, injectTo: 'head-prepend' },
           { tag: 'script', attrs: { type: 'module', src: '/__osfui/mock-loader.js' }, injectTo: 'head-prepend' },
-        ];
+          ],
+        };
       },
     },
     configureServer(server) {
@@ -95,6 +98,10 @@ export function harnessPlugin(project, selectedView) {
         }
         if (url.pathname === '/shared/osfui.css') {
           send(response, await readSharedAsset('osfui.css'), 'text/css; charset=utf-8');
+          return;
+        }
+        if (url.pathname === '/shared/gamepadnav.js') {
+          send(response, await readSharedAsset('gamepadnav.js'), 'text/javascript; charset=utf-8');
           return;
         }
         response.setHeader('Content-Security-Policy', CSP);

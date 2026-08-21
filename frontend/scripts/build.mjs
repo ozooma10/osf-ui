@@ -18,8 +18,8 @@ export async function runBuild({ quiet = false } = {}) {
   mkdirSync(join(OUT, 'shared'), { recursive: true });
   writeFileSync(join(OUT, 'shared/osfui.js'), composeHelper(), 'utf8');
   copy(join(FRONTEND, 'src/shared-kit/osfui.css'), join(OUT, 'shared/osfui.css'));
-  copy(join(FRONTEND, 'src/legacy/padnav.js'), join(OUT, 'osfui/padnav.js'));
-  log('  composed shared helper; copied stylesheet + padnav');
+  copy(join(FRONTEND, 'src/legacy/padnav.js'), join(OUT, 'shared/gamepadnav.js'));
+  log('  composed shared helper; copied stylesheet + gamepad navigation');
 
   for (const v of BUILD_VIEWS) {
     const src = join(FRONTEND, 'src/views', v.mod, v.name);

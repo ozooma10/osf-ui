@@ -33,7 +33,7 @@ export function verifyOutput() {
   // Remaining verbatim artifacts must stay byte-identical to their sources.
   const verbatim = [
     ['src/shared-kit/osfui.css', 'shared/osfui.css'],
-    ['src/legacy/padnav.js', 'osfui/padnav.js'],
+    ['src/legacy/padnav.js', 'shared/gamepadnav.js'],
   ];
   for (const [src, out] of verbatim) {
     const a = join(FRONTEND, src), b = join(OUT, out);
@@ -51,9 +51,10 @@ export function verifyOutput() {
       const h = readFileSync(html, 'utf8');
       if (/type\s*=\s*["']module["']/.test(h)) fail(`${v.name}/index.html uses type="module" (built-in bundles must remain classic IIFEs)`);
       if (/\bcrossorigin\b/.test(h)) fail(`${v.name}/index.html has a crossorigin attribute (Vite HTML pipeline leaked in)`);
-      if (!/src="\.\.\/\.\.\/shared\/osfui\.js"/.test(h)) fail(`${v.name}/index.html no longer loads ../../shared/osfui.js`);
-      if (!/href="\.\.\/\.\.\/shared\/osfui\.css"/.test(h)) fail(`${v.name}/index.html no longer links ../../shared/osfui.css`);
-      const kit = h.indexOf('shared/osfui.js'), main = h.indexOf('src="main.js"');
+      if (!/src="https:\/\/osfui-assets\.example\/osfui\.js"/.test(h)) fail(`${v.name}/index.html no longer loads the shared osfui.js origin`);
+      if (!/href="https:\/\/osfui-assets\.example\/osfui\.css"/.test(h)) fail(`${v.name}/index.html no longer links the shared osfui.css origin`);
+      if (!/src="https:\/\/osfui-assets\.example\/gamepadnav\.js"/.test(h)) fail(`${v.name}/index.html no longer loads the shared gamepad navigation helper`);
+      const kit = h.indexOf('osfui-assets.example/osfui.js'), main = h.indexOf('src="main.js"');
       if (kit >= 0 && main >= 0 && kit > main) fail(`${v.name}/index.html loads main.js before the shared kit`);
     }
 

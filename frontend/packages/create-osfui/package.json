@@ -1,13 +1,25 @@
 {
   "name": "create-osfui",
-  "version": "0.1.0",
-  "description": "Create an OSF UI project",
+  "version": "0.2.0",
+  "description": "Create a directly deployable OSF UI starter for Starfield mods",
   "keywords": [
     "starfield",
     "sfse",
     "osfui"
   ],
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ozooma10/osf-ui.git",
+    "directory": "frontend/packages/create-osfui"
+  },
+  "homepage": "https://github.com/ozooma10/osf-ui#readme",
+  "bugs": {
+    "url": "https://github.com/ozooma10/osf-ui/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "create-osfui": "src/cli.mjs"
   },
@@ -21,9 +33,10 @@
     "@clack/prompts": "^1.7.0"
   },
   "scripts": {
+    "prepublishOnly": "npm test",
     "prepack": "node scripts/package-sdk.mjs",
     "postpack": "node scripts/package-sdk.mjs --clean",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20.19"

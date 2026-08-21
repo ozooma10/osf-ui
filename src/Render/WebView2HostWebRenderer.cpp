@@ -991,7 +991,6 @@ namespace OSFUI
 				addBootstrap(ToJson(msg::Init{
 					.topLevelHwnd = reinterpret_cast<std::uint64_t>(gameTopLevel),
 					.viewsPath = ToUtf8(mappedViewsRoot.native()),
-					.virtualHost = "osfui.example",
 					.width = width,
 					.height = height,
 					.userDataDir = ToUtf8(userData.native()),

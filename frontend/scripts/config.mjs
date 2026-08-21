@@ -34,7 +34,7 @@ export const VIEWS = readdirSync(VIEWS_ROOT, { withFileTypes: true })
 export const BUILD_VIEWS = VIEWS.filter((view) => view.manifest.debugOnly !== true);
 
 export function expectedOutputs() {
-  const files = ['shared/osfui.js', 'shared/osfui.css', 'osfui/padnav.js'];
+  const files = ['shared/osfui.js', 'shared/osfui.css', 'shared/gamepadnav.js'];
   for (const v of BUILD_VIEWS) {
     files.push(
       `${v.mod}/${v.name}/index.html`,
