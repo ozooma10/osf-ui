@@ -558,10 +558,13 @@ int main()
 	Check(ContainsInOrder(FunctionBody(overlayInputSource, "void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam)"), {
 		"MOUSE_MOVE_ABSOLUTE",
 		"OnGameWindowMouseRelative",
+		"g_hasLastAbsoluteClient",
+		"OnGameWindowMouseRelative",
+		"pt.x - g_lastAbsoluteClient.x",
 		"OnGameWindowMouseAbsolute",
 		"RI_MOUSE_LEFT_BUTTON_UP",
 		"OnGameWindowMouseButton(0, false)" }),
-		"WM_INPUT must accumulate relative motion while preserving ordinary DOM pointer movement and the mouse-up terminal edge");
+		"WM_INPUT must accumulate both relative and absolute-device motion while preserving ordinary DOM pointer movement and the mouse-up terminal edge");
 	Check(ContainsInOrder(applyPolicy, {
 		"const auto layers = _presentation.DesiredLayers()",
 		"SetViewOrder(layer.id, layer.z)",

@@ -36,6 +36,11 @@ namespace OSFUI::OverlayInputHook
 
 		// Window-thread cursor state observes capture edges published by the main thread.
 		bool g_hwCursorActive{ false };
+		// Absolute raw-input devices report a normalized position rather than a
+		// movement delta. Keep the last client position so relative-pointer owners
+		// still receive motion on touchpads, virtual mice, and remapped devices.
+		POINT g_lastAbsoluteClient{};
+		bool  g_hasLastAbsoluteClient{ false };
 
 		struct FindWindowData
 		{
@@ -97,8 +102,10 @@ namespace OSFUI::OverlayInputHook
 
 			auto& runtime = Runtime::Get();
 			const auto& mouse = raw.data.mouse;
-			if ((mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0) {
+			const bool absoluteMove = (mouse.usFlags & MOUSE_MOVE_ABSOLUTE) != 0;
+			if (!absoluteMove) {
 				runtime.OnGameWindowMouseRelative(mouse.lLastX, mouse.lLastY);
+				g_hasLastAbsoluteClient = false;
 			}
 
 			// Heal engine cursor changes on the next visible input packet.
@@ -108,6 +115,14 @@ namespace OSFUI::OverlayInputHook
 			RECT  client{};
 			if (::GetCursorPos(&pt) && ::ScreenToClient(a_hwnd, &pt) &&
 				::GetClientRect(a_hwnd, &client) && client.right > 0 && client.bottom > 0) {
+				if (absoluteMove) {
+					if (g_hasLastAbsoluteClient) {
+						runtime.OnGameWindowMouseRelative(
+							pt.x - g_lastAbsoluteClient.x, pt.y - g_lastAbsoluteClient.y);
+					}
+					g_lastAbsoluteClient = pt;
+					g_hasLastAbsoluteClient = true;
+				}
 				runtime.OnGameWindowMouseAbsolute(pt.x, pt.y, client.right, client.bottom);
 			}
 
@@ -162,6 +177,7 @@ namespace OSFUI::OverlayInputHook
 			const bool wantHwCursor = runtime.IsInputCaptured();
 			if (wantHwCursor != g_hwCursorActive) {
 				g_hwCursorActive = wantHwCursor;
+				g_hasLastAbsoluteClient = false;
 				if (wantHwCursor) {
 					HardwareCursor::Activate(a_hwnd);
 				} else {
