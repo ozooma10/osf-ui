@@ -99,7 +99,10 @@
 			{
 				auto* view = ResolveView(a_msg);
 				if (!view) return;
-				if (inputTarget && inputTarget != view) inputTarget->nativePopupOpen = false;
+				if (inputTarget && inputTarget != view) {
+					RecoverPressedMouseButtons(*inputTarget, "input target change");
+					inputTarget->nativePopupOpen = false;
+				}
 				inputTarget = view;
 				log.Info(std::format("input-target view -> '{}'", view->id));
 				if (focusGranted && view->controller && !view->hidden) {
@@ -121,10 +124,12 @@
 					return;
 				}
 				focusEpoch = request.epoch;
+				if (!request.focused) RecoverAllPressedMouseButtons("focus revoke");
 				focusGranted = request.focused;
 				if (!request.view.empty()) {
 					if (auto* requestedView = FindView(request.view)) {
 						if (inputTarget && inputTarget != requestedView) {
+							RecoverPressedMouseButtons(*inputTarget, "focus target change");
 							inputTarget->nativePopupOpen = false;
 						}
 						inputTarget = requestedView;

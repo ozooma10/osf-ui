@@ -79,6 +79,7 @@ SUITES=(
 "view_reveal_gate_tests view_reveal_gate_tests.cpp ../../src/Views/ViewRevealGate.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"
 "wv2_messages_tests wv2_messages_tests.cpp ../../src/Core/Json.cpp"
+"wv2_mouse_buttons_tests wv2_mouse_buttons_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
 "v1_navigation_tests v1_navigation_tests.cpp"
 "view_presentation_controller_tests view_presentation_controller_tests.cpp ../../src/Views/ViewPresentationController.cpp"

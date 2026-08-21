@@ -11,6 +11,7 @@
 #include "Wv2BoundedQueue.h"
 #include "Wv2LocalUri.h"
 #include "Wv2Messages.h"
+#include "Wv2MouseButtons.h"
 #include "Wv2Pipe.h"
 #include "Wv2Protocol.h"
 #include "Win32Util.h"
@@ -333,7 +334,7 @@ namespace osfui::wv2
 				bool nonGestureOpenWarned{ false };
 				bool navigationBlockedWarned{ false };
 				bool frameNavigationBlockedWarned{ false };
-				bool legacySharedAssetAliased{ false };
+				bool legacySharedAssetRedirected{ false };
 				std::uint64_t pageMessageWindowStarted{ 0 };
 				std::uint32_t pageMessagesThisWindow{ 0 };
 				bool pageMessageTooLargeWarned{ false };
@@ -349,6 +350,7 @@ namespace osfui::wv2
 				std::wstring currentUrl;
 				std::optional<std::wstring> pendingNavigate;
 				std::deque<std::string> queuedPostWeb;
+				SyntheticMouseButtons syntheticMouseButtons;
 			};
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
 			View* inputTarget{ nullptr };  // mouse/focus/synthetic-key target
@@ -363,6 +365,8 @@ namespace osfui::wv2
 			std::string   lastPublishedFocusView;
 			bool          rawMouseRegistered{ false };
 			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
+			std::uint64_t syntheticMouseRecoveryCount{ 0 };
+			std::uint64_t mouseCaptureRecoveryCount{ 0 };
 			std::unordered_set<UINT> handledKeys;
 			static constexpr std::size_t kMaxEgressWarnsPerView = 32;
 			std::unordered_map<std::string, std::unordered_set<std::string>> egressWarned;
@@ -525,6 +529,7 @@ namespace osfui::wv2
 			void HideView(View& a_view)
 			{
 				if (a_view.hidden && !a_view.revealPending) return;
+				RecoverPressedMouseButtons(a_view, "view hide");
 				a_view.hidden = true;
 				RefreshCaptureVisibility();
 				a_view.pendingPresentationEpoch = 0;
@@ -612,6 +617,7 @@ namespace osfui::wv2
 
 			void DestroyOneView(View& a_view)
 			{
+				RecoverPressedMouseButtons(a_view, "view destruction");
 				if (captureWidget && ::IsChild(a_view.window, captureWidget)) {
 					RemoveCaptureSubclass();
 				}
@@ -802,7 +808,10 @@ namespace osfui::wv2
 				std::wstring uri(raw);
 				::CoTaskMemFree(raw);
 				const bool allowed = IsTrustedViewDocumentUri(uri, a_view.virtualHost, a_view.viewName) || (a_frame && IsAllowedBlankFrameUri(uri));
-				if (allowed) return S_OK;
+				if (allowed) {
+					if (!a_frame) RecoverPressedMouseButtons(a_view, "main-frame navigation");
+					return S_OK;
+				}
 
 				const auto cancelHr = a_args->put_Cancel(TRUE);
 				if (FAILED(cancelHr)) {
@@ -892,13 +901,6 @@ namespace osfui::wv2
 				result = webView3->SetVirtualHostNameToFolderMapping(a_view.virtualHost.c_str(), modRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
 				if (FAILED(result)) {
 					ReportSecurityFailure(a_view, result, "per-mod virtual-host mapping failed");
-					return S_OK;
-				}
-				const auto sharedRoot = viewsRoot / L"shared";
-				const std::wstring sharedHost(kSharedAssetHost);
-				result = webView3->SetVirtualHostNameToFolderMapping(sharedHost.c_str(), sharedRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
-				if (FAILED(result)) {
-					ReportSecurityFailure(a_view, result, "shared-asset virtual-host mapping failed");
 					return S_OK;
 				}
 				result = InstallOriginGuards(a_view);
@@ -1028,15 +1030,20 @@ namespace osfui::wv2
 							}
 							std::wstring uri(raw);
 							::CoTaskMemFree(raw);
-							if (const auto target = LegacySharedAssetTargetUri(uri, view->virtualHost)) {
-								const auto rewriteHr = request->put_Uri(target->c_str());
-								if (FAILED(rewriteHr)) {
-									ReportSecurityFailure(*view, rewriteHr, "could not map a legacy shared-asset request to the dedicated origin");
+							if (const auto target = LegacySharedAssetRedirectUri(uri, view->virtualHost)) {
+								const auto headers = L"Location: " + *target + L"\r\nCache-Control: no-store";
+								ComPtr<ICoreWebView2WebResourceResponse> response;
+								const auto responseHr = environment ? environment->CreateWebResourceResponse(nullptr, 307, L"Temporary Redirect", headers.c_str(), &response) : E_POINTER;
+								const auto putHr = SUCCEEDED(responseHr) && response ?
+									a_args->put_Response(response.Get()) : E_POINTER;
+								if (FAILED(responseHr) || !response || FAILED(putHr)) {
+									ReportSecurityFailure(*view, FAILED(responseHr) ? responseHr : FAILED(putHr) ? putHr : E_POINTER, "could not redirect a legacy shared-asset URL to the mod origin");
 									return S_OK;
 								}
-								if (!view->legacySharedAssetAliased) {
-									view->legacySharedAssetAliased = true;
-									log.Info(std::format("view '{}': legacy /shared asset URL mapped to the dedicated shared origin", view->id));
+								if (!view->legacySharedAssetRedirected) {
+									view->legacySharedAssetRedirected = true;
+									log.Info(std::format("view '{}': legacy shared-asset URLs redirected to {}",
+										view->id, ToUtf8(*target)));
 								}
 								return S_OK;
 							}
@@ -1151,6 +1158,7 @@ namespace osfui::wv2
 
 			void ReleaseInputFocus(std::string_view a_reason)
 			{
+				RecoverAllPressedMouseButtons(a_reason);
 				if (FocusedView() && hostWindow) {
 					// Move focus onto our non-WebView owner first, then clear this input queue.
 					// This gives Chromium a synchronous LostFocus edge instead of relying solely
@@ -1177,6 +1185,7 @@ namespace osfui::wv2
 			}
 
 			static constexpr UINT kReconcileFocusMessage = 0x804B;
+			static constexpr UINT kReconcileMouseCaptureMessage = 0x804C;
 
 			void QueueFocusReconcile()
 			{
@@ -1216,7 +1225,8 @@ namespace osfui::wv2
 						}).Get(), &token);
 				a_view.controller->add_LostFocus(
 					Callback<ICoreWebView2FocusChangedEventHandler>(
-						[this](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
+						[this, view](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
+							RecoverPressedMouseButtons(*view, "WebView LostFocus");
 							PublishFocusState();
 							if (focusGranted) QueueFocusReconcile();
 							return S_OK;
@@ -1279,7 +1289,8 @@ namespace osfui::wv2
 							}
 							std::wstring source(sourceRaw);
 							::CoTaskMemFree(sourceRaw);
-							if (!IsTrustedViewDocumentUri(source, view->virtualHost, view->viewName)) {
+							if (!IsTrustedViewDocumentUri(
+									source, view->virtualHost, view->viewName)) {
 								log.Error(std::format("view '{}': rejected native-bound message from {}", view->id, ToUtf8(source)));
 								ReportSecurityFailure(*view, E_ACCESSDENIED, "web-message source violated the view origin policy");
 								return S_OK;
@@ -1752,16 +1763,89 @@ namespace osfui::wv2
 							: ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 			}
 
+			[[nodiscard]] static COREWEBVIEW2_MOUSE_EVENT_KIND MouseButtonUpKind(SyntheticMouseButton a_button) noexcept
+			{
+				switch (a_button) {
+				case SyntheticMouseButton::left:
+					return COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
+				case SyntheticMouseButton::right:
+					return COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP;
+				case SyntheticMouseButton::middle:
+					return COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
+				}
+				return COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
+			}
+
+			[[nodiscard]] static COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS MouseVirtualKeys(SyntheticMouseButtonMask a_buttons) noexcept
+			{
+				UINT32 keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE;
+				if ((a_buttons & MouseButtonBit(SyntheticMouseButton::left)) != 0) {
+					keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON;
+				}
+				if ((a_buttons & MouseButtonBit(SyntheticMouseButton::right)) != 0) {
+					keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_RIGHT_BUTTON;
+				}
+				if ((a_buttons & MouseButtonBit(SyntheticMouseButton::middle)) != 0) {
+					keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_MIDDLE_BUTTON;
+				}
+				return static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(keys);
+			}
+
+			[[nodiscard]] static std::string DescribeMouseButtons(SyntheticMouseButtonMask a_buttons)
+			{
+				std::string result;
+				for (const auto button : kSyntheticMouseReleaseOrder) {
+					if ((a_buttons & MouseButtonBit(button)) == 0) continue;
+					if (!result.empty()) result += ',';
+					result += MouseButtonName(button);
+				}
+				return result.empty() ? "none" : result;
+			}
+
+			SyntheticMouseButtonMask RecoverPressedMouseButtons(View& a_view, std::string_view a_reason)
+			{
+				const auto pressed = a_view.syntheticMouseButtons.TakePressed();
+				if (pressed == 0) return 0;
+
+				auto remaining = pressed;
+				SyntheticMouseButtonMask failed = 0;
+				for (const auto button : kSyntheticMouseReleaseOrder) {
+					const auto bit = MouseButtonBit(button);
+					if ((pressed & bit) == 0) continue;
+					remaining &= static_cast<SyntheticMouseButtonMask>(~bit);
+					const auto hr = a_view.compositionController ?
+						a_view.compositionController->SendMouseInput(
+							MouseButtonUpKind(button), MouseVirtualKeys(remaining), 0,
+							POINT{ capturedMouseX, capturedMouseY }) :
+						E_POINTER;
+					if (FAILED(hr)) failed |= bit;
+				}
+
+				const auto recovery = ++syntheticMouseRecoveryCount;
+				log.Warn(std::format("MouseInputRecovery #{}: view '{}' crossed '{}' with unmatched {} synthetic button-down; forced button-up delivery {}{}", 
+					recovery, a_view.id, a_reason, DescribeMouseButtons(pressed), failed == 0 ? "succeeded" : "failed for ", failed == 0 ? "" : DescribeMouseButtons(failed)));
+				return pressed;
+			}
+
+			void RecoverAllPressedMouseButtons(std::string_view a_reason)
+			{
+				for (auto& view : views) RecoverPressedMouseButtons(*view, a_reason);
+			}
+
 			void ApplyMouseCapture()
 			{
 				const bool captureForPage =
-					focusGranted && (!inputTarget || !inputTarget->nativePopupOpen);
+					focusGranted && GameIsForeground() && inputTarget &&
+					!inputTarget->hidden && !inputTarget->nativePopupOpen;
 				if (captureForPage && hostWindow) {
 					if (::GetCapture() != hostWindow) {
 						::SetCapture(hostWindow);
 					}
 				} else {
 					if (hostWindow && ::GetCapture() == hostWindow) {
+						if (inputTarget) {
+							RecoverPressedMouseButtons(*inputTarget, "mouse capture release");
+						}
 						::ReleaseCapture();
 					}
 				}
@@ -1868,14 +1952,28 @@ namespace osfui::wv2
 				capturedMouseY = y;
 
 				COREWEBVIEW2_MOUSE_EVENT_KIND eventKind{};
+				std::optional<SyntheticMouseButton> button;
+				bool buttonDown = false;
 				switch (a_msg) {
 				case WM_MOUSEMOVE:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE; break;
-				case WM_LBUTTONDOWN: eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN; break;
-				case WM_LBUTTONUP:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP; break;
-				case WM_RBUTTONDOWN: eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN; break;
-				case WM_RBUTTONUP:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP; break;
-				case WM_MBUTTONDOWN: eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN; break;
-				case WM_MBUTTONUP:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP; break;
+				case WM_LBUTTONDOWN:
+					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN;
+					button = SyntheticMouseButton::left; buttonDown = true; break;
+				case WM_LBUTTONUP:
+					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
+					button = SyntheticMouseButton::left; break;
+				case WM_RBUTTONDOWN:
+					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN;
+					button = SyntheticMouseButton::right; buttonDown = true; break;
+				case WM_RBUTTONUP:
+					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP;
+					button = SyntheticMouseButton::right; break;
+				case WM_MBUTTONDOWN:
+					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN;
+					button = SyntheticMouseButton::middle; buttonDown = true; break;
+				case WM_MBUTTONUP:
+					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
+					button = SyntheticMouseButton::middle; break;
 				case WM_MOUSEWHEEL:  eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL; break;
 				default: return false;
 				}
@@ -1883,8 +1981,11 @@ namespace osfui::wv2
 					static_cast<UINT32>(LOWORD(a_wparam)));
 				const auto data = a_msg == WM_MOUSEWHEEL ?
 					static_cast<UINT32>(static_cast<SHORT>(HIWORD(a_wparam))) : 0u;
-				inputTarget->compositionController->SendMouseInput(
+				const auto hr = inputTarget->compositionController->SendMouseInput(
 					eventKind, keys, data, POINT{ x, y });
+				if (SUCCEEDED(hr) && button) {
+					inputTarget->syntheticMouseButtons.Observe(*button, buttonDown);
+				}
 				return true;
 			}
 
@@ -1892,12 +1993,38 @@ namespace osfui::wv2
 				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
 				auto* self = s_hostInputApp;
+				if (self && a_msg == kReconcileMouseCaptureMessage) {
+					if (static_cast<std::uint64_t>(a_wparam) == self->focusEpoch &&
+						self->focusGranted && self->GameIsForeground() &&
+						self->inputTarget && !self->inputTarget->hidden &&
+						!self->inputTarget->nativePopupOpen) {
+						self->ApplyMouseCapture();
+						const bool rearmed = ::GetCapture() == self->hostWindow;
+						const auto recovery = ++self->mouseCaptureRecoveryCount;
+						self->log.Warn(std::format(
+							"MouseCaptureRecovery #{}: view '{}' unexpectedly lost Win32 "
+							"mouse capture while input remained granted; rearmed={}",
+							recovery, self->inputTarget->id, rearmed));
+					}
+					return 0;
+				}
 				if (self && a_msg == kReconcileFocusMessage) {
 					if (static_cast<std::uint64_t>(a_wparam) == self->focusEpoch &&
 						self->focusGranted) {
 						self->RequestInputFocus("focus event");
 					}
 					return 0;
+				}
+				if (self && a_msg == WM_CAPTURECHANGED) {
+					const bool unexpected = self->focusGranted && self->GameIsForeground() &&
+						self->inputTarget && !self->inputTarget->hidden &&
+						!self->inputTarget->nativePopupOpen &&
+						reinterpret_cast<HWND>(a_lparam) != self->hostWindow;
+					if (self->inputTarget) {
+						self->RecoverPressedMouseButtons(
+							*self->inputTarget, "Win32 WM_CAPTURECHANGED");
+					}
+					if (unexpected) self->QueueMouseCaptureReconcile();
 				}
 				if (self && a_msg == WM_INPUT) {
 					self->SendRawMouseWheel(a_lparam);
@@ -1946,6 +2073,8 @@ namespace osfui::wv2
 				}
 				COREWEBVIEW2_MOUSE_EVENT_KIND eventKind{};
 				UINT32 data = 0;
+				std::optional<SyntheticMouseButton> trackedButton;
+				bool buttonDown = false;
 				if (kind == "move") {
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
 				} else if (kind == "wheel" || physicalWheel) {
@@ -1954,19 +2083,31 @@ namespace osfui::wv2
 				} else {
 					const int  button = mouse.button;
 					const bool down = mouse.down;
+					buttonDown = down;
 					if (button == 0) {
-						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN :
-							COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
+						trackedButton = SyntheticMouseButton::left;
+						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN : COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
 					} else if (button == 1) {
-						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN :
-							COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP;
+						trackedButton = SyntheticMouseButton::right;
+						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN : COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP;
 					} else {
-						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN :
-							COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
+						trackedButton = SyntheticMouseButton::middle;
+						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN : COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
 					}
 				}
-				inputTarget->compositionController->SendMouseInput(eventKind,
+				const auto hr = inputTarget->compositionController->SendMouseInput(eventKind,
 					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, data, POINT{ x, y });
+				if (SUCCEEDED(hr) && trackedButton) {
+					inputTarget->syntheticMouseButtons.Observe(*trackedButton, buttonDown);
+				}
+			}
+
+			void QueueMouseCaptureReconcile()
+			{
+				if (hostWindow) {
+					::PostMessageW(hostWindow, kReconcileMouseCaptureMessage,
+						static_cast<WPARAM>(focusEpoch), 0);
+				}
 			}
 
 #include "GameMessages.inl"

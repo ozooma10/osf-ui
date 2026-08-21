@@ -31,6 +31,7 @@ int main()
 	const auto cache = root / "cache";
 	Write(source / "shared" / "osfui.js", "shared-v1");
 	Write(source / "osfui" / "settings" / "index.html", "settings-v1");
+	Write(source / "osfui" / "shared" / "osfui.js", "mod-shadow");
 	std::string binary(64 * 1024, '\0');
 	for (std::size_t i = 0; i < binary.size(); ++i) {
 		binary[i] = static_cast<char>(i);
@@ -41,8 +42,8 @@ int main()
 	std::string error;
 	const auto fingerprint = OSFUI::ViewCache::FingerprintTree(source, "runtime-v1", error);
 	assert(fingerprint && error.empty());
-	assert(fingerprint->files == 3);
-	assert(fingerprint->bytes == 20 + binary.size());
+	assert(fingerprint->files == 4);
+	assert(fingerprint->bytes == 30 + binary.size());
 	assert(OSFUI::ViewCache::GenerationName(fingerprint->value).starts_with("gen-"));
 
 	const auto first = OSFUI::ViewCache::Prepare(
@@ -51,6 +52,10 @@ int main()
 	assert(Read(first->generation / "shared" / "osfui.js") == "shared-v1");
 	assert(Read(first->generation / "osfui" / "settings" / "index.html") ==
 		"settings-v1");
+	assert(Read(first->generation / "osfui" / "shared" / "osfui.js") ==
+		"shared-v1");
+	assert(Read(first->generation / "assets" / "shared" / "osfui.js") ==
+		"shared-v1");
 	assert(Read(first->generation / "assets" / "exact-buffer.bin") == binary);
 	assert(fs::is_directory(first->generation / "empty"));
 	assert(fs::is_regular_file(first->generation / OSFUI::ViewCache::kCompleteMarker));
@@ -70,6 +75,8 @@ int main()
 		source, cache, "runtime-v1", "third", error);
 	assert(changed && !changed->reused && changed->generation != first->generation);
 	assert(Read(changed->generation / "shared" / "osfui.js") == "shared-v2");
+	assert(Read(changed->generation / "osfui" / "shared" / "osfui.js") ==
+		"shared-v2");
 
 	// Runtime/cache-format salt changes also invalidate an otherwise identical tree.
 	const auto resalted = OSFUI::ViewCache::Prepare(

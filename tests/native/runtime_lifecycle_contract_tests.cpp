@@ -833,6 +833,36 @@ int main()
 		hostMessages.find("prewarm") == std::string::npos &&
 		hostSource.find("Prewarm") == std::string::npos,
 		"unused menus must not be instantiated or painted through a prewarm path");
+	const auto onController = FunctionBody(hostSource,
+		"HRESULT OnController(View& a_view");
+	Check(onController.find(
+		"SetVirtualHostNameToFolderMapping(a_view.virtualHost.c_str(), modRoot.c_str()") !=
+		std::string::npos &&
+		onController.find("shared-asset virtual-host mapping") == std::string::npos,
+		"each isolated mod origin must stay rooted at only that mod's files");
+	const auto installNetworkGuard = FunctionBody(hostSource,
+		"HRESULT InstallNetworkGuard(View& a_view)");
+	Check(ContainsInOrder(installNetworkGuard, {
+		"LegacySharedAssetRedirectUri(uri, view->virtualHost)",
+		"CreateWebResourceResponse(nullptr, 307",
+		"a_args->put_Response(response.Get())" }),
+		"legacy shared-asset URLs must redirect onto the requesting mod origin");
+	Check(hostSource.find("SHCreateStreamOnFileEx") == std::string::npos,
+		"virtual-host resources must not rely on WebResourceRequested, which WebView2 does not raise for mapped files");
+	const auto resolveMappedViews = FunctionBody(rendererSource,
+		"bool ResolveMappedViewsRoot()");
+	Check(resolveMappedViews.find("if (!::GetModuleHandleW(L\"usvfs_x64.dll\")) return true") ==
+			std::string::npos &&
+		resolveMappedViews.find("ViewCache::MaterializeSharedAssets(mirror, error)") !=
+			std::string::npos,
+		"every launch path must build isolated mod roots with a physical shared projection");
+	const auto refreshViewFiles = FunctionBody(rendererSource,
+		"bool RefreshViewFiles(std::string_view a_viewId)");
+	Check(ContainsInOrder(refreshViewFiles, {
+		"DevViewFiles::SyncTree(viewsRoot / \"shared\"",
+		"DevViewFiles::SyncTree(source, destination",
+		"ViewCache::MaterializeSharedAssets(mappedViewsRoot, error)" }),
+		"developer reload must refresh canonical assets before rebuilding each mod-local shared projection");
 	const auto finishControllerSetup = FunctionBody(hostSource,
 		"void FinishControllerSetup(View& a_view)");
 	Check(ContainsInOrder(finishControllerSetup, {
