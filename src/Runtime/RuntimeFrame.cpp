@@ -183,5 +183,6 @@ namespace OSFUI
 		ProcessSettingsMaintenance();
 		ReconcileFrameState(a_deltaSeconds);
 		ProcessRendererFrame(a_deltaSeconds);
+		DrainRelativePointerCapture();
 	}
 }

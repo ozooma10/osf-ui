@@ -111,6 +111,14 @@ export type PlatformSend =
    */
   | { name: "osfui.gamepadRaw"; payload: { raw: boolean } }
   /**
+   * Arm or end native relative-pointer capture for this document. The active
+   * visible input-owning menu and a native ABI 1.10 handler registered for the
+   * exact view id are both required. Raw dx/dy/wheel updates stay in native
+   * code; the page sends only these ownership edges. OSF UI also ends the
+   * session on LMB-up and cancels it on focus, visibility, reload, or host loss.
+   */
+  | { name: "osfui.relativePointer"; payload: { active: boolean } }
+  /**
    * Own the back action. While your menu is ACTIVE, Esc / gamepad B either
    * arrive as a synthetic Escape keydown/keyup or open the optional discovered
    * menu `view` directly. Same per-document lifetime as osfui.gamepadRaw. The

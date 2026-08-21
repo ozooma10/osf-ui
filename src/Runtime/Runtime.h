@@ -61,6 +61,8 @@ namespace OSFUI
 		void NotifyGameWindowFocused();
 
 		void OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
+		// Accumulate one raw relative packet for the active ABI 1.10 owner. Returns true while a relative-pointer session owns wheel routing.
+		bool OnGameWindowMouseRelative(int a_dx, int a_dy);
 		void OnGameWindowMouseButton(int a_button, bool a_down);
 		void OnGameWindowMouseWheel(int a_wheelDelta);
 
@@ -153,6 +155,12 @@ namespace OSFUI
 		void DrainKeyCapture();
 		void CancelArmedKeyCapture();
 
+		bool BeginRelativePointerCapture(std::string_view a_viewId);
+		void EndRelativePointerCapture(std::string_view a_viewId);
+		void CancelRelativePointerCapture(std::string_view a_viewId = {});
+		void DrainRelativePointerCapture();
+		void FinishRelativePointerCapture(API::RelativePointerPhase a_phase);
+
 		void DrainHotkeys();
 
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode);
@@ -239,6 +247,19 @@ namespace OSFUI
 		
 		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
 		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove };
+
+		enum class RelativePointerStop : std::uint32_t
+		{
+			kNone = 0,
+			kEnd = 1,
+			kCancel = 2,
+		};
+		std::atomic_bool                 _relativePointerActive{ false };
+		std::atomic<float>               _relativePointerDx{ 0.0f };
+		std::atomic<float>               _relativePointerDy{ 0.0f };
+		std::atomic<float>               _relativePointerWheel{ 0.0f };
+		std::atomic<RelativePointerStop> _relativePointerStop{ RelativePointerStop::kNone };
+		std::string                      _relativePointerView;  // main-thread owner
 
 		std::atomic_bool              _captureInput{ false };
 		bool                          _captureIntegrationInitialized{ false };

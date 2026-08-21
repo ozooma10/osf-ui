@@ -503,6 +503,14 @@ int main()
 		"manifest->kind != ViewKind::Menu",
 		"SetBackOwnership(src, handle, target)" }),
 		"browser back ownership may register a validated native menu target");
+	Check(ContainsInOrder(endpoints, {
+		"RegisterSend(\"osfui.relativePointer\"",
+		"activeValue->is_boolean()",
+		"EndRelativePointerCapture(src)",
+		"const auto active = _presentation.ActiveMenu()",
+		"!IsInputCaptured() || !active || *active != src",
+		"BeginRelativePointerCapture(src)" }),
+		"relative-pointer capture must be an explicit edge owned by the visible input-target view with a registered native consumer");
 	Check(runtimeSource.find("bool Runtime::SetViewHidden") == std::string::npos &&
 		runtimeHeader.find("bool SetViewHidden") == std::string::npos,
 		"setViewHidden must not retain a second Runtime visibility authority");
@@ -513,6 +521,37 @@ int main()
 		"CancelPendingOpen()",
 		"_presentation.CloseActiveMenu()" }),
 		"central presentation policy must fail closed when capture integration is unavailable");
+	Check(ContainsInOrder(applyPolicy, {
+		"const auto active = _presentation.ActiveMenu()",
+		"const bool desiredCapture = _presentation.DesiredCapture()",
+		"*active != _relativePointerView",
+		"CancelRelativePointerCapture()" }),
+		"menu close, hide, and ownership switches must cancel relative-pointer capture through presentation policy");
+
+	const auto relativeDrain = FunctionBody(runtimeSource, "void Runtime::DrainRelativePointerCapture()");
+	Check(ContainsInOrder(relativeDrain, {
+		"_relativePointerDx.exchange",
+		"_relativePointerDy.exchange",
+		"_relativePointerWheel.exchange",
+		"RelativePointerPhase::kUpdate",
+		"RelativePointerStop::kEnd",
+		"RelativePointerPhase::kEnd",
+		"RelativePointerStop::kCancel",
+		"RelativePointerPhase::kCancel" }),
+		"the main-frame drain must coalesce raw deltas before delivering one terminal edge");
+	Check(ContainsInOrder(FunctionBody(runtimeFrameSource, "void Runtime::Tick(double a_deltaSeconds)"), {
+		"ProcessBackendQueues",
+		"ApplyPresentationRequests",
+		"ProcessRendererFrame",
+		"DrainRelativePointerCapture" }),
+		"relative-pointer callbacks must drain once on the game main thread after browser ownership edges are processed");
+	Check(ContainsInOrder(FunctionBody(overlayInputSource, "void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam)"), {
+		"MOUSE_MOVE_ABSOLUTE",
+		"OnGameWindowMouseRelative",
+		"OnGameWindowMouseAbsolute",
+		"RI_MOUSE_LEFT_BUTTON_UP",
+		"OnGameWindowMouseButton(0, false)" }),
+		"WM_INPUT must accumulate relative motion while preserving ordinary DOM pointer movement and the mouse-up terminal edge");
 	Check(ContainsInOrder(applyPolicy, {
 		"const auto layers = _presentation.DesiredLayers()",
 		"SetViewOrder(layer.id, layer.z)",

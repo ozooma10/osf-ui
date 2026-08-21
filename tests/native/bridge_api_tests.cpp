@@ -71,6 +71,20 @@ namespace
 	{
 		g_firedB.push_back({ a_cmd, a_payload, a_src });
 	}
+	struct RelativeFire
+	{
+		std::string view;
+		OSFUI::API::RelativePointerPhase phase;
+		float dx;
+		float dy;
+		float wheel;
+	};
+	std::vector<RelativeFire> g_relativeFires;
+	void RelativePointer(const char* a_view, OSFUI::API::RelativePointerPhase a_phase,
+		float a_dx, float a_dy, float a_wheel, void*) noexcept
+	{
+		g_relativeFires.push_back({ a_view, a_phase, a_dx, a_dy, a_wheel });
+	}
 
 	struct ProtocolFault
 	{
@@ -109,13 +123,14 @@ namespace
 		g_requestCommand = a_request.command; g_requestPayload = a_request.payloadJson; g_requestSource = a_request.sourceViewId;
 	}
 
-	// Complete ABI 1.9 OSF UI runtime bridge double for Client pass-through checks.
+	// Complete ABI 1.10 OSF UI runtime bridge double for Client pass-through checks.
 	struct TestRuntimeBridge final : OSFUI::API::IOSFUIBridge
 	{
 		std::uint32_t interfaceVersion{ OSFUI::API::kBridgeAPIVersion };
 		int commandCalls{ 0 };
 		int sendCalls{ 0 };
 		int requestCalls{ 0 };
+		int relativePointerCalls{ 0 };
 		std::uint32_t GetInterfaceVersion() override { return interfaceVersion; }
 		void GetPluginVersion(std::uint32_t& a, std::uint32_t& b, std::uint32_t& c) override { a=b=c=0; }
 		const char* GetBridgeProtocolVersion() override { return "1.4"; }
@@ -124,6 +139,8 @@ namespace
 		void UnregisterCommand(const char*) override { ++commandCalls; }
 		void RegisterSend(const char*, OSFUI::API::SendFn, void*) override { ++sendCalls; }
 		void UnregisterSend(const char*) override { ++sendCalls; }
+		bool RegisterRelativePointer(const char*, OSFUI::API::RelativePointerFn, void*) override { ++relativePointerCalls; return true; }
+		void UnregisterRelativePointer(const char*) override { ++relativePointerCalls; }
 		bool SendToWeb(const char*, const char*, const char*) override { return false; }
 		bool SetViewState(const char*, const char*, const char*) override { return false; }
 		void SetReadyCallback(OSFUI::API::ReadyFn, void*) override {}
@@ -168,15 +185,31 @@ int main()
 	api.SetViewCatalog({ "someview" });
 	api.SetViewInstantiated("someview", true);
 
-	// --- version constants: append-only ABI 1.9 -------------------------------
+	// --- version constants: append-only ABI 1.10 ------------------------------
 	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 9);
-	CHECK(OSFUI::API::kBridgeAPIVersion == ((1u << 16) | 9u));
+	CHECK(OSFUI::API::kBridgeAPIMinor == 10);
+	CHECK(OSFUI::API::kBridgeAPIVersion == ((1u << 16) | 10u));
 	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 8);
 	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kSends) == 9);
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kRelativePointer) == 10);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "2.0");
 	CHECK(std::string_view(api.GetBridgeProtocolVersion()) == "2.0");
+
+	// --- relative pointer ownership: exact view, first-wins, main-thread dispatch ---
+	CHECK(!api.RegisterRelativePointer("unqualified", &RelativePointer, nullptr));
+	CHECK(api.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
+	CHECK(!api.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
+	CHECK(api.HasRelativePointer("acme.mymod/panel"));
+	CHECK(api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::RelativePointerPhase::kBegin));
+	CHECK(api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::RelativePointerPhase::kUpdate, 4.0f, -2.0f, 1.0f));
+	CHECK(g_relativeFires.size() == 2);
+	CHECK(g_relativeFires.back().view == "acme.mymod/panel");
+	CHECK(g_relativeFires.back().phase == OSFUI::API::RelativePointerPhase::kUpdate);
+	CHECK(g_relativeFires.back().dx == 4.0f && g_relativeFires.back().dy == -2.0f && g_relativeFires.back().wheel == 1.0f);
+	api.UnregisterRelativePointer("acme.mymod/panel");
+	CHECK(!api.HasRelativePointer("acme.mymod/panel"));
+	CHECK(!api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::RelativePointerPhase::kCancel));
 
 	// --- endpoint ownership: explicit, with no dot-count inference -------------
 	for (const auto* bad : { "close", "ping", "setVisible", "menu.open",
@@ -887,11 +920,16 @@ int main()
 		c.RegisterSend("acme.mymod.new-send", &HandlerA, nullptr);
 		c.UnregisterSend("acme.mymod.new-send");
 		CHECK(runtimeBridge.sendCalls == 0);
+		CHECK(!c.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
+		CHECK(runtimeBridge.relativePointerCalls == 0);
 		runtimeBridge.interfaceVersion = OSFUI::API::kBridgeAPIVersion;
 		CHECK(c.Attach(&runtimeBridge));
 		c.RegisterSend("acme.mymod.new-send", &HandlerA, nullptr);
 		c.UnregisterSend("acme.mymod.new-send");
 		CHECK(runtimeBridge.sendCalls == 2);
+		CHECK(c.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
+		c.UnregisterRelativePointer("acme.mymod/panel");
+		CHECK(runtimeBridge.relativePointerCalls == 2);
 		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));  // test double returns false
 		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
 		c.UnregisterRequest("acme.mymod.old");
@@ -910,6 +948,7 @@ int main()
 		CHECK(c.Raw() == &api);
 		CHECK(c.Has(Feature::kSends));
 		CHECK(c.Has(Feature::kViewState));
+		CHECK(c.Has(Feature::kRelativePointer));
 
 		// Ungated pass-throughs reach the real implementation.
 		CHECK(c.SetViewState("acme.mymod", "wrapper", R"({"via":"client"})"));

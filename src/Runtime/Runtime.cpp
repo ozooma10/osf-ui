@@ -819,6 +819,9 @@ namespace OSFUI
 			_renderer->SetInputTargetView(*active);
 		}
 		const bool desiredCapture = _presentation.DesiredCapture();
+		if (!_relativePointerView.empty() && (!desiredCapture || !active || *active != _relativePointerView)) {
+			CancelRelativePointerCapture();
+		}
 		const bool captureChanged = _captureInput.exchange(desiredCapture) != desiredCapture;
 		if (captureChanged) {
 			OverlayInputHook::RequestStateRefresh();
@@ -937,6 +940,7 @@ namespace OSFUI
 			return;
 		}
 
+		CancelRelativePointerCapture();
 		m_viewRecovery.ClearAll();
 		m_viewInputGrants.ResetAll();
 		_pendingMouseMove.store(kNoPendingMouseMove);

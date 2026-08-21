@@ -58,6 +58,8 @@ namespace OSFUI
 	void Runtime::OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode)
 	{
 		const std::string id(a_viewId);
+		// A navigation creates a fresh document; no pointer ownership crosses that boundary.
+		CancelRelativePointerCapture(id);
 		if (_rendererFailed && _browserHostRecovery.CanAcceptResponse()) {
 			const auto attempts = _browserHostRecovery.Attempts();
 			_browserHostRecovery.Reset();
@@ -102,6 +104,7 @@ namespace OSFUI
 
 	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest)
 	{
+		CancelRelativePointerCapture(a_id);
 		m_viewLoads.BeginLoad(a_id);
 		_renderer->CreateOrNavigateView(a_manifest);
 		if (_bridge) {

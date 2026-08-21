@@ -10,7 +10,7 @@
 //
 // THREADING: status reads and typed getters are synchronous, callable from ANY thread.
 // Mutating calls are thread-safe; their effect lands on the game main thread.
-// All callbacks (SendFn/RequestFn/ReadyFn/SettingChangedFn/HotkeyFn) run on the game main thread - keep them cheap.
+// All callbacks (SendFn/RequestFn/ReadyFn/SettingChangedFn/HotkeyFn/RelativePointerFn) run on the game main thread - keep them cheap.
 //
 // LIFETIME: const char* params into callbacks are valid only for the call - copy what you retain.
 // ============================================================================
@@ -50,8 +50,9 @@ namespace OSFUI::API
 	// ABI 1.x is append-only. Existing virtual slots never move; retired slots
 	// remain inert tombstones. New capabilities append at the vtable tail and
 	// bump MINOR. ABI
-	// 1.8 added retained view state, and 1.9 adds strict one-way send endpoints.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 9u;
+	// 1.8 added retained view state, 1.9 added strict one-way send endpoints,
+	// and 1.10 adds view-owned relative-pointer capture.
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 10u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -125,6 +126,25 @@ namespace OSFUI::API
 	using HotkeyFn = void (*)(const char* a_modId,
 	                          const char* a_key,
 	                          void*       a_user) noexcept;
+
+	// Main-thread phases for a view-owned relative-pointer session. kUpdate is
+	// delivered at most once per game frame with all raw mouse packets since the
+	// previous frame accumulated into dx/dy/wheel (wheel is DOM-style steps:
+	// positive down/toward the user). kEnd is the ordinary LMB-up
+	// edge; kCancel covers ownership loss, view teardown, or host recovery.
+	enum class RelativePointerPhase : std::uint32_t
+	{
+		kBegin = 0,
+		kUpdate = 1,
+		kEnd = 2,
+		kCancel = 3,
+	};
+	using RelativePointerFn = void (*)(const char* a_viewId,
+	                                   RelativePointerPhase a_phase,
+	                                   float a_dx,
+	                                   float a_dy,
+	                                   float a_wheel,
+	                                   void* a_user) noexcept;
 
 	enum class IssueSeverity : std::uint32_t
 	{
@@ -288,6 +308,17 @@ namespace OSFUI::API
 		virtual void RegisterSend(const char* a_name, SendFn a_handler, void* a_user) = 0;
 		virtual void UnregisterSend(const char* a_name) = 0;
 
+		// --- relative pointer capture (ABI 1.10). Appended; every older slot is frozen. ---
+		// Register one handler for an exact qualified view id. Registration is
+		// first-wins and thread-safe; callbacks always run on the game main thread.
+		// The page arms/disarms its session with the reserved
+		// `osfui.relativePointer` send `{ "active": true|false }`. OSF UI accepts an
+		// arm only from the currently visible input-owning menu, accumulates raw
+		// WM_INPUT deltas without crossing the web/native pipe, and auto-cancels on
+		// view ownership/lifecycle loss. Returns false for invalid/duplicate ids.
+		virtual bool RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) = 0;
+		virtual void UnregisterRelativePointer(const char* a_viewId) = 0;
+
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; consumers never delete it.
 	};
@@ -346,6 +377,7 @@ namespace OSFUI::API
 		kViewState = 8,
 		kSends = 9,
 		kEndpointShape = 9,
+		kRelativePointer = 10,
 	};
 
 	class Client
@@ -430,6 +462,18 @@ namespace OSFUI::API
 		{
 			if (Has(Feature::kSends)) {
 				_bridge->UnregisterSend(a_name);
+			}
+		}
+
+		// --- 1.10 view-owned relative pointer capture ---
+		bool RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) const noexcept
+		{
+			return Has(Feature::kRelativePointer) && _bridge->RegisterRelativePointer(a_viewId, a_handler, a_user);
+		}
+		void UnregisterRelativePointer(const char* a_viewId) const noexcept
+		{
+			if (Has(Feature::kRelativePointer)) {
+				_bridge->UnregisterRelativePointer(a_viewId);
 			}
 		}
 		bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) const noexcept

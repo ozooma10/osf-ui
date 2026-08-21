@@ -97,6 +97,9 @@ namespace OSFUI::OverlayInputHook
 
 			auto& runtime = Runtime::Get();
 			const auto& mouse = raw.data.mouse;
+			if ((mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0) {
+				runtime.OnGameWindowMouseRelative(mouse.lLastX, mouse.lLastY);
+			}
 
 			// Heal engine cursor changes on the next visible input packet.
 			HardwareCursor::Reassert(a_hwnd);

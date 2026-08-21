@@ -16,6 +16,9 @@ namespace OSFUI
 {
 	void Runtime::NotifyGameWindowFocused()
 	{
+		if (_relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
+			_relativePointerStop.store(RelativePointerStop::kCancel, std::memory_order_release);
+		}
 		if (IsInputCaptured()) {
 			_nativeFocusRefreshRequested.store(true, std::memory_order_release);
 		}
@@ -113,6 +116,20 @@ namespace OSFUI
 		QueueMouseMove();
 	}
 
+	bool Runtime::OnGameWindowMouseRelative(int a_dx, int a_dy)
+	{
+		if (!_relativePointerActive.load(std::memory_order_acquire)) {
+			return false;
+		}
+		if (a_dx != 0) {
+			_relativePointerDx.fetch_add(static_cast<float>(a_dx), std::memory_order_relaxed);
+		}
+		if (a_dy != 0) {
+			_relativePointerDy.fetch_add(static_cast<float>(a_dy), std::memory_order_relaxed);
+		}
+		return true;
+	}
+
 	void Runtime::QueueMouseMove()
 	{
 		const auto x = static_cast<std::uint32_t>(static_cast<int>(_cursorX.load(std::memory_order_relaxed)));
@@ -126,6 +143,9 @@ namespace OSFUI
 			return;
 		}
 		_renderer->InjectMouseButton(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_button, a_down);
+		if (a_button == 0 && !a_down && _relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
+			_relativePointerStop.store(RelativePointerStop::kEnd, std::memory_order_release);
+		}
 	}
 
 	void Runtime::OnGameWindowMouseWheel(int a_wheelDelta)
@@ -133,7 +153,107 @@ namespace OSFUI
 		if (!IsInputCaptured() || !_renderer) {
 			return;
 		}
+		if (_relativePointerActive.load(std::memory_order_acquire)) {
+			// Match DOM WheelEvent.deltaY: positive scrolls down/toward the user, opposite Win32's positive WHEEL_DELTA direction.
+			_relativePointerWheel.fetch_add(-static_cast<float>(a_wheelDelta) / 120.0f, std::memory_order_relaxed);
+			return;
+		}
 		_renderer->InjectPhysicalMouseWheel(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_wheelDelta);
+	}
+
+	bool Runtime::BeginRelativePointerCapture(std::string_view a_viewId)
+	{
+		if (_relativePointerActive.load(std::memory_order_acquire) && _relativePointerView == a_viewId) {
+			return true;
+		}
+		if (!_relativePointerView.empty()) {
+			FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
+		}
+		_relativePointerDx.store(0.0f, std::memory_order_relaxed);
+		_relativePointerDy.store(0.0f, std::memory_order_relaxed);
+		_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
+		_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
+		_relativePointerView = a_viewId;
+		_relativePointerActive.store(true, std::memory_order_release);
+		if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kBegin)) {
+			_relativePointerActive.store(false, std::memory_order_release);
+			_relativePointerView.clear();
+			return false;
+		}
+		return true;
+	}
+
+	void Runtime::EndRelativePointerCapture(std::string_view a_viewId)
+	{
+		if (!_relativePointerView.empty() && _relativePointerView == a_viewId) {
+			FinishRelativePointerCapture(API::RelativePointerPhase::kEnd);
+		}
+	}
+
+	void Runtime::CancelRelativePointerCapture(std::string_view a_viewId)
+	{
+		if (_relativePointerView.empty() || (!a_viewId.empty() && _relativePointerView != a_viewId)) {
+			return;
+		}
+		FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
+	}
+
+	void Runtime::FinishRelativePointerCapture(API::RelativePointerPhase a_phase)
+	{
+		if (_relativePointerView.empty()) {
+			return;
+		}
+		_relativePointerActive.store(false, std::memory_order_release);
+		_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
+		const float dx = _relativePointerDx.exchange(0.0f, std::memory_order_acq_rel);
+		const float dy = _relativePointerDy.exchange(0.0f, std::memory_order_acq_rel);
+		const float wheel = _relativePointerWheel.exchange(0.0f, std::memory_order_acq_rel);
+		if (dx != 0.0f || dy != 0.0f || wheel != 0.0f) {
+			API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kUpdate, dx, dy, wheel);
+		}
+		API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, a_phase);
+		_relativePointerView.clear();
+		// A WndProc packet that observed the old active edge can finish its atomic
+		// add after the exchanges above. Never let that tail leak into a later owner.
+		_relativePointerDx.store(0.0f, std::memory_order_relaxed);
+		_relativePointerDy.store(0.0f, std::memory_order_relaxed);
+		_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
+	}
+
+	void Runtime::DrainRelativePointerCapture()
+	{
+		if (_relativePointerView.empty()) {
+			_relativePointerDx.store(0.0f, std::memory_order_relaxed);
+			_relativePointerDy.store(0.0f, std::memory_order_relaxed);
+			_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
+			_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
+			return;
+		}
+		if (!API::BridgeApi::Get().HasRelativePointer(_relativePointerView)) {
+			_relativePointerActive.store(false, std::memory_order_release);
+			_relativePointerView.clear();
+			_relativePointerDx.store(0.0f, std::memory_order_relaxed);
+			_relativePointerDy.store(0.0f, std::memory_order_relaxed);
+			_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
+			_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
+			return;
+		}
+		const float dx = _relativePointerDx.exchange(0.0f, std::memory_order_acq_rel);
+		const float dy = _relativePointerDy.exchange(0.0f, std::memory_order_acq_rel);
+		const float wheel = _relativePointerWheel.exchange(0.0f, std::memory_order_acq_rel);
+		if (dx != 0.0f || dy != 0.0f || wheel != 0.0f) {
+			if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kUpdate, dx, dy, wheel)) {
+				_relativePointerActive.store(false, std::memory_order_release);
+				_relativePointerView.clear();
+				return;
+			}
+		}
+		const auto stop = _relativePointerStop.exchange(RelativePointerStop::kNone, std::memory_order_acq_rel);
+		if (stop == RelativePointerStop::kEnd) {
+			FinishRelativePointerCapture(API::RelativePointerPhase::kEnd);
+		} else if (stop == RelativePointerStop::kCancel) {
+			FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
+		}
 	}
 
 	void Runtime::ReconcileFocusMenu()

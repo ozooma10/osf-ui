@@ -142,6 +142,54 @@ namespace OSFUI::API
 		}
 	}
 
+	bool BridgeApi::RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user)
+	{
+		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) {
+			REX::WARN("BridgeApi: [content] refused RegisterRelativePointer — expected a valid qualified view id and non-null handler");
+			return false;
+		}
+		const std::string viewId(a_viewId);
+		std::lock_guard lock(_mutex);
+		if (_relativePointers.contains(viewId)) {
+			REX::WARN("BridgeApi: [content] refused RegisterRelativePointer('{}') — already registered (first wins)", viewId);
+			return false;
+		}
+		_relativePointers.emplace(viewId, RelativePointerRegistration{ a_handler, a_user });
+		return true;
+	}
+
+	void BridgeApi::UnregisterRelativePointer(const char* a_viewId)
+	{
+		if (!a_viewId) {
+			return;
+		}
+		std::lock_guard lock(_mutex);
+		_relativePointers.erase(a_viewId);
+	}
+
+	bool BridgeApi::HasRelativePointer(std::string_view a_viewId)
+	{
+		std::lock_guard lock(_mutex);
+		return _relativePointers.contains(std::string(a_viewId));
+	}
+
+	bool BridgeApi::DispatchRelativePointer(std::string_view a_viewId, RelativePointerPhase a_phase,
+		float a_dx, float a_dy, float a_wheel)
+	{
+		RelativePointerRegistration registration;
+		{
+			std::lock_guard lock(_mutex);
+			const auto found = _relativePointers.find(std::string(a_viewId));
+			if (found == _relativePointers.end()) {
+				return false;
+			}
+			registration = found->second;
+		}
+		const std::string view(a_viewId);
+		registration.fn(view.c_str(), a_phase, a_dx, a_dy, a_wheel, registration.user);
+		return true;
+	}
+
 	void BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user)
 	{
 		if (!a_name || !a_handler) return;
