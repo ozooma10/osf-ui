@@ -377,7 +377,7 @@ int main()
 		"ProcessBackendQueues(std::move(papyrusBatch)",
 		"ApplyPresentationRequests(presentationWork)",
 		"ProcessRendererFrame(a_deltaSeconds)" }),
-		"Tick must drain retained-state writes before presentation and advance the pre-open barrier once per main tick");
+		"Tick must drain retained-state writes before presentation and advance the view-open preflight barrier once per main tick");
 	const auto pauseMenuEntry = FunctionBody(runtimeSource, "void Runtime::ProcessPauseMenuEntry()");
 	Check(ContainsInOrder(pauseMenuEntry, {
 		"PauseMenuEntry::TakeOpenRequest()",
@@ -392,7 +392,7 @@ int main()
 		"void Runtime::ApplyPresentationRequests(const PendingPresentationWork& a_work)");
 	Check(runtimeSource.find("PreparePresentationRequests") == std::string::npos &&
 		runtimeHeader.find("PreparePresentationRequests") == std::string::npos,
-		"requested views must not be instantiated in a preparation pass before the native pre-open decision");
+		"requested views must not be instantiated in a preparation pass before the native view-open preflight decision");
 	Check(ContainsInOrder(applyRequests, {
 		"case ViewPresentationRequest::ToggleDefault:",
 		"CancelPendingOpen()",
@@ -426,23 +426,23 @@ int main()
 	Check(ContainsInOrder(beginOpen, {
 		"_presentation.IsOpen(a_id)",
 		"_pendingViewOpen && *_pendingViewOpen == a_id",
-		"_viewWillOpenBarriers.contains",
+		"_viewOpenPreflightBarriers.contains",
 		"return false",
 		"const bool requiresCaptureIntegration",
 		"_captureIntegrationInitialized &&",
 		"!_captureIntegrationAvailable",
 		"required input integration is unavailable",
-		"DispatchViewWillOpen(a_id)",
-		"ViewWillOpenResult::kDenied",
+		"RunViewOpenPreflight(a_id)",
+		"ViewOpenPreflightResult::kDenied",
 		"current presentation retained",
 		"return false",
 		"BeginColdOpenTiming(a_id, a_requestedAt)",
 		"InstantiateView(*manifest, a_reason)" }),
 		"duplicate and ineligible opens must be suppressed before the synchronous callback, and denial must precede instantiation");
 	Check(ContainsInOrder(beginOpen, {
-		"ViewWillOpenResult::kAllowed",
+		"ViewOpenPreflightResult::kAllowed",
 		"InstantiateView(*manifest, a_reason)",
-		"_viewWillOpenBarriers.emplace(std::string(a_id), _mainTickSerial + 1)",
+		"_viewOpenPreflightBarriers.emplace(std::string(a_id), _mainTickSerial + 1)",
 		"manifest->kind == ViewKind::Hud",
 		"requiresStateBarrier || _presentation.Open(a_id)",
 		"const bool waitingForCaptureIntegration",
@@ -455,14 +455,14 @@ int main()
 	Check(ContainsInOrder(cancelPending, {
 		"const auto target = std::move(*_pendingViewOpen)",
 		"_pendingViewOpen.reset()",
-		"_viewWillOpenBarriers.erase(target)" }),
+		"_viewOpenPreflightBarriers.erase(target)" }),
 		"pending-open cancellation must drop ownership without changing presentation");
 	const auto drivePending = FunctionBody(runtimeSource, "void Runtime::DrivePendingOpen()");
 	Check(ContainsInOrder(drivePending, {
 		"it->second > _mainTickSerial",
 		"manifest->kind == ViewKind::Menu",
 		"_presentation.Open(it->first)",
-		"_viewWillOpenBarriers.erase(it)",
+		"_viewOpenPreflightBarriers.erase(it)",
 		"_presentation.IsInstantiated(target)",
 		"requiresCaptureIntegration && !_captureIntegrationInitialized",
 		"return",
@@ -473,7 +473,7 @@ int main()
 		"m_viewLoads.GetState(target) != ViewLoadState::Finished",
 		"_presentation.Open(target)",
 		"_pendingViewOpen.reset()",
-		"_viewWillOpenBarriers.erase(target)",
+		"_viewOpenPreflightBarriers.erase(target)",
 		"ApplyViewPresentationPolicy()" }),
 		"approved opens must wait at least one main tick and menus must also wait for input and load readiness");
 
@@ -874,20 +874,20 @@ int main()
 			"EnqueueOpenView(manifest.id)" }) &&
 		startup.find("InstantiateView") == std::string::npos &&
 		startup.find("_presentation.Open") == std::string::npos,
-		"startup must queue eligible HUD opens so native pre-open handlers can run before instantiation");
+		"startup must queue eligible HUD opens so native view-open preflights can run before instantiation");
 	const auto registrations = FunctionBody(runtimeSource,
 		"void Runtime::DrainViewRegistrations(std::vector<std::string> a_ids)");
 	Check(ContainsInOrder(registrations, {
 		"if (m->openOnStart)",
 		"BeginViewOpen(id, \"via plugin RegisterView openOnStart\")" }) &&
 		registrations.find("InstantiateView(*m") == std::string::npos,
-		"plugin openOnStart must use the same pre-open lifecycle path");
+		"plugin openOnStart must use the same view-open preflight path");
 	Check(ContainsInOrder(postDataIntegration, {
 		"BeginHiddenPrewarmTiming(settings->id)",
 		"InstantiateView(*settings, \"for hidden startup prewarm\")" }) &&
 		postDataIntegration.find("BeginViewOpen") == std::string::npos &&
-		postDataIntegration.find("DispatchViewWillOpen") == std::string::npos,
-		"hidden prewarming must instantiate directly without firing the pre-open lifecycle callback");
+		postDataIntegration.find("RunViewOpenPreflight") == std::string::npos,
+		"hidden prewarming must instantiate directly without running the view-open preflight");
 
 	Check(runtimeSource.find("DriveViewLifecycle") == std::string::npos &&
 		runtimeSource.find("IdleReclaim") == std::string::npos,

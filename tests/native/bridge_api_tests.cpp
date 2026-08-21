@@ -85,10 +85,10 @@ namespace
 	{
 		g_relativeFires.push_back({ a_view, a_phase, a_dx, a_dy, a_wheel });
 	}
-	std::vector<std::string> g_viewWillOpenFires;
-	bool ViewWillOpen(const char* a_view, void* a_user) noexcept
+	std::vector<std::string> g_viewOpenPreflightFires;
+	bool ViewOpenPreflight(const char* a_view, void* a_user) noexcept
 	{
-		g_viewWillOpenFires.emplace_back(a_view);
+		g_viewOpenPreflightFires.emplace_back(a_view);
 		return *static_cast<const bool*>(a_user);
 	}
 
@@ -137,8 +137,8 @@ namespace
 		int sendCalls{ 0 };
 		int requestCalls{ 0 };
 		int relativePointerCalls{ 0 };
-		int viewWillOpenCalls{ 0 };
-		bool viewWillOpenResult{ true };
+		int viewOpenPreflightCalls{ 0 };
+		bool viewOpenPreflightResult{ true };
 		std::uint32_t GetInterfaceVersion() override { return interfaceVersion; }
 		void GetPluginVersion(std::uint32_t& a, std::uint32_t& b, std::uint32_t& c) override { a=b=c=0; }
 		const char* GetBridgeProtocolVersion() override { return "1.4"; }
@@ -149,8 +149,8 @@ namespace
 		void UnregisterSend(const char*) override { ++sendCalls; }
 		bool RegisterRelativePointer(const char*, OSFUI::API::RelativePointerFn, void*) override { ++relativePointerCalls; return true; }
 		void UnregisterRelativePointer(const char*) override { ++relativePointerCalls; }
-		bool RegisterViewWillOpen(const char*, OSFUI::API::ViewWillOpenFn, void*) override { ++viewWillOpenCalls; return viewWillOpenResult; }
-		void UnregisterViewWillOpen(const char*) override { ++viewWillOpenCalls; }
+		bool RegisterViewOpenPreflight(const char*, OSFUI::API::ViewOpenPreflightFn, void*) override { ++viewOpenPreflightCalls; return viewOpenPreflightResult; }
+		void UnregisterViewOpenPreflight(const char*) override { ++viewOpenPreflightCalls; }
 		bool SendToWeb(const char*, const char*, const char*) override { return false; }
 		bool SetViewState(const char*, const char*, const char*) override { return false; }
 		void SetReadyCallback(OSFUI::API::ReadyFn, void*) override {}
@@ -202,7 +202,7 @@ int main()
 	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 8);
 	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kSends) == 9);
 	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kRelativePointer) == 10);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewWillOpen) == 11);
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewOpenPreflight) == 11);
 	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
 	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "2.0");
 	CHECK(std::string_view(api.GetBridgeProtocolVersion()) == "2.0");
@@ -222,21 +222,21 @@ int main()
 	CHECK(!api.HasRelativePointer("acme.mymod/panel"));
 	CHECK(!api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::RelativePointerPhase::kCancel));
 
-	// --- view pre-open ownership: validation, first-wins, allow/deny, re-register ---
+	// --- view-open preflight ownership: validation, first-wins, allow/deny, re-register ---
 	bool allow = true;
 	bool deny = false;
-	CHECK(!api.RegisterViewWillOpen("unqualified", &ViewWillOpen, &allow));
-	CHECK(!api.RegisterViewWillOpen("acme.mymod/panel", nullptr, nullptr));
-	CHECK(api.RegisterViewWillOpen("acme.mymod/panel", &ViewWillOpen, &allow));
-	CHECK(!api.RegisterViewWillOpen("acme.mymod/panel", &ViewWillOpen, &deny));
-	CHECK(api.DispatchViewWillOpen("acme.mymod/missing") == OSFUI::API::BridgeApi::ViewWillOpenResult::kNoHandler);
-	CHECK(api.DispatchViewWillOpen("acme.mymod/panel") == OSFUI::API::BridgeApi::ViewWillOpenResult::kAllowed);
-	CHECK(g_viewWillOpenFires.size() == 1 && g_viewWillOpenFires.back() == "acme.mymod/panel");
-	api.UnregisterViewWillOpen("acme.mymod/panel");
-	CHECK(api.DispatchViewWillOpen("acme.mymod/panel") == OSFUI::API::BridgeApi::ViewWillOpenResult::kNoHandler);
-	CHECK(api.RegisterViewWillOpen("acme.mymod/panel", &ViewWillOpen, &deny));
-	CHECK(api.DispatchViewWillOpen("acme.mymod/panel") == OSFUI::API::BridgeApi::ViewWillOpenResult::kDenied);
-	api.UnregisterViewWillOpen("acme.mymod/panel");
+	CHECK(!api.RegisterViewOpenPreflight("unqualified", &ViewOpenPreflight, &allow));
+	CHECK(!api.RegisterViewOpenPreflight("acme.mymod/panel", nullptr, nullptr));
+	CHECK(api.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
+	CHECK(!api.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &deny));
+	CHECK(api.RunViewOpenPreflight("acme.mymod/missing") == OSFUI::API::BridgeApi::ViewOpenPreflightResult::kNoHandler);
+	CHECK(api.RunViewOpenPreflight("acme.mymod/panel") == OSFUI::API::BridgeApi::ViewOpenPreflightResult::kAllowed);
+	CHECK(g_viewOpenPreflightFires.size() == 1 && g_viewOpenPreflightFires.back() == "acme.mymod/panel");
+	api.UnregisterViewOpenPreflight("acme.mymod/panel");
+	CHECK(api.RunViewOpenPreflight("acme.mymod/panel") == OSFUI::API::BridgeApi::ViewOpenPreflightResult::kNoHandler);
+	CHECK(api.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &deny));
+	CHECK(api.RunViewOpenPreflight("acme.mymod/panel") == OSFUI::API::BridgeApi::ViewOpenPreflightResult::kDenied);
+	api.UnregisterViewOpenPreflight("acme.mymod/panel");
 
 	// --- endpoint ownership: explicit, with no dot-count inference -------------
 	for (const auto* bad : { "close", "ping", "setVisible", "menu.open",
@@ -949,15 +949,15 @@ int main()
 		CHECK(runtimeBridge.sendCalls == 0);
 		CHECK(!c.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
 		CHECK(runtimeBridge.relativePointerCalls == 0);
-		CHECK(!c.RegisterViewWillOpen("acme.mymod/panel", &ViewWillOpen, &allow));
-		c.UnregisterViewWillOpen("acme.mymod/panel");
-		CHECK(runtimeBridge.viewWillOpenCalls == 0);
+		CHECK(!c.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
+		c.UnregisterViewOpenPreflight("acme.mymod/panel");
+		CHECK(runtimeBridge.viewOpenPreflightCalls == 0);
 		runtimeBridge.interfaceVersion = (1u << 16) | 10u;
 		CHECK(c.Attach(&runtimeBridge));
 		CHECK(c.Has(Feature::kRelativePointer));
-		CHECK(!c.Has(Feature::kViewWillOpen));
-		CHECK(!c.RegisterViewWillOpen("acme.mymod/panel", &ViewWillOpen, &allow));
-		CHECK(runtimeBridge.viewWillOpenCalls == 0);
+		CHECK(!c.Has(Feature::kViewOpenPreflight));
+		CHECK(!c.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
+		CHECK(runtimeBridge.viewOpenPreflightCalls == 0);
 		runtimeBridge.interfaceVersion = OSFUI::API::kBridgeAPIVersion;
 		CHECK(c.Attach(&runtimeBridge));
 		c.RegisterSend("acme.mymod.new-send", &HandlerA, nullptr);
@@ -966,12 +966,12 @@ int main()
 		CHECK(c.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
 		c.UnregisterRelativePointer("acme.mymod/panel");
 		CHECK(runtimeBridge.relativePointerCalls == 2);
-		CHECK(c.RegisterViewWillOpen("acme.mymod/panel", &ViewWillOpen, &allow));
-		c.UnregisterViewWillOpen("acme.mymod/panel");
-		CHECK(runtimeBridge.viewWillOpenCalls == 2);
-		runtimeBridge.viewWillOpenResult = false;
-		CHECK(!c.RegisterViewWillOpen("acme.mymod/panel", &ViewWillOpen, &allow));
-		CHECK(runtimeBridge.viewWillOpenCalls == 3);
+		CHECK(c.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
+		c.UnregisterViewOpenPreflight("acme.mymod/panel");
+		CHECK(runtimeBridge.viewOpenPreflightCalls == 2);
+		runtimeBridge.viewOpenPreflightResult = false;
+		CHECK(!c.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
+		CHECK(runtimeBridge.viewOpenPreflightCalls == 3);
 		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));  // test double returns false
 		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
 		c.UnregisterRequest("acme.mymod.old");
@@ -991,7 +991,7 @@ int main()
 		CHECK(c.Has(Feature::kSends));
 		CHECK(c.Has(Feature::kViewState));
 		CHECK(c.Has(Feature::kRelativePointer));
-		CHECK(c.Has(Feature::kViewWillOpen));
+		CHECK(c.Has(Feature::kViewOpenPreflight));
 
 		// Ungated pass-throughs reach the real implementation.
 		CHECK(c.SetViewState("acme.mymod", "wrapper", R"({"via":"client"})"));

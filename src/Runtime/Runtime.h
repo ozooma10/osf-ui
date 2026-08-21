@@ -217,7 +217,7 @@ namespace OSFUI
 
 		std::optional<std::string> _pendingViewOpen;
 		std::uint64_t _mainTickSerial{ 0 };
-		std::unordered_map<std::string, std::uint64_t> _viewWillOpenBarriers;
+		std::unordered_map<std::string, std::uint64_t> _viewOpenPreflightBarriers;
 
 		using ViewTimingClock = std::chrono::steady_clock;
 		struct ColdOpenTiming

@@ -37,8 +37,8 @@ namespace OSFUI::API
 		void          UnregisterSend(const char* a_name) override;
 		bool          RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) override;
 		void          UnregisterRelativePointer(const char* a_viewId) override;
-		bool          RegisterViewWillOpen(const char* a_viewId, ViewWillOpenFn a_handler, void* a_user) override;
-		void          UnregisterViewWillOpen(const char* a_viewId) override;
+		bool          RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) override;
+		void          UnregisterViewOpenPreflight(const char* a_viewId) override;
 		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
 		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
@@ -133,7 +133,7 @@ namespace OSFUI::API
 		[[nodiscard]] bool HasRelativePointer(std::string_view a_viewId);
 		bool DispatchRelativePointer(std::string_view a_viewId, RelativePointerPhase a_phase, float a_dx = 0.0f, float a_dy = 0.0f, float a_wheel = 0.0f);
 
-		enum class ViewWillOpenResult
+		enum class ViewOpenPreflightResult
 		{
 			kNoHandler,
 			kAllowed,
@@ -141,7 +141,7 @@ namespace OSFUI::API
 		};
 		// Runtime-only side of ABI 1.11. Runtime calls this synchronously from its
 		// main-thread presentation path before view instantiation or reveal.
-		[[nodiscard]] ViewWillOpenResult DispatchViewWillOpen(std::string_view a_viewId);
+		[[nodiscard]] ViewOpenPreflightResult RunViewOpenPreflight(std::string_view a_viewId);
 
 	private:
 		BridgeApi() = default;
@@ -159,9 +159,9 @@ namespace OSFUI::API
 			RelativePointerFn fn{ nullptr };
 			void*             user{ nullptr };
 		};
-		struct ViewWillOpenRegistration
+		struct ViewOpenPreflightRegistration
 		{
-			ViewWillOpenFn fn{ nullptr };
+			ViewOpenPreflightFn fn{ nullptr };
 			void*          user{ nullptr };
 		};
 		struct PendingSend
@@ -232,7 +232,7 @@ namespace OSFUI::API
 		std::unordered_map<std::string, Registration>        _sends;             // strict RegisterSend set
 		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
 		std::unordered_map<std::string, RelativePointerRegistration> _relativePointers;  // exact view owner, first-wins
-		std::unordered_map<std::string, ViewWillOpenRegistration> _viewWillOpen;  // exact view owner, first-wins
+		std::unordered_map<std::string, ViewOpenPreflightRegistration> _viewOpenPreflights;  // exact view owner, first-wins
 		std::vector<std::string>                      _pendingCommandUnregister;
 		std::vector<std::string>                      _pendingSendUnregister;
 		std::vector<std::string>                      _pendingRequestUnregister;

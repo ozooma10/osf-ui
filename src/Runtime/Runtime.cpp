@@ -455,7 +455,7 @@ namespace OSFUI
 			}
 			case ViewPresentationRequest::CloseAll:
 				CancelPendingOpen();
-				_viewWillOpenBarriers.clear();
+				_viewOpenPreflightBarriers.clear();
 				_presentation.CloseAll();
 				break;
 			}
@@ -484,7 +484,7 @@ namespace OSFUI
 	{
 		if (_presentation.IsOpen(a_id) ||
 			(_pendingViewOpen && *_pendingViewOpen == a_id) ||
-			_viewWillOpenBarriers.contains(std::string(a_id))) {
+			_viewOpenPreflightBarriers.contains(std::string(a_id))) {
 			return false;
 		}
 		const auto* manifest = _views.Find(a_id);
@@ -522,15 +522,15 @@ namespace OSFUI
 			return false;
 		}
 
-		const auto willOpen = API::BridgeApi::Get().DispatchViewWillOpen(a_id);
-		if (willOpen == API::BridgeApi::ViewWillOpenResult::kDenied) {
+		const auto preflight = API::BridgeApi::Get().RunViewOpenPreflight(a_id);
+		if (preflight == API::BridgeApi::ViewOpenPreflightResult::kDenied) {
 			CancelColdOpenTiming(a_id);
-			REX::WARN("Runtime: native view-will-open callback denied '{}'; current presentation retained", a_id);
+			REX::WARN("Runtime: native view-open preflight denied '{}'; current presentation retained", a_id);
 			return false;
 		}
-		const bool requiresStateBarrier = willOpen == API::BridgeApi::ViewWillOpenResult::kAllowed;
+		const bool requiresStateBarrier = preflight == API::BridgeApi::ViewOpenPreflightResult::kAllowed;
 		if (requiresStateBarrier) {
-			REX::DEBUG("Runtime: native view-will-open callback allowed '{}'; holding presentation through the next main tick", a_id);
+			REX::DEBUG("Runtime: native view-open preflight allowed '{}'; holding presentation through the next main tick", a_id);
 		}
 
 		if (manifest->kind == ViewKind::Menu &&
@@ -543,7 +543,7 @@ namespace OSFUI
 		}
 
 		if (requiresStateBarrier) {
-			_viewWillOpenBarriers.emplace(std::string(a_id), _mainTickSerial + 1);
+			_viewOpenPreflightBarriers.emplace(std::string(a_id), _mainTickSerial + 1);
 		}
 		if (manifest->kind == ViewKind::Hud) {
 			return requiresStateBarrier || _presentation.Open(a_id);
@@ -578,7 +578,7 @@ namespace OSFUI
 		}
 		const auto target = std::move(*_pendingViewOpen);
 		_pendingViewOpen.reset();
-		_viewWillOpenBarriers.erase(target);
+		_viewOpenPreflightBarriers.erase(target);
 		CancelColdOpenTiming(target);
 		REX::DEBUG("Runtime: cancelled pending open of '{}'", target);
 		return true;
@@ -589,7 +589,7 @@ namespace OSFUI
 		if (_pendingViewOpen && *_pendingViewOpen == a_id) {
 			return CancelPendingOpen();
 		}
-		if (_viewWillOpenBarriers.erase(std::string(a_id)) > 0) {
+		if (_viewOpenPreflightBarriers.erase(std::string(a_id)) > 0) {
 			REX::DEBUG("Runtime: cancelled pending open of '{}'", a_id);
 			return true;
 		}
@@ -688,7 +688,7 @@ namespace OSFUI
 	void Runtime::DrivePendingOpen()
 	{
 		bool policyChanged = false;
-		for (auto it = _viewWillOpenBarriers.begin(); it != _viewWillOpenBarriers.end();) {
+		for (auto it = _viewOpenPreflightBarriers.begin(); it != _viewOpenPreflightBarriers.end();) {
 			if (it->second > _mainTickSerial) {
 				++it;
 				continue;
@@ -696,7 +696,7 @@ namespace OSFUI
 			const auto* manifest = _views.Find(it->first);
 			if (!manifest || !_presentation.IsInstantiated(it->first)) {
 				REX::WARN("Runtime: cancelling deferred open of '{}' because the view is no longer available", it->first);
-				it = _viewWillOpenBarriers.erase(it);
+				it = _viewOpenPreflightBarriers.erase(it);
 				continue;
 			}
 			if (manifest->kind == ViewKind::Menu) {
@@ -705,7 +705,7 @@ namespace OSFUI
 			}
 			policyChanged = _presentation.Open(it->first) || policyChanged;
 			REX::DEBUG("Runtime: retained-state barrier completed; opening HUD '{}'", it->first);
-			it = _viewWillOpenBarriers.erase(it);
+			it = _viewOpenPreflightBarriers.erase(it);
 		}
 		if (policyChanged) {
 			ApplyViewPresentationPolicy();
@@ -729,8 +729,8 @@ namespace OSFUI
 			CancelPendingOpen();
 			return;
 		}
-		if (const auto barrier = _viewWillOpenBarriers.find(target);
-			barrier != _viewWillOpenBarriers.end() && barrier->second > _mainTickSerial) {
+		if (const auto barrier = _viewOpenPreflightBarriers.find(target);
+			barrier != _viewOpenPreflightBarriers.end() && barrier->second > _mainTickSerial) {
 			return;
 		}
 
@@ -740,7 +740,7 @@ namespace OSFUI
 
 		_presentation.Open(target);
 		_pendingViewOpen.reset();
-		const bool completedStateBarrier = _viewWillOpenBarriers.erase(target) > 0;
+		const bool completedStateBarrier = _viewOpenPreflightBarriers.erase(target) > 0;
 		REX::DEBUG("Runtime: {} completed; opening '{}'",
 			completedStateBarrier ? "retained-state barrier and main-frame load" : "main-frame load", target);
 		ApplyViewPresentationPolicy();
@@ -1009,7 +1009,7 @@ namespace OSFUI
 		_hiddenPrewarmTiming.reset();
 
 		CancelPendingOpen();
-		_viewWillOpenBarriers.clear();
+		_viewOpenPreflightBarriers.clear();
 		_presentation.CloseAll();
 		ApplyViewPresentationPolicy();
 
@@ -1193,7 +1193,7 @@ namespace OSFUI
 		REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s - closing it and releasing input/pause state", active, decision.heldSeconds);
 		_coldOpenTiming.reset();
 		CancelPendingOpen();
-		_viewWillOpenBarriers.clear();
+		_viewOpenPreflightBarriers.clear();
 		_presentation.CloseAll();
 		ApplyViewPresentationPolicy();
 

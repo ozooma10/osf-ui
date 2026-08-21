@@ -190,45 +190,45 @@ namespace OSFUI::API
 		return true;
 	}
 
-	bool BridgeApi::RegisterViewWillOpen(const char* a_viewId, ViewWillOpenFn a_handler, void* a_user)
+	bool BridgeApi::RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user)
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) {
-			REX::WARN("BridgeApi: [content] refused RegisterViewWillOpen — expected a valid qualified view id and non-null handler");
+			REX::WARN("BridgeApi: [content] refused RegisterViewOpenPreflight — expected a valid qualified view id and non-null handler");
 			return false;
 		}
 		const std::string viewId(a_viewId);
 		std::lock_guard lock(_mutex);
-		if (_viewWillOpen.contains(viewId)) {
-			REX::WARN("BridgeApi: [content] refused RegisterViewWillOpen('{}') — already registered (first wins)", viewId);
+		if (_viewOpenPreflights.contains(viewId)) {
+			REX::WARN("BridgeApi: [content] refused RegisterViewOpenPreflight('{}') — already registered (first wins)", viewId);
 			return false;
 		}
-		_viewWillOpen.emplace(viewId, ViewWillOpenRegistration{ a_handler, a_user });
+		_viewOpenPreflights.emplace(viewId, ViewOpenPreflightRegistration{ a_handler, a_user });
 		return true;
 	}
 
-	void BridgeApi::UnregisterViewWillOpen(const char* a_viewId)
+	void BridgeApi::UnregisterViewOpenPreflight(const char* a_viewId)
 	{
 		if (!a_viewId) {
 			return;
 		}
 		std::lock_guard lock(_mutex);
-		_viewWillOpen.erase(a_viewId);
+		_viewOpenPreflights.erase(a_viewId);
 	}
 
-	BridgeApi::ViewWillOpenResult BridgeApi::DispatchViewWillOpen(std::string_view a_viewId)
+	BridgeApi::ViewOpenPreflightResult BridgeApi::RunViewOpenPreflight(std::string_view a_viewId)
 	{
-		ViewWillOpenRegistration registration;
+		ViewOpenPreflightRegistration registration;
 		{
 			std::lock_guard lock(_mutex);
-			const auto found = _viewWillOpen.find(std::string(a_viewId));
-			if (found == _viewWillOpen.end()) {
-				return ViewWillOpenResult::kNoHandler;
+			const auto found = _viewOpenPreflights.find(std::string(a_viewId));
+			if (found == _viewOpenPreflights.end()) {
+				return ViewOpenPreflightResult::kNoHandler;
 			}
 			registration = found->second;
 		}
 		const std::string view(a_viewId);
 		return registration.fn(view.c_str(), registration.user) ?
-			ViewWillOpenResult::kAllowed : ViewWillOpenResult::kDenied;
+			ViewOpenPreflightResult::kAllowed : ViewOpenPreflightResult::kDenied;
 	}
 
 	void BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user)
