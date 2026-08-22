@@ -67,6 +67,9 @@ namespace OSFUI
 		void OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
 		// Accumulate one raw relative packet for the active ABI 1.10 owner. Returns true while a relative-pointer session owns wheel routing.
 		bool OnGameWindowMouseRelative(int a_dx, int a_dy);
+		// Browser-host pipe reader thread: accumulate the raw-input owner selected
+		// by the main-thread capture edge. All touched state is atomic.
+		void OnBrowserHostRelativePointer(std::string_view a_viewId, int a_dx, int a_dy, int a_wheel);
 		void OnGameWindowMouseButton(int a_button, bool a_down);
 		void OnGameWindowMouseWheel(int a_wheelDelta);
 
@@ -268,6 +271,8 @@ namespace OSFUI
 		std::atomic<float>               _relativePointerDy{ 0.0f };
 		std::atomic<float>               _relativePointerWheel{ 0.0f };
 		std::atomic<RelativePointerStop> _relativePointerStop{ RelativePointerStop::kNone };
+		std::atomic<std::uint64_t>        _relativePointerOwnerToken{ 0 };
+		std::atomic_bool                 _relativePointerHostInput{ false };
 		std::string                      _relativePointerView;  // main-thread owner
 
 		std::atomic_bool              _captureInput{ false };

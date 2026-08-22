@@ -80,6 +80,7 @@
 				if (!view) return;
 				const auto a_msg = msg::FromJson<msg::SetHidden>(a_raw);
 				if (a_msg.hidden) {
+					if (relativePointerView == view->id) ResetRelativePointerCapture();
 					HideView(*view);
 				} else {
 					view->pendingPresentationEpoch = a_msg.presentationEpoch;
@@ -100,6 +101,7 @@
 				auto* view = ResolveView(a_msg);
 				if (!view) return;
 				if (inputTarget && inputTarget != view) {
+					if (relativePointerView == inputTarget->id) ResetRelativePointerCapture();
 					RecoverPressedMouseButtons(*inputTarget, "input target change");
 					inputTarget->nativePopupOpen = false;
 				}
@@ -136,6 +138,7 @@
 					}
 				}
 				if (!focusGranted) {
+					ResetRelativePointerCapture();
 					for (auto& view : views) view->nativePopupOpen = false;
 				}
 				SetRawMouseInput(focusGranted);
@@ -151,6 +154,10 @@
 			}
 
 			void HandleMouse(const json& a_msg) { SendMouse(a_msg); }
+			void HandleRelativePointerCapture(const json& a_msg)
+			{
+				SetRelativePointerCapture(msg::FromJson<msg::RelativePointerCapture>(a_msg));
+			}
 
 			void HandleKey(const json& a_raw)
 			{
@@ -217,6 +224,7 @@
 			{
 				auto* view = ResolveView(a_msg);
 				if (!view) return;
+				if (relativePointerView == view->id) ResetRelativePointerCapture();
 				log.Info(std::format("destroying view '{}'", view->id));
 				egressWarned.erase(view->id);
 				DestroyOneView(*view);
@@ -250,6 +258,7 @@
 					{ msg::SetInputTarget::kType, &App::HandleSetInputTarget },
 					{ msg::Focus::kType, &App::HandleFocus },
 					{ msg::Mouse::kType, &App::HandleMouse },
+					{ msg::RelativePointerCapture::kType, &App::HandleRelativePointerCapture },
 					{ msg::Key::kType, &App::HandleKey },
 					{ msg::FrameAck::kType, &App::HandleFrameAck },
 					{ msg::PostWeb::kType, &App::HandlePostWeb },

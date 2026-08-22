@@ -39,6 +39,8 @@ int main()
 		Check(msg::ToJson(msg::Ready{}).at("type") == "ready", "ready stamps type");
 		// The compatibility spelling is easy to "fix" by accident.
 		Check(msg::SetInputTarget::kType == "setActive", "setActive wire spelling preserved");
+		Check(msg::RelativePointerCapture::kType != msg::RelativePointer::kType,
+			"relative-pointer state and motion use distinct directions");
 		Check(msg::Shutdown::kType != msg::DestroyView::kType, "distinct types");
 	}
 
@@ -78,6 +80,17 @@ int main()
 		Check(state.focused && state.epoch == 41 && state.sequence == 9 &&
 			state.view == "acme.mod/panel",
 			"focus acknowledgement preserves actual state ordering");
+	}
+	{
+		const auto capture = RoundTrip(msg::RelativePointerCapture{
+			.view = "acme.mod/panel", .active = true });
+		Check(capture.view == "acme.mod/panel" && capture.active,
+			"relative-pointer capture preserves its admitted view owner");
+		const auto motion = RoundTrip(msg::RelativePointer{
+			.view = "acme.mod/panel", .dx = -17, .dy = 23, .wheel = -120 });
+		Check(motion.view == "acme.mod/panel" && motion.dx == -17 &&
+			motion.dy == 23 && motion.wheel == -120,
+			"signed raw relative-pointer motion survives host IPC");
 	}
 	{
 		const msg::Frame sent{ .slot = 3, .serial = 0xDEAD'BEEF'0000'0001ull,

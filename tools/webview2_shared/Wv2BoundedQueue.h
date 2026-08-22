@@ -18,6 +18,7 @@ namespace osfui::wv2
 	{
 		if (a_type == "mouse" && a_kind == "move") return "mouse.move";
 		if (a_type == "resize" || a_type == "focus" ||
+			a_type == "relativePointerCapture" ||
 			a_type == "accelState") {
 			return std::string(a_type);
 		}

@@ -163,6 +163,10 @@ namespace OSFUI
 		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
 			HardwareCursor::SetShape(a_shape);
 		});
+		_renderer->SetRelativePointerHandler([this](std::string_view a_viewId,
+			std::int32_t a_dx, std::int32_t a_dy, std::int32_t a_wheel) {
+			OnBrowserHostRelativePointer(a_viewId, a_dx, a_dy, a_wheel);
+		});
 	}
 
 	bool Runtime::InitializeCompositor()

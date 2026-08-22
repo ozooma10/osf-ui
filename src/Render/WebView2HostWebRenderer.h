@@ -51,6 +51,9 @@ namespace OSFUI
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
 		using NativeAcceleratorHandler =
 			std::function<bool(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down)>;
+		using RelativePointerHandler = std::function<void(
+			std::string_view a_viewId, std::int32_t a_dx, std::int32_t a_dy,
+			std::int32_t a_wheel)>;
 		using SharedRingHandler = std::function<void(const SharedRingDesc& a_desc)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
 		// Update drains game-thread callbacks; cursor and accelerator callbacks run on the transport thread.
@@ -72,6 +75,8 @@ namespace OSFUI
 		void SetFailureHandler(FailureHandler a_handler);
 		void SetCursorChangeHandler(CursorChangeHandler a_handler);
 		void SetNativeAcceleratorHandler(NativeAcceleratorHandler a_handler);
+		void SetRelativePointerHandler(RelativePointerHandler a_handler);
+		void SetRelativePointerCapture(std::string_view a_viewId, bool a_active);
 		void SetNativeFocus(bool a_focused);
 		void SetAcceleratorKeys(std::uint32_t a_toggleScan,
 			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpScan);

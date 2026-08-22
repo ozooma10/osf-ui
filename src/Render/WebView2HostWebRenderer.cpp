@@ -287,6 +287,7 @@ namespace OSFUI
 		FailureHandler          onFailure;
 		CursorChangeHandler     onCursorChange;
 		NativeAcceleratorHandler onAccelerator;
+		RelativePointerHandler  onRelativePointer;
 		SharedRingHandler       onSharedRing;
 		HealthHandler           onHealth;
 		// Game-thread only (Drain/setters).
@@ -313,6 +314,8 @@ namespace OSFUI
 		// accelState mirror (SetAcceleratorKeys diffs against this)
 		std::uint32_t accToggle{ 0 }, accCaptureUp{ 0 };
 		bool          accCaptured{ false }, accArmed{ false }, accSent{ false };
+		std::string   relativePointerView;
+		bool          relativePointerActive{ false };
 
 		enum class Lifecycle : std::uint8_t
 		{
@@ -1020,6 +1023,10 @@ namespace OSFUI
 					.epoch = focusEpoch.load(),
 					.view = inputTargetId,
 				}));
+				addBootstrap(ToJson(msg::RelativePointerCapture{
+					.view = relativePointerView,
+					.active = relativePointerActive,
+				}));
 			}
 			if (!PublishConnected(std::move(bootstrap))) {
 				if (!stopRequested.load(std::memory_order_acquire)) {
@@ -1102,6 +1109,12 @@ namespace OSFUI
 					if (onAccelerator) {
 						const auto accel = msg::FromJson<msg::Accelerator>(message);
 						onAccelerator(accel.vk, accel.scan, accel.down);
+					}
+				} else if (type == msg::RelativePointer::kType) {
+					// Invoked off the game thread; Runtime only touches atomic accumulators.
+					if (onRelativePointer) {
+						const auto pointer = msg::FromJson<msg::RelativePointer>(message);
+						onRelativePointer(pointer.view, pointer.dx, pointer.dy, pointer.wheel);
 					}
 				} else if (type == msg::FocusState::kType) {
 					const auto state = msg::FromJson<msg::FocusState>(message);
@@ -1782,6 +1795,23 @@ namespace OSFUI
 		NativeAcceleratorHandler a_handler)
 	{
 		_impl->onAccelerator = std::move(a_handler);
+	}
+	void WebView2HostWebRenderer::SetRelativePointerHandler(RelativePointerHandler a_handler)
+	{
+		_impl->onRelativePointer = std::move(a_handler);
+	}
+	void WebView2HostWebRenderer::SetRelativePointerCapture(
+		std::string_view a_viewId, bool a_active)
+	{
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			_impl->relativePointerView = a_active ? std::string(a_viewId) : std::string{};
+			_impl->relativePointerActive = a_active;
+		}
+		_impl->Send(ToJson(msg::RelativePointerCapture{
+			.view = a_active ? std::string(a_viewId) : std::string{},
+			.active = a_active,
+		}));
 	}
 	void WebView2HostWebRenderer::SetSharedRingHandler(SharedRingHandler a_handler)
 	{

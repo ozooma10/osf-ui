@@ -14,6 +14,19 @@
 
 namespace OSFUI
 {
+	namespace
+	{
+		[[nodiscard]] std::uint64_t RelativePointerOwnerToken(std::string_view a_viewId)
+		{
+			std::uint64_t hash = 14695981039346656037ull;
+			for (const auto ch : a_viewId) {
+				hash ^= static_cast<std::uint8_t>(ch);
+				hash *= 1099511628211ull;
+			}
+			return hash == 0 ? 1 : hash;
+		}
+	}
+
 	void Runtime::NotifyGameWindowFocused()
 	{
 		if (_relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
@@ -121,6 +134,11 @@ namespace OSFUI
 		if (!_relativePointerActive.load(std::memory_order_acquire)) {
 			return false;
 		}
+		// The out-of-process WebView host owns raw input while it has focus. Keep
+		// this game-window lane only as a fallback when that host source is absent.
+		if (_relativePointerHostInput.load(std::memory_order_acquire)) {
+			return true;
+		}
 		if (a_dx != 0) {
 			_relativePointerDx.fetch_add(static_cast<float>(a_dx), std::memory_order_relaxed);
 		}
@@ -128,6 +146,32 @@ namespace OSFUI
 			_relativePointerDy.fetch_add(static_cast<float>(a_dy), std::memory_order_relaxed);
 		}
 		return true;
+	}
+
+	void Runtime::OnBrowserHostRelativePointer(
+		std::string_view a_viewId, int a_dx, int a_dy, int a_wheel)
+	{
+		if (!_relativePointerActive.load(std::memory_order_acquire) ||
+			_relativePointerOwnerToken.load(std::memory_order_acquire) !=
+				RelativePointerOwnerToken(a_viewId)) {
+			return;
+		}
+		if (!_relativePointerHostInput.exchange(true, std::memory_order_acq_rel)) {
+			// Discard any overlapping game-window fallback accumulated before the
+			// authoritative host source proved live for this capture.
+			_relativePointerDx.store(0.0f, std::memory_order_relaxed);
+			_relativePointerDy.store(0.0f, std::memory_order_relaxed);
+			_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
+		}
+		if (a_dx != 0) {
+			_relativePointerDx.fetch_add(static_cast<float>(a_dx), std::memory_order_relaxed);
+		}
+		if (a_dy != 0) {
+			_relativePointerDy.fetch_add(static_cast<float>(a_dy), std::memory_order_relaxed);
+		}
+		if (a_wheel != 0) {
+			_relativePointerWheel.fetch_add(-static_cast<float>(a_wheel) / 120.0f, std::memory_order_relaxed);
+		}
 	}
 
 	void Runtime::QueueMouseMove()
@@ -154,6 +198,9 @@ namespace OSFUI
 			return;
 		}
 		if (_relativePointerActive.load(std::memory_order_acquire)) {
+			if (_relativePointerHostInput.load(std::memory_order_acquire)) {
+				return;
+			}
 			// Match DOM WheelEvent.deltaY: positive scrolls down/toward the user, opposite Win32's positive WHEEL_DELTA direction.
 			_relativePointerWheel.fetch_add(-static_cast<float>(a_wheelDelta) / 120.0f, std::memory_order_relaxed);
 			return;
@@ -174,11 +221,17 @@ namespace OSFUI
 		_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
 		_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
 		_relativePointerView = a_viewId;
+		_relativePointerOwnerToken.store(RelativePointerOwnerToken(a_viewId), std::memory_order_release);
+		_relativePointerHostInput.store(false, std::memory_order_release);
 		_relativePointerActive.store(true, std::memory_order_release);
 		if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kBegin)) {
 			_relativePointerActive.store(false, std::memory_order_release);
+			_relativePointerOwnerToken.store(0, std::memory_order_release);
 			_relativePointerView.clear();
 			return false;
+		}
+		if (_renderer) {
+			_renderer->SetRelativePointerCapture(_relativePointerView, true);
 		}
 		return true;
 	}
@@ -204,6 +257,11 @@ namespace OSFUI
 			return;
 		}
 		_relativePointerActive.store(false, std::memory_order_release);
+		_relativePointerOwnerToken.store(0, std::memory_order_release);
+		_relativePointerHostInput.store(false, std::memory_order_release);
+		if (_renderer) {
+			_renderer->SetRelativePointerCapture(_relativePointerView, false);
+		}
 		_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
 		const float dx = _relativePointerDx.exchange(0.0f, std::memory_order_acq_rel);
 		const float dy = _relativePointerDy.exchange(0.0f, std::memory_order_acq_rel);
@@ -231,6 +289,11 @@ namespace OSFUI
 		}
 		if (!API::BridgeApi::Get().HasRelativePointer(_relativePointerView)) {
 			_relativePointerActive.store(false, std::memory_order_release);
+			_relativePointerOwnerToken.store(0, std::memory_order_release);
+			_relativePointerHostInput.store(false, std::memory_order_release);
+			if (_renderer) {
+				_renderer->SetRelativePointerCapture(_relativePointerView, false);
+			}
 			_relativePointerView.clear();
 			_relativePointerDx.store(0.0f, std::memory_order_relaxed);
 			_relativePointerDy.store(0.0f, std::memory_order_relaxed);

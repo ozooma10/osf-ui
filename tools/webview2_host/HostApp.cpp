@@ -22,6 +22,7 @@
 #include <chrono>
 #include <format>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -298,6 +299,10 @@ namespace osfui::wv2
 			bool          lastPublishedFocused{ false };
 			std::string   lastPublishedFocusView;
 			bool          rawMouseRegistered{ false };
+			std::string   relativePointerView;
+			std::int64_t  relativePointerDx{ 0 };
+			std::int64_t  relativePointerDy{ 0 };
+			std::int64_t  relativePointerWheel{ 0 };
 			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
 			std::uint64_t syntheticMouseRecoveryCount{ 0 };
 			std::uint64_t mouseCaptureRecoveryCount{ 0 };
@@ -1806,7 +1811,26 @@ namespace osfui::wv2
 				return POINT{ capturedMouseX, capturedMouseY };
 			}
 
-			void SendRawMouseWheel(LPARAM a_lparam)
+			void ResetRelativePointerCapture()
+			{
+				relativePointerView.clear();
+				relativePointerDx = 0;
+				relativePointerDy = 0;
+				relativePointerWheel = 0;
+			}
+
+			void SetRelativePointerCapture(const msg::RelativePointerCapture& a_capture)
+			{
+				ResetRelativePointerCapture();
+				if (!a_capture.active || !focusGranted || !inputTarget ||
+					inputTarget->id != a_capture.view || inputTarget->hidden ||
+					!OSFUI::Ids::IsValidQualifiedViewId(a_capture.view)) {
+					return;
+				}
+				relativePointerView = a_capture.view;
+			}
+
+			void AccumulateRawMouse(LPARAM a_lparam)
 			{
 				if (!focusGranted || !rawMouseRegistered || !inputTarget ||
 					!inputTarget->compositionController) {
@@ -1821,17 +1845,54 @@ namespace osfui::wv2
 				RAWINPUT raw{};
 				if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT,
 					&raw, &size, sizeof(RAWINPUTHEADER)) != size ||
-					raw.header.dwType != RIM_TYPEMOUSE ||
-					(raw.data.mouse.usButtonFlags & RI_MOUSE_WHEEL) == 0) {
+					raw.header.dwType != RIM_TYPEMOUSE) {
 					return;
 				}
-				const auto delta = static_cast<SHORT>(raw.data.mouse.usButtonData);
-				if (delta == 0) return;
-				const POINT at = LiveWheelPoint();
-				inputTarget->compositionController->SendMouseInput(
-					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
-					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
-					static_cast<UINT32>(delta), at);
+
+				const auto& mouse = raw.data.mouse;
+				if ((mouse.usButtonFlags & RI_MOUSE_WHEEL) != 0) {
+					const auto delta = static_cast<SHORT>(mouse.usButtonData);
+					if (delta != 0) {
+						const POINT at = LiveWheelPoint();
+						inputTarget->compositionController->SendMouseInput(
+							COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
+							COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
+							static_cast<UINT32>(delta), at);
+						if (!relativePointerView.empty() && inputTarget->id == relativePointerView) {
+							relativePointerWheel += delta;
+						}
+					}
+				}
+
+				if (relativePointerView.empty() || inputTarget->id != relativePointerView ||
+					(mouse.usFlags & MOUSE_MOVE_ABSOLUTE) != 0) {
+					return;
+				}
+				relativePointerDx += mouse.lLastX;
+				relativePointerDy += mouse.lLastY;
+			}
+
+			void FlushRelativePointer()
+			{
+				if (relativePointerView.empty() ||
+					(relativePointerDx == 0 && relativePointerDy == 0 && relativePointerWheel == 0)) {
+					return;
+				}
+				const auto clamp = [](std::int64_t a_value) {
+					return static_cast<std::int32_t>(std::clamp<std::int64_t>(
+						a_value, std::numeric_limits<std::int32_t>::min(),
+						std::numeric_limits<std::int32_t>::max()));
+				};
+				const auto message = msg::RelativePointer{
+					.view = relativePointerView,
+					.dx = clamp(relativePointerDx),
+					.dy = clamp(relativePointerDy),
+					.wheel = clamp(relativePointerWheel),
+				};
+				relativePointerDx = 0;
+				relativePointerDy = 0;
+				relativePointerWheel = 0;
+				Send(msg::ToJson(message));
 			}
 
 			[[nodiscard]] bool SendCapturedMouse(
@@ -1943,7 +2004,7 @@ namespace osfui::wv2
 					if (unexpected) self->QueueMouseCaptureReconcile();
 				}
 				if (self && a_msg == WM_INPUT) {
-					self->SendRawMouseWheel(a_lparam);
+					self->AccumulateRawMouse(a_lparam);
 					// The original proc must still release the raw-input buffer.
 				}
 				if (self && self->focusGranted) {
@@ -2048,6 +2109,7 @@ namespace osfui::wv2
 				publishedFocusState = false;
 				lastPublishedFocused = false;
 				lastPublishedFocusView.clear();
+				ResetRelativePointerCapture();
 				SetRawMouseInput(false);
 				captureArmed = false;
 				ReconcileInputWidgetSubclass();
@@ -2179,6 +2241,7 @@ namespace osfui::wv2
 							::TranslateMessage(&message);
 							::DispatchMessageW(&message);
 						}
+						FlushRelativePointer();
 					}
 				} else {
 					exitCode = 5;

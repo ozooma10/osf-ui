@@ -5,7 +5,7 @@
 
 namespace osfui::wv2
 {
-	inline constexpr std::uint32_t kBrowserHostProtocolVersion = 9;
+	inline constexpr std::uint32_t kBrowserHostProtocolVersion = 10;
 
 	inline constexpr std::uint32_t kHelloTimeoutMs = 10000;
 	inline constexpr std::uint32_t kHeartbeatIntervalMs = 1000;

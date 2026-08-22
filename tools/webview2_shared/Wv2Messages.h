@@ -222,6 +222,37 @@ namespace osfui::wv2::msg
 		};
 	};
 
+	// Game -> browser host: enable raw relative motion only for the admitted native owner. This keeps high-rate WM_INPUT traffic dormant for ordinary UI.
+	struct RelativePointerCapture
+	{
+		static constexpr std::string_view kType = "relativePointerCapture";
+		std::string view;
+		bool        active{ false };
+
+		static constexpr auto kFields = std::tuple{
+			F("view", &RelativePointerCapture::view),
+			F("active", &RelativePointerCapture::active),
+		};
+	};
+
+	// Browser host -> game: one message-pump batch of physical raw input.
+	// Wheel remains in Win32 WHEEL_DELTA units; Runtime normalizes it for the ABI.
+	struct RelativePointer
+	{
+		static constexpr std::string_view kType = "relativePointer";
+		std::string  view;
+		std::int32_t dx{ 0 };
+		std::int32_t dy{ 0 };
+		std::int32_t wheel{ 0 };
+
+		static constexpr auto kFields = std::tuple{
+			F("view", &RelativePointer::view),
+			F("dx", &RelativePointer::dx),
+			F("dy", &RelativePointer::dy),
+			F("wheel", &RelativePointer::wheel),
+		};
+	};
+
 	struct Key
 	{
 		static constexpr std::string_view kType = "key";

@@ -597,6 +597,42 @@ int main()
 		"RI_MOUSE_LEFT_BUTTON_UP",
 		"OnGameWindowMouseButton(0, false)" }),
 		"WM_INPUT must accumulate both relative and absolute-device motion while preserving ordinary DOM pointer movement and the mouse-up terminal edge");
+	const auto hostRawMouse = FunctionBody(hostSource, "void AccumulateRawMouse(LPARAM a_lparam)");
+	Check(ContainsInOrder(hostRawMouse, {
+		"GetRawInputData",
+		"RI_MOUSE_WHEEL",
+		"SendMouseInput",
+		"relativePointerWheel += delta",
+		"MOUSE_MOVE_ABSOLUTE",
+		"relativePointerDx += mouse.lLastX",
+		"relativePointerDy += mouse.lLastY" }),
+		"the focused browser host must preserve WebView wheel delivery and forward physical relative motion for the admitted capture owner");
+	Check(ContainsInOrder(FunctionBody(hostSource, "void FlushRelativePointer()"), {
+		"msg::RelativePointer",
+		"relativePointerDx = 0",
+		"relativePointerDy = 0",
+		"relativePointerWheel = 0",
+		"Send(msg::ToJson(message))" }),
+		"browser-host raw input must cross the pipe as one bounded message-pump batch");
+	const auto hostRelativePointer = FunctionBody(runtimeSource,
+		"void Runtime::OnBrowserHostRelativePointer(");
+	Check(ContainsInOrder(hostRelativePointer, {
+		"_relativePointerActive.load",
+		"RelativePointerOwnerToken(a_viewId)",
+		"_relativePointerHostInput.exchange(true",
+		"_relativePointerDx.store(0.0f",
+		"_relativePointerDx.fetch_add",
+		"_relativePointerDy.fetch_add",
+		"_relativePointerWheel.fetch_add" }),
+		"the host pipe reader must validate the active owner and atomically replace the game-window fallback before accumulating motion");
+	Check(ContainsInOrder(FunctionBody(runtimeSource,
+		"bool Runtime::BeginRelativePointerCapture(std::string_view a_viewId)"), {
+		"DispatchRelativePointer",
+		"SetRelativePointerCapture(_relativePointerView, true)" }) &&
+		ContainsInOrder(FunctionBody(runtimeSource, "void Runtime::FinishRelativePointerCapture("), {
+			"SetRelativePointerCapture(_relativePointerView, false)",
+			"_relativePointerDx.exchange" }),
+		"successful capture begin/end edges must arm and disarm browser-host raw input around the final main-thread drain");
 	Check(ContainsInOrder(applyPolicy, {
 		"const auto layers = _presentation.DesiredLayers()",
 		"SetViewOrder(layer.id, layer.z)",
