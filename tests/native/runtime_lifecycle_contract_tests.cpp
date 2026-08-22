@@ -516,11 +516,23 @@ int main()
 	Check(ContainsInOrder(endpoints, {
 		"RegisterSend(\"osfui.relativePointer\"",
 		"activeValue->is_boolean()",
-		"EndRelativePointerCapture(src)",
+		"EnqueueRelativePointerCapture(src, activeValue->get<bool>())" }),
+		"relative-pointer capture edges from the browser transport must enter the main-thread request queue");
+	Check(ContainsInOrder(viewRequestQueueSource, {
+		"void OSFUI::ViewRequestQueue::EnqueueRelativePointer",
+		"std::lock_guard<std::mutex> lock(m_mutex)",
+		"m_relativePointer.push_back" }),
+		"relative-pointer ownership edges must cross browser threads through the locked runtime queue");
+	const auto relativeRequests = FunctionBody(runtimeSource, "void Runtime::ApplyRelativePointerRequests(");
+	Check(ContainsInOrder(relativeRequests, {
+		"if (!request.active)",
+		"EndRelativePointerCapture(request.view)",
 		"const auto active = _presentation.ActiveMenu()",
-		"!IsInputCaptured() || !active || *active != src",
-		"BeginRelativePointerCapture(src)" }),
-		"relative-pointer capture must be an explicit edge owned by the visible input-target view with a registered native consumer");
+		"!IsInputCaptured() || !active || *active != request.view",
+		"pointer-capture-forbidden",
+		"BeginRelativePointerCapture(request.view)",
+		"pointer-capture-unavailable" }),
+		"the main-thread request drain must validate the live view owner before beginning capture and end it idempotently");
 	Check(runtimeSource.find("bool Runtime::SetViewHidden") == std::string::npos &&
 		runtimeHeader.find("bool SetViewHidden") == std::string::npos,
 		"setViewHidden must not retain a second Runtime visibility authority");

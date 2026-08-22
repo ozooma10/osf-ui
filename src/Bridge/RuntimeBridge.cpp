@@ -386,20 +386,7 @@ namespace OSFUI
 					"osfui.relativePointer expects { active: boolean }");
 				return;
 			}
-			if (!activeValue->get<bool>()) {
-				EndRelativePointerCapture(src);
-				return;
-			}
-			const auto active = _presentation.ActiveMenu();
-			if (!IsInputCaptured() || !active || *active != src || !_presentation.IsOpen(src)) {
-				a_b.ReportProtocolFault(src, "pointer-capture-forbidden",
-					"only the visible input-owning menu can capture relative pointer input");
-				return;
-			}
-			if (!BeginRelativePointerCapture(src)) {
-				a_b.ReportProtocolFault(src, "pointer-capture-unavailable",
-					"the native owner did not register a relative pointer handler", {}, false);
-			}
+			EnqueueRelativePointerCapture(src, activeValue->get<bool>());
 		});
 		a_bridge.RegisterSend("osfui.gamepadMode", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string src(a_b.CurrentSource());

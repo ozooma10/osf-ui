@@ -49,6 +49,9 @@ namespace OSFUI
 		void EnqueuePresentationRequest(ViewPresentationRequest a_req);
 
 		void EnqueueOpenView(std::string a_viewId);
+		// Browser transport threads only enqueue this ownership edge; Runtime applies
+		// it beside presentation work so every native callback stays on the game main thread.
+		void EnqueueRelativePointerCapture(std::string a_viewId, bool a_active);
 
 		//true when overlay owns input. pused to decide whether to consume game input and route into web view.
 		bool IsInputCaptured() const;
@@ -103,10 +106,12 @@ namespace OSFUI
 		{
 			std::vector<ViewPresentationRequest>         local;
 			std::vector<ViewRequestQueue::OpenRequest>    openViews;  // EnqueueOpenView (internal native triggers)
+			std::vector<ViewRequestQueue::RelativePointerRequest> relativePointer;
 			std::vector<API::BridgeApi::ViewPresentationRequest> plugin;
 		};
 		PendingPresentationWork TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin);
 		void                          ApplyPresentationRequests(const PendingPresentationWork& a_work);
+		void                          ApplyRelativePointerRequests(const std::vector<ViewRequestQueue::RelativePointerRequest>& a_requests);
 
 		bool BeginViewOpen(std::string_view a_id, std::string_view a_reason = "on demand",
 			std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);

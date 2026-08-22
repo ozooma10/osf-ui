@@ -405,6 +405,11 @@ namespace OSFUI
 		m_viewRequests.EnqueueOpen(std::move(a_viewId));
 	}
 
+	void Runtime::EnqueueRelativePointerCapture(std::string a_viewId, bool a_active)
+	{
+		m_viewRequests.EnqueueRelativePointer(std::move(a_viewId), a_active);
+	}
+
 
 	Runtime::PendingPresentationWork Runtime::TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin)
 	{
@@ -412,6 +417,7 @@ namespace OSFUI
 		PendingPresentationWork work;
 		work.local = std::move(queued.presentation);
 		work.openViews = std::move(queued.openViews);
+		work.relativePointer = std::move(queued.relativePointer);
 		work.plugin = std::move(a_plugin);
 		return work;
 	}
@@ -420,7 +426,7 @@ namespace OSFUI
 	{
 		const auto& reqs = a_work.local;
 		const auto& pluginReqs = a_work.plugin;
-		if (reqs.empty() && pluginReqs.empty() && a_work.openViews.empty()) {
+		if (reqs.empty() && pluginReqs.empty() && a_work.openViews.empty() && a_work.relativePointer.empty()) {
 			return;
 		}
 		for (const auto req : reqs) {
@@ -472,6 +478,30 @@ namespace OSFUI
 			}
 		}
 		ApplyViewPresentationPolicy();
+		ApplyRelativePointerRequests(a_work.relativePointer);
+	}
+
+	void Runtime::ApplyRelativePointerRequests(const std::vector<ViewRequestQueue::RelativePointerRequest>& a_requests)
+	{
+		for (const auto& request : a_requests) {
+			if (!request.active) {
+				EndRelativePointerCapture(request.view);
+				continue;
+			}
+
+			const auto active = _presentation.ActiveMenu();
+			if (!IsInputCaptured() || !active || *active != request.view || !_presentation.IsOpen(request.view)) {
+				if (_bridge) {
+					_bridge->ReportProtocolFault(request.view, "pointer-capture-forbidden",
+						"only the visible input-owning menu can capture relative pointer input");
+				}
+				continue;
+			}
+			if (!BeginRelativePointerCapture(request.view) && _bridge) {
+				_bridge->ReportProtocolFault(request.view, "pointer-capture-unavailable",
+					"the native owner did not register a relative pointer handler", {}, false);
+			}
+		}
 	}
 
 	bool Runtime::OverlayCanDraw() const
