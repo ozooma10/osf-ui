@@ -184,5 +184,8 @@ namespace OSFUI
 		ReconcileFrameState(a_deltaSeconds);
 		ProcessRendererFrame(a_deltaSeconds);
 		DrainRelativePointerCapture();
+		if (!_lastShownView.empty()) {
+			API::BridgeApi::Get().DispatchViewLifecycle(_lastShownView, API::ViewLifecyclePhase::kFrame);
+		}
 	}
 }

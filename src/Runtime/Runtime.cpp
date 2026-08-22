@@ -911,17 +911,22 @@ namespace OSFUI
 			}
 		}
 
-		if (_bridge) {
-			const std::string shown = (visible && active) ? *active : std::string();
-			if (shown != _lastShownView) {
-				const char* reason = (visible == wasVisible) ? "focus" : "overlay";
-				if (!_lastShownView.empty()) {
-					_bridge->Emit(_lastShownView, "ui.visibility", nlohmann::json{ { "visible", false }, { "reason", reason } });
+		const std::string shown = (visible && active) ? *active : std::string();
+		if (shown != _lastShownView) {
+			const std::string previous = _lastShownView;
+			_lastShownView = shown;
+			const char* reason = (visible == wasVisible) ? "focus" : "overlay";
+			if (!previous.empty()) {
+				API::BridgeApi::Get().DispatchViewLifecycle(previous, API::ViewLifecyclePhase::kHidden);
+				if (_bridge) {
+					_bridge->Emit(previous, "ui.visibility", nlohmann::json{ { "visible", false }, { "reason", reason } });
 				}
-				if (!shown.empty()) {
+			}
+			if (!shown.empty()) {
+				API::BridgeApi::Get().DispatchViewLifecycle(shown, API::ViewLifecyclePhase::kShown);
+				if (_bridge) {
 					_bridge->Emit(shown, "ui.visibility", nlohmann::json{ { "visible", true }, { "reason", reason } });
 				}
-				_lastShownView = shown;
 			}
 		}
 		if (visible != wasVisible) {

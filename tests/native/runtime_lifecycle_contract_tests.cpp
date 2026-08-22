@@ -549,6 +549,14 @@ int main()
 		"*active != _relativePointerView",
 		"CancelRelativePointerCapture()" }),
 		"menu close, hide, and ownership switches must cancel relative-pointer capture through presentation policy");
+	Check(ContainsInOrder(applyPolicy, {
+		"const std::string shown = (visible && active) ? *active : std::string()",
+		"shown != _lastShownView",
+		"const std::string previous = _lastShownView",
+		"_lastShownView = shown",
+		"DispatchViewLifecycle(previous, API::ViewLifecyclePhase::kHidden)",
+		"DispatchViewLifecycle(shown, API::ViewLifecyclePhase::kShown)" }),
+		"native lifecycle hidden/shown callbacks must share the authoritative logical-menu transition and preserve replacement order");
 
 	const auto relativeDrain = FunctionBody(runtimeSource, "void Runtime::DrainRelativePointerCapture()");
 	Check(ContainsInOrder(relativeDrain, {
@@ -561,12 +569,24 @@ int main()
 		"RelativePointerStop::kCancel",
 		"RelativePointerPhase::kCancel" }),
 		"the main-frame drain must coalesce raw deltas before delivering one terminal edge");
-	Check(ContainsInOrder(FunctionBody(runtimeFrameSource, "void Runtime::Tick(double a_deltaSeconds)"), {
+	const auto frameTick = FunctionBody(runtimeFrameSource, "void Runtime::Tick(double a_deltaSeconds)");
+	Check(ContainsInOrder(frameTick, {
 		"ProcessBackendQueues",
 		"ApplyPresentationRequests",
 		"ProcessRendererFrame",
 		"DrainRelativePointerCapture" }),
 		"relative-pointer callbacks must drain once on the game main thread after browser ownership edges are processed");
+	Check(ContainsInOrder(FunctionBody(runtimeSource, "void Runtime::ApplyPresentationRequests("), {
+		"ApplyViewPresentationPolicy()",
+		"ApplyRelativePointerRequests(a_work.relativePointer)" }),
+		"relative-pointer ownership edges must be applied on the main thread after authoritative presentation changes");
+	Check(ContainsInOrder(frameTick, {
+		"ProcessRendererFrame",
+		"DrainRelativePointerCapture",
+		"if (!_lastShownView.empty())",
+		"DispatchViewLifecycle(_lastShownView, API::ViewLifecyclePhase::kFrame)" }) &&
+		Count(frameTick, "ViewLifecyclePhase::kFrame") == 1,
+		"the exact logically shown menu must receive one native lifecycle frame callback at the end of each game main tick");
 	Check(ContainsInOrder(FunctionBody(overlayInputSource, "void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam)"), {
 		"MOUSE_MOVE_ABSOLUTE",
 		"OnGameWindowMouseRelative",

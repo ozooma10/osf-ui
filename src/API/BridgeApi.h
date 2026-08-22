@@ -39,6 +39,8 @@ namespace OSFUI::API
 		void          UnregisterRelativePointer(const char* a_viewId) override;
 		bool          RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) override;
 		void          UnregisterViewOpenPreflight(const char* a_viewId) override;
+		bool          RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) override;
+		void          UnregisterViewLifecycle(const char* a_viewId) override;
 		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
 		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
@@ -143,6 +145,9 @@ namespace OSFUI::API
 		// main-thread presentation path before view instantiation or reveal.
 		[[nodiscard]] ViewOpenPreflightResult RunViewOpenPreflight(std::string_view a_viewId);
 
+		// Runtime-only side of ABI 1.12. Runtime invokes exact-view callbacks from its main-thread presentation edge and once-per-tick frame lane.
+		bool DispatchViewLifecycle(const std::string& a_viewId, ViewLifecyclePhase a_phase);
+
 	private:
 		BridgeApi() = default;
 		~BridgeApi() = default;
@@ -162,7 +167,12 @@ namespace OSFUI::API
 		struct ViewOpenPreflightRegistration
 		{
 			ViewOpenPreflightFn fn{ nullptr };
-			void*          user{ nullptr };
+			void*               user{ nullptr };
+		};
+		struct ViewLifecycleRegistration
+		{
+			ViewLifecycleFn fn{ nullptr };
+			void*           user{ nullptr };
 		};
 		struct PendingSend
 		{
@@ -233,6 +243,7 @@ namespace OSFUI::API
 		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
 		std::unordered_map<std::string, RelativePointerRegistration> _relativePointers;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewOpenPreflightRegistration> _viewOpenPreflights;  // exact view owner, first-wins
+		std::unordered_map<std::string, ViewLifecycleRegistration> _viewLifecycles;  // exact view owner, first-wins
 		std::vector<std::string>                      _pendingCommandUnregister;
 		std::vector<std::string>                      _pendingSendUnregister;
 		std::vector<std::string>                      _pendingRequestUnregister;

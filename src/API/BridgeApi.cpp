@@ -231,6 +231,46 @@ namespace OSFUI::API
 			ViewOpenPreflightResult::kAllowed : ViewOpenPreflightResult::kDenied;
 	}
 
+	bool BridgeApi::RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user)
+	{
+		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) {
+			REX::WARN("BridgeApi: [content] refused RegisterViewLifecycle — expected a valid qualified view id and non-null handler");
+			return false;
+		}
+		const std::string viewId(a_viewId);
+		std::lock_guard lock(_mutex);
+		if (_viewLifecycles.contains(viewId)) {
+			REX::WARN("BridgeApi: [content] refused RegisterViewLifecycle('{}') — already registered (first wins)", viewId);
+			return false;
+		}
+		_viewLifecycles.emplace(viewId, ViewLifecycleRegistration{ a_handler, a_user });
+		return true;
+	}
+
+	void BridgeApi::UnregisterViewLifecycle(const char* a_viewId)
+	{
+		if (!a_viewId) {
+			return;
+		}
+		std::lock_guard lock(_mutex);
+		_viewLifecycles.erase(a_viewId);
+	}
+
+	bool BridgeApi::DispatchViewLifecycle(const std::string& a_viewId, ViewLifecyclePhase a_phase)
+	{
+		ViewLifecycleRegistration registration;
+		{
+			std::lock_guard lock(_mutex);
+			const auto found = _viewLifecycles.find(a_viewId);
+			if (found == _viewLifecycles.end()) {
+				return false;
+			}
+			registration = found->second;
+		}
+		registration.fn(a_viewId.c_str(), a_phase, registration.user);
+		return true;
+	}
+
 	void BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user)
 	{
 		if (!a_name || !a_handler) return;

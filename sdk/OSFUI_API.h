@@ -10,7 +10,7 @@
 //
 // THREADING: status reads and typed getters are synchronous, callable from ANY thread.
 // Mutating calls are thread-safe; their effect lands on the game main thread.
-// All callbacks (SendFn/RequestFn/ReadyFn/SettingChangedFn/HotkeyFn/RelativePointerFn/ViewOpenPreflightFn) run on the game main thread - keep them cheap.
+// All callbacks (SendFn/RequestFn/ReadyFn/SettingChangedFn/HotkeyFn/RelativePointerFn/ViewOpenPreflightFn/ViewLifecycleFn) run on the game main thread - keep them cheap.
 //
 // LIFETIME: const char* params into callbacks are valid only for the call - copy what you retain.
 // ============================================================================
@@ -51,9 +51,9 @@ namespace OSFUI::API
 	// remain inert tombstones. New capabilities append at the vtable tail and
 	// bump MINOR. ABI
 	// 1.8 added retained view state, 1.9 added strict one-way send endpoints,
-	// 1.10 added view-owned relative-pointer capture, and 1.11 adds a native
-	// view-open preflight decision.
-	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 11u;
+	// 1.10 added view-owned relative-pointer capture, 1.11 added a native
+	// view-open preflight decision, and 1.12 adds native menu lifecycle callbacks.
+	inline constexpr std::uint32_t kBridgeAPIVersion = (1u << 16) | 12u;
 	inline constexpr std::uint32_t kBridgeAPIMajor   = kBridgeAPIVersion >> 16;
 	inline constexpr std::uint32_t kBridgeAPIMinor   = kBridgeAPIVersion & 0xFFFFu;
 
@@ -151,6 +151,22 @@ namespace OSFUI::API
 	// instantiates or presents an exact hidden view. Return true to allow the
 	// transition or false to leave the current presentation unchanged.
 	using ViewOpenPreflightFn = bool (*)(const char* a_viewId, void* a_user) noexcept;
+
+	// Main-thread lifecycle for one exact menu view. kShown means the menu became
+	// OSF UI's logically presented menu; it may precede the browser paint/reveal
+	// handshake. kFrame follows once per game main tick while that same menu stays
+	// logically shown, including the tick that fires kShown. kHidden is delivered
+	// before kShown when one menu replaces another. HUD-only presentation does not
+	// use this lifecycle.
+	enum class ViewLifecyclePhase : std::uint32_t
+	{
+		kShown = 0,
+		kFrame = 1,
+		kHidden = 2,
+	};
+	using ViewLifecycleFn = void (*)(const char* a_viewId,
+	                                ViewLifecyclePhase a_phase,
+	                                void* a_user) noexcept;
 
 	enum class IssueSeverity : std::uint32_t
 	{
@@ -335,6 +351,21 @@ namespace OSFUI::API
 		virtual bool RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) = 0;
 		virtual void UnregisterViewOpenPreflight(const char* a_viewId) = 0;
 
+		// --- native menu lifecycle (ABI 1.12). Appended; every older slot is frozen. ---
+		// Register one handler for an exact qualified view id. Registration is
+		// first-wins and thread-safe; callbacks always run on the game main thread.
+		// Register before RequestMenu so the next hidden-to-shown edge is observed.
+		// Registration does not replay kShown, and unregistration does not synthesize
+		// kHidden; an owner unregistering while active must first release its own state.
+		// Returns false for invalid/duplicate ids or a null handler.
+		//
+		//     static void OnLifecycle(const char*, ViewLifecyclePhase, void*) noexcept;
+		//     // OnLifecycle creates on kShown, advances on kFrame, and tears down on kHidden.
+		//     client.RegisterViewLifecycle("acme.mymod/studio", &OnLifecycle, nullptr);
+		//     client.RequestMenu("acme.mymod/studio", true);
+		virtual bool RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) = 0;
+		virtual void UnregisterViewLifecycle(const char* a_viewId) = 0;
+
 	protected:
 		~IOSFUIBridge() = default;  // OSF UI owns the singleton; consumers never delete it.
 	};
@@ -395,6 +426,7 @@ namespace OSFUI::API
 		kEndpointShape = 9,
 		kRelativePointer = 10,
 		kViewOpenPreflight = 11,
+		kViewLifecycle = 12,
 	};
 
 	class Client
@@ -503,6 +535,18 @@ namespace OSFUI::API
 		{
 			if (Has(Feature::kViewOpenPreflight)) {
 				_bridge->UnregisterViewOpenPreflight(a_viewId);
+			}
+		}
+
+		// --- 1.12 native menu lifecycle ---
+		bool RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) const noexcept
+		{
+			return Has(Feature::kViewLifecycle) && _bridge->RegisterViewLifecycle(a_viewId, a_handler, a_user);
+		}
+		void UnregisterViewLifecycle(const char* a_viewId) const noexcept
+		{
+			if (Has(Feature::kViewLifecycle)) {
+				_bridge->UnregisterViewLifecycle(a_viewId);
 			}
 		}
 		bool SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) const noexcept
