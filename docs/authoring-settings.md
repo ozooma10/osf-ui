@@ -86,7 +86,7 @@ String mode = OSFUI_Settings.GetString("yourname.mymod", "mode", "normal")
 
 The last argument is returned when OSF UI, the mod, or the setting is unavailable. Use `OSFUI_Settings.ListenForChanges` when your script must react immediately; registrations are session-scoped and must be restored after loading a game. See the [settings Papyrus API](../data/Scripts/Source/OSFUI_Settings.psc) for the exact signatures.
 
-Native plugins use [`OSFUI_API.h`](../sdk/OSFUI_API.h). Web views receive the registry through `osfui/settings` state and later commits through `settings.changed`; their types are in [`osfui.d.ts`](../sdk/osfui.d.ts).
+Native plugins include [`OSFUI_Settings.h`](../sdk/OSFUI_Settings.h) and initialize `OSFUI::API::Settings::Client` directly. Web views receive the registry through `osfui/settings` state and later commits through `settings.changed`; their types are in [`osfui.d.ts`](../sdk/osfui.d.ts).
 
 ## Add a Papyrus hotkey
 

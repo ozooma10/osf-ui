@@ -74,13 +74,13 @@ namespace
 	struct RelativeFire
 	{
 		std::string view;
-		OSFUI::API::RelativePointerPhase phase;
+		OSFUI::API::Views::RelativePointerPhase phase;
 		float dx;
 		float dy;
 		float wheel;
 	};
 	std::vector<RelativeFire> g_relativeFires;
-	void RelativePointer(const char* a_view, OSFUI::API::RelativePointerPhase a_phase,
+	void RelativePointer(const char* a_view, OSFUI::API::Views::RelativePointerPhase a_phase,
 		float a_dx, float a_dy, float a_wheel, void*) noexcept
 	{
 		g_relativeFires.push_back({ a_view, a_phase, a_dx, a_dy, a_wheel });
@@ -94,11 +94,11 @@ namespace
 	struct ViewLifecycleFire
 	{
 		std::string view;
-		OSFUI::API::ViewLifecyclePhase phase;
+		OSFUI::API::Views::ViewLifecyclePhase phase;
 		void* user;
 	};
 	std::vector<ViewLifecycleFire> g_viewLifecycleFires;
-	void ViewLifecycle(const char* a_view, OSFUI::API::ViewLifecyclePhase a_phase, void* a_user) noexcept
+	void ViewLifecycle(const char* a_view, OSFUI::API::Views::ViewLifecyclePhase a_phase, void* a_user) noexcept
 	{
 		g_viewLifecycleFires.push_back({ a_view, a_phase, a_user });
 	}
@@ -116,8 +116,8 @@ namespace
 		return g_protocolFaults.empty() ? std::string{} : g_protocolFaults.back().code;
 	}
 
-	std::optional<OSFUI::API::Request> g_request;
-	std::vector<OSFUI::API::Request> g_requests;
+	std::optional<OSFUI::API::Views::Request> g_request;
+	std::vector<OSFUI::API::Views::Request> g_requests;
 	std::uint64_t g_jsonToken = 0;
 	std::string g_jsonType, g_jsonPayload, g_jsonCode, g_jsonMessage;
 	void CaptureJsonResponse(std::uint64_t a_token, const char* a_type, const char* a_payload) noexcept
@@ -133,18 +133,18 @@ namespace
 		g_jsonMessage = a_message ? a_message : "";
 	}
 	std::string g_requestCommand, g_requestPayload, g_requestSource;
-	void RequestHandler(const OSFUI::API::Request& a_request, void*) noexcept
+	void RequestHandler(const OSFUI::API::Views::Request& a_request, void*) noexcept
 	{
 		g_request = a_request;
 		g_requests.push_back(a_request);
-		g_requestCommand = a_request.command; g_requestPayload = a_request.payloadJson; g_requestSource = a_request.sourceViewId;
+		g_requestCommand = a_request.name; g_requestPayload = a_request.payloadJson; g_requestSource = a_request.sourceViewId;
 	}
 
-	// Complete ABI 1.12 OSF UI runtime bridge double for Client pass-through checks.
-	struct TestRuntimeBridge final : OSFUI::API::IOSFUIBridge
+	struct TestServices final :
+		OSFUI::API::Settings::ISettings,
+		OSFUI::API::Views::IViews,
+		OSFUI::API::Diagnostics::IDiagnostics
 	{
-		std::uint32_t interfaceVersion{ OSFUI::API::kBridgeAPIVersion };
-		int commandCalls{ 0 };
 		int sendCalls{ 0 };
 		int requestCalls{ 0 };
 		int relativePointerCalls{ 0 };
@@ -152,39 +152,32 @@ namespace
 		int viewLifecycleCalls{ 0 };
 		bool viewOpenPreflightResult{ true };
 		bool viewLifecycleResult{ true };
-		std::uint32_t GetInterfaceVersion() override { return interfaceVersion; }
-		void GetPluginVersion(std::uint32_t& a, std::uint32_t& b, std::uint32_t& c) override { a=b=c=0; }
-		const char* GetBridgeProtocolVersion() override { return "1.4"; }
-		bool IsBridgeReady() override { return false; }
-		void RegisterCommand(const char*, OSFUI::API::CommandFn, void*) override { ++commandCalls; }
-		void UnregisterCommand(const char*) override { ++commandCalls; }
-		void RegisterSend(const char*, OSFUI::API::SendFn, void*) override { ++sendCalls; }
+		bool IsReady() override { return false; }
+		void RegisterSend(const char*, OSFUI::API::Views::SendFn, void*) override { ++sendCalls; }
 		void UnregisterSend(const char*) override { ++sendCalls; }
-		bool RegisterRelativePointer(const char*, OSFUI::API::RelativePointerFn, void*) override { ++relativePointerCalls; return true; }
+		bool RegisterRelativePointer(const char*, OSFUI::API::Views::RelativePointerFn, void*) override { ++relativePointerCalls; return true; }
 		void UnregisterRelativePointer(const char*) override { ++relativePointerCalls; }
-		bool RegisterViewOpenPreflight(const char*, OSFUI::API::ViewOpenPreflightFn, void*) override { ++viewOpenPreflightCalls; return viewOpenPreflightResult; }
+		bool RegisterViewOpenPreflight(const char*, OSFUI::API::Views::ViewOpenPreflightFn, void*) override { ++viewOpenPreflightCalls; return viewOpenPreflightResult; }
 		void UnregisterViewOpenPreflight(const char*) override { ++viewOpenPreflightCalls; }
-		bool RegisterViewLifecycle(const char*, OSFUI::API::ViewLifecycleFn, void*) override { ++viewLifecycleCalls; return viewLifecycleResult; }
+		bool RegisterViewLifecycle(const char*, OSFUI::API::Views::ViewLifecycleFn, void*) override { ++viewLifecycleCalls; return viewLifecycleResult; }
 		void UnregisterViewLifecycle(const char*) override { ++viewLifecycleCalls; }
 		bool SendToWeb(const char*, const char*, const char*) override { return false; }
 		bool SetViewState(const char*, const char*, const char*) override { return false; }
-		void SetReadyCallback(OSFUI::API::ReadyFn, void*) override {}
+		void SetReadyCallback(OSFUI::API::Views::ReadyFn, void*) override {}
 		bool RequestMenu(const char*, bool) override { return false; }
-		std::uint32_t SubscribeSettings(const char*, OSFUI::API::SettingChangedFn, void*) override { return 0; }
+		std::uint32_t SubscribeSettings(const char*, OSFUI::API::Settings::SettingChangedFn, void*) override { return 0; }
 		void UnsubscribeSettings(std::uint32_t) override {}
 		bool GetSettingBool(const char*, const char*, bool*) override { return false; }
 		bool GetSettingInt(const char*, const char*, std::int64_t*) override { return false; }
 		bool GetSettingFloat(const char*, const char*, double*) override { return false; }
 		std::uint32_t GetSettingString(const char*, const char*, char*, std::uint32_t) override { return 0; }
-		bool RegisterSettingsSchema(const char*) override { return false; }
-		void UnregisterSettingsSchema(const char*) override {}
-		std::uint32_t SubscribeHotkey(const char*, const char*, OSFUI::API::HotkeyFn, void*) override { return 0; }
+		std::uint32_t SubscribeHotkey(const char*, const char*, OSFUI::API::Settings::HotkeyFn, void*) override { return 0; }
 		void UnsubscribeHotkey(std::uint32_t) override {}
 		bool RegisterView(const char*) override { return false; }
 		bool ReportIssue(const char*, const char*, const char*, std::uint32_t, const char*, const char*) override { return false; }
 		bool ClearIssue(const char*, const char*) override { return false; }
 		bool ClearIssuesExcept(const char*, const char*) override { return false; }
-		void RegisterRequest(const char*, OSFUI::API::RequestFn, void*) override { ++requestCalls; }
+		void RegisterRequest(const char*, OSFUI::API::Views::RequestFn, void*) override { ++requestCalls; }
 		void UnregisterRequest(const char*) override { ++requestCalls; }
 	};
 }
@@ -210,19 +203,14 @@ int main()
 	api.SetViewCatalog({ "someview" });
 	api.SetViewInstantiated("someview", true);
 
-	// --- version constants: append-only ABI 1.12 ------------------------------
-	CHECK(OSFUI::API::kBridgeAPIMajor == 1);
-	CHECK(OSFUI::API::kBridgeAPIMinor == 12);
-	CHECK(OSFUI::API::kBridgeAPIVersion == ((1u << 16) | 12u));
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewState) == 8);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kSends) == 9);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kRelativePointer) == 10);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewOpenPreflight) == 11);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::Feature::kViewLifecycle) == 12);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::ViewLifecyclePhase::kShown) == 0);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::ViewLifecyclePhase::kFrame) == 1);
-	CHECK(static_cast<std::uint32_t>(OSFUI::API::ViewLifecyclePhase::kHidden) == 2);
-	CHECK(api.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
+	// --- standalone service versions ------------------------------------------
+	CHECK(OSFUI::API::kBridgeAPIVersion == ((1u << 16) | 7u));
+	CHECK(OSFUI::API::Settings::kVersion == ((1u << 16) | 0u));
+	CHECK(OSFUI::API::Views::kVersion == ((1u << 16) | 0u));
+	CHECK(OSFUI::API::Diagnostics::kVersion == ((1u << 16) | 0u));
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Views::ViewLifecyclePhase::kShown) == 0);
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Views::ViewLifecyclePhase::kFrame) == 1);
+	CHECK(static_cast<std::uint32_t>(OSFUI::API::Views::ViewLifecyclePhase::kHidden) == 2);
 	CHECK(std::string_view(OSFUI::kBridgeProtocolVersion) == "2.0");
 	CHECK(std::string_view(api.GetBridgeProtocolVersion()) == "2.0");
 
@@ -231,15 +219,15 @@ int main()
 	CHECK(api.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
 	CHECK(!api.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
 	CHECK(api.HasRelativePointer("acme.mymod/panel"));
-	CHECK(api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::RelativePointerPhase::kBegin));
-	CHECK(api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::RelativePointerPhase::kUpdate, 4.0f, -2.0f, 1.0f));
+	CHECK(api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::Views::RelativePointerPhase::kBegin));
+	CHECK(api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::Views::RelativePointerPhase::kUpdate, 4.0f, -2.0f, 1.0f));
 	CHECK(g_relativeFires.size() == 2);
 	CHECK(g_relativeFires.back().view == "acme.mymod/panel");
-	CHECK(g_relativeFires.back().phase == OSFUI::API::RelativePointerPhase::kUpdate);
+	CHECK(g_relativeFires.back().phase == OSFUI::API::Views::RelativePointerPhase::kUpdate);
 	CHECK(g_relativeFires.back().dx == 4.0f && g_relativeFires.back().dy == -2.0f && g_relativeFires.back().wheel == 1.0f);
 	api.UnregisterRelativePointer("acme.mymod/panel");
 	CHECK(!api.HasRelativePointer("acme.mymod/panel"));
-	CHECK(!api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::RelativePointerPhase::kCancel));
+	CHECK(!api.DispatchRelativePointer("acme.mymod/panel", OSFUI::API::Views::RelativePointerPhase::kCancel));
 
 	// --- view-open preflight ownership: validation, first-wins, allow/deny, re-register ---
 	bool allow = true;
@@ -263,18 +251,18 @@ int main()
 	CHECK(!api.RegisterViewLifecycle("acme.mymod/panel", nullptr, nullptr));
 	CHECK(api.RegisterViewLifecycle("acme.mymod/panel", &ViewLifecycle, &lifecycleOwner));
 	CHECK(!api.RegisterViewLifecycle("acme.mymod/panel", &ViewLifecycle, nullptr));
-	CHECK(!api.DispatchViewLifecycle("ACME.MYMOD/panel", OSFUI::API::ViewLifecyclePhase::kShown));
-	CHECK(api.DispatchViewLifecycle("acme.mymod/panel", OSFUI::API::ViewLifecyclePhase::kShown));
-	CHECK(api.DispatchViewLifecycle("acme.mymod/panel", OSFUI::API::ViewLifecyclePhase::kFrame));
-	CHECK(api.DispatchViewLifecycle("acme.mymod/panel", OSFUI::API::ViewLifecyclePhase::kHidden));
+	CHECK(!api.DispatchViewLifecycle("ACME.MYMOD/panel", OSFUI::API::Views::ViewLifecyclePhase::kShown));
+	CHECK(api.DispatchViewLifecycle("acme.mymod/panel", OSFUI::API::Views::ViewLifecyclePhase::kShown));
+	CHECK(api.DispatchViewLifecycle("acme.mymod/panel", OSFUI::API::Views::ViewLifecyclePhase::kFrame));
+	CHECK(api.DispatchViewLifecycle("acme.mymod/panel", OSFUI::API::Views::ViewLifecyclePhase::kHidden));
 	CHECK(g_viewLifecycleFires.size() == 3);
 	CHECK(g_viewLifecycleFires[0].view == "acme.mymod/panel");
-	CHECK(g_viewLifecycleFires[0].phase == OSFUI::API::ViewLifecyclePhase::kShown);
-	CHECK(g_viewLifecycleFires[1].phase == OSFUI::API::ViewLifecyclePhase::kFrame);
-	CHECK(g_viewLifecycleFires[2].phase == OSFUI::API::ViewLifecyclePhase::kHidden);
+	CHECK(g_viewLifecycleFires[0].phase == OSFUI::API::Views::ViewLifecyclePhase::kShown);
+	CHECK(g_viewLifecycleFires[1].phase == OSFUI::API::Views::ViewLifecyclePhase::kFrame);
+	CHECK(g_viewLifecycleFires[2].phase == OSFUI::API::Views::ViewLifecyclePhase::kHidden);
 	CHECK(g_viewLifecycleFires[2].user == &lifecycleOwner);
 	api.UnregisterViewLifecycle("acme.mymod/panel");
-	CHECK(!api.DispatchViewLifecycle("acme.mymod/panel", OSFUI::API::ViewLifecyclePhase::kFrame));
+	CHECK(!api.DispatchViewLifecycle("acme.mymod/panel", OSFUI::API::Views::ViewLifecyclePhase::kFrame));
 
 	// --- endpoint ownership: explicit, with no dot-count inference -------------
 	for (const auto* bad : { "close", "ping", "setVisible", "menu.open",
@@ -966,113 +954,65 @@ int main()
 	api.SetBridgeAvailability(nullptr);
 	api.PumpMainThread();
 
-	// --- the Client wrapper (item 4): version-gated calls ---------------------
+	// --- standalone service clients -------------------------------------------
 	{
-		using OSFUI::API::Client;
-		using OSFUI::API::Feature;
+		using namespace OSFUI::API;
 
-		Client c;
-		TestRuntimeBridge runtimeBridge;
-		runtimeBridge.interfaceVersion = (1u << 16) | 8u;
-		CHECK(c.Attach(&runtimeBridge));
-		CHECK(c.Has(Feature::kDiagnostics));
-		CHECK(c.Has(Feature::kRequests));
-		CHECK(c.Has(Feature::kViewState));
-		CHECK(!c.Has(Feature::kSends));
-		c.RegisterCommand("acme.mymod.old-command", &HandlerA, nullptr);
-		c.UnregisterCommand("acme.mymod.old-command");
-		CHECK(runtimeBridge.commandCalls == 2);
-		c.RegisterSend("acme.mymod.new-send", &HandlerA, nullptr);
-		c.UnregisterSend("acme.mymod.new-send");
-		CHECK(runtimeBridge.sendCalls == 0);
-		CHECK(!c.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
-		CHECK(runtimeBridge.relativePointerCalls == 0);
-		CHECK(!c.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
-		c.UnregisterViewOpenPreflight("acme.mymod/panel");
-		CHECK(runtimeBridge.viewOpenPreflightCalls == 0);
-		CHECK(!c.RegisterViewLifecycle("acme.mymod/panel", &ViewLifecycle, nullptr));
-		c.UnregisterViewLifecycle("acme.mymod/panel");
-		CHECK(runtimeBridge.viewLifecycleCalls == 0);
-		runtimeBridge.interfaceVersion = (1u << 16) | 10u;
-		CHECK(c.Attach(&runtimeBridge));
-		CHECK(c.Has(Feature::kRelativePointer));
-		CHECK(!c.Has(Feature::kViewOpenPreflight));
-		CHECK(!c.Has(Feature::kViewLifecycle));
-		CHECK(!c.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
-		CHECK(runtimeBridge.viewOpenPreflightCalls == 0);
-		runtimeBridge.interfaceVersion = (1u << 16) | 11u;
-		CHECK(c.Attach(&runtimeBridge));
-		CHECK(c.Has(Feature::kViewOpenPreflight));
-		CHECK(!c.Has(Feature::kViewLifecycle));
-		CHECK(!c.RegisterViewLifecycle("acme.mymod/panel", &ViewLifecycle, nullptr));
-		CHECK(runtimeBridge.viewLifecycleCalls == 0);
-		runtimeBridge.interfaceVersion = OSFUI::API::kBridgeAPIVersion;
-		CHECK(c.Attach(&runtimeBridge));
-		c.RegisterSend("acme.mymod.new-send", &HandlerA, nullptr);
-		c.UnregisterSend("acme.mymod.new-send");
-		CHECK(runtimeBridge.sendCalls == 2);
-		CHECK(c.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
-		c.UnregisterRelativePointer("acme.mymod/panel");
-		CHECK(runtimeBridge.relativePointerCalls == 2);
-		CHECK(c.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
-		c.UnregisterViewOpenPreflight("acme.mymod/panel");
-		CHECK(runtimeBridge.viewOpenPreflightCalls == 2);
-		runtimeBridge.viewOpenPreflightResult = false;
-		CHECK(!c.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
-		CHECK(runtimeBridge.viewOpenPreflightCalls == 3);
-		CHECK(c.RegisterViewLifecycle("acme.mymod/panel", &ViewLifecycle, nullptr));
-		c.UnregisterViewLifecycle("acme.mymod/panel");
-		CHECK(runtimeBridge.viewLifecycleCalls == 2);
-		runtimeBridge.viewLifecycleResult = false;
-		CHECK(!c.RegisterViewLifecycle("acme.mymod/panel", &ViewLifecycle, nullptr));
-		CHECK(runtimeBridge.viewLifecycleCalls == 3);
-		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));  // test double returns false
-		c.RegisterRequest("acme.mymod.old", &RequestHandler, nullptr);
-		c.UnregisterRequest("acme.mymod.old");
-		CHECK(runtimeBridge.requestCalls == 2);
-		c.Attach(nullptr);
-		CHECK(!c.IsConnected());
-		CHECK(!c.Has(Feature::kSends));              // unattached: everything gates off
-		CHECK(!c.RequestMenu("osfui/settings", true));
-		CHECK(!c.SetViewState("acme.mymod", "k", "{}"));
-		CHECK(c.GetSettingString("a.b", "k", nullptr, 0) == 0);
-		CHECK(c.GetBridgeProtocolVersion() != nullptr);  // "" — never a null crash
+		TestServices runtime;
+		Settings::Client settingsClient;
+		Views::Client views;
+		Diagnostics::Client diagnostics;
+		CHECK(settingsClient.Attach(&runtime));
+		CHECK(views.Attach(&runtime));
+		CHECK(diagnostics.Attach(&runtime));
+		CHECK(settingsClient.Version() == Settings::kVersion);
+		CHECK(views.Version() == Views::kVersion);
+		CHECK(diagnostics.Version() == Diagnostics::kVersion);
+		CHECK(!views.Has(0x00010001u));
 
-		CHECK(c.Attach(&api));
-		CHECK(c.IsConnected() && static_cast<bool>(c));
-		CHECK(c.GetInterfaceVersion() == OSFUI::API::kBridgeAPIVersion);
-		CHECK(c.Raw() == &api);
-		CHECK(c.Has(Feature::kSends));
-		CHECK(c.Has(Feature::kViewState));
-		CHECK(c.Has(Feature::kRelativePointer));
-		CHECK(c.Has(Feature::kViewOpenPreflight));
-		CHECK(c.Has(Feature::kViewLifecycle));
+		views.RegisterSend("acme.mymod.send", &HandlerA, nullptr);
+		views.UnregisterSend("acme.mymod.send");
+		views.RegisterRequest("acme.mymod.request", &RequestHandler, nullptr);
+		views.UnregisterRequest("acme.mymod.request");
+		CHECK(runtime.sendCalls == 2);
+		CHECK(runtime.requestCalls == 2);
 
-		// Ungated pass-throughs reach the real implementation.
-		CHECK(c.SetViewState("acme.mymod", "wrapper", R"({"via":"client"})"));
+		CHECK(views.RegisterRelativePointer("acme.mymod/panel", &RelativePointer, nullptr));
+		views.UnregisterRelativePointer("acme.mymod/panel");
+		CHECK(runtime.relativePointerCalls == 2);
+		CHECK(views.RegisterViewOpenPreflight("acme.mymod/panel", &ViewOpenPreflight, &allow));
+		views.UnregisterViewOpenPreflight("acme.mymod/panel");
+		CHECK(runtime.viewOpenPreflightCalls == 2);
+		CHECK(views.RegisterViewLifecycle("acme.mymod/panel", &ViewLifecycle, nullptr));
+		views.UnregisterViewLifecycle("acme.mymod/panel");
+		CHECK(runtime.viewLifecycleCalls == 2);
+
+		Views::Client missingViews;
+		CHECK(!missingViews);
+		CHECK(!missingViews.RequestMenu("acme.mymod/panel", true));
+
+		Settings::Client missingSettings;
+		CHECK(!missingSettings);
+		CHECK(missingSettings.GetSettingString("a.b", "k", nullptr, 0) == 0);
+
+		Views::Client liveViews;
+		CHECK(liveViews.Attach(static_cast<Views::IViews*>(&api)));
+		CHECK(liveViews.SetViewState("acme.mymod", "wrapper", R"({"via":"client"})"));
 		{
 			const auto ops = api.TakeViewStateOps();
 			CHECK(ops.size() == 1 && ops[0].key == "wrapper");
 		}
-
-		// Historical features retain their original additive minor gates.
-		CHECK(c.Has(Feature::kRegisterView));
-		CHECK(c.Has(Feature::kRequestMenu));
-		CHECK(c.Has(Feature::kSettings));
-		CHECK(c.Has(Feature::kHotkeys));
-		CHECK(c.RegisterView("acme.mymod/extra"));   // reaches the OSF UI runtime, not gated off
-		CHECK(!c.RegisterView("unqualified"));       // refused on its own merits
+		CHECK(liveViews.RegisterView("acme.mymod/extra"));
+		CHECK(!liveViews.RegisterView("unqualified"));
 		{
 			const auto regs = api.TakeViewRegistrations();
 			CHECK(regs.size() == 1 && regs[0] == "acme.mymod/extra");
 		}
-		c.Attach(nullptr);
-		CHECK(!c.IsConnected());
 	}
 
 	{
 		using Op = OSFUI::API::BridgeApi::HealthIssueOp;
-		using Sev = OSFUI::API::IssueSeverity;
+		using Sev = OSFUI::API::Diagnostics::IssueSeverity;
 		const auto kWarn = static_cast<std::uint32_t>(Sev::kWarning);
 		const auto kErr = static_cast<std::uint32_t>(Sev::kError);
 
@@ -1147,8 +1087,8 @@ int main()
 		CHECK(!malformed.IsValid());
 		CHECK(!malformed.Error().empty());
 
-		OSFUI::API::Request raw;
-		raw.command = "acme.mymod.getWeight";
+		OSFUI::API::Views::Request raw;
+		raw.name = "acme.mymod.getWeight";
 		raw.payloadJson = R"({"formId":42})";
 		raw.sourceViewId = "acme.mymod/view";
 		raw._token = 91;

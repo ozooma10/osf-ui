@@ -921,13 +921,13 @@ namespace OSFUI
 			_lastShownView = shown;
 			const char* reason = (visible == wasVisible) ? "focus" : "overlay";
 			if (!previous.empty()) {
-				API::BridgeApi::Get().DispatchViewLifecycle(previous, API::ViewLifecyclePhase::kHidden);
+				API::BridgeApi::Get().DispatchViewLifecycle(previous, API::Views::ViewLifecyclePhase::kHidden);
 				if (_bridge) {
 					_bridge->Emit(previous, "ui.visibility", nlohmann::json{ { "visible", false }, { "reason", reason } });
 				}
 			}
 			if (!shown.empty()) {
-				API::BridgeApi::Get().DispatchViewLifecycle(shown, API::ViewLifecyclePhase::kShown);
+				API::BridgeApi::Get().DispatchViewLifecycle(shown, API::Views::ViewLifecyclePhase::kShown);
 				if (_bridge) {
 					_bridge->Emit(shown, "ui.visibility", nlohmann::json{ { "visible", true }, { "reason", reason } });
 				}

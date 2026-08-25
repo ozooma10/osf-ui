@@ -48,6 +48,7 @@ facade:
 - The settings schema under `mod/SFSE/Plugins/OSFUI/settings/` is discovered
   automatically.
 
-The complete native contract is in `native/include/OSFUI_API.h` and
-`native/include/OSFUI_JSON.h`. Settings schema details are in the
+Each native service header is standalone; include Views, Settings, or
+Diagnostics as needed. `OSFUI_API.h` is legacy ABI 1 compatibility.
+Settings schema details are in the
 [settings authoring guide](https://github.com/ozooma10/osf-ui/blob/main/docs/authoring-settings.md).

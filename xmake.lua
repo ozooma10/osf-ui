@@ -76,8 +76,7 @@ target("OSF UI")
         "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32")
 
     add_files("src/**.cpp")
-    -- The implementation and consumers compile against the same public ABI header.
-    add_headerfiles("src/**.h", "sdk/OSFUI_API.h", "sdk/OSFUI_JSON.h")
+    add_headerfiles("src/**.h", "sdk/**.h")
     add_includedirs("src", "tools/webview2_shared", "sdk")
     set_pcxxheader("src/pch.h")
 

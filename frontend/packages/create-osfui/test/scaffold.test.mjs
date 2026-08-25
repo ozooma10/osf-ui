@@ -207,6 +207,9 @@ test('creates a directly deployable plain-JS native menu', async (t) => {
   assert.match(nativeSource, /#include "OSFUI_JSON\.h"/);
   assert.match(nativeSource, /OSFUI::API::JsonSend/);
   assert.match(nativeSource, /OSFUI::API::JsonRequest/);
+  assert.match(nativeSource, /OSFUI::API::Views::Client/);
+  assert.doesNotMatch(nativeSource, /OSFUI::API::Messaging/);
+  assert.doesNotMatch(nativeSource, /OSFUI::API::Client/);
   assert.match(nativeSource, /SetViewState\(kModId, "state"/);
   assert.match(nativeSource, /RegisterSend\("acme\.widgets\.increment"/);
   for (const endpoint of ['getState', 'greet', 'recalibrate']) {
@@ -228,12 +231,18 @@ test('creates a directly deployable plain-JS native menu', async (t) => {
 
   assert.match(await readFile(resolve(root, 'xmake.lua'), 'utf8'), /set_installdir\("mod"\)/);
   await assertMissing(resolve(root, 'native/build.mjs'));
+  await assertMissing(resolve(root, 'native/include/OSFUI_API.h'));
   for (const [file, signature] of [
-    ['OSFUI_API.h', /struct IOSFUIBridge/],
+    ['OSFUI_Diagnostics.h', /struct IDiagnostics/],
     ['OSFUI_JSON.h', /class JsonClient/],
+    ['OSFUI_Settings.h', /struct ISettings/],
+    ['OSFUI_Views.h', /struct IViews/],
   ]) {
     const output = await readFile(resolve(root, 'native/include', file), 'utf8');
     assert.match(output, signature);
+    if (file !== 'OSFUI_JSON.h') {
+      assert.doesNotMatch(output, /#include "OSFUI_API\.h"/);
+    }
     assert.equal(
       output,
       await readFile(resolve(REPOSITORY_ROOT, 'sdk', file), 'utf8'),

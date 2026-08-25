@@ -112,7 +112,7 @@ export type PlatformSend =
   | { name: "osfui.gamepadRaw"; payload: { raw: boolean } }
   /**
    * Arm or end native relative-pointer capture for this document. The active
-   * visible input-owning menu and a native ABI 1.10 handler registered for the
+   * visible input-owning menu and a native views handler registered for the
    * exact view id are both required. Raw dx/dy/wheel updates stay in native
    * code; the page sends only these ownership edges. OSF UI also ends the
    * session on LMB-up and cancels it on focus, visibility, reload, or host loss.

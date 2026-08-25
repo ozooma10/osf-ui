@@ -6,7 +6,10 @@
 #include <thread>
 #include <unordered_set>
 
-#include "OSFUI_API.h"  // IOSFUIBridge, callback types, version constants (sdk/, on the include path)
+#include "OSFUI_API.h"
+#include "OSFUI_Diagnostics.h"
+#include "OSFUI_Settings.h"
+#include "OSFUI_Views.h"
 
 #include "API/HotkeySubscriptions.h"
 #include "API/SettingsMirror.h"
@@ -19,43 +22,47 @@ namespace OSFUI
 
 namespace OSFUI::API
 {
-	//returns true if name is valid and not reserved.
+	// True for a valid, non-platform endpoint.
 	[[nodiscard]] bool IsUnreservedEndpointName(std::string_view a_name);
 
-	class BridgeApi final : public IOSFUIBridge
+	class BridgeApi final :
+		public Settings::ISettings,
+		public Views::IViews,
+		public Diagnostics::IDiagnostics
 	{
 	public:
 		[[nodiscard]] static BridgeApi& Get();
 
-		std::uint32_t GetInterfaceVersion() override;
-		void          GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch) override;
-		const char*   GetBridgeProtocolVersion() override;
-		bool          IsBridgeReady() override;
-		void          RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user) override;
-		void          UnregisterCommand(const char* a_name) override;
-		void          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) override;
+		void          GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch);
+		const char*   GetBridgeProtocolVersion();
+		bool          IsBridgeReady();
+		bool          IsReady() override { return IsBridgeReady(); }
+		void          RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user);
+		void          UnregisterCommand(const char* a_name);
+		void          RegisterSend(const char* a_name, Views::SendFn a_handler, void* a_user) override;
 		void          UnregisterSend(const char* a_name) override;
-		bool          RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) override;
+		bool          RegisterRelativePointer(const char* a_viewId, Views::RelativePointerFn a_handler, void* a_user) override;
 		void          UnregisterRelativePointer(const char* a_viewId) override;
-		bool          RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) override;
+		bool          RegisterViewOpenPreflight(const char* a_viewId, Views::ViewOpenPreflightFn a_handler, void* a_user) override;
 		void          UnregisterViewOpenPreflight(const char* a_viewId) override;
-		bool          RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) override;
+		bool          RegisterViewLifecycle(const char* a_viewId, Views::ViewLifecycleFn a_handler, void* a_user) override;
 		void          UnregisterViewLifecycle(const char* a_viewId) override;
-		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
+		void          RegisterRequest(const char* a_name, Views::RequestFn a_handler, void* a_user) override;
+		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user);
 		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
 		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) override;
-		void          SetReadyCallback(ReadyFn a_callback, void* a_user) override;
+		void          SetReadyCallback(Views::ReadyFn a_callback, void* a_user) override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) override;
-		std::uint32_t SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user) override;
+		std::uint32_t SubscribeSettings(const char* a_modId, Settings::SettingChangedFn a_fn, void* a_user) override;
 		void          UnsubscribeSettings(std::uint32_t a_token) override;
 		bool          GetSettingBool(const char* a_modId, const char* a_key, bool* a_out) override;
 		bool          GetSettingInt(const char* a_modId, const char* a_key, std::int64_t* a_out) override;
 		bool          GetSettingFloat(const char* a_modId, const char* a_key, double* a_out) override;
 		std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) override;
-		bool          RegisterSettingsSchema(const char* a_schemaJson) override;
-		void          UnregisterSettingsSchema(const char* a_modId) override;
-		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user) override;
+		bool          RegisterSettingsSchema(const char* a_schemaJson);
+		void          UnregisterSettingsSchema(const char* a_modId);
+		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, Settings::HotkeyFn a_fn, void* a_user) override;
 		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 		bool          RegisterView(const char* a_viewId) override;
 		bool          ReportIssue(const char* a_modId, const char* a_id, const char* a_code, std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) override;
@@ -130,10 +137,9 @@ namespace OSFUI::API
 		void SetBridgeAvailability(MessageBridge* a_bridge);
 		void PumpMainThread();
 
-		// Runtime-only side of ABI 1.10. The window hook never calls handlers;
-		// Runtime copies and invokes them from its once-per-frame main-thread drain.
+		// Main-thread relative-pointer dispatch.
 		[[nodiscard]] bool HasRelativePointer(std::string_view a_viewId);
-		bool DispatchRelativePointer(std::string_view a_viewId, RelativePointerPhase a_phase, float a_dx = 0.0f, float a_dy = 0.0f, float a_wheel = 0.0f);
+		bool DispatchRelativePointer(std::string_view a_viewId, Views::RelativePointerPhase a_phase, float a_dx = 0.0f, float a_dy = 0.0f, float a_wheel = 0.0f);
 
 		enum class ViewOpenPreflightResult
 		{
@@ -141,12 +147,11 @@ namespace OSFUI::API
 			kAllowed,
 			kDenied,
 		};
-		// Runtime-only side of ABI 1.11. Runtime calls this synchronously from its
-		// main-thread presentation path before view instantiation or reveal.
+		// Pre-presentation dispatch.
 		[[nodiscard]] ViewOpenPreflightResult RunViewOpenPreflight(std::string_view a_viewId);
 
-		// Runtime-only side of ABI 1.12. Runtime invokes exact-view callbacks from its main-thread presentation edge and once-per-tick frame lane.
-		bool DispatchViewLifecycle(const std::string& a_viewId, ViewLifecyclePhase a_phase);
+		// Menu lifecycle dispatch.
+		bool DispatchViewLifecycle(const std::string& a_viewId, Views::ViewLifecyclePhase a_phase);
 
 	private:
 		BridgeApi() = default;
@@ -156,22 +161,22 @@ namespace OSFUI::API
 
 		struct Registration
 		{
-			SendFn fn{ nullptr };
+			Views::SendFn fn{ nullptr };
 			void*     user{ nullptr };
 		};
 		struct RelativePointerRegistration
 		{
-			RelativePointerFn fn{ nullptr };
+			Views::RelativePointerFn fn{ nullptr };
 			void*             user{ nullptr };
 		};
 		struct ViewOpenPreflightRegistration
 		{
-			ViewOpenPreflightFn fn{ nullptr };
+			Views::ViewOpenPreflightFn fn{ nullptr };
 			void*               user{ nullptr };
 		};
 		struct ViewLifecycleRegistration
 		{
-			ViewLifecycleFn fn{ nullptr };
+			Views::ViewLifecycleFn fn{ nullptr };
 			void*           user{ nullptr };
 		};
 		struct PendingSend
@@ -183,8 +188,9 @@ namespace OSFUI::API
 
 		struct RequestRegistration
 		{
-			RequestFn fn{ nullptr };
-			void*     user{ nullptr };
+			Views::RequestFn fn{ nullptr };
+			RequestFn legacyFn{ nullptr };
+			void* user{ nullptr };
 		};
 		struct InflightRequest
 		{
@@ -262,7 +268,7 @@ namespace OSFUI::API
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // endpoint set changed since apply
-		ReadyFn                                       _readyCb{ nullptr };
+		Views::ReadyFn                                _readyCb{ nullptr };
 		void*                                         _readyUser{ nullptr };
 		std::condition_variable                       _readyInvokeCv;
 		bool                                          _readyInvoking{ false };

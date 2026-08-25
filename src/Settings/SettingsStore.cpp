@@ -364,7 +364,7 @@ namespace OSFUI
 			if (a_source == Source::kDropIn) {
 				REX::DEBUG("SettingsStore: hot-reloading drop-in schema '{}'", id);
 			} else {
-				REX::WARN("SettingsStore: [deprecated] native registration replaces {} schema for id '{}'; ship settings/{}.json and remove RegisterSettingsSchema before the next native ABI major", existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id, id);
+				REX::WARN("SettingsStore: [deprecated] legacy ABI 1 registration replaces {} schema for '{}'; ship settings/{}.json", existing->source == Source::kDropIn ? "drop-in" : "earlier runtime", id, id);
 			}
 		}
 

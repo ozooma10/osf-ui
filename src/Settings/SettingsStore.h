@@ -65,7 +65,7 @@ namespace OSFUI
 		void AddRegistryListener(RegistryListener a_listener) { _registryListeners.push_back(std::move(a_listener)); }
 		void AddPersistListener(PersistListener a_listener) { _persistListeners.push_back(std::move(a_listener)); }
 
-		// Deprecated compatibility path for RegisterSettingsSchema. Runtime schemas retain their historical precedence over drop-ins until this API is removed at a future native ABI major.
+		// Legacy ABI 1 registration path.
 		bool RegisterSchema(nlohmann::json a_schema, Source a_source);
 		bool RemoveMod(std::string_view a_modId);
 		[[nodiscard]] static bool ValidateSchemaShape(const nlohmann::json& a_schema, bool a_allowBuiltIn = false);

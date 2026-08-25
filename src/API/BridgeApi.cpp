@@ -54,11 +54,6 @@ namespace OSFUI::API
 		return *instance;
 	}
 
-	std::uint32_t BridgeApi::GetInterfaceVersion()
-	{
-		return kBridgeAPIVersion;
-	}
-
 	void BridgeApi::GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch)
 	{
 		a_major = kOsfuiReleaseVersionMajor;
@@ -107,7 +102,7 @@ namespace OSFUI::API
 		}
 	}
 
-	void BridgeApi::RegisterSend(const char* a_name, SendFn a_handler, void* a_user)
+	void BridgeApi::RegisterSend(const char* a_name, Views::SendFn a_handler, void* a_user)
 	{
 		if (!a_name || !a_handler) {
 			return;
@@ -142,7 +137,7 @@ namespace OSFUI::API
 		}
 	}
 
-	bool BridgeApi::RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user)
+	bool BridgeApi::RegisterRelativePointer(const char* a_viewId, Views::RelativePointerFn a_handler, void* a_user)
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) {
 			REX::WARN("BridgeApi: [content] refused RegisterRelativePointer — expected a valid qualified view id and non-null handler");
@@ -173,7 +168,7 @@ namespace OSFUI::API
 		return _relativePointers.contains(std::string(a_viewId));
 	}
 
-	bool BridgeApi::DispatchRelativePointer(std::string_view a_viewId, RelativePointerPhase a_phase,
+	bool BridgeApi::DispatchRelativePointer(std::string_view a_viewId, Views::RelativePointerPhase a_phase,
 		float a_dx, float a_dy, float a_wheel)
 	{
 		RelativePointerRegistration registration;
@@ -190,7 +185,7 @@ namespace OSFUI::API
 		return true;
 	}
 
-	bool BridgeApi::RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user)
+	bool BridgeApi::RegisterViewOpenPreflight(const char* a_viewId, Views::ViewOpenPreflightFn a_handler, void* a_user)
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) {
 			REX::WARN("BridgeApi: [content] refused RegisterViewOpenPreflight — expected a valid qualified view id and non-null handler");
@@ -231,7 +226,7 @@ namespace OSFUI::API
 			ViewOpenPreflightResult::kAllowed : ViewOpenPreflightResult::kDenied;
 	}
 
-	bool BridgeApi::RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user)
+	bool BridgeApi::RegisterViewLifecycle(const char* a_viewId, Views::ViewLifecycleFn a_handler, void* a_user)
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) {
 			REX::WARN("BridgeApi: [content] refused RegisterViewLifecycle — expected a valid qualified view id and non-null handler");
@@ -256,7 +251,7 @@ namespace OSFUI::API
 		_viewLifecycles.erase(a_viewId);
 	}
 
-	bool BridgeApi::DispatchViewLifecycle(const std::string& a_viewId, ViewLifecyclePhase a_phase)
+	bool BridgeApi::DispatchViewLifecycle(const std::string& a_viewId, Views::ViewLifecyclePhase a_phase)
 	{
 		ViewLifecycleRegistration registration;
 		{
@@ -269,6 +264,25 @@ namespace OSFUI::API
 		}
 		registration.fn(a_viewId.c_str(), a_phase, registration.user);
 		return true;
+	}
+
+	void BridgeApi::RegisterRequest(const char* a_name, Views::RequestFn a_handler, void* a_user)
+	{
+		if (!a_name || !a_handler) return;
+		const std::string name(a_name);
+		if (!IsUnreservedEndpointName(name)) {
+			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — endpoint name is empty, longer than 128 bytes, or reserved by the platform", name.substr(0, 128));
+			return;
+		}
+		std::lock_guard lock(_mutex);
+		if (_commands.contains(name) || _sends.contains(name) || _requests.contains(name)) {
+			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — already registered (first wins across sends and requests)", name);
+			return;
+		}
+		_requests[name] = { a_handler, nullptr, a_user };
+		std::erase(_pendingRequestUnregister, name);
+		_dirty = true;
+		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user)
@@ -284,7 +298,7 @@ namespace OSFUI::API
 			REX::WARN("BridgeApi: [content] refused RegisterRequest('{}') — already registered (first wins across sends and requests)", name);
 			return;
 		}
-		_requests[name] = { a_handler, a_user };
+		_requests[name] = { nullptr, a_handler, a_user };
 		std::erase(_pendingRequestUnregister, name);
 		_dirty = true;
 		MarkPending(kPendingPump);
@@ -387,7 +401,7 @@ namespace OSFUI::API
 		return out;
 	}
 
-	void BridgeApi::SetReadyCallback(ReadyFn a_callback, void* a_user)
+	void BridgeApi::SetReadyCallback(Views::ReadyFn a_callback, void* a_user)
 	{
 		std::unique_lock lock(_mutex);
 		if (_readyInvoking && _readyInvokingThread != std::this_thread::get_id()) {
@@ -450,7 +464,7 @@ namespace OSFUI::API
 		MarkPending(kPendingPump);
 	}
 
-	std::uint32_t BridgeApi::SubscribeSettings(const char* a_modId, SettingChangedFn a_fn, void* a_user)
+	std::uint32_t BridgeApi::SubscribeSettings(const char* a_modId, Settings::SettingChangedFn a_fn, void* a_user)
 	{
 		return _subscriptions.Subscribe(a_modId, a_fn, a_user);
 	}
@@ -480,7 +494,7 @@ namespace OSFUI::API
 		return _mirror.GetString(a_modId, a_key, a_buf, a_bufLen);
 	}
 
-	std::uint32_t BridgeApi::SubscribeHotkey(const char* a_modId, const char* a_key, HotkeyFn a_fn, void* a_user)
+	std::uint32_t BridgeApi::SubscribeHotkey(const char* a_modId, const char* a_key, Settings::HotkeyFn a_fn, void* a_user)
 	{
 		return _hotkeys.Subscribe(a_modId, a_key, a_fn, a_user);
 	}
@@ -504,7 +518,7 @@ namespace OSFUI::API
 			return false;
 		}
 		const auto modId = Json::Get(*parsed, "id", "");
-		REX::WARN("BridgeApi: [deprecated] RegisterSettingsSchema('{}') remains available for migration only; ship settings/{}.json and remove this call before the next native ABI major", modId, modId);
+		REX::WARN("BridgeApi: [deprecated] RegisterSettingsSchema('{}') is legacy ABI 1 only; ship settings/{}.json", modId, modId);
 		std::lock_guard lock(_mutex);
 		_pendingSchemaOps.push_back({ std::move(*parsed), {} });
 		MarkPending(kPendingSchemas);
@@ -705,7 +719,6 @@ namespace OSFUI::API
 		const nlohmann::json& payload, MessageBridge& bridge)
 	{
 		const std::string view(bridge.CurrentSource());
-		Request request;
 		const std::string payloadJson = Json::Dump(payload);
 		std::uint64_t token = 0;
 		{
@@ -729,10 +742,26 @@ namespace OSFUI::API
 			inflight.name = name;
 			inflight.legacyReply = bridge.IsLegacyApiView(view);
 			_inflightRequests.emplace(token, std::move(inflight));
-			request.command = name.c_str(); request.payloadJson = payloadJson.c_str(); request.sourceViewId = view.c_str();
-			request._token = token; request._respond = &RespondThunk; request._reject = &RejectThunk;
 		}
-		reg.fn(request, reg.user);
+		if (reg.legacyFn) {
+			Request request;
+			request.command = name.c_str();
+			request.payloadJson = payloadJson.c_str();
+			request.sourceViewId = view.c_str();
+			request._token = token;
+			request._respond = &RespondThunk;
+			request._reject = &RejectThunk;
+			reg.legacyFn(request, reg.user);
+		} else {
+			Views::Request request;
+			request.name = name.c_str();
+			request.payloadJson = payloadJson.c_str();
+			request.sourceViewId = view.c_str();
+			request._token = token;
+			request._respond = &RespondThunk;
+			request._reject = &RejectThunk;
+			reg.fn(request, reg.user);
+		}
 	}
 	void BridgeApi::SetBridgeAvailability(MessageBridge* a_bridge)
 	{
@@ -757,7 +786,7 @@ namespace OSFUI::API
 		std::vector<std::pair<std::string, RequestRegistration>> requests;
 		std::vector<PendingSend> sends;
 		std::vector<PendingReply> replies;
-		bool fireReady = false; ReadyFn readyCb = nullptr; void* readyUser = nullptr;
+		bool fireReady = false; Views::ReadyFn readyCb = nullptr; void* readyUser = nullptr;
 		{
 			std::lock_guard lock(_mutex); bridge = _bridge;
 			if (bridge) {

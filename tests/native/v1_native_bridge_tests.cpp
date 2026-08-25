@@ -1,12 +1,12 @@
 #include "API/BridgeApi.h"
+#include "Compat/V1/LegacyBridge.h"
 #include "OSFUI_API.h"
 #include "check.h"
 #include "Bridge/MessageBridge.h"
 
 namespace
 {
-	// Frozen ABI 1.11 caller shape: ABI 1.12 must leave every slot below intact.
-	struct FrozenAbi111Bridge
+	struct FrozenAbi17Bridge
 	{
 		virtual std::uint32_t GetInterfaceVersion() = 0;
 		virtual void GetPluginVersion(std::uint32_t&, std::uint32_t&, std::uint32_t&) = 0;
@@ -34,13 +34,6 @@ namespace
 		virtual bool ClearIssuesExcept(const char*, const char*) = 0;
 		virtual void RegisterRequest(const char*, OSFUI::API::RequestFn, void*) = 0;
 		virtual void UnregisterRequest(const char*) = 0;
-		virtual bool SetViewState(const char*, const char*, const char*) = 0;
-		virtual void RegisterSend(const char*, OSFUI::API::SendFn, void*) = 0;
-		virtual void UnregisterSend(const char*) = 0;
-		virtual bool RegisterRelativePointer(const char*, OSFUI::API::RelativePointerFn, void*) = 0;
-		virtual void UnregisterRelativePointer(const char*) = 0;
-		virtual bool RegisterViewOpenPreflight(const char*, OSFUI::API::ViewOpenPreflightFn, void*) = 0;
-		virtual void UnregisterViewOpenPreflight(const char*) = 0;
 	};
 
 	struct Fire
@@ -84,18 +77,6 @@ namespace
 		settings.push_back({ a_mod, a_key, nlohmann::json::parse(a_value) });
 	}
 
-	std::vector<OSFUI::API::RelativePointerPhase> relativePhases;
-	void RelativePointer(const char*, OSFUI::API::RelativePointerPhase a_phase,
-		float, float, float, void*) noexcept
-	{
-		relativePhases.push_back(a_phase);
-	}
-	std::size_t preflightCalls = 0;
-	bool ViewOpenPreflight(const char*, void*) noexcept
-	{
-		++preflightCalls;
-		return true;
-	}
 }
 
 namespace OSFUI::Log
@@ -112,21 +93,12 @@ int main()
 {
 	using namespace OSFUI;
 	auto& api = API::BridgeApi::Get();
-	auto* bridgeVtable = reinterpret_cast<FrozenAbi111Bridge*>(&api);
-	CHECK(bridgeVtable->GetInterfaceVersion() == ((1u << 16) | 12u));
+	auto* bridgeVtable = reinterpret_cast<FrozenAbi17Bridge*>(&API::Legacy::Bridge::Get());
+	CHECK(bridgeVtable->GetInterfaceVersion() == ((1u << 16) | 7u));
 	std::uint32_t major = 0, minor = 0, patch = 0;
 	bridgeVtable->GetPluginVersion(major, minor, patch);
 	CHECK(major == 2 && minor == 0 && patch == 0);
 	CHECK(std::string_view(bridgeVtable->GetBridgeProtocolVersion()) == "2.0");
-	CHECK(bridgeVtable->RegisterRelativePointer("acme.widgets/panel", &RelativePointer, nullptr));
-	CHECK(api.DispatchRelativePointer("acme.widgets/panel", API::RelativePointerPhase::kBegin));
-	CHECK(relativePhases == std::vector{ API::RelativePointerPhase::kBegin });
-	bridgeVtable->UnregisterRelativePointer("acme.widgets/panel");
-	CHECK(bridgeVtable->RegisterViewOpenPreflight("acme.widgets/panel", &ViewOpenPreflight, nullptr));
-	CHECK(api.RunViewOpenPreflight("acme.widgets/panel") == API::BridgeApi::ViewOpenPreflightResult::kAllowed);
-	CHECK(preflightCalls == 1);
-	bridgeVtable->UnregisterViewOpenPreflight("acme.widgets/panel");
-
 	std::vector<nlohmann::json> outbox;
 	MessageBridge web([&](std::string_view, std::string_view json) {
 		outbox.push_back(nlohmann::json::parse(json));
@@ -147,16 +119,6 @@ int main()
 	CHECK(bridgeVtable->SendToWeb("acme.widgets/panel", "acme.widgets.notice", R"({"ok":true})"));
 	api.PumpMainThread();
 	CHECK(outbox.back()["kind"] == "event" && outbox.back()["name"] == "acme.widgets.notice");
-	bridgeVtable->RegisterSend("acme.widgets.abi111-send", &Command, nullptr);
-	api.PumpMainThread();
-	web.HandleWebMessage("acme.widgets/panel",
-		R"({"kind":"send","name":"acme.widgets.abi111-send","payload":{"value":11}})");
-	CHECK(fires.size() == 1 && fires.back().name == "acme.widgets.abi111-send");
-	CHECK(fires.back().payload["value"] == 11);
-	bridgeVtable->UnregisterSend("acme.widgets.abi111-send");
-	api.PumpMainThread();
-	fires.clear();
-
 	std::size_t strictSendCalls = 0;
 	web.RegisterSend("acme.widgets.strict-send", [&](const nlohmann::json& payload, MessageBridge&) {
 		++strictSendCalls;
@@ -240,8 +202,6 @@ int main()
 	CHECK(bridgeVtable->ClearIssuesExcept("acme.widgets", R"([])"));
 	CHECK(api.TakeHealthIssueOps().size() == 3);
 
-	CHECK(bridgeVtable->SetViewState("acme.widgets", "status", R"({"ready":true})"));
-	CHECK(api.TakeViewStateOps().size() == 1);
 	bridgeVtable->UnregisterSettingsSchema("acme.widgets");
 	{
 		const auto batch = api.TakePendingBatch();

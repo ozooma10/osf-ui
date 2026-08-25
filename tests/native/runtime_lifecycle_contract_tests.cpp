@@ -554,8 +554,8 @@ int main()
 		"shown != _lastShownView",
 		"const std::string previous = _lastShownView",
 		"_lastShownView = shown",
-		"DispatchViewLifecycle(previous, API::ViewLifecyclePhase::kHidden)",
-		"DispatchViewLifecycle(shown, API::ViewLifecyclePhase::kShown)" }),
+		"DispatchViewLifecycle(previous, API::Views::ViewLifecyclePhase::kHidden)",
+		"DispatchViewLifecycle(shown, API::Views::ViewLifecyclePhase::kShown)" }),
 		"native lifecycle hidden/shown callbacks must share the authoritative logical-menu transition and preserve replacement order");
 
 	const auto relativeDrain = FunctionBody(runtimeSource, "void Runtime::DrainRelativePointerCapture()");
@@ -584,7 +584,7 @@ int main()
 		"ProcessRendererFrame",
 		"DrainRelativePointerCapture",
 		"if (!_lastShownView.empty())",
-		"DispatchViewLifecycle(_lastShownView, API::ViewLifecyclePhase::kFrame)" }) &&
+		"DispatchViewLifecycle(_lastShownView, API::Views::ViewLifecyclePhase::kFrame)" }) &&
 		Count(frameTick, "ViewLifecyclePhase::kFrame") == 1,
 		"the exact logically shown menu must receive one native lifecycle frame callback at the end of each game main tick");
 	Check(ContainsInOrder(FunctionBody(overlayInputSource, "void RouteRawMouse(HWND a_hwnd, LPARAM a_lparam)"), {
