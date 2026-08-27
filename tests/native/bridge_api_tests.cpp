@@ -1,6 +1,5 @@
 
 #include "API/BridgeApi.h"
-#include "OSFUI_JSON.h"
 
 #include "Core/Log.h"
 #include "Core/Version.h"  // kOsfuiReleaseVersion / kBridgeProtocolVersion (the `ready` payload)
@@ -118,20 +117,6 @@ namespace
 
 	std::optional<OSFUI::API::Views::Request> g_request;
 	std::vector<OSFUI::API::Views::Request> g_requests;
-	std::uint64_t g_jsonToken = 0;
-	std::string g_jsonType, g_jsonPayload, g_jsonCode, g_jsonMessage;
-	void CaptureJsonResponse(std::uint64_t a_token, const char* a_type, const char* a_payload) noexcept
-	{
-		g_jsonToken = a_token;
-		g_jsonType = a_type ? a_type : "";
-		g_jsonPayload = a_payload ? a_payload : "";
-	}
-	void CaptureJsonRejection(std::uint64_t a_token, const char* a_code, const char* a_message) noexcept
-	{
-		g_jsonToken = a_token;
-		g_jsonCode = a_code ? a_code : "";
-		g_jsonMessage = a_message ? a_message : "";
-	}
 	std::string g_requestCommand, g_requestPayload, g_requestSource;
 	void RequestHandler(const OSFUI::API::Views::Request& a_request, void*) noexcept
 	{
@@ -1067,54 +1052,6 @@ int main()
 		CHECK(LoggedContaining("WARN", "health reports already queued"));
 	}
 
-	// --- optional JSON authoring facade ---------------------------------------
-	{
-		using OSFUI::API::Json;
-		using OSFUI::API::JsonSend;
-		using OSFUI::API::JsonRequest;
-
-		JsonSend send{ "acme.mymod.set", R"({"weight":42.5,"name":"ore"})", "acme.mymod/view" };
-		CHECK(send.IsValid());
-		CHECK(send.Name() == "acme.mymod.set");
-		CHECK(send.SourceViewId() == "acme.mymod/view");
-		CHECK(send.Require<double>("weight") == 42.5);
-		CHECK(send.Value<std::string>("name", "") == "ore");
-		CHECK(send.Value<int>("missing", 7) == 7);
-		int numeric = 0;
-		CHECK(!send.TryGet("name", numeric));  // wrong field type returns false
-
-		JsonSend malformed{ "x", "{bad", "v" };
-		CHECK(!malformed.IsValid());
-		CHECK(!malformed.Error().empty());
-
-		OSFUI::API::Views::Request raw;
-		raw.name = "acme.mymod.getWeight";
-		raw.payloadJson = R"({"formId":42})";
-		raw.sourceViewId = "acme.mymod/view";
-		raw._token = 91;
-		raw._respond = &CaptureJsonResponse;
-		raw._reject = &CaptureJsonRejection;
-		JsonRequest request{ raw };
-		CHECK(request.IsValid());
-		CHECK(request.Name() == "acme.mymod.getWeight");
-		const auto formId = request.Get<int>("formId");
-		CHECK(formId && *formId == 42);
-		CHECK(request.Respond("acme.mymod.weight", Json{ { "weight", 12.5 } }));
-		CHECK(g_jsonToken == 91 && g_jsonType == "acme.mymod.weight");
-		CHECK(Json::parse(g_jsonPayload).at("weight") == 12.5);
-
-		g_jsonCode.clear();
-		raw.payloadJson = "[1,2]";
-		JsonRequest badRequest{ raw };
-		CHECK(!badRequest.IsValid());
-		CHECK(g_jsonCode == "invalid-payload");
-
-		g_jsonCode.clear();
-		raw.payloadJson = R"({"formId":"wrong"})";
-		JsonRequest wrongField{ raw };
-		CHECK(!wrongField.Get<int>("formId"));
-		CHECK(g_jsonCode == "invalid-payload");
-	}
 	// --- teardown: bridge going away must not dangle --------------------------
 	api.SetBridgeAvailability(nullptr);
 	api.PumpMainThread();

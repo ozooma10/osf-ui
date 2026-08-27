@@ -204,13 +204,13 @@ test('creates a directly deployable plain-JS native menu', async (t) => {
   assert.doesNotMatch(source, /settings\.changed|ui\.hotkey|i18n|theme/);
 
   const nativeSource = await readFile(resolve(root, 'native/src/main.cpp'), 'utf8');
-  assert.match(nativeSource, /#include "OSFUI_JSON\.h"/);
-  assert.match(nativeSource, /OSFUI::API::JsonSend/);
-  assert.match(nativeSource, /OSFUI::API::JsonRequest/);
+  assert.match(nativeSource, /#include <nlohmann\/json\.hpp>/);
+  assert.match(nativeSource, /OSFUI::API::Views::Request/);
   assert.match(nativeSource, /OSFUI::API::Views::Client/);
   assert.doesNotMatch(nativeSource, /OSFUI::API::Messaging/);
   assert.doesNotMatch(nativeSource, /OSFUI::API::Client/);
-  assert.match(nativeSource, /SetViewState\(kModId, "state"/);
+  assert.match(nativeSource, /g_views\.SetViewState/);
+  assert.match(nativeSource, /SetState\(kModId, "state"/);
   assert.match(nativeSource, /RegisterSend\("acme\.widgets\.increment"/);
   for (const endpoint of ['getState', 'greet', 'recalibrate']) {
     assert.match(nativeSource, new RegExp(`RegisterRequest\\("acme\\.widgets\\.${endpoint}"`));
@@ -234,15 +234,12 @@ test('creates a directly deployable plain-JS native menu', async (t) => {
   await assertMissing(resolve(root, 'native/include/OSFUI_API.h'));
   for (const [file, signature] of [
     ['OSFUI_Diagnostics.h', /struct IDiagnostics/],
-    ['OSFUI_JSON.h', /class JsonClient/],
     ['OSFUI_Settings.h', /struct ISettings/],
     ['OSFUI_Views.h', /struct IViews/],
   ]) {
     const output = await readFile(resolve(root, 'native/include', file), 'utf8');
     assert.match(output, signature);
-    if (file !== 'OSFUI_JSON.h') {
-      assert.doesNotMatch(output, /#include "OSFUI_API\.h"/);
-    }
+    assert.doesNotMatch(output, /#include "OSFUI_API\.h"/);
     assert.equal(
       output,
       await readFile(resolve(REPOSITORY_ROOT, 'sdk', file), 'utf8'),

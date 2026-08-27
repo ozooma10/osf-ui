@@ -33,8 +33,8 @@ and the optional `/shared/gamepadnav.js` from the common
 
 ## Native bridge example
 
-The paired `native/src/main.cpp` and view use the optional `OSFUI_JSON.h`
-facade:
+The paired `native/src/main.cpp` and view use `OSFUI_Views.h` with direct
+`nlohmann::json` parsing:
 
 - The owning view calls local endpoints such as `increment`, `getState`, and
   `greet`; the plugin keeps the native ABI's qualified registrations.

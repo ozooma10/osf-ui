@@ -8,7 +8,6 @@ const outputRoot = resolve(packageRoot, 'package-sdk');
 const files = [
   ['sdk', 'native', 'OSFUI_API.h'],
   ['sdk', 'native', 'OSFUI_Diagnostics.h'],
-  ['sdk', 'native', 'OSFUI_JSON.h'],
   ['sdk', 'native', 'OSFUI_Settings.h'],
   ['sdk', 'native', 'OSFUI_Views.h'],
   ['data/Scripts/Source', 'papyrus', 'OSFUI.psc'],

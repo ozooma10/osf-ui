@@ -121,7 +121,6 @@ export async function scaffold(options) {
   if (options.integration === 'native') {
     await copySdkFiles(root, 'native', 'native/include', [
       'OSFUI_Diagnostics.h',
-      'OSFUI_JSON.h',
       'OSFUI_Settings.h',
       'OSFUI_Views.h',
     ]);
