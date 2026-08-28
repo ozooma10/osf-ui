@@ -39,7 +39,7 @@ int main()
 
 	ScaleformHandoffWindow handoff;
 	Check(!handoff.TrackingHeaps() && !handoff.HandoffArmed(),
-		"heap tracking starts outside the Scaleform pass");
+		"heap tracking starts outside the Scaleform composite pass");
 	handoff.End();
 	Check(!handoff.HandoffArmed(),
 		"an End without a preceding Begin cannot arm a handoff");
@@ -49,7 +49,7 @@ int main()
 	handoff.End();
 	Check(handoff.HandoffArmed() && handoff.ConsumeAndReportFirstCandidate() &&
 			handoff.TrackingHeaps(),
-		"the first post-End target keeps tracking open for the FG target");
+		"the first post-composite target keeps tracking open for the FG target");
 	for (int i = 0; i < 4; ++i) {
 		handoff.OnBarrierCall();
 	}
@@ -65,11 +65,11 @@ int main()
 		"the first target in a new region is classified as first");
 	Check(!handoff.ConsumeAndReportFirstCandidate() && !handoff.HandoffArmed() &&
 			!handoff.TrackingHeaps(),
-		"the second target closes the Begin-to-handoff heap window");
+		"the second target closes the composite-to-handoff heap window");
 	handoff.Begin();
 	handoff.Cancel();
 	Check(!handoff.TrackingHeaps(),
-		"Composite cancellation closes an unfinished heap window");
+		"the next Scaleform Begin closes an unfinished post-composite window");
 
 	FrameGenerationTargetPolicy targets;
 	auto decision = targets.Observe(false, true);

@@ -1,6 +1,6 @@
 #include "Composite/UiPass.h"
 
-#include "Composite/D3D12Compositor.h"  // RecordOverlayIntoUIBuffer
+#include "Composite/D3D12Compositor.h"  // RecordOverlayIntoRenderTarget
 #include "Composite/EngineD3D12.h"
 #include "Composite/UiPassPolicy.h"
 #include "Composite/UiTargetFormat.h"
@@ -272,7 +272,7 @@ namespace OSFUI::UiPass
 			};
 			const bool drew = [&] {
 				const OverlayDrawScope scope;
-				return RecordOverlayIntoUIBuffer(a_list, a_buffer, target.firstDrawInRegion);
+				return RecordOverlayIntoRenderTarget(a_list, a_buffer, target.firstDrawInRegion);
 			}();
 			if (!drew) {
 				// Early-outs occur before the compositor rebinds descriptor heaps.
@@ -286,7 +286,8 @@ namespace OSFUI::UiPass
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
 			EnsureDrawHooksInstalled();
-			tl_handoffWindow.Begin();
+			// Bound an unfinished post-composite search to the frame that opened it.
+			tl_handoffWindow.Cancel();
 			const auto original =
 				reinterpret_cast<ExecuteFn>(g_origBegin.load(std::memory_order_relaxed));
 			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
@@ -296,19 +297,22 @@ namespace OSFUI::UiPass
 		{
 			const auto original =
 				reinterpret_cast<ExecuteFn>(g_origEnd.load(std::memory_order_relaxed));
-			void* result =
-				original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
-			tl_handoffWindow.End();
-			return result;
+			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
 		}
 
 		void* CompositeThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			tl_handoffWindow.Cancel();
+			// Capture the engine heaps used by the composite, then draw into the
+			// target it hands off. Drawing before this pass makes Starfield apply
+			// its fixed-aspect Scaleform transform to an ultrawide browser frame.
+			tl_handoffWindow.Begin();
 			const auto original =
 				reinterpret_cast<ExecuteFn>(
 					g_origComposite.load(std::memory_order_relaxed));
-			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+			void* result =
+				original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+			tl_handoffWindow.End();
+			return result;
 		}
 
 		[[nodiscard]] std::uintptr_t HookExecuteSlot(
@@ -412,7 +416,7 @@ namespace OSFUI::UiPass
 					   "session. See the per-hook lines above for which slot declined.");
 		} else {
 			REX::INFO("[UiPass] draw enabled: overlay records into "
-					   "Starfield's transparent UI layer at the ScaleformEnd hand-off");
+					   "Starfield's post-ScaleformComposite target hand-off");
 		}
 		return ok;
 	}

@@ -845,13 +845,25 @@ int main()
 	Check(beginUiPass.find("tl_heapList = nullptr") == std::string::npos &&
 		beginUiPass.find("tl_heapCount = 0") == std::string::npos,
 		"Scaleform Begin must preserve an inherited descriptor-heap binding");
+	const auto endUiPass = FunctionBody(uiPassSource,
+		"void* EndThunk(");
+	const auto compositeUiPass = FunctionBody(uiPassSource,
+		"void* CompositeThunk(");
+	Check(beginUiPass.find("tl_handoffWindow.Cancel()") != std::string::npos &&
+		beginUiPass.find("tl_handoffWindow.Begin()") == std::string::npos &&
+		endUiPass.find("tl_handoffWindow.End()") == std::string::npos &&
+		ContainsInOrder(compositeUiPass, {
+			"tl_handoffWindow.Begin()",
+			"original ? original(a_this, a_ctx, a_io, a_r9) : nullptr",
+			"tl_handoffWindow.End()" }),
+		"the overlay handoff must open after ScaleformComposite instead of before Starfield's fixed-aspect transform");
 	const auto recordAtHandoff = FunctionBody(uiPassSource,
 		"const bool a_fgTarget");
 	Check(ContainsInOrder(recordAtHandoff, {
 		"const bool heapKnown",
 		"if (!heapKnown)",
 		"return",
-		"RecordOverlayIntoUIBuffer",
+		"RecordOverlayIntoRenderTarget",
 		"original(a_list, engineHeapCount, engineHeaps)" }),
 		"overlay recording must fail closed without restorable engine heaps and restore known heaps after drawing");
 	Check(ContainsInOrder(submitFrame, {
