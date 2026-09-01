@@ -15,6 +15,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <utility>
 
 namespace OSFUI::UiPass
 {
@@ -29,6 +31,11 @@ namespace OSFUI::UiPass
 		std::atomic<std::uintptr_t> g_origComposite{ 0 };
 		std::atomic<bool> g_installed{ false };
 		std::atomic<bool> g_installOk{ false };
+		std::atomic_bool g_usePostComposite{ false };
+		std::atomic<DXGI_FORMAT> g_postCompositeTargetFormat{ DXGI_FORMAT_UNKNOWN };
+		std::atomic_bool g_ignoredPostCompositeFormatLogged{ false };
+		std::atomic_bool g_ignoredPostCompositeAspectLogged{ false };
+		std::atomic_uint64_t g_expectedOutputSize{ 0 };
 
 		// Hook only the handoff barrier and descriptor heaps.
 		constexpr std::size_t kSlotResourceBarrier = 26;
@@ -95,13 +102,37 @@ namespace OSFUI::UiPass
 						continue;
 					}
 					const auto desc = barrier.Transition.pResource->GetDesc();
-					if (UiTargetFormat::ResolveRtv(desc.Format) == DXGI_FORMAT_UNKNOWN ||
+					const auto rtvFormat = UiTargetFormat::ResolveRtv(desc.Format);
+					if (rtvFormat == DXGI_FORMAT_UNKNOWN ||
 						desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
 						desc.SampleDesc.Count != 1 ||
 						desc.Width < 256 || desc.Height < 256) {
 						continue;
 					}
+					if (g_usePostComposite.load(std::memory_order_acquire) &&
+						rtvFormat != g_postCompositeTargetFormat.load(std::memory_order_acquire)) {
+						if (!g_ignoredPostCompositeFormatLogged.exchange(true, std::memory_order_relaxed)) {
+							REX::DEBUG("[UiPass] ignored non-UI post-composite target {}x{} {}; waiting for {}",
+								static_cast<std::uint64_t>(desc.Width), desc.Height,
+								UiTargetFormat::Name(rtvFormat),
+								UiTargetFormat::Name(g_postCompositeTargetFormat.load(std::memory_order_relaxed)));
+						}
+						continue;
+					}
 					if (a_self->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+						continue;
+					}
+					const auto expectedOutput = g_expectedOutputSize.load(std::memory_order_acquire);
+					const auto expectedWidth = static_cast<std::uint32_t>(expectedOutput >> 32);
+					const auto expectedHeight = static_cast<std::uint32_t>(expectedOutput);
+					const bool targetAspectMatchesOutput = detail::PostCompositeTargetMatchesOutputAspect(
+						desc.Width, desc.Height, expectedWidth, expectedHeight);
+					if (!targetAspectMatchesOutput) {
+						if (!g_ignoredPostCompositeAspectLogged.exchange(true, std::memory_order_relaxed)) {
+							REX::DEBUG("[UiPass] ignored post-composite target {}x{} with aspect incompatible with output {}x{}; continuing hand-off search",
+								static_cast<std::uint64_t>(desc.Width), desc.Height,
+								expectedWidth, expectedHeight);
+						}
 						continue;
 					}
 					const bool fgTarget = (barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_COPY_SOURCE) != 0 && (barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) == 0;
@@ -286,8 +317,12 @@ namespace OSFUI::UiPass
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
 			EnsureDrawHooksInstalled();
-			// Bound an unfinished post-composite search to the frame that opened it.
-			tl_handoffWindow.Cancel();
+			if (g_usePostComposite.load(std::memory_order_acquire)) {
+				// Bound an unfinished post-composite search to the frame that opened it.
+				tl_handoffWindow.Cancel();
+			} else {
+				tl_handoffWindow.Begin();
+			}
 			const auto original =
 				reinterpret_cast<ExecuteFn>(g_origBegin.load(std::memory_order_relaxed));
 			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
@@ -297,21 +332,32 @@ namespace OSFUI::UiPass
 		{
 			const auto original =
 				reinterpret_cast<ExecuteFn>(g_origEnd.load(std::memory_order_relaxed));
-			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+			if (!g_usePostComposite.load(std::memory_order_acquire)) {
+				tl_handoffWindow.End();
+			}
+			return result;
 		}
 
 		void* CompositeThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			// Capture the engine heaps used by the composite, then draw into the
-			// target it hands off. Drawing before this pass makes Starfield apply
-			// its fixed-aspect Scaleform transform to an ultrawide browser frame.
-			tl_handoffWindow.Begin();
+			const bool postComposite = g_usePostComposite.load(std::memory_order_acquire);
+			if (postComposite) {
+				// Capture the engine heaps used by the composite, then draw into its
+				// validated UI target after the fixed-aspect transform.
+				tl_handoffWindow.Begin();
+			} else {
+				// The stable ScaleformEnd fallback must not leak into the composite.
+				tl_handoffWindow.Cancel();
+			}
 			const auto original =
 				reinterpret_cast<ExecuteFn>(
 					g_origComposite.load(std::memory_order_relaxed));
 			void* result =
 				original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
-			tl_handoffWindow.End();
+			if (postComposite) {
+				tl_handoffWindow.End();
+			}
 			return result;
 		}
 
@@ -320,7 +366,9 @@ namespace OSFUI::UiPass
 			const REL::ID a_vtblId,
 			const REL::ID a_implId,
 			ExecuteFn a_thunk,
-			std::atomic<std::uintptr_t>& a_orig)
+			std::atomic<std::uintptr_t>& a_orig,
+			bool* a_vanillaOwner = nullptr,
+			std::string* a_foreignOwner = nullptr)
 		{
 			const REL::Relocation<std::uintptr_t> vtbl{ a_vtblId };
 			const REL::Relocation<std::uintptr_t> expected{ a_implId };
@@ -328,13 +376,21 @@ namespace OSFUI::UiPass
 				vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
 
 			const auto current = *reinterpret_cast<const std::uintptr_t*>(slotAddress);
-			if (current != expected.address()) {
+			const bool vanillaOwner = current == expected.address();
+			std::string foreignOwner;
+			if (!vanillaOwner) {
 				if (!detail::CanChainForeignExecute(current)) {
 					REX::WARN("[UiPass] {}: slot 7 is null; nothing to chain, not hooking", a_label);
 					return 0;
 				}
-				const auto owner = Platform::ModuleNameForAddress(reinterpret_cast<const void*>(current));
-				REX::INFO("[UiPass] {}: chaining foreign hook from '{}' at 0x{:X} (vanilla implementation was 0x{:X})", a_label, owner.empty() ? "unknown module" : owner, current, expected.address());
+				foreignOwner = Platform::ModuleNameForAddress(reinterpret_cast<const void*>(current));
+				REX::INFO("[UiPass] {}: chaining foreign hook from '{}' at 0x{:X} (vanilla implementation was 0x{:X})", a_label, foreignOwner.empty() ? "unknown module" : foreignOwner, current, expected.address());
+			}
+			if (a_vanillaOwner) {
+				*a_vanillaOwner = vanillaOwner;
+			}
+			if (a_foreignOwner) {
+				*a_foreignOwner = std::move(foreignOwner);
 			}
 
 			a_orig.store(current, std::memory_order_release);
@@ -391,11 +447,23 @@ namespace OSFUI::UiPass
 			RE::VTABLE::CreationRendererPrivate____ScaleformEndRenderPass[0],
 			RE::ID::CreationRendererPrivate::ScaleformEndRenderPass::ExecuteRenderPass,
 			&EndThunk, g_origEnd);
+		bool compositeVanillaOwner = false;
+		std::string compositeForeignOwner;
 		const auto origComposite = HookExecuteSlot(
 			"ScaleformComposite",
 			RE::VTABLE::CreationRendererPrivate__ScaleformCompositeRenderPass[0],
 			RE::ID::CreationRendererPrivate::ScaleformCompositeRenderPass::ExecuteRenderPass,
-			&CompositeThunk, g_origComposite);
+			&CompositeThunk, g_origComposite,
+			&compositeVanillaOwner, &compositeForeignOwner);
+
+		const auto postCompositeTarget = detail::SelectPostCompositeTarget(
+			compositeVanillaOwner, compositeForeignOwner);
+		g_usePostComposite.store(
+			origComposite != 0 && postCompositeTarget.supported, std::memory_order_release);
+		g_postCompositeTargetFormat.store(
+			postCompositeTarget.format == detail::PostCompositeTargetFormat::Rgba16Float ?
+				DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM,
+			std::memory_order_release);
 
 		const bool ok =
 			origBegin != 0 && origEnd != 0 && origComposite != 0;
@@ -414,9 +482,14 @@ namespace OSFUI::UiPass
 				origComposite, &CompositeThunk);
 			REX::ERROR("[UiPass] hook set incomplete — the overlay has no draw path this "
 					   "session. See the per-hook lines above for which slot declined.");
+		} else if (g_usePostComposite.load(std::memory_order_acquire)) {
+			REX::INFO("[UiPass] draw enabled: overlay records into Starfield's validated {} post-ScaleformComposite target hand-off",
+				UiTargetFormat::Name(g_postCompositeTargetFormat.load(std::memory_order_relaxed)));
+		} else if (compositeVanillaOwner) {
+			REX::INFO("[UiPass] vanilla composite uses the stable ScaleformEnd hand-off for generated-frame compatibility");
 		} else {
-			REX::INFO("[UiPass] draw enabled: overlay records into "
-					   "Starfield's post-ScaleformComposite target hand-off");
+			REX::WARN("[UiPass] post-composite target contract is unknown for '{}'; using the stable ScaleformEnd hand-off",
+				compositeForeignOwner.empty() ? "unknown composite owner" : compositeForeignOwner);
 		}
 		return ok;
 	}
@@ -424,6 +497,17 @@ namespace OSFUI::UiPass
 	bool DrawEnabled()
 	{
 		return g_drawEnabled.load(std::memory_order_acquire);
+	}
+
+	bool UsesScaleformEnd()
+	{
+		return !g_usePostComposite.load(std::memory_order_acquire);
+	}
+
+	void SetExpectedOutputSize(const std::uint32_t a_width, const std::uint32_t a_height)
+	{
+		const auto packed = (static_cast<std::uint64_t>(a_width) << 32) | a_height;
+		g_expectedOutputSize.store(packed, std::memory_order_release);
 	}
 
 	bool FrameGenerationActive()

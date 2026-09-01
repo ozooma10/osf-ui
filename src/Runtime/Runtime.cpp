@@ -27,23 +27,6 @@
 
 namespace OSFUI
 {
-	namespace
-	{
-		struct ViewSize
-		{
-			std::uint32_t width{ 0 };
-			std::uint32_t height{ 0 };
-		};
-
-		ViewSize ViewSizeForOutput(const OutputSize& a_output)
-		{
-			return {
-				.width = a_output.width,
-				.height = a_output.height,
-			};
-		}
-	}
-
 	Runtime& Runtime::Get()
 	{
 		static Runtime* const instance = new Runtime;
@@ -125,8 +108,8 @@ namespace OSFUI
 		const auto initialWidth = view ? view->width : kDefaultViewWidth;
 		const auto initialHeight = view ? view->height : kDefaultViewHeight;
 
-		_viewWidth.store(initialWidth);
-		_viewHeight.store(initialHeight);
+		_captureSize.store(PackViewSize({ initialWidth, initialHeight }));
+		_viewSize.store(PackViewSize({ initialWidth, initialHeight }));
 		_cursorX = initialWidth * 0.5f;
 		_cursorY = initialHeight * 0.5f;
 
@@ -855,6 +838,12 @@ namespace OSFUI
 		for (const auto& layer : layers) {
 			_renderer->SetViewOrder(layer.id, layer.z);
 		}
+		const auto active = _presentation.ActiveMenu();
+		// Publish the input target before its view is shown. The browser host then
+		// grants focus only after that target becomes visible.
+		if (active) {
+			_renderer->SetInputTargetView(*active);
+		}
 		// A menu switch is intentionally show-before-hide. The browser host keeps the outgoing visual until the incoming view passes its paint handshake;
 		for (const auto& layer : layers) {
 			if (!layer.hidden) {
@@ -867,10 +856,6 @@ namespace OSFUI
 			}
 		}
 
-		const auto active = _presentation.ActiveMenu();
-		if (active) {
-			_renderer->SetInputTargetView(*active);
-		}
 		const bool desiredCapture = _presentation.DesiredCapture();
 		if (!_relativePointerView.empty() && (!desiredCapture || !active || *active != _relativePointerView)) {
 			CancelRelativePointerCapture();
@@ -885,15 +870,23 @@ namespace OSFUI
 
 		const bool visible = _presentation.DesiredVisible();
 		const bool wasVisible = m_visible.exchange(visible);
+		if (visible && !wasVisible) {
+			_renderer->SetPointerInputEnabled(false);
+		}
 		ReconcileNativeFocus();
+		if (!visible) {
+			_renderer->SetPointerInputEnabled(true);
+		}
 		if (_compositor) {
 			if (visible && !wasVisible) {
 				_latestFrame.reset();
 				m_viewReveal.Arm();
+				_viewGeometryReady.store(false, std::memory_order_release);
 			} else {
 				if (!visible) {
 					_latestFrame.reset();
 					m_viewReveal.Cancel();  // closed while a reveal was still pending
+					_viewGeometryReady.store(true, std::memory_order_release);
 				}
 				if (!m_viewReveal.Pending()) {
 					_compositor->SetVisible(visible);
@@ -907,10 +900,12 @@ namespace OSFUI
 
 		if (visible) {
 			if (!wasVisible) {
-				_cursorX = _viewWidth.load() * 0.5f;
-				_cursorY = _viewHeight.load() * 0.5f;
+				const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
+				_cursorX = view.width * 0.5f;
+				_cursorY = view.height * 0.5f;
+				_cursorInsideView.store(true, std::memory_order_release);
 			}
-			if (active) {
+			if (active && _viewGeometryReady.load(std::memory_order_acquire)) {
 				QueueMouseMove();  // flushed by Tick's once-per-frame move injection
 			}
 		}
@@ -1016,7 +1011,10 @@ namespace OSFUI
 			++reloaded;
 		}
 
-		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+		const auto capture = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
+		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
+		_renderer->Resize(capture.width, capture.height);
+		_renderer->SetViewport(view.width, view.height);
 		_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),
 			false, _captureArmed.load(), _captureUpScan.load());
 		ApplyViewPresentationPolicy();
@@ -1175,16 +1173,67 @@ namespace OSFUI
 		if (a_width == 0 || a_height == 0 || !_renderer) {
 			return;
 		}
-		const auto view = ViewSizeForOutput({ .width = a_width, .height = a_height });
+		const bool fixedScaleformGeometry =
+			MenuEventSink::ChargenOpen() && UiPass::UsesScaleformEnd();
+		const auto view = ViewSizeForOutput(
+			{ .width = a_width, .height = a_height }, fixedScaleformGeometry);
+		UiPass::SetExpectedOutputSize(a_width, a_height);
 
-		if (view.width == _viewWidth.load() && view.height == _viewHeight.load()) {
+		const ViewSize output{ .width = a_width, .height = a_height };
+		const auto previousCapture = UnpackViewSize(
+			_captureSize.load(std::memory_order_acquire));
+		const auto previousView = UnpackViewSize(
+			_viewSize.load(std::memory_order_acquire));
+		const auto observedTarget = _compositor ?
+			_compositor->GetObservedOutputSize() : std::nullopt;
+		const auto observedWidth = observedTarget ? observedTarget->width : 0;
+		const auto observedHeight = observedTarget ? observedTarget->height : 0;
+		const bool captureChanged =
+			output.width != previousCapture.width ||
+			output.height != previousCapture.height;
+		const bool viewportChanged =
+			view.width != previousView.width || view.height != previousView.height;
+		const bool modeChanged = fixedScaleformGeometry != _fixedScaleformGeometry;
+		_fixedScaleformGeometry = fixedScaleformGeometry;
+		if (!captureChanged && !viewportChanged) {
+			if (modeChanged) {
+				REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, handoff={}, client/view {}x{}, last target {}x{})",
+					fixedScaleformGeometry ? "fixed-16:9" : "full-output",
+					MenuEventSink::ChargenOpen(),
+					UiPass::UsesScaleformEnd() ? "ScaleformEnd" : "post-composite",
+					a_width, a_height, observedWidth, observedHeight);
+			}
 			return;
 		}
 
-		_viewWidth.store(view.width);
-		_viewHeight.store(view.height);
-		_renderer->Resize(view.width, view.height);
-		REX::DEBUG("Runtime: output {}x{} -> view resized to {}x{} (aspect-correct)", a_width, a_height, view.width, view.height);
+		const bool visible = IsVisible();
+		if (visible && _compositor) {
+			_compositor->SetVisible(false);
+			_renderer->SetPointerInputEnabled(false);
+			_latestFrame.reset();
+			if (captureChanged) {
+				m_viewReveal.ArmForResize();
+			} else {
+				m_viewReveal.Arm();
+			}
+			_viewGeometryReady.store(false, std::memory_order_release);
+		}
+		CancelRelativePointerCapture();
+		_pendingMouseMove.store(kNoPendingMouseMove, std::memory_order_release);
+		_cursorInsideView.store(false, std::memory_order_release);
+		_captureSize.store(PackViewSize(output), std::memory_order_release);
+		_viewSize.store(PackViewSize(view), std::memory_order_release);
+		if (captureChanged) {
+			_renderer->Resize(output.width, output.height);
+		}
+		if (viewportChanged) {
+			_renderer->SetViewport(view.width, view.height);
+		}
+		REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, handoff={}, capture {}x{}, viewport {}x{}, last target {}x{})",
+			fixedScaleformGeometry ? "fixed-16:9" : "full-output",
+			MenuEventSink::ChargenOpen(),
+			UiPass::UsesScaleformEnd() ? "ScaleformEnd" : "post-composite",
+			a_width, a_height, view.width, view.height, observedWidth, observedHeight);
 	}
 
 	void Runtime::SubmitFrameIfVisible()
@@ -1197,14 +1246,14 @@ namespace OSFUI
 		if (frame) {
 			_latestFrame = *frame;
 		}
-		const auto outputSize = _compositor->GetObservedOutputSize();
+		const auto expected = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
+		const bool outputSizeKnown = _gameClientSizeObserved.load(std::memory_order_acquire);
 		std::optional<ViewRevealGate::FrameObservation> observation;
 		if (_latestFrame) {
-			const auto expected = outputSize ? ViewSizeForOutput(*outputSize) : ViewSize{};
 			observation = ViewRevealGate::FrameObservation{
 				.generation = _latestFrame->ringGeneration,
 				.index = _latestFrame->frameIndex,
-				.outputSizeKnown = outputSize.has_value(),
+				.outputSizeKnown = outputSizeKnown,
 				.matchesExpectedSize = _latestFrame->width == expected.width && _latestFrame->height == expected.height,
 			};
 		}
@@ -1222,6 +1271,9 @@ namespace OSFUI
 		}
 		if (decision.reveal) {
 			_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
+			_viewGeometryReady.store(true, std::memory_order_release);
+			_renderer->SetPointerInputEnabled(true);
+			QueueMouseMove();
 			return;
 		}
 		if (!decision.timedOut) {

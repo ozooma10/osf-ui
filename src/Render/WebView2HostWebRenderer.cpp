@@ -311,6 +311,8 @@ namespace OSFUI
 		// Each hidden-to-visible presentation requires a post-reveal frame.
 		std::uint64_t        presentationEpoch{ 0 };
 		std::uint32_t        width{ 1 }, height{ 1 };
+		std::uint32_t        viewportWidth{ 1 }, viewportHeight{ 1 };
+		bool                 pointerInputEnabled{ true };
 		// accelState mirror (SetAcceleratorKeys diffs against this)
 		std::uint32_t accToggle{ 0 }, accCaptureUp{ 0 };
 		bool          accCaptured{ false }, accArmed{ false }, accSent{ false };
@@ -1003,9 +1005,15 @@ namespace OSFUI
 					.adapterLuidLow = adapterLuidLow,
 					.adapterLuidHigh = adapterLuidHigh,
 				}));
+				addBootstrap(ToJson(msg::Viewport{
+					.width = viewportWidth,
+					.height = viewportHeight,
+					.presentationEpoch = presentationEpoch,
+				}));
 				addBootstrap(ToJson(msg::AccelState{ .toggleScan = accToggle,
 					.captured = accCaptured, .captureArmed = accArmed,
 					.captureUpScan = accCaptureUp }));
+				addBootstrap(ToJson(msg::PointerInput{ .enabled = pointerInputEnabled }));
 				accSent = true;
 				for (const auto& view : views) {
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
@@ -1574,6 +1582,8 @@ namespace OSFUI
 		_impl->browserHostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
 		_impl->width = (std::max)(1u, a_config.width);
 		_impl->height = (std::max)(1u, a_config.height);
+		_impl->viewportWidth = _impl->width;
+		_impl->viewportHeight = _impl->height;
 		std::error_code ec;
 		if (!std::filesystem::exists(_impl->browserHostExeSource, ec)) {
 			REX::ERROR("WebView2HostWebRenderer: {} is missing — the out-of-process "
@@ -1652,10 +1662,41 @@ namespace OSFUI
 		if (!a_width || !a_height) return;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
+			if (_impl->width == a_width && _impl->height == a_height) return;
 			_impl->width = a_width;
 			_impl->height = a_height;
 		}
 		_impl->Send(ToJson(msg::Resize{ .width = a_width, .height = a_height }));
+	}
+
+	void WebView2HostWebRenderer::SetViewport(
+		const std::uint32_t a_width, const std::uint32_t a_height)
+	{
+		if (!a_width || !a_height) return;
+		std::uint64_t presentation = 0;
+		{
+			std::scoped_lock lock(_impl->frameMutex, _impl->stateMutex);
+			if (_impl->viewportWidth == a_width && _impl->viewportHeight == a_height) return;
+			_impl->viewportWidth = a_width;
+			_impl->viewportHeight = a_height;
+			presentation = ++_impl->presentationEpoch;
+			_impl->haveFrame = false;
+		}
+		_impl->Send(ToJson(msg::Viewport{
+			.width = a_width,
+			.height = a_height,
+			.presentationEpoch = presentation,
+		}));
+	}
+
+	void WebView2HostWebRenderer::SetPointerInputEnabled(const bool a_enabled)
+	{
+		{
+			std::scoped_lock lock(_impl->stateMutex);
+			if (_impl->pointerInputEnabled == a_enabled) return;
+			_impl->pointerInputEnabled = a_enabled;
+		}
+		_impl->Send(ToJson(msg::PointerInput{ .enabled = a_enabled }));
 	}
 
 	void WebView2HostWebRenderer::Update(double a_deltaSeconds)

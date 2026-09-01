@@ -813,7 +813,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			const bool firstDraw = !overlayDrawLogged.exchange(true, std::memory_order_relaxed);
 			if (firstDraw) {
-				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW (ring slot {} serial {} -> {}x{} {} post-Scaleform target 0x{:X})",
+				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW (ring slot {} serial {} -> {}x{} {} selected UI target 0x{:X})",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height, UiTargetFormat::Name(rtvFormat), reinterpret_cast<std::uintptr_t>(a_buffer));
 			}
 			return true;

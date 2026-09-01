@@ -30,6 +30,9 @@ namespace OSFUI
 
 		// Arm on closed-to-open edge. Most recent frame remains baseline, so cached content cannot satisfy this presentation.
 		void Arm();
+		// Arm for a live browser-surface resize. A matching frame must also come
+		// from a newer shared-ring generation than the one already submitted.
+		void ArmForResize();
 		void Cancel();
 		void Reset();
 
@@ -44,5 +47,7 @@ namespace OSFUI
 		std::optional<double> m_lastPolledAt;
 		std::uint64_t         m_lastSubmittedGeneration{ 0 };
 		std::uint64_t         m_lastSubmittedFrame{ 0 };
+		bool                  m_requireNewGeneration{ false };
+		std::uint64_t         m_generationFloor{ 0 };
 	};
 }

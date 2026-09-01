@@ -8,6 +8,8 @@
 				viewsRoot = std::filesystem::path(ToWide(a_msg.viewsPath));
 				width = (std::max)(1u, a_msg.width);
 				height = (std::max)(1u, a_msg.height);
+				viewportWidth = width;
+				viewportHeight = height;
 				userData = std::filesystem::path(ToWide(a_msg.userDataDir));
 				devMode = a_msg.devMode;
 				highRefreshCapture = a_msg.highRefreshCapture;
@@ -72,6 +74,23 @@
 			{
 				const auto a_msg = msg::FromJson<msg::Resize>(a_raw);
 				ApplyResize(a_msg.width, a_msg.height);
+			}
+
+			void HandleViewport(const json& a_raw)
+			{
+				const auto a_msg = msg::FromJson<msg::Viewport>(a_raw);
+				ApplyViewport(a_msg.width, a_msg.height, a_msg.presentationEpoch);
+			}
+
+			void HandlePointerInput(const json& a_raw)
+			{
+				const bool enabled = msg::FromJson<msg::PointerInput>(a_raw).enabled;
+				if (pointerInputEnabled == enabled) return;
+				if (!enabled) {
+					RecoverAllPressedMouseButtons("geometry transition");
+					ResetRelativePointerCapture();
+				}
+				pointerInputEnabled = enabled;
 			}
 
 			void HandleSetHidden(const json& a_raw)
@@ -252,6 +271,8 @@
 					{ msg::Init::kType, &App::HandleInit },
 					{ msg::Navigate::kType, &App::HandleNavigate },
 					{ msg::Resize::kType, &App::HandleResize },
+					{ msg::Viewport::kType, &App::HandleViewport },
+					{ msg::PointerInput::kType, &App::HandlePointerInput },
 					{ msg::SetHidden::kType, &App::HandleSetHidden },
 					{ msg::SetOrder::kType, &App::HandleSetOrder },
 					// SetInputTarget's kType is the `setActive` compatibility spelling.

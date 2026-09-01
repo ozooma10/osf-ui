@@ -21,7 +21,10 @@ int main()
 	using OSFUI::UiPass::detail::CanRecordOverlay;
 	using OSFUI::UiPass::detail::CommandListHookState;
 	using OSFUI::UiPass::detail::FrameGenerationTargetPolicy;
+	using OSFUI::UiPass::detail::PostCompositeTargetMatchesOutputAspect;
+	using OSFUI::UiPass::detail::PostCompositeTargetFormat;
 	using OSFUI::UiPass::detail::ScaleformHandoffWindow;
+	using OSFUI::UiPass::detail::SelectPostCompositeTarget;
 
 	Check(!CanRecordOverlay(CommandListHookState::Uninitialized),
 		"overlay recording waits for command-list hook installation");
@@ -36,6 +39,39 @@ int main()
 		"foreign execute hooks are chained by default");
 	Check(!CanChainForeignExecute(0),
 		"a null slot has no engine pass to chain and is refused");
+	Check(PostCompositeTargetMatchesOutputAspect(3440, 1440, 3440, 1440),
+		"an output-sized post-composite target retains the validated path");
+	Check(PostCompositeTargetMatchesOutputAspect(2580, 1080, 3440, 1440),
+		"a render-scaled target with the output aspect retains the validated path");
+	Check(PostCompositeTargetMatchesOutputAspect(2293, 960, 3440, 1440),
+		"one-pixel render-scale rounding remains aspect-compatible");
+	Check(PostCompositeTargetMatchesOutputAspect(2580, 1081, 3440, 1440),
+		"a one-pixel target rounding difference remains aspect-compatible");
+	Check(!PostCompositeTargetMatchesOutputAspect(2580, 1082, 3440, 1440),
+		"a target outside the rounding envelope is rejected");
+	Check(!PostCompositeTargetMatchesOutputAspect(2560, 1440, 3440, 1440),
+		"a true 16:9 target is rejected for an ultrawide output");
+	Check(!PostCompositeTargetMatchesOutputAspect(512, 512, 3440, 1440),
+		"an auxiliary square target is rejected for an ultrawide output");
+	Check(PostCompositeTargetMatchesOutputAspect(1280, 720, 1920, 1080),
+		"a scaled 16:9 target is accepted for a 16:9 output");
+	Check(PostCompositeTargetMatchesOutputAspect(512, 512, 0, 0),
+		"unknown output dimensions do not reject a target speculatively");
+	Check(PostCompositeTargetMatchesOutputAspect(512, 512, 3440, 0),
+		"partially observed output dimensions remain fail-open");
+	Check(PostCompositeTargetMatchesOutputAspect(512, 512, 0, 1440),
+		"either missing output dimension keeps target validation fail-open");
+	Check(!PostCompositeTargetMatchesOutputAspect(0, 512, 3440, 1440),
+		"an invalid target never passes geometry validation");
+	auto postTarget = SelectPostCompositeTarget(true, {});
+	Check(!postTarget.supported,
+		"vanilla uses ScaleformEnd so generated and rendered frames share the overlay");
+	postTarget = SelectPostCompositeTarget(false, "LuMa.DlL");
+	Check(postTarget.supported && postTarget.format == PostCompositeTargetFormat::Rgba16Float,
+		"Luma post-composite selection accepts its RGBA16F UI target case-insensitively");
+	postTarget = SelectPostCompositeTarget(false, "UnknownOverlay.dll");
+	Check(!postTarget.supported,
+		"an unproven foreign composite owner falls back to ScaleformEnd");
 
 	ScaleformHandoffWindow handoff;
 	Check(!handoff.TrackingHeaps() && !handoff.HandoffArmed(),

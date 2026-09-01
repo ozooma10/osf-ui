@@ -11,6 +11,7 @@
 #include "Render/WebView2HostWebRenderer.h"
 #include "Diagnostics/HealthRegistry.h"
 #include "Runtime/DeferredMainThreadWork.h"
+#include "Runtime/AdaptiveViewGeometry.h"
 #include "Views/Dev/DevViewReloadWorker.h"
 #include "Bindings/HotkeyService.h"
 #include "Localization/LocalizationService.h"
@@ -252,10 +253,16 @@ namespace OSFUI
 		ViewLoadTracker m_viewLoads;
 		ViewInputGrants m_viewInputGrants;
 
-		std::atomic<float>            _cursorX{ 0.0f };
-		std::atomic<float>            _cursorY{ 0.0f };
-		std::atomic<std::uint32_t>    _viewWidth{ kDefaultViewWidth };
-		std::atomic<std::uint32_t>    _viewHeight{ kDefaultViewHeight };
+		std::atomic<float>         _cursorX{ 0.0f };
+		std::atomic<float>         _cursorY{ 0.0f };
+		std::atomic_bool           _cursorInsideView{ true };
+		std::atomic_bool           _viewGeometryReady{ true };
+		std::atomic<std::uint64_t> _captureSize{ PackViewSize(
+			ViewSize{ kDefaultViewWidth, kDefaultViewHeight }) };
+		std::atomic<std::uint64_t> _viewSize{ PackViewSize(
+			ViewSize{ kDefaultViewWidth, kDefaultViewHeight }) };
+		std::atomic_bool           _gameClientSizeObserved{ false };
+		bool                       _fixedScaleformGeometry{ false };  // main thread
 		
 		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
 		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove };

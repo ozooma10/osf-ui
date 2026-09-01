@@ -140,10 +140,11 @@ namespace OSFUI
 		DriveDevTools();
 		PumpDevViewReload();
 		if (const auto clientSize = OverlayInputHook::GameWindowClientSize()) {
+			_gameClientSizeObserved.store(true, std::memory_order_release);
 			OnOutputResized(clientSize->width, clientSize->height);
-		} else if (_compositor) {
-			if (const auto outputSize = _compositor->GetObservedOutputSize()) {
-				OnOutputResized(outputSize->width, outputSize->height);
+		} else if (!_gameClientSizeObserved.load(std::memory_order_acquire) && _compositor) {
+			if (const auto targetSize = _compositor->GetObservedOutputSize()) {
+				OnOutputResized(targetSize->width, targetSize->height);
 			}
 		}
 

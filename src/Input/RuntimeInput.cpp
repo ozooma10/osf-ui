@@ -1,5 +1,7 @@
 #include "Runtime/Runtime.h"
 
+#include "Input/AbsoluteMouseMapping.h"
+
 #include <algorithm>
 #include <optional>
 
@@ -121,12 +123,16 @@ namespace OSFUI
 			return;
 		}
 
-        //Need to scale from window -> view (height capped)
-		const auto viewW = static_cast<float>(_viewWidth.load(std::memory_order_relaxed));
-		const auto viewH = static_cast<float>(_viewHeight.load(std::memory_order_relaxed));
-		_cursorX.store(std::clamp(static_cast<float>(a_clientX) * viewW / static_cast<float>(a_clientW), 0.0f, viewW - 1.0f), std::memory_order_relaxed);
-		_cursorY.store(std::clamp(static_cast<float>(a_clientY) * viewH / static_cast<float>(a_clientH), 0.0f, viewH - 1.0f), std::memory_order_relaxed);
-		QueueMouseMove();
+		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
+		const auto mapped = MapAbsoluteMouseToView(
+			a_clientX, a_clientY, a_clientW, a_clientH,
+			view.width, view.height);
+		_cursorX.store(mapped.x, std::memory_order_relaxed);
+		_cursorY.store(mapped.y, std::memory_order_relaxed);
+		_cursorInsideView.store(mapped.inside, std::memory_order_relaxed);
+		if (_viewGeometryReady.load(std::memory_order_acquire)) {
+			QueueMouseMove();
+		}
 	}
 
 	bool Runtime::OnGameWindowMouseRelative(int a_dx, int a_dy)
@@ -186,7 +192,10 @@ namespace OSFUI
 		if (!IsInputCaptured() || !_renderer) {
 			return;
 		}
-		_renderer->InjectMouseButton(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_button, a_down);
+		if (!a_down || (_viewGeometryReady.load(std::memory_order_acquire) &&
+			_cursorInsideView.load(std::memory_order_relaxed))) {
+			_renderer->InjectMouseButton(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_button, a_down);
+		}
 		if (a_button == 0 && !a_down && _relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
 			_relativePointerStop.store(RelativePointerStop::kEnd, std::memory_order_release);
 		}
@@ -203,6 +212,12 @@ namespace OSFUI
 			}
 			// Match DOM WheelEvent.deltaY: positive scrolls down/toward the user, opposite Win32's positive WHEEL_DELTA direction.
 			_relativePointerWheel.fetch_add(-static_cast<float>(a_wheelDelta) / 120.0f, std::memory_order_relaxed);
+			return;
+		}
+		if (!_viewGeometryReady.load(std::memory_order_acquire)) {
+			return;
+		}
+		if (!_cursorInsideView.load(std::memory_order_relaxed)) {
 			return;
 		}
 		_renderer->InjectPhysicalMouseWheel(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_wheelDelta);

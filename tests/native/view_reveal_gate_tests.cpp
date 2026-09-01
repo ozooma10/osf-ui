@@ -84,6 +84,39 @@ int main()
 		assert(decision.reveal);
 	}
 
+	ViewRevealGate resizeGate;
+	assert(resizeGate.Observe(Frame(100, true, true, 4), 4.0).submitFrame);
+	resizeGate.ArmForResize();
+	{
+		const auto decision = resizeGate.Observe(Frame(101, true, true, 4), 4.1);
+		assert(decision.submitFrame);
+		assert(!decision.reveal);  // fresh serial, but still the old-size ring
+	}
+	{
+		const auto decision = resizeGate.Observe(Frame(1, true, true, 3), 4.2);
+		assert(decision.submitFrame);
+		assert(!decision.reveal);  // an older ring can never satisfy a resize
+	}
+	{
+		const auto decision = resizeGate.Observe(Frame(1, true, false, 5), 4.3);
+		assert(decision.submitFrame);
+		assert(!decision.reveal);  // new ring, intermediate dimensions
+	}
+	{
+		const auto decision = resizeGate.Observe(Frame(1, true, true, 6), 4.4);
+		assert(decision.submitFrame);
+		assert(decision.reveal);
+	}
+
+	// A second mode edge while the first resize is in flight raises the floor.
+	resizeGate.Reset();
+	assert(resizeGate.Observe(Frame(10, true, true, 10), 5.0).submitFrame);
+	resizeGate.ArmForResize();
+	assert(!resizeGate.Observe(Frame(1, true, false, 11), 5.1).reveal);
+	resizeGate.ArmForResize();
+	assert(!resizeGate.Observe(Frame(2, true, true, 11), 5.2).reveal);
+	assert(resizeGate.Observe(Frame(1, true, true, 12), 5.3).reveal);
+
 	gate.Reset();
 	gate.Arm();
 	assert(!gate.Observe(std::nullopt, 10.0).timedOut);

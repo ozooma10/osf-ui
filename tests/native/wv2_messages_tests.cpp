@@ -41,6 +41,10 @@ int main()
 		Check(msg::SetInputTarget::kType == "setActive", "setActive wire spelling preserved");
 		Check(msg::RelativePointerCapture::kType != msg::RelativePointer::kType,
 			"relative-pointer state and motion use distinct directions");
+		Check(msg::PointerInput::kType == "pointerInput",
+			"pointer-transition state has a stable wire spelling");
+		Check(msg::Viewport::kType == "viewport",
+			"content viewport state has a stable wire spelling");
 		Check(msg::Shutdown::kType != msg::DestroyView::kType, "distinct types");
 	}
 
@@ -91,6 +95,19 @@ int main()
 		Check(motion.view == "acme.mod/panel" && motion.dx == -17 &&
 			motion.dy == 23 && motion.wheel == -120,
 			"signed raw relative-pointer motion survives host IPC");
+	}
+	{
+		Check(!RoundTrip(msg::PointerInput{ .enabled = false }).enabled,
+			"pointer input suspension survives host IPC");
+		Check(msg::FromJson<msg::PointerInput>(json{ { "type", "pointerInput" } }).enabled,
+			"a bare pointer-input message fails open for compatibility");
+	}
+	{
+		const auto viewport = RoundTrip(msg::Viewport{
+			.width = 2560, .height = 1440, .presentationEpoch = 17 });
+		Check(viewport.width == 2560 && viewport.height == 1440 &&
+			viewport.presentationEpoch == 17,
+			"content viewport dimensions and presentation epoch survive host IPC");
 	}
 	{
 		const msg::Frame sent{ .slot = 3, .serial = 0xDEAD'BEEF'0000'0001ull,

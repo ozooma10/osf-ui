@@ -209,9 +209,16 @@ int main()
 		"changing highRefreshCapture must not mutate the effective session");
 
 	const auto captureCadence = FunctionBody(hostSource, "void ApplyCaptureCadence()");
-	Check(captureCadence.find(
-		"highRefreshCapture && focusGranted ? 240u : 60u") != std::string::npos,
-		"focused capture must default to 60 Hz and require an explicit opt-in for 240 Hz");
+	Check(captureCadence.find("!visible ? 4u") != std::string::npos &&
+		captureCadence.find(
+			"highRefreshCapture && focusGranted ? 240u : 60u") != std::string::npos,
+		"hidden capture must throttle to 4 Hz while visible capture defaults to 60 Hz and requires an explicit opt-in for 240 Hz");
+	const auto refreshCaptureVisibility = FunctionBody(hostSource,
+		"void RefreshCaptureVisibility()");
+	Check(ContainsInOrder(refreshCaptureVisibility, {
+		"captureHasVisibleView.exchange(",
+		"if (changed) ApplyCaptureCadence()" }),
+		"logical visibility edges must immediately update capture cadence");
 	const auto frameArrival = FunctionBody(hostSource, "void OnFrameArrived(");
 	Check(ContainsInOrder(frameArrival, {
 		"TryGetNextFrame()",
@@ -251,10 +258,62 @@ int main()
 	Check(ContainsInOrder(runtimeFrameSource, {
 		"void Runtime::ProcessRendererFrame(double a_deltaSeconds)",
 		"OverlayInputHook::GameWindowClientSize()",
+		"_gameClientSizeObserved.store(true",
 		"OnOutputResized(clientSize->width, clientSize->height)",
-		"else if (_compositor)",
+		"else if (!_gameClientSizeObserved.load",
 		"_compositor->GetObservedOutputSize()" }),
-		"the game client area must size the browser before transient Scaleform targets, with compositor observation retained only as fallback");
+		"the game client must remain resize authority after its first valid observation so transient render targets cannot rebuild the browser ring");
+	const auto outputResize = FunctionBody(runtimeSource,
+		"void Runtime::OnOutputResized(");
+	Check(ContainsInOrder(outputResize, {
+		"MenuEventSink::ChargenOpen() && UiPass::UsesScaleformEnd()",
+		"ViewSizeForOutput(",
+		"UiPass::SetExpectedOutputSize(a_width, a_height)",
+		"const bool captureChanged",
+		"const bool viewportChanged",
+		"if (!captureChanged && !viewportChanged)" }) &&
+		outputResize.find("SetExpectedOutputSize(view.width") == std::string::npos,
+		"Chargen viewport compensation must be ScaleformEnd-only while capture and render-target selection retain the physical client aspect");
+	Check(ContainsInOrder(outputResize, {
+		"if (!captureChanged && !viewportChanged)",
+		"return",
+		"_compositor->SetVisible(false)",
+		"SetPointerInputEnabled(false)",
+		"_latestFrame.reset()",
+		"if (captureChanged)",
+		"m_viewReveal.ArmForResize()",
+		"m_viewReveal.Arm()",
+		"_captureSize.store(PackViewSize(output)",
+		"_viewSize.store(PackViewSize(view)",
+		"if (captureChanged)",
+		"_renderer->Resize(output.width, output.height)",
+		"if (viewportChanged)",
+		"_renderer->SetViewport(view.width, view.height)" }),
+		"visible geometry edges must gate stale pixels while only physical output changes rebuild capture and Chargen changes update the viewport");
+	const auto rendererResize = FunctionBody(rendererSource,
+		"void WebView2HostWebRenderer::Resize(");
+	Check(ContainsInOrder(rendererResize, {
+		"if (_impl->width == a_width && _impl->height == a_height) return",
+		"_impl->width = a_width",
+		"msg::Resize" }),
+		"the renderer must not recreate the browser capture pool for duplicate dimensions");
+	const auto rendererViewport = FunctionBody(rendererSource,
+		"void WebView2HostWebRenderer::SetViewport(");
+	Check(ContainsInOrder(rendererViewport, {
+		"viewportWidth == a_width",
+		"viewportHeight == a_height",
+		"presentation = ++_impl->presentationEpoch",
+		"_impl->haveFrame = false",
+		"msg::Viewport" }),
+		"viewport-only changes must invalidate presentation pixels without resizing capture");
+	const auto hostViewport = FunctionBody(hostSource, "void ApplyViewport(");
+	Check(ContainsInOrder(hostViewport, {
+		"viewportWidth = std::clamp",
+		"viewportHeight = std::clamp",
+		"ApplyViewLayout()",
+		"presentationEpoch.store" }) &&
+		hostViewport.find("framePool.Recreate") == std::string::npos,
+		"the browser host must center a content viewport without recreating the WGC pool");
 
 	const auto settingsMaintenance = FunctionBody(runtimeSource,
 		"void Runtime::ProcessSettingsMaintenance()");
@@ -597,6 +656,38 @@ int main()
 		"RI_MOUSE_LEFT_BUTTON_UP",
 		"OnGameWindowMouseButton(0, false)" }),
 		"WM_INPUT must accumulate both relative and absolute-device motion while preserving ordinary DOM pointer movement and the mouse-up terminal edge");
+	const auto absoluteMouse = FunctionBody(runtimeSource,
+		"void Runtime::OnGameWindowMouseAbsolute(");
+	const auto mouseButton = FunctionBody(runtimeSource,
+		"void Runtime::OnGameWindowMouseButton(");
+	Check(ContainsInOrder(absoluteMouse, {
+		"UnpackViewSize(_viewSize.load",
+		"MapAbsoluteMouseToView",
+		"_cursorX.store(mapped.x",
+		"_cursorY.store(mapped.y",
+		"_cursorInsideView.store(mapped.inside",
+		"QueueMouseMove()" }) &&
+		ContainsInOrder(mouseButton, {
+			"!a_down || (_viewGeometryReady.load",
+			"_cursorInsideView.load",
+			"InjectMouseButton" }),
+		"absolute mouse input must follow the centered UI-target viewport and reject button-down edges in its letterbox area");
+	const auto hostLiveMouse = FunctionBody(hostSource,
+		"OSFUI::AbsoluteMouseMapping LiveMouseMapping() const");
+	const auto hostCapturedMouse = FunctionBody(hostSource,
+		"bool SendCapturedMouse(");
+	Check(hostLiveMouse.find("MapAbsoluteMouseToView") != std::string::npos &&
+		ContainsInOrder(hostCapturedMouse, {
+			"MapAbsoluteMouseToView",
+			"!mapped.inside && (buttonDown || a_msg == WM_MOUSEWHEEL)",
+			"SendMouseInput" }) &&
+		FunctionBody(hostSource, "bool SendFocusedMouseWheel(").find("!mapped.inside") != std::string::npos,
+		"focused browser-host mouse and wheel paths must use the same centered viewport and reject bar input");
+	Check(ContainsInOrder(FunctionBody(hostSource, "void ApplyResize("), {
+		"RecoverAllPressedMouseButtons(\"viewport resize\")",
+		"width =",
+		"framePool.Recreate" }),
+		"browser resize must release held synthetic buttons before their coordinate space changes");
 	const auto hostRawMouse = FunctionBody(hostSource, "void AccumulateRawMouse(LPARAM a_lparam)");
 	Check(ContainsInOrder(hostRawMouse, {
 		"GetRawInputData",
@@ -674,10 +765,21 @@ int main()
 	const auto setInputTarget = FunctionBody(rendererSource,
 		"void WebView2HostWebRenderer::SetInputTargetView(std::string_view a_id)");
 	Check(ContainsInOrder(setInputTarget, {
+		"msg::SetInputTarget",
 		"focusRequested.load()",
 		"focusEpoch.fetch_add(1)",
 		"msg::Focus" }),
-		"changing the active view while focused must create a new acknowledged focus epoch");
+		"changing the active view while focused must publish the target before a new acknowledged focus epoch");
+	Check(ContainsInOrder(applyPolicy, {
+		"const auto active = _presentation.ActiveMenu()",
+		"SetInputTargetView(*active)",
+		"SetViewHidden(layer.id, false)",
+		"ReconcileNativeFocus()" }),
+		"runtime policy must publish the input target before showing it and before granting native focus");
+	const auto showView = FunctionBody(hostSource, "void ShowView(View& a_view)");
+	Check(showView.find("inputTarget == &a_view") != std::string::npos &&
+		showView.find("RequestInputFocus(\"view show\")") != std::string::npos,
+		"the browser host must focus the selected target only after that view becomes visible");
 	const auto setNativeFocus = FunctionBody(rendererSource,
 		"void WebView2HostWebRenderer::SetNativeFocus(bool a_focused)");
 	Check(ContainsInOrder(setNativeFocus, {
@@ -746,6 +848,13 @@ int main()
 
 	const auto submitFrame = FunctionBody(runtimeSource, "void Runtime::SubmitFrameIfVisible()");
 	Check(ContainsInOrder(submitFrame, {
+		"UnpackViewSize(_captureSize.load",
+		"_gameClientSizeObserved.load",
+		".outputSizeKnown = outputSizeKnown",
+		".matchesExpectedSize = _latestFrame->width == expected.width" }) &&
+		submitFrame.find("GetObservedOutputSize") == std::string::npos,
+		"frame reveal must use the latched game-client size rather than transient compositor resources");
+	Check(ContainsInOrder(submitFrame, {
 		"_renderer->TakeLatestFrame()",
 		"_latestFrame = *frame",
 		"m_viewReveal.Observe(observation, _uptime)",
@@ -755,6 +864,12 @@ int main()
 		"if (decision.reveal)",
 		"_compositor->SetVisible(true)" }),
 		"Runtime must submit the gate-approved frame before making the compositor visible");
+	Check(ContainsInOrder(submitFrame, {
+		"if (decision.reveal)",
+		"_compositor->SetVisible(true)",
+		"_viewGeometryReady.store(true",
+		"SetPointerInputEnabled(true)" }),
+		"pointer delivery must resume only after the matching resized frame is visible");
 	Check(ContainsInOrder(submitFrame, {
 		"if (decision.submitFrame && frame)",
 		"_compositor->Submit(*frame)",
@@ -849,14 +964,37 @@ int main()
 		"void* EndThunk(");
 	const auto compositeUiPass = FunctionBody(uiPassSource,
 		"void* CompositeThunk(");
-	Check(beginUiPass.find("tl_handoffWindow.Cancel()") != std::string::npos &&
-		beginUiPass.find("tl_handoffWindow.Begin()") == std::string::npos &&
-		endUiPass.find("tl_handoffWindow.End()") == std::string::npos &&
+	Check(ContainsInOrder(beginUiPass, {
+		"g_usePostComposite.load",
+		"tl_handoffWindow.Cancel()",
+		"tl_handoffWindow.Begin()" }) &&
+		ContainsInOrder(endUiPass, {
+			"original ? original(a_this, a_ctx, a_io, a_r9) : nullptr",
+			"!g_usePostComposite.load",
+			"tl_handoffWindow.End()" }) &&
 		ContainsInOrder(compositeUiPass, {
+			"g_usePostComposite.load",
 			"tl_handoffWindow.Begin()",
 			"original ? original(a_this, a_ctx, a_io, a_r9) : nullptr",
 			"tl_handoffWindow.End()" }),
-		"the overlay handoff must open after ScaleformComposite instead of before Starfield's fixed-aspect transform");
+		"Luma post-composite targets must draw after the fixed-aspect transform while vanilla and unknown owners retain the ScaleformEnd fallback");
+	const auto resourceBarrier = FunctionBody(uiPassSource,
+		"void STDMETHODCALLTYPE ResourceBarrierThunk(");
+	Check(ContainsInOrder(resourceBarrier, {
+		"const auto rtvFormat",
+		"g_usePostComposite.load",
+		"rtvFormat != g_postCompositeTargetFormat.load",
+		"continue",
+		"g_expectedOutputSize.load",
+		"PostCompositeTargetMatchesOutputAspect",
+		"if (!targetAspectMatchesOutput)",
+		"continue",
+		"const bool fgTarget",
+		"ConsumeAndReportFirstCandidate",
+		"RecordOverlayAtHandoff" }) &&
+		resourceBarrier.find("g_usePostComposite.exchange") == std::string::npos &&
+		resourceBarrier.find("tl_handoffWindow.Cancel()") == std::string::npos,
+		"post-composite filtering must skip incompatible candidates without consuming the handoff or abandoning the validated seam");
 	const auto recordAtHandoff = FunctionBody(uiPassSource,
 		"const bool a_fgTarget");
 	Check(ContainsInOrder(recordAtHandoff, {
@@ -921,6 +1059,16 @@ int main()
 		"renderer teardown must terminate its verified browser host when graceful shutdown times out");
 
 	const auto menuEvent = FunctionBody(menuEventSource, "MenuEventSink::ProcessEvent(");
+	const auto installMenuEvent = FunctionBody(menuEventSource, "bool MenuEventSink::Install()");
+	Check(ContainsInOrder(installMenuEvent, {
+		"RegisterSink<RE::MenuOpenCloseEvent>",
+		"IsMenuOpen(RE::BSFixedString{ RE::ChargenMenu::MENU_NAME })",
+		"s_chargenOpen.store" }) &&
+		ContainsInOrder(menuEvent, {
+			"name == RE::ChargenMenu::MENU_NAME",
+			"s_chargenOpen.exchange" }) &&
+		menuEvent.find("OnOutputResized") == std::string::npos,
+		"Chargen state must be seeded and atomically published by the any-thread menu sink without resizing there");
 	Check(ContainsInOrder(menuEvent, {
 		"name == \"LoadingMenu\"",
 		"name == \"MainMenu\"",

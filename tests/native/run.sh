@@ -69,6 +69,8 @@ SUITES=(
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/Views/Dev/DevViewFiles.cpp"
 "view_cache_tests view_cache_tests.cpp ../../src/Views/ViewCache.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
+"absolute_mouse_mapping_tests absolute_mouse_mapping_tests.cpp"
+"adaptive_view_geometry_tests adaptive_view_geometry_tests.cpp"
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
 "gamepad_session_tests gamepad_session_tests.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp"
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"

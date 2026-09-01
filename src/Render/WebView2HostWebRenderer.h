@@ -67,6 +67,8 @@ namespace OSFUI
 		bool RefreshViewFiles(std::string_view a_viewId);
 		void SetInputTargetView(std::string_view a_id);
 		void Resize(std::uint32_t a_width, std::uint32_t a_height);
+		void SetViewport(std::uint32_t a_width, std::uint32_t a_height);
+		void SetPointerInputEnabled(bool a_enabled);
 		void Update(double a_deltaSeconds);
 		std::optional<FrameBufferView> TakeLatestFrame();
 		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json);

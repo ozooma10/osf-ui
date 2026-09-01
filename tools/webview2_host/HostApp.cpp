@@ -5,6 +5,7 @@
 
 #include "Core/Version.h"
 #include "Core/Ids.h"
+#include "Input/AbsoluteMouseMapping.h"
 #include "Input/ScanCode.h"
 #include "Core/Json.h"
 #include "Views/ViewCache.h"
@@ -240,6 +241,7 @@ namespace osfui::wv2
 			std::filesystem::path viewsRoot, userData;
 			SharedReadLease       viewsLease;  // released after every WebView member
 			std::uint32_t         width{ 1 }, height{ 1 };
+			std::uint32_t         viewportWidth{ 1 }, viewportHeight{ 1 };
 			bool                  devMode{ false };
 			bool                  highRefreshCapture{ false };
 			bool                  defaultHidden{ true };  // init.hidden — a new view's starting state
@@ -293,6 +295,7 @@ namespace osfui::wv2
 			std::uint32_t toggleScan{ 0x44 /*F10*/ }, captureUpScan{ 0 };
 			bool          captured{ false }, captureArmed{ false };
 			bool          focusGranted{ false };
+			bool          pointerInputEnabled{ true };
 			std::uint64_t focusEpoch{ 0 };
 			std::uint64_t focusStateSequence{ 0 };
 			bool          publishedFocusState{ false };
@@ -452,7 +455,9 @@ namespace osfui::wv2
 			void RefreshCaptureVisibility()
 			{
 				const bool anyVisible = std::ranges::any_of(views, [](const std::unique_ptr<View>& a_view) { return !a_view->hidden; });
-				captureHasVisibleView.store(anyVisible, std::memory_order_release);
+				const bool changed = captureHasVisibleView.exchange(
+					anyVisible, std::memory_order_acq_rel) != anyVisible;
+				if (changed) ApplyCaptureCadence();
 			}
 
 			void ApplyDeferredHides()
@@ -487,16 +492,21 @@ namespace osfui::wv2
 					if (PromotePresentation(a_view)) {
 						RepublishLatest();
 					}
+					if (focusGranted && inputTarget == &a_view && a_view.controller) {
+						RequestInputFocus("view already visible");
+					}
 					return;
 				}
 				a_view.hidden = false;
-				captureHasVisibleView.store(true, std::memory_order_release);
+				RefreshCaptureVisibility();
 				a_view.hideDeferred = false;
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				// WebView2 may restore its last keyboard focus merely by becoming visible.
 				// Until the game has admitted FocusMenu, keep that focus parked outside Chromium.
 				if (!focusGranted && FocusedView()) {
 					ReleaseInputFocus("view show");
+				} else if (focusGranted && inputTarget == &a_view && a_view.controller) {
+					RequestInputFocus("view show");
 				}
 				if (a_view.visual && a_view.visual.IsVisible()) {
 					log.Info(std::format(
@@ -813,7 +823,7 @@ namespace osfui::wv2
 						"context menu stays enabled", a_view.id));
 				}
 				a_view.controller->put_Bounds(
-					RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
+					RECT{ 0, 0, static_cast<LONG>(viewportWidth), static_cast<LONG>(viewportHeight) });
 				ApplyScale(a_view);
 				a_view.controller->put_IsVisible(a_view.hidden ? FALSE : TRUE);
 				ComPtr<ICoreWebView2Controller2> controller2;
@@ -821,7 +831,11 @@ namespace osfui::wv2
 					controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 });
 				}
 				a_view.visual = compositor.CreateContainerVisual();
-				a_view.visual.Size({ static_cast<float>(width), static_cast<float>(height) });
+				a_view.visual.Size({ static_cast<float>(viewportWidth), static_cast<float>(viewportHeight) });
+				a_view.visual.Offset({
+					(static_cast<float>(width) - static_cast<float>(viewportWidth)) * 0.5f,
+					(static_cast<float>(height) - static_cast<float>(viewportHeight)) * 0.5f,
+					0.0f });
 				a_view.visual.IsVisible(!a_view.hidden);
 				ReorderVisuals();
 				const auto target = a_view.visual.as<::IUnknown>();
@@ -1430,7 +1444,9 @@ namespace osfui::wv2
 			void ApplyCaptureCadence()
 			{
 				if (!captureSession) return;
-				const std::uint32_t desiredHz = highRefreshCapture && focusGranted ? 240u : 60u;
+				const bool visible = captureHasVisibleView.load(std::memory_order_acquire);
+				const std::uint32_t desiredHz = !visible ? 4u :
+					highRefreshCapture && focusGranted ? 240u : 60u;
 				if (captureCadenceHz == desiredHz) return;
 				try {
 					if (const auto cadence = captureSession.try_as<
@@ -1444,7 +1460,7 @@ namespace osfui::wv2
 						captureCadenceHz = desiredHz;
 						log.Info(std::format(
 							"WGC cadence -> {} mode, up to {} Hz ({:.3f} ms)",
-							focusGranted ? "input-capturing menu" : "HUD",
+							!visible ? "hidden" : focusGranted ? "input-capturing menu" : "HUD",
 							desiredHz,
 							std::chrono::duration<double, std::milli>(applied).count()));
 					} else {
@@ -1548,27 +1564,58 @@ namespace osfui::wv2
 				controller4->put_ShouldDetectMonitorScaleChanges(FALSE);
 				const auto logical = (std::max)(1u, a_view.logicalHeight);
 				controller4->put_RasterizationScale(
-					static_cast<double>(height) / static_cast<double>(logical));
+					static_cast<double>(viewportHeight) / static_cast<double>(logical));
+			}
+
+			void ApplyViewLayout()
+			{
+				const float offsetX =
+					(static_cast<float>(width) - static_cast<float>(viewportWidth)) * 0.5f;
+				const float offsetY =
+					(static_cast<float>(height) - static_cast<float>(viewportHeight)) * 0.5f;
+				for (auto& view : views) {
+					if (view->visual) {
+						view->visual.Size({ static_cast<float>(viewportWidth),
+							static_cast<float>(viewportHeight) });
+						view->visual.Offset({ offsetX, offsetY, 0.0f });
+					}
+					if (view->controller) {
+						view->controller->put_Bounds(RECT{ 0, 0,
+							static_cast<LONG>(viewportWidth),
+							static_cast<LONG>(viewportHeight) });
+						ApplyScale(*view);
+					}
+				}
+			}
+
+			void ApplyViewport(const std::uint32_t a_width,
+				const std::uint32_t a_height,
+				const std::uint64_t a_presentationEpoch)
+			{
+				RecoverAllPressedMouseButtons("viewport change");
+				viewportWidth = std::clamp((std::max)(1u, a_width), 1u, width);
+				viewportHeight = std::clamp((std::max)(1u, a_height), 1u, height);
+				ApplyViewLayout();
+				{
+					std::scoped_lock epochLock(captureEpochMutex);
+					presentationEpoch.store(a_presentationEpoch, std::memory_order_release);
+				}
+				log.Info(std::format(
+					"content viewport -> {}x{} inside stable {}x{} capture",
+					viewportWidth, viewportHeight, width, height));
 			}
 
 			void ApplyResize(std::uint32_t a_width, std::uint32_t a_height)
 			{
+				RecoverAllPressedMouseButtons("viewport resize");
 				width = (std::max)(1u, a_width);
 				height = (std::max)(1u, a_height);
 				if (rootVisual) {
 					rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
 				}
-				// Every view renders output-sized so the composited stack maps 1:1.
-				for (auto& view : views) {
-					if (view->visual) {
-						view->visual.Size({ static_cast<float>(width), static_cast<float>(height) });
-					}
-					if (view->controller) {
-						view->controller->put_Bounds(
-							RECT{ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
-						ApplyScale(*view);
-					}
-				}
+				viewportWidth = (std::min)(viewportWidth, width);
+				viewportHeight = (std::min)(viewportHeight, height);
+				ApplyViewLayout();
 				if (!framePool) return;
 				std::scoped_lock epochLock(captureEpochMutex);
 				try {
@@ -1629,11 +1676,15 @@ namespace osfui::wv2
 				if (!focusGranted || !inputTarget || !inputTarget->compositionController) {
 					return false;
 				}
+				if (!pointerInputEnabled) return true;
 				if (rawMouseRegistered) return true;
 
 				const auto delta = static_cast<SHORT>(HIWORD(a_wparam));
 				if (delta == 0) return false;
-				const POINT at = LiveWheelPoint();
+				const auto mapped = LiveMouseMapping();
+				if (!mapped.inside) return true;
+				const POINT at{
+					static_cast<LONG>(mapped.x), static_cast<LONG>(mapped.y) };
 				inputTarget->compositionController->SendMouseInput(
 					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
 					static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
@@ -1791,7 +1842,7 @@ namespace osfui::wv2
 				rawMouseRegistered = a_enabled;
 			}
 
-			[[nodiscard]] POINT LiveWheelPoint() const
+			[[nodiscard]] OSFUI::AbsoluteMouseMapping LiveMouseMapping() const
 			{
 				POINT point{};
 				RECT  client{};
@@ -1799,16 +1850,16 @@ namespace osfui::wv2
 					::ScreenToClient(gameTopLevel, &point) &&
 					::GetClientRect(gameTopLevel, &client) &&
 					client.right > client.left && client.bottom > client.top) {
-					return POINT{
-						std::clamp(::MulDiv(point.x - client.left,
-							static_cast<int>(width), client.right - client.left),
-							0, static_cast<int>(width) - 1),
-						std::clamp(::MulDiv(point.y - client.top,
-							static_cast<int>(height), client.bottom - client.top),
-							0, static_cast<int>(height) - 1)
-					};
+					return OSFUI::MapAbsoluteMouseToView(
+						point.x - client.left, point.y - client.top,
+						client.right - client.left, client.bottom - client.top,
+						viewportWidth, viewportHeight);
 				}
-				return POINT{ capturedMouseX, capturedMouseY };
+				return {
+					.x = static_cast<float>(capturedMouseX),
+					.y = static_cast<float>(capturedMouseY),
+					.inside = true,
+				};
 			}
 
 			void ResetRelativePointerCapture()
@@ -1822,7 +1873,7 @@ namespace osfui::wv2
 			void SetRelativePointerCapture(const msg::RelativePointerCapture& a_capture)
 			{
 				ResetRelativePointerCapture();
-				if (!a_capture.active || !focusGranted || !inputTarget ||
+				if (!a_capture.active || !pointerInputEnabled || !focusGranted || !inputTarget ||
 					inputTarget->id != a_capture.view || inputTarget->hidden ||
 					!OSFUI::Ids::IsValidQualifiedViewId(a_capture.view)) {
 					return;
@@ -1832,7 +1883,7 @@ namespace osfui::wv2
 
 			void AccumulateRawMouse(LPARAM a_lparam)
 			{
-				if (!focusGranted || !rawMouseRegistered || !inputTarget ||
+				if (!pointerInputEnabled || !focusGranted || !rawMouseRegistered || !inputTarget ||
 					!inputTarget->compositionController) {
 					return;
 				}
@@ -1853,11 +1904,14 @@ namespace osfui::wv2
 				if ((mouse.usButtonFlags & RI_MOUSE_WHEEL) != 0) {
 					const auto delta = static_cast<SHORT>(mouse.usButtonData);
 					if (delta != 0) {
-						const POINT at = LiveWheelPoint();
-						inputTarget->compositionController->SendMouseInput(
-							COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
-							COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
-							static_cast<UINT32>(delta), at);
+						const auto mapped = LiveMouseMapping();
+						if (mapped.inside) {
+							inputTarget->compositionController->SendMouseInput(
+								COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
+								COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
+								static_cast<UINT32>(delta),
+								POINT{ static_cast<LONG>(mapped.x), static_cast<LONG>(mapped.y) });
+						}
 						if (!relativePointerView.empty() && inputTarget->id == relativePointerView) {
 							relativePointerWheel += delta;
 						}
@@ -1902,6 +1956,7 @@ namespace osfui::wv2
 					!hostWindow || !gameTopLevel) {
 					return false;
 				}
+				if (!pointerInputEnabled) return true;
 				if (a_msg == WM_MOUSEWHEEL && rawMouseRegistered) {
 					return true;
 				}
@@ -1919,12 +1974,12 @@ namespace osfui::wv2
 					client.right <= client.left || client.bottom <= client.top) {
 					return false;
 				}
-				const auto x = std::clamp(::MulDiv(point.x - client.left,
-					static_cast<int>(width), client.right - client.left),
-					0, static_cast<int>(width) - 1);
-				const auto y = std::clamp(::MulDiv(point.y - client.top,
-					static_cast<int>(height), client.bottom - client.top),
-					0, static_cast<int>(height) - 1);
+				const auto mapped = OSFUI::MapAbsoluteMouseToView(
+					point.x - client.left, point.y - client.top,
+					client.right - client.left, client.bottom - client.top,
+					viewportWidth, viewportHeight);
+				const auto x = static_cast<int>(mapped.x);
+				const auto y = static_cast<int>(mapped.y);
 				capturedMouseX = x;
 				capturedMouseY = y;
 
@@ -1953,6 +2008,9 @@ namespace osfui::wv2
 					button = SyntheticMouseButton::middle; break;
 				case WM_MOUSEWHEEL:  eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL; break;
 				default: return false;
+				}
+				if (!mapped.inside && (buttonDown || a_msg == WM_MOUSEWHEEL)) {
+					return true;
 				}
 				const auto keys = static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
 					static_cast<UINT32>(LOWORD(a_wparam)));
@@ -2032,21 +2090,23 @@ namespace osfui::wv2
 
 			void SendMouse(const json& a_msg)
 			{
-				if (!inputTarget || !inputTarget->compositionController) return;
+				if (!pointerInputEnabled || !inputTarget || !inputTarget->compositionController) return;
 				const auto mouse = msg::FromJson<msg::Mouse>(a_msg);
 				const std::string& kind = mouse.kind;
 				const bool physicalWheel = kind == "physicalWheel";
 				if (physicalWheel && rawMouseRegistered) return;
 				int x = mouse.x;
 				int y = mouse.y;
-				if (focusGranted && (kind == "wheel" || physicalWheel)) {
-					const POINT at = LiveWheelPoint();
-					x = at.x;
-					y = at.y;
+				bool inside = true;
+				if (focusGranted && physicalWheel) {
+					const auto mapped = LiveMouseMapping();
+					x = static_cast<int>(mapped.x);
+					y = static_cast<int>(mapped.y);
+					inside = mapped.inside;
 				}
 				if (kind == "move") {
-					capturedMouseX = std::clamp(x, 0, static_cast<int>(width) - 1);
-					capturedMouseY = std::clamp(y, 0, static_cast<int>(height) - 1);
+					capturedMouseX = std::clamp(x, 0, static_cast<int>(viewportWidth) - 1);
+					capturedMouseY = std::clamp(y, 0, static_cast<int>(viewportHeight) - 1);
 				}
 				COREWEBVIEW2_MOUSE_EVENT_KIND eventKind{};
 				UINT32 data = 0;
@@ -2055,6 +2115,7 @@ namespace osfui::wv2
 				if (kind == "move") {
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
 				} else if (kind == "wheel" || physicalWheel) {
+					if (!inside) return;
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL;
 					data = static_cast<UINT32>(mouse.wheel);
 				} else {

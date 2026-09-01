@@ -35,8 +35,13 @@ namespace OSFUI
 		m_viewRecovery.Clear(id);
 		m_viewLoads.BeginLoad(id);
 		_renderer->CreateOrNavigateView(a_manifest);
-		if (const auto w = _viewWidth.load(), h = _viewHeight.load(); w && h) {
-			_renderer->Resize(w, h);
+		const auto capture = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
+		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
+		if (capture.width && capture.height) {
+			_renderer->Resize(capture.width, capture.height);
+		}
+		if (view.width && view.height) {
+			_renderer->SetViewport(view.width, view.height);
 		}
 		_presentation.AddInstantiated({ id, a_manifest.kind, a_manifest.capturesInput, a_manifest.pausesGame, a_manifest.order });
 		API::BridgeApi::Get().SetViewInstantiated(id, true);
@@ -110,7 +115,10 @@ namespace OSFUI
 		if (_bridge) {
 			_bridge->OnViewCreated(a_id, IsPre2Target(a_manifest.targetVersion));
 		}
-		_renderer->Resize(_viewWidth.load(), _viewHeight.load());
+		const auto capture = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
+		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
+		_renderer->Resize(capture.width, capture.height);
+		_renderer->SetViewport(view.width, view.height);
 	}
 
 	void Runtime::DriveRecovery()

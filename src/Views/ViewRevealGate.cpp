@@ -10,6 +10,16 @@ namespace OSFUI
 		m_frameReady = false;
 		m_heldSeconds = 0.0;
 		m_lastPolledAt.reset();
+		m_requireNewGeneration = false;
+		m_generationFloor = 0;
+	}
+
+	void ViewRevealGate::ArmForResize()
+	{
+		const auto generationFloor = m_lastSubmittedGeneration;
+		Arm();
+		m_requireNewGeneration = true;
+		m_generationFloor = generationFloor;
 	}
 
 	void ViewRevealGate::Cancel()
@@ -18,6 +28,8 @@ namespace OSFUI
 		m_frameReady = false;
 		m_heldSeconds = 0.0;
 		m_lastPolledAt.reset();
+		m_requireNewGeneration = false;
+		m_generationFloor = 0;
 	}
 
 	void ViewRevealGate::Reset()
@@ -42,7 +54,10 @@ namespace OSFUI
 				return decision;
 			}
 
-			if (m_frameReady && a_frame->outputSizeKnown && a_frame->matchesExpectedSize) {
+			const bool generationReady = !m_requireNewGeneration ||
+				a_frame->generation > m_generationFloor;
+			if (m_frameReady && generationReady &&
+				a_frame->outputSizeKnown && a_frame->matchesExpectedSize) {
 				Cancel();
 				decision.reveal = true;
 				return decision;

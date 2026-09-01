@@ -8,7 +8,7 @@ struct ID3D12Resource;
 
 namespace OSFUI
 {
-	// Records the webview2 overlay quad into the engine's post-Scaleform target. Returns true if a quad was recorded.
+	// Records the webview2 overlay quad into the UI pass target selected by UiPass.
 	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, bool a_firstDrawInRegion);
 
 	class D3D12Compositor final

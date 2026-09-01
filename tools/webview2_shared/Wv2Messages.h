@@ -130,6 +130,30 @@ namespace osfui::wv2::msg
 		};
 	};
 
+	struct Viewport
+	{
+		static constexpr std::string_view kType = "viewport";
+		std::uint32_t width{ 1 };
+		std::uint32_t height{ 1 };
+		std::uint64_t presentationEpoch{ 0 };
+
+		static constexpr auto kFields = std::tuple{
+			F("width", &Viewport::width),
+			F("height", &Viewport::height),
+			F("presentationEpoch", &Viewport::presentationEpoch),
+		};
+	};
+
+	struct PointerInput
+	{
+		static constexpr std::string_view kType = "pointerInput";
+		bool enabled{ true };
+
+		static constexpr auto kFields = std::tuple{
+			F("enabled", &PointerInput::enabled),
+		};
+	};
+
 #define OSFUI_WV2_VIEW_ONLY_MESSAGE(Name, TypeString)                        \
 	struct Name                                                              \
 	{                                                                        \
