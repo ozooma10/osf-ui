@@ -89,10 +89,9 @@ namespace OSFUI
 		void EmitAll(std::string_view a_name, const nlohmann::json& a_payload);
 
 		// Create a closed event gate that queues until the document says hello.
-		void OnViewCreated(std::string_view a_viewId, bool a_legacyApi = false);
+		void OnViewCreated(std::string_view a_viewId);
 		// Drop the gate, queued events, and deferred requests owned by the view.
 		void OnViewDestroyed(std::string_view a_viewId);
-		[[nodiscard]] bool IsLegacyApiView(std::string_view a_viewId) const;
 
 		void SetHelloHook(HelloHook a_hook) { _onHello = std::move(a_hook); }
 		void SetProtocolFaultSink(ProtocolFaultSink a_sink) { _protocolFaultSink = std::move(a_sink); }
@@ -121,7 +120,6 @@ namespace OSFUI
 			// State opens during replay; events open afterward so replay cannot overtake the backlog.
 			bool                    greeted{ false };     // state may flow
 			bool                    eventsOpen{ false };  // events may flow
-			bool                    legacyApi{ false };   // frozen 1.x reply-envelope adaptation
 			std::deque<std::string> queued;               // encoded event envelopes
 		};
 

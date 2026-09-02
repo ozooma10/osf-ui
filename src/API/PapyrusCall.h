@@ -53,7 +53,6 @@ namespace OSFUI::PapyrusCall
 		}
 		// Reject every OSF UI native script so untrusted pages cannot bypass per-view authority.
 		if (StringUtil::EqualsCaseInsensitiveAscii(out.script, API::Papyrus::kPlatformScriptName) ||
-			StringUtil::EqualsCaseInsensitiveAscii(out.script, API::Papyrus::kSettingsScriptName) ||
 			StringUtil::EqualsCaseInsensitiveAscii(out.script, API::Papyrus::kViewScriptName)) {
 			return detail::Fail("forbidden", "papyrus.call cannot target OSF UI's own scripts — use the public bridge APIs");
 		}

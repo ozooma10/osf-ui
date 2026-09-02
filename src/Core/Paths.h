@@ -7,7 +7,7 @@ namespace OSFUI::Paths
 	// Directory containing the plugin DLL, e.g. <game>/Data/SFSE/Plugins
 	[[nodiscard]] const std::filesystem::path& PluginDir();
 
-	// Plugin data root, e.g. <game>/Data/SFSE/Plugins/OSFUI
+	// Plugin data root, e.g. <game>/Data/SFSE/Plugins/OSF/UI
 	[[nodiscard]] const std::filesystem::path& DataDir();
 
 	// <data>/views

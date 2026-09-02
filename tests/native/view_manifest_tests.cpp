@@ -41,6 +41,7 @@ int main()
 
 	// No "id" field: identity comes from the folder path alone.
 	Write(path, R"({
+		"manifestVersion": 1,
 		"title": "Cargo terminal"
 	})");
 	auto manifest = OSFUI::ViewManifest::Load(path);
@@ -49,6 +50,7 @@ int main()
 	assert(manifest->title == "Cargo terminal");
 
 	Write(path, R"({
+		"manifestVersion": 1,
 		"id": "some-old-name"
 	})");
 	manifest = OSFUI::ViewManifest::Load(path);
@@ -56,13 +58,19 @@ int main()
 	assert(manifest->id == "demo.mod/terminal");
 
 	Write(path, R"({
-		"entry": "index.html?mode=compact#inventory",
-		"targetVersion": "1.8.0"
+		"manifestVersion": 1,
+		"entry": "index.html?mode=compact#inventory"
 	})");
 	manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest);
-	assert(manifest->targetVersion == "1.8.0");
 	assert(manifest->entry == "index.html?mode=compact#inventory");
+
+	Write(path, R"({ "kind": "hud" })");
+	assert(!OSFUI::ViewManifest::Load(path));
+	Write(path, R"({ "manifestVersion": 2, "kind": "hud" })");
+	assert(!OSFUI::ViewManifest::Load(path));
+	Write(path, R"({ "manifestVersion": 1, "kind": "future" })");
+	assert(!OSFUI::ViewManifest::Load(path));
 
 	std::filesystem::remove_all(root);
 	std::cout << "view_manifest_tests: ok\n";

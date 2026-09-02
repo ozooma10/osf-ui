@@ -8,7 +8,6 @@ export const validModId = (value) => isThirdPartyModId(value);
 export const CHOICES = {
   surface: [
     { value: 'menu', label: 'Menu', hint: 'a focused screen with user input' },
-    { value: 'settings', label: 'Settings only', hint: 'a settings page and a hotkey, no view code' },
   ],
   integration: [
     { value: 'papyrus', label: 'Papyrus', hint: 'call GLOBAL functions on loose scripts' },
@@ -69,20 +68,7 @@ export async function promptMissing(
       : `Use a safe mod name other than osfui (at most ${MAX_MOD_ID_LENGTH} UTF-8 bytes).`,
   }));
 
-  // Starter type comes before View name and workflow because "settings only"
-  // answers both of them: it ships no view, and Papyrus is its only mod backend.
-  // `surface` remains the stable CLI/config option name for compatibility.
-  options.surface ||= answer(prompt, await prompt.select({
-    message: 'Choose a starter type',
-    options: CHOICES.surface,
-    initialValue: 'menu',
-  }));
-
-  if (options.surface === 'settings') {
-    fillDefaults(options);
-    options.integration = 'papyrus';
-    return true;
-  }
+  options.surface ||= 'menu';
 
   options.view ||= answer(prompt, await prompt.text({
     message: 'View name',

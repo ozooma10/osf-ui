@@ -298,7 +298,6 @@ namespace OSFUI
 		{
 			std::string id;
 			std::string entry;
-			bool        legacyApi{ false };
 			bool        hidden{ true };
 			int         order{ 0 };
 			// Authoring height defines browser rasterization scale against output height.
@@ -1017,7 +1016,6 @@ namespace OSFUI
 				accSent = true;
 				for (const auto& view : views) {
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
-						.legacyApi = view.legacyApi,
 						.logicalHeight = view.logicalHeight }));
 					addBootstrap(ToJson(msg::SetHidden{ .view = view.id,
 						.hidden = view.hidden, .presentationEpoch = presentationEpoch }));
@@ -1613,7 +1611,6 @@ namespace OSFUI
 				view->id = a_manifest.id;
 			}
 			view->entry = a_manifest.entry;
-			view->legacyApi = IsPre2Target(a_manifest.targetVersion);
 			view->logicalHeight = logicalHeight;
 			// Default input to the first instantiated view until runtime policy arrives.
 			if (_impl->inputTargetId.empty()) {
@@ -1622,7 +1619,6 @@ namespace OSFUI
 		}
 		// Re-registering an instantiated view navigates it for dev or crash recovery.
 		_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
-			.legacyApi = IsPre2Target(a_manifest.targetVersion),
 			.logicalHeight = logicalHeight }));
 	}
 

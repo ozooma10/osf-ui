@@ -12,10 +12,10 @@ namespace OSFUI::Ids
 	inline constexpr std::size_t kMaxViewNameLen = 64;
 
 	constexpr std::string_view kBuiltInModId = "osfui";
-	constexpr std::string_view kSettingsViewId = "osfui/settings";
-	constexpr std::string_view kKeybindingsViewId = "osfui/keybinds";
-
-	constexpr std::string_view kToggleKey = "F10";  // default overlay toggle
+	// These 1.x built-ins no longer exist. Keep the names reserved so stale packages
+	// fail at discovery/registration instead of silently becoming ordinary web views.
+	constexpr std::string_view kStaleSettingsViewId = "osfui/settings";
+	constexpr std::string_view kStaleKeybindingsViewId = "osfui/keybinds";
 
 	using StringUtil::EqualsCaseInsensitiveAscii;
 
@@ -87,6 +87,10 @@ namespace OSFUI::Ids
 	// "<modId>/<viewName>" — the only shape RegisterView / menu targets accept.
 	inline bool IsValidQualifiedViewId(std::string_view a_id)
 	{
+		if (EqualsCaseInsensitiveAscii(a_id, kStaleSettingsViewId) ||
+			EqualsCaseInsensitiveAscii(a_id, kStaleKeybindingsViewId)) {
+			return false;
+		}
 		const auto slash = a_id.find('/');
 		if (slash == std::string_view::npos || a_id.find('/', slash + 1) != std::string_view::npos) {
 			return false;
@@ -107,23 +111,4 @@ namespace OSFUI::Ids
 		return slash == std::string_view::npos ? a_id : a_id.substr(slash + 1);
 	}
 
-	// Only the two built-in settings editors may target another mod's settings.
-	[[nodiscard]] inline bool IsSettingsEditorView(std::string_view a_viewId)
-	{
-		return a_viewId == kSettingsViewId || a_viewId == kKeybindingsViewId;
-	}
-
-	// Non-editor views may target only their own mod; an empty target resolves to it.
-	[[nodiscard]] inline std::optional<std::string_view> ResolveWritableMod(
-		std::string_view a_sourceView, std::string_view a_requestedMod)
-	{
-		if (IsSettingsEditorView(a_sourceView)) {
-			return a_requestedMod;
-		}
-		const auto own = ModOf(a_sourceView);
-		if (a_requestedMod.empty() || EqualsCaseInsensitiveAscii(a_requestedMod, own)) {
-			return own;
-		}
-		return std::nullopt;
-	}
 }

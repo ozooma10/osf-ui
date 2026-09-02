@@ -1,15 +1,10 @@
 #pragma once
 
-// Shared Win32 adapters for keyboard-layout and loaded-module facts.
-
-#include "Input/KeyLabels.h"
+// Shared Win32 adapters for input translation and loaded-module facts.
 
 namespace OSFUI::Platform
 {
-	// Read keycap facts from the game-window thread's current layout without mutating dead-key state.
-	[[nodiscard]] KeyLabelSource MakeKeyLabelSource(void* a_gameWindow);
-
-	// Map a VK to current-layout DIK for synthetic-input fallback and pre-2.x migration.
+	// Map a VK to current-layout DIK for synthetic-input fallback.
 	[[nodiscard]] std::uint32_t VkToDirectInputScan(std::uint32_t a_vk);
 
 	// Return only the owning module's filename so diagnostics never expose the player's full path.

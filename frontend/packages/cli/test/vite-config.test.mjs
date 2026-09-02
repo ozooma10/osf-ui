@@ -57,7 +57,7 @@ test('applies project Vite plugins without surrendering production layout', asyn
   const project = await loadProject(root, 'build');
   await buildProject(project, { quiet: true });
 
-  const output = resolve(root, 'output/SFSE/Plugins/OSFUI/views/example.mod');
+  const output = resolve(root, 'output/Data/SFSE/Plugins/OSF/UI/views/example.mod');
   const scripts = await javascriptUnder(output);
   assert.ok(scripts.length > 0);
   assert.match(await readFile(scripts[0], 'utf8'), /build:production/);
@@ -80,8 +80,9 @@ test('applies project Vite plugins inside the development harness', async (t) =>
   try {
     const { port } = server.httpServer.address();
     const response = await fetch(`http://127.0.0.1:${port}/example.mod/browser/main.ts`);
-    assert.equal(response.status, 200);
-    assert.match(await response.text(), /serve:development/);
+    const body = await response.text();
+    assert.equal(response.status, 200, body);
+    assert.match(body, /serve:development/);
     const harnessModule = await server.transformRequest('/__osfui/mock-loader.js');
     assert.match(harnessModule.code, /installMock/);
   } finally {

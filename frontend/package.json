@@ -2,7 +2,7 @@
   "name": "osfui-frontend",
   "version": "0.0.0",
   "private": true,
-  "description": "Source for the OSF UI built-in views. Builds to ../build/frontend/views.",
+  "description": "OSF UI web-view helper and view-authoring toolchain. Ships no built-in views.",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "engines": {

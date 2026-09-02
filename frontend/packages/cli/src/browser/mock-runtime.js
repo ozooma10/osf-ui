@@ -11,8 +11,6 @@ export function resolveScenario(mock, name) {
   const overlay = selected && typeof selected === 'object' ? selected : {};
   return {
     state: { ...(base.state || {}), ...(overlay.state || {}) },
-    locale: overlay.locale || base.locale || 'en',
-    locales: { ...(base.locales || {}), ...(overlay.locales || {}) },
     requests: { ...(base.requests || {}), ...(overlay.requests || {}) },
     scenarioNames: base.scenarios && typeof base.scenarios === 'object'
       ? Object.keys(base.scenarios)
@@ -29,77 +27,20 @@ export const PLATFORM_SENDS = new Set([
   'osfui.gamepadMode',
   'osfui.gamepadRaw',
   'osfui.handleBack',
+  'osfui.relativePointer',
 ]);
 
 export const PLATFORM_REQUESTS = new Set([
   'menu.open',
   'menu.close',
   'setViewHidden',
-  'settings.captureKey',
   'ping',
-  'osfui.setViewAutoStart',
-  'settings.set',
-  'settings.reset',
 ]);
 
 const PLATFORM_SCRIPTS = new Set(['osfui', 'osfui_settings', 'osfui_view']);
 
-function settingTarget(payload, meta, io, verb) {
-  const requested = typeof payload.mod === 'string' ? payload.mod : '';
-  const mod = requested || meta.modId || '';
-  const key = typeof payload.key === 'string' ? payload.key : '';
-  if (meta.qualifiedId !== 'osfui/settings' && mod !== meta.modId) {
-    io.reject('forbidden', `a view may only ${verb} its own mod's settings`);
-    return null;
-  }
-  if (!mod || !key) {
-    io.reject('invalid-request', `${verb} requires non-empty 'mod' and 'key' fields`);
-    return null;
-  }
-  return { mod, key };
-}
-
-function answerPlatformRequest(name, payload, meta, io) {
-  switch (name) {
-    case 'settings.set': {
-      const target = settingTarget(payload, meta, io, 'write');
-      if (!target) return;
-      if (!Object.hasOwn(payload, 'value')) {
-        io.reject('invalid-value', 'settings.set requires a value');
-        return;
-      }
-      io.resolve({ ...target, value: payload.value });
-      return;
-    }
-    case 'settings.reset': {
-      const requested = typeof payload.mod === 'string' ? payload.mod : '';
-      const mod = requested || meta.modId || '';
-      if (meta.qualifiedId !== 'osfui/settings' && mod !== meta.modId) {
-        io.reject('forbidden', "a view may only reset its own mod's settings");
-        return;
-      }
-      if (!mod) {
-        io.reject('invalid-request', "settings.reset requires a non-empty 'mod' field");
-        return;
-      }
-      io.resolve({});
-      return;
-    }
-    case 'settings.captureKey': {
-      const target = settingTarget(payload, meta, io, 'rebind');
-      if (target) io.resolve({ armed: true, ...target });
-      return;
-    }
-    case 'osfui.setViewAutoStart':
-      if (meta.qualifiedId !== 'osfui/settings') {
-        io.reject('forbidden', 'view auto-start is set from the built-in settings view');
-      } else {
-        io.resolve({});
-      }
-      return;
-    default:
-      io.resolve({});
-  }
+function answerPlatformRequest(_name, _payload, _meta, io) {
+  io.resolve({});
 }
 
 function ownQualifiedName(name, meta) {
@@ -212,7 +153,6 @@ export async function installMock(harness, mod, loadError = null) {
   let mockError = loadError;
   const params = new URLSearchParams(location.search);
   const scenario = resolveScenario(mod?.default, params.get('scenario'));
-  if (params.get('locale')) scenario.locale = params.get('locale');
   const chain = [];
 
   const emit = (message) => {
@@ -229,16 +169,6 @@ export async function installMock(harness, mod, loadError = null) {
         bridgeVersion: meta.bridgeVersion,
         view: meta.qualifiedId || '',
         mod: meta.modId || '',
-      },
-    });
-    emit({
-      kind: 'state',
-      mod: 'osfui',
-      key: 'i18n',
-      value: {
-        mod: meta.modId,
-        locale: scenario.locale,
-        strings: scenario.locales[scenario.locale] || {},
       },
     });
     for (const [key, value] of Object.entries(scenario.state)) {

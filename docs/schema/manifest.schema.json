@@ -1,87 +1,53 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/manifest.schema.json",
-  "title": "OSF UI View Manifest",
-  "description": "Schema for views/<modId>/<viewName>/manifest.json. Mirrors src/Views/ViewManifest.cpp. Unknown keys are allowed. Bridge protocol 2.0.",
+  "title": "OSF UI 2 View Manifest",
+  "description": "Web-view metadata for Data/SFSE/Plugins/OSF/UI/views/<mod-id>/<view-name>/manifest.json. Identity is derived from the folders. Unknown properties are ignored for forward compatibility.",
   "type": "object",
+  "required": ["manifestVersion"],
   "additionalProperties": true,
   "properties": {
-    "$schema": {
+    "$schema": { "type": "string" },
+    "manifestVersion": { "const": 1 },
+    "mod": {
       "type": "string",
-      "description": "Optional editor hint; ignored by the OSF UI runtime."
+      "description": "Optional authoring consistency hint; identity is always derived from the containing folder."
     },
-    "title": {
-      "type": "string",
-      "description": "Friendly name for view. Defaults to the qualified id."
-    },
-    "description": {
-      "type": "string",
-      "description": "One-line blurb shown in catalogs. Defaults to empty."
-    },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
     "entry": {
       "type": "string",
       "default": "index.html",
-      "description": "Relative path to the entry HTML, inside the view folder. Absolute paths and any '..' component are rejected."
+      "description": "Relative entry HTML path. Absolute paths and '..' components are rejected."
     },
-    "width": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 16384,
-      "default": 1600,
-      "description": "Initial view width. The d3d12 compositor resizes the view to the screen aspect at runtime; author responsive CSS."
-    },
-    "height": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 16384,
-      "default": 900,
-      "description": "Initial view height."
-    },
-    "transparent": {
-      "type": "boolean",
-      "default": true,
-      "description": "Render with an alpha channel so the game shows through unpainted areas."
-    },
-    "kind": {
-      "type": "string",
-      "enum": ["menu", "hud"],
-      "default": "menu",
-      "description": "View kind. menu = modal overlay that may capture input and occupies the single active-menu slot; hud = passive overlay over gameplay that never captures input, pauses, or focuses. Opening a menu replaces the previous active menu. Unknown values fall back to menu."
-    },
+    "width": { "type": "integer", "minimum": 1, "maximum": 16384, "default": 1600 },
+    "height": { "type": "integer", "minimum": 1, "maximum": 16384, "default": 900 },
+    "transparent": { "type": "boolean", "default": true },
+    "kind": { "type": "string", "enum": ["menu", "hud"], "default": "menu" },
     "capturesInput": {
       "type": "boolean",
       "default": true,
-      "description": "Menu-only: while this is the active menu, route input into the page. Forced false for HUDs."
+      "description": "Menu-only. HUD views are always passive."
     },
     "pausesGame": {
       "type": "boolean",
       "default": true,
-      "description": "Menu-only: pause the simulation while this is the active menu. Forced false for HUDs."
+      "description": "Menu-only. HUD views never pause."
     },
     "openOnStart": {
       "type": "boolean",
       "default": false,
-      "description": "Normal discovery: the author DEFAULT for a HUD's automatic start at game launch; the player's per-HUD choice in Mod Settings overrides it, and discovered menus never auto-start. Explicit native-plugin RegisterView is a separate opt-in path where true opens the registered view immediately, including a menu."
+      "description": "Autostart applies only to HUD views."
     },
     "order": {
       "type": "integer",
       "default": 0,
-      "description": "HUD-only within-band paint order (clamped 0..999): higher draws on top of other HUDs. Ignored for menus."
-    },
-    "hub": {
-      "type": "boolean",
-      "default": true,
-      "description": "Compatibility spelling for catalog visibility. true marks the view for listing by Mod Settings and other `osfui/views` consumers; false makes it a hidden utility view and ineligible for discovered HUD auto-start."
+      "description": "HUD paint order within OSF UI's layer band."
     },
     "debugOnly": {
       "type": "boolean",
       "default": false,
-      "description": "When true, this view is kept out of the catalog unless the restart-latched osfui.developerMode setting is effective. It is still discovered and can be opened by qualified view id. Intended for local developer tools."
-    },
-    "targetVersion": {
-      "type": "string",
-      "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
-      "description": "The OSF UI release version this view was authored against (e.g. \"2.0.0\"). A target NEWER than the running OSF UI release is advisory and badges 'needs update' in Mod Settings. A declared target BELOW 2.0 selects the frozen 1.x facade. An UNDECLARED targetVersion is deliberately treated as current rather than guessing which helper shape the page expects."
+      "description": "A debug-only HUD autostarts only when osfui.developerMode is enabled in OSF Settings."
     }
   }
 }

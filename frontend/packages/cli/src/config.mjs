@@ -24,14 +24,6 @@ function dimension(value, fallback) {
   return Number.isInteger(value) ? Math.max(1, Math.min(16384, value)) : fallback;
 }
 
-function version(value, label) {
-  if (value === undefined || value === '') return undefined;
-  if (typeof value !== 'string' || !/^[0-9]+(?:\.[0-9]+){0,2}$/.test(value)) {
-    throw new Error(`${label} targetVersion must be '<major>[.<minor>[.<patch>]]'.`);
-  }
-  return value;
-}
-
 async function viteConfig(value, command) {
   const mode = command === 'serve' ? 'development' : 'production';
   const resolved = typeof value === 'function'
@@ -109,7 +101,10 @@ export async function loadProject(cwd, command = 'serve') {
     const entryPath = resolve(sourceDir, entry);
     if (!await exists(entryPath)) throw new Error(`View entry not found: ${entryPath}`);
 
-    const kind = authored.kind === 'hud' ? 'hud' : 'menu';
+    const kind = authored.kind ?? 'menu';
+    if (kind !== 'menu' && kind !== 'hud') {
+      throw new Error(`view "${authored.id}" kind must be "menu" or "hud".`);
+    }
     views.push({
       ...authored,
       id: authored.id,
@@ -126,7 +121,6 @@ export async function loadProject(cwd, command = 'serve') {
       transparent: authored.transparent !== false,
       capturesInput: kind === 'menu' && authored.capturesInput !== false,
       pausesGame: kind === 'menu' && authored.pausesGame !== false,
-      targetVersion: version(authored.targetVersion, `view "${authored.id}"`),
     });
   }
 
@@ -145,7 +139,7 @@ export async function loadProject(cwd, command = 'serve') {
     views,
     viewsRoot,
     outDir,
-    outputViewsRoot: resolve(outDir, 'SFSE/Plugins/OSFUI/views'),
+    outputViewsRoot: resolve(outDir, 'Data/SFSE/Plugins/OSF/UI/views'),
     mockPath,
     vite: await viteConfig(raw.vite, viteCommand),
   };
@@ -153,6 +147,7 @@ export async function loadProject(cwd, command = 'serve') {
 
 export function manifestFor(view) {
   return {
+    manifestVersion: 1,
     title: view.title,
     description: view.description,
     entry: view.entry,
@@ -164,8 +159,6 @@ export function manifestFor(view) {
     pausesGame: view.pausesGame,
     openOnStart: view.openOnStart === true,
     order: Number.isInteger(view.order) ? view.order : 0,
-    hub: view.hub !== false,
     debugOnly: view.debugOnly === true,
-    ...(view.targetVersion ? { targetVersion: view.targetVersion } : {}),
   };
 }

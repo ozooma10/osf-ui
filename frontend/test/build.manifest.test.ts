@@ -11,6 +11,18 @@ const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8'));
 const ajv = new Ajv2020({ strict: false, allErrors: true });
 const validate = ajv.compile(schema);
 
+describe('built-in view catalog', () => {
+  it('may be empty in the OSF UI 2 runtime package', () => {
+    expect(BUILD_VIEWS).toEqual([]);
+  });
+
+  it('requires manifestVersion 1 for third-party views', () => {
+    expect(validate({ manifestVersion: 1, kind: 'hud' })).toBe(true);
+    expect(validate({ kind: 'hud' })).toBe(false);
+    expect(validate({ manifestVersion: 2, kind: 'hud' })).toBe(false);
+  });
+});
+
 describe.each(BUILD_VIEWS)('$mod/$name/manifest.json', (v) => {
   const file = join(OUT, v.mod, v.name, 'manifest.json');
 

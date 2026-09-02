@@ -107,13 +107,11 @@ namespace osfui::wv2::msg
 		static constexpr std::string_view kType = "navigate";
 		std::string id;
 		std::string entry{ "index.html" };
-		bool        legacyApi{ false };
 		std::uint32_t logicalHeight{ kDefaultLogicalHeight };
 
 		static constexpr auto kFields = std::tuple{
 			F("id", &Navigate::id),
 			F("entry", &Navigate::entry),
-			F("legacyApi", &Navigate::legacyApi),
 			F("logicalHeight", &Navigate::logicalHeight),
 		};
 	};

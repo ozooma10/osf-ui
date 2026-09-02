@@ -3,7 +3,6 @@
 #include <array>
 
 #include "Core/Log.h"
-#include "Core/Version.h"
 #include "Core/Ids.h"
 #include "Core/Json.h"
 
@@ -18,13 +17,16 @@ namespace OSFUI
 		}
 
 		// Nested paths identify v2; unknown keys remain forward-compatible developer INFO.
-		Json::CheckFormatVersion(*json, "manifestVersion", 1, "ViewManifest: [content] " + a_path.string());
+		const auto versionIt = json->find("manifestVersion");
+		if (versionIt == json->end() || !versionIt->is_number_integer() || versionIt->get<std::int64_t>() != 1) {
+			REX::ERROR("ViewManifest: [content] {} requires manifestVersion 1", a_path.string());
+			return std::nullopt;
+		}
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
-				{ "manifestVersion", "mod", "title", "description", "hub", "debugOnly", "entry",
+				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry",
 					"width", "height", "transparent", "kind",
-					"capturesInput", "pausesGame", "openOnStart", "order",
-					"targetVersion" },
+					"capturesInput", "pausesGame", "openOnStart", "order" },
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
 
@@ -41,6 +43,10 @@ namespace OSFUI
 		manifest.rootDir = a_path.parent_path();
 		manifest.id = modId + "/" + viewName;
 		manifest.mod = modId;
+		if (!Ids::IsValidQualifiedViewId(manifest.id)) {
+			REX::ERROR("ViewManifest: [content] '{}' is a removed reserved OSF UI view id", manifest.id);
+			return std::nullopt;
+		}
 
 		// Ignore declared id; retain mod only as an authoring consistency check.
 
@@ -53,8 +59,12 @@ namespace OSFUI
 			Json::Get(*json, "height", manifest.height), 1, 16384));
 		manifest.transparent = Json::Get(*json, "transparent", manifest.transparent);
 
-		// Json has no enum helper, so `kind` is parsed manually; unknown values fall back to Menu.
+		// Unknown kinds are malformed rather than silently gaining menu/input privileges.
 		const auto kindStr = Json::Get(*json, "kind", "menu");
+		if (kindStr != "menu" && kindStr != "hud") {
+			REX::ERROR("ViewManifest: [content] {} kind '{}' must be 'menu' or 'hud'", a_path.string(), kindStr);
+			return std::nullopt;
+		}
 		manifest.kind = (kindStr == "hud") ? ViewKind::Hud : ViewKind::Menu;
 		// Derive interactivity from active-menu policy; ignore the pre-1.0 manifest field.
 		manifest.menuInputEligible = manifest.kind == ViewKind::Menu;
@@ -62,22 +72,7 @@ namespace OSFUI
 		manifest.pausesGame = Json::Get(*json, "pausesGame", manifest.pausesGame);
 		manifest.openOnStart = Json::Get(*json, "openOnStart", manifest.openOnStart);
 		manifest.order = static_cast<std::int32_t>(Json::Get(*json, "order", manifest.order));
-		manifest.catalogVisible = Json::Get(*json, "hub", manifest.catalogVisible);
 		manifest.debugOnly = Json::Get(*json, "debugOnly", manifest.debugOnly);
-
-		// Retain pre-2.0 targets only to select the frozen v1 compatibility facade.
-		if (auto target = Json::Get(*json, "targetVersion", ""); !target.empty()) {
-			if (const auto targetParts = ParseDottedVersion(target)) {
-				manifest.targetVersion = std::move(target);
-				if (kOsfuiReleaseVersionParts < *targetParts) {
-					REX::WARN("ViewManifest: [content] view '{}' targets OSF UI {} but this is {} — update OSF UI",
-						manifest.id, manifest.targetVersion, kOsfuiReleaseVersion);
-				}
-			} else {
-				REX::WARN("ViewManifest: [content] {} targetVersion '{}' is not '<major>[.<minor>[.<patch>]]' — ignored",
-					a_path.string(), target);
-			}
-		}
 
 		// Reject entry paths that escape the view's asset folder.
 		const auto entryPath = std::filesystem::path(manifest.entry);

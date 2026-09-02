@@ -130,5 +130,5 @@ bool Function Unregister(int aiRegistrationToken) Global Native
 ; =============================================================================
 
 ; View ids are always qualified "<modId>/<viewName>". Menu and HUD views are both supported.
-bool Function Open(string asViewId = "osfui/settings") Global Native
-bool Function Close(string asViewId = "osfui/settings") Global Native
+bool Function Open(string asViewId) Global Native
+bool Function Close(string asViewId) Global Native

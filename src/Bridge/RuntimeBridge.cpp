@@ -10,7 +10,6 @@
 #include "API/PapyrusCall.h"
 #include "Core/Ids.h"
 #include "Core/Json.h"
-#include "Views/BuiltinViewIds.h"
 
 namespace OSFUI
 {
@@ -142,23 +141,6 @@ namespace OSFUI
 					_lastViewsData = Json::Dump(BuildViewsData());
 				}
 				_bridge->PublishJsonState(a_view, "osfui", "views", _lastViewsData);
-			} else if (a_key == "settings") {
-				if (_settings) {
-					_bridge->PublishState(a_view, "osfui", "settings", _settings->Store().DataView());
-				}
-			} else if (a_key == "diagnostics") {
-				_bridge->PublishState(a_view, "osfui", "diagnostics", _healthRegistry.Snapshot());
-			} else if (a_key == "keybindings") {
-				_bridge->PublishState(a_view, "osfui", "keybindings", _controlMap.KeybindingsState());
-			} else if (a_key == "input-context") {
-				_bridge->PublishState(a_view, "osfui", "input-context", _controlMap.EngineInputContextState());
-			} else if (a_key == "i18n") {
-				const std::string mod{ Ids::ModOf(a_view) };
-				_bridge->PublishState(a_view, "osfui", "i18n", nlohmann::json{
-					{ "mod", mod },
-					{ "locale", _localization.Locale() },
-					{ "strings", _localization.CatalogFor(mod) },
-				});
 			}
 		};
 		if (!a_viewId.empty()) {
@@ -177,9 +159,7 @@ namespace OSFUI
 		if (!_bridge) {
 			return;
 		}
-		for (const auto* key : { "settings", "views", "diagnostics", "keybindings", "input-context", "i18n" }) {
-			PublishPlatformState(key, a_viewId);
-		}
+		PublishPlatformState("views", a_viewId);
 		const std::string mod{ Ids::ModOf(a_viewId) };
 		if (const auto* entries = _retainedState.Find(mod)) {
 			for (const auto& entry : *entries) {
@@ -291,34 +271,6 @@ namespace OSFUI
 				ApplyViewPresentationPolicy();
 			}
 			a_b.Respond(nlohmann::json::object());
-		});
-		a_bridge.RegisterRequest("settings.captureKey", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-			const auto requestedMod = Json::Get(a_p, "mod", "");
-			const auto allowedMod = Ids::ResolveWritableMod(a_b.CurrentSource(), requestedMod);
-			if (!allowedMod) {
-				REX::WARN("Runtime: [content] view '{}' refused settings.captureKey for '{}' (not its own mod)", a_b.CurrentSource(), requestedMod);
-				a_b.Reject("forbidden", "a view may only rebind its own mod's keys");
-				return;
-			}
-			const std::string mod(*allowedMod);
-			const std::string key = Json::Get(a_p, "key", "");
-			if (_captureArmed.load()) {
-				REX::WARN("Runtime: settings.captureKey rejected — a capture is already in progress ({}.{})", _captureMod, _captureKey);
-				a_b.Reject("capture-busy", "a key capture is already in progress");
-				return;
-			}
-			if (!_settings || _settings->Store().GetSettingType(mod, key) != "key") {
-				REX::WARN("Runtime: settings.captureKey rejected — '{}.{}' is not a key-typed setting", mod.substr(0, 64), key.substr(0, 64));
-				a_b.Reject("not-rebindable", "only a key-typed setting can be rebound");
-				return;
-			}
-			RefreshKeyboardLabels("capture arm");
-			_captureView = std::string(a_b.CurrentSource());
-			_captureMod = mod;
-			_captureKey = key;
-			_captureArmed.store(true);
-			REX::DEBUG("Runtime: armed key capture for {}.{} (from view '{}')", mod, key, _captureView);
-			a_b.Respond(nlohmann::json{ { "armed", true }, { "mod", mod }, { "key", key } });
 		});
 		a_bridge.RegisterSend("papyrus.call", [](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
@@ -432,32 +384,5 @@ namespace OSFUI
 			}
 			m_viewInputGrants.SetBackOwnership(src, handle, target);
 		});
-        a_bridge.RegisterRequest("osfui.setViewAutoStart", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
-            if(a_b.CurrentSource() != kSettingsViewId) {
-                a_b.Reject("forbidden", "view auto-start is set from OSF UI's built-in settings view");
-                return;
-            }
-            const auto view = Json::Get(a_p, "view", "");
-            const auto enabled = a_p.find("enabled");
-            if(view.empty() || enabled == a_p.end() || !enabled->is_boolean()) {
-                a_b.Reject("invalid-payload", "expected { view: string, enabled: boolean }");
-                return;
-            }
-            const auto* manifest = _views.Find(view);
-            if(!manifest) {
-                a_b.Reject("unknown-view", "not a discovered view");
-                return;
-            }
-            if(!HudAutoStartEligible(*manifest)) {
-                a_b.Reject("not-configurable", "auto-start is settable only for catalog-visible HUDs");
-                return;
-            }
-            if(!_viewPolicy.SetHudAutoStart(view, enabled->get<bool>())) { a_b.Reject("persistence-failed", "the choice could not be saved, so it was not applied" );
-                return;
-            }
-            REX::INFO("Runtime: HUD '{}' auto-start set to {} (next launch)", view,enabled->get<bool>());
-            BroadcastViewsData();
-            a_b.Respond(nlohmann::json::object());
-        });
 	}
 }

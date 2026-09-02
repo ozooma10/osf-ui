@@ -24,7 +24,7 @@ namespace OSFUI::Paths
 
 		std::error_code ec;
 		if (!std::filesystem::exists(g_dataDir, ec)) {
-			REX::WARN("Paths: data dir does not exist ({}); settings and views will use built-in defaults", g_dataDir.string());
+			REX::WARN("Paths: OSF UI data directory does not exist ({}); no packaged views are available", g_dataDir.string());
 		}
 		return true;
 	}

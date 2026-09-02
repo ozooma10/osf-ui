@@ -24,9 +24,7 @@ export interface ViewConfig {
   pausesGame?: boolean;
   openOnStart?: boolean;
   order?: number;
-  hub?: boolean;
   debugOnly?: boolean;
-  targetVersion?: string;
 }
 
 export interface OsfuiConfig {
@@ -45,8 +43,6 @@ export type MockReply = JsonValue | ((payload: JsonObject) => JsonValue | Promis
 
 export interface MockScenario {
   state?: Record<string, unknown>;
-  locale?: string;
-  locales?: Record<string, Record<string, string>>;
   /** Raw reply values keyed by local owner endpoint (qualified names also work). */
   requests?: Record<string, MockReply>;
 }
@@ -64,7 +60,6 @@ export interface HarnessViewMeta {
   height: number;
   transparent: boolean;
   nativeBridge: boolean;
-  targetVersion: string;
   viewUrl: string;
   version: string;
   bridgeVersion: string;

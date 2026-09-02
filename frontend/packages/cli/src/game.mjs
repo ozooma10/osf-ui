@@ -71,7 +71,7 @@ async function deployRootFor(project, explicit) {
 
 export async function startGameSync(project, server, options = {}) {
   const deployRoot = await deployRootFor(project, options.deploy);
-  const marker = resolve(deployRoot, 'SFSE/Plugins/OSFUI', AUTHOR_MARKER);
+  const marker = resolve(deployRoot, 'Data/SFSE/Plugins/OSF/UI', AUTHOR_MARKER);
   let building = false;
   let pending = false;
   const sync = async () => {

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ozooma10/osf-settings/main/docs/schema/settings-schema.schema.json",
+  "schemaVersion": 1,
+  "requiresOSFSettings": ">=1.0.0 <2.0.0",
+  "id": "osfui",
+  "title": "OSF UI",
+  "description": "Optional WebView hosting and compositing for Starfield mods.",
+  "groups": [
+    {
+      "id": "runtime",
+      "label": "Runtime",
+      "settings": [
+        {
+          "key": "highRefreshCapture",
+          "label": "240 Hz focused capture",
+          "type": "bool",
+          "default": false,
+          "requires": "restart",
+          "hint": "Allow focused web menus to request capture at up to 240 Hz. May increase GPU use."
+        }
+      ]
+    },
+    {
+      "id": "developer",
+      "label": "Developer",
+      "settings": [
+        {
+          "key": "developerMode",
+          "label": "Developer mode",
+          "type": "bool",
+          "default": false,
+          "requires": "restart",
+          "hint": "Enable verbose diagnostics, F12 WebView DevTools, and loose-view hot reload on the next launch."
+        }
+      ]
+    }
+  ]
+}

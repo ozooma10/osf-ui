@@ -12,12 +12,13 @@ export const OUT = process.env.OSFUI_VIEWS_OUT
   : join(REPO, 'build', 'frontend', 'views');
 
 const VIEWS_ROOT = join(FRONTEND, 'src', 'views');
-export const VIEWS = readdirSync(VIEWS_ROOT, { withFileTypes: true })
+export const VIEWS = (existsSync(VIEWS_ROOT) ? readdirSync(VIEWS_ROOT, { withFileTypes: true }) : [])
   .filter((entry) => entry.isDirectory())
   .flatMap((modEntry) => {
     const modRoot = join(VIEWS_ROOT, modEntry.name);
     return readdirSync(modRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
+      .filter((entry) => existsSync(join(modRoot, entry.name, 'manifest.json')))
       .map((viewEntry) => {
         const manifestPath = join(modRoot, viewEntry.name, 'manifest.json');
         const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));

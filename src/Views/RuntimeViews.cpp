@@ -55,7 +55,7 @@ namespace OSFUI
 		REX::INFO("Runtime: view '{}' instantiated {} ({}, capturesInput={}, pausesGame={})", id, a_reason, a_manifest.kind == ViewKind::Hud ? "hud" : "menu", a_manifest.capturesInput, a_manifest.pausesGame);
 		if (_bridge) {
 			API::BridgeApi::Get().SetBridgeAvailability(_bridge.get());
-			_bridge->OnViewCreated(id, IsPre2Target(a_manifest.targetVersion));
+			_bridge->OnViewCreated(id);
 		}
 		return true;
 	}
@@ -75,6 +75,7 @@ namespace OSFUI
 		m_viewLoads.FinishLoad(id, a_failed);
 		m_viewInputGrants.ResetPage(id);
 		if (!a_failed) {
+			_osfSettings.ClearFailure("view." + id);
 			const auto loadedAt = ViewTimingClock::now();
 			if (_coldOpenTiming && _coldOpenTiming->viewId == id) {
 				_coldOpenTiming->loadedAt = loadedAt;
@@ -98,6 +99,9 @@ namespace OSFUI
 		if(recovery.exhausted) {
 			REX::ERROR("view '{}' has exhausted its crash-recovery budget; destroying and unregistering the view (fix its files and relaunch)", a_viewId);
 			_runtimeHealth.ReportViewLoad(a_viewId, true, a_description, a_errorCode, 0);
+			_osfSettings.ReportFailure("view." + id, "view.load-failed",
+				"A web view exhausted its recovery budget",
+				{ { "view", id }, { "url", a_url }, { "detail", a_description }, { "errorCode", a_errorCode } });
 			TearDownFailedView(id);
 			return;
 		}
@@ -113,7 +117,7 @@ namespace OSFUI
 		m_viewLoads.BeginLoad(a_id);
 		_renderer->CreateOrNavigateView(a_manifest);
 		if (_bridge) {
-			_bridge->OnViewCreated(a_id, IsPre2Target(a_manifest.targetVersion));
+			_bridge->OnViewCreated(a_id);
 		}
 		const auto capture = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
 		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
@@ -206,7 +210,8 @@ namespace OSFUI
 
 	bool Runtime::HudAutoStartEligible(const ViewManifest& a_manifest) const
 	{
-		return a_manifest.kind == ViewKind::Hud && a_manifest.catalogVisible && (!a_manifest.debugOnly || _developerMode);
+		return a_manifest.kind == ViewKind::Hud && a_manifest.openOnStart &&
+			(!a_manifest.debugOnly || _developerMode);
 	}
 
 	nlohmann::json Runtime::BuildViewsData() const
@@ -220,22 +225,18 @@ namespace OSFUI
 				state == ViewLoadState::Failed   ? "failed" :
 				state == ViewLoadState::Finished ? "loaded" :
 				instantiated                     ? "loading" : "unloaded";
-			const bool autoStartMutable = HudAutoStartEligible(m);
-			const bool autoStart = autoStartMutable && _viewPolicy.HudAutoStart(m.id, m.openOnStart);
 			views.push_back(nlohmann::json{
 				{ "id", m.id },
-				{ "title", _localization.Resolve(m.mod, "views." + std::string(Ids::ViewNameOf(m.id)) + ".title", m.title) },
-				{ "description", _localization.Resolve(m.mod, "views." + std::string(Ids::ViewNameOf(m.id)) + ".description", m.description) },
+				{ "title", m.title },
+				{ "description", m.description },
 				{ "mod", m.mod },
 				{ "kind", m.kind == ViewKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.menuInputEligible },
-				{ "hub", m.catalogVisible && (!m.debugOnly || _developerMode) },
-				{ "targetVersion", m.targetVersion },
 				{ "open", _presentation.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
 				{ "loadState", loadState },
-				{ "autoStart", autoStart },
-				{ "autoStartMutable", autoStartMutable },
+				{ "openOnStart", m.openOnStart },
+				{ "debugOnly", m.debugOnly },
 			});
 		}
 		return nlohmann::json{ { "views", std::move(views) } };

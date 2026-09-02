@@ -10,7 +10,7 @@ set_encodings("utf-8")
 add_rules("mode.debug", "mode.releasedbg")
 add_rules("plugin.vsxmake.autoupdate")
 
--- JSON for settings, view manifests, and the message bridge
+-- JSON for view manifests and the message bridge
 add_requires("nlohmann_json")
 
 local function build_frontend_views()
@@ -77,7 +77,7 @@ target("OSF UI")
 
     add_files("src/**.cpp")
     add_headerfiles("src/**.h", "sdk/**.h")
-    add_includedirs("src", "tools/webview2_shared", "sdk")
+    add_includedirs("src", "tools/webview2_shared", "sdk", "lib/osf-settings/sdk")
     set_pcxxheader("src/pch.h")
 
     before_build(build_frontend_views)

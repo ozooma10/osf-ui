@@ -1,6 +1,4 @@
 #include "HostApp.h"
-#include "Compat/V1/Navigation.h"
-
 #include "EmbeddedScripts.h"
 
 #include "Core/Version.h"

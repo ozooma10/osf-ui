@@ -6,25 +6,21 @@
 #include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
 #include "Composite/D3D12Compositor.h"
+#include "Dependency/OSFSettingsClient.h"
 #include "Input/GamepadSession.h"
-#include "Input/KeyLabels.h"
+#include "Input/KeyNames.h"
 #include "Render/WebView2HostWebRenderer.h"
 #include "Diagnostics/HealthRegistry.h"
 #include "Runtime/DeferredMainThreadWork.h"
 #include "Runtime/AdaptiveViewGeometry.h"
 #include "Views/Dev/DevViewReloadWorker.h"
-#include "Bindings/HotkeyService.h"
-#include "Localization/LocalizationService.h"
-#include "Bindings/LiveControlMap.h"
 #include "Views/ViewPresentationController.h"
 #include "Render/BrowserHostRecovery.h"
 #include "Runtime/RuntimeHealthCoordinator.h"
 #include "Bridge/MessageBridge.h"
-#include "Settings/SettingsModule.h"
 #include "Input/ViewInputGrants.h"
 #include "Views/ViewManager.h"
 #include "Views/ViewLoadTracker.h"
-#include "Views/ViewPolicyStore.h"
 #include "Views/ViewRecoveryTracker.h"
 #include "Views/ViewRevealGate.h"
 #include "Views/ViewRequestQueue.h"
@@ -38,7 +34,8 @@ namespace OSFUI
 		static Runtime& Get();
 
 		bool Initialize();
-		// Install render hook after all peer plugins have chance to load & install hooks (so we can chan it)
+		void OnPostLoad();
+		// Install the render hook after peer plugins have had a chance to establish their hook chain.
 		bool InstallOverlayDrawPath();
 		void OnDataLoaded();
 		void OnPostDataLoaded();
@@ -79,14 +76,13 @@ namespace OSFUI
 		Runtime() = default;
 
 		bool InitializePaths();
-		void InitializeSettingsModule();
-		void LoadLocalization();
 		void LoadStartupContent();
+		bool EnsureWebRuntime();
+		bool EnsureCaptureIntegration();
 		bool InitializeRenderer();
 		void WireRendererLifecycleCallbacks();
 		bool InitializeCompositor();
 		void WireRenderPipeline();
-		void InitializeFeatureModules();
 		void InitializeBridge();
 		void InitializeStartupViews();
 		void ConfigureInputRouting();
@@ -130,7 +126,6 @@ namespace OSFUI
 		void FinishHiddenPrewarmTiming(std::string_view a_viewId, std::chrono::steady_clock::time_point a_loadedAt);
 
 		void DrainViewRegistrations(std::vector<std::string> a_ids);
-		void DrainSchemaOps(std::vector<API::BridgeApi::SchemaOp> a_ops);
 
 		// open/close engine focus menu to match active menu capture policy.
 		void ReconcileFocusMenu();
@@ -142,37 +137,19 @@ namespace OSFUI
 
 		void ReconcileControlLayer();
 
-		void OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value);
-
-		void ApplyGameBindingConflictWarnings(bool a_enabled);
 		void InitializeDataLoadedState();
-		void InitializePostDataLoadIntegration();
 		
 		void ProcessLifecycleWork();
-		void ProcessControlMapUpdates();
 		void ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus, std::vector<API::BridgeApi::ViewStateOp> a_bridgeState);
-		void ProcessSettingsMaintenance();
-		void ProcessPauseMenuEntry();
 		void ReconcileFrameState(double a_deltaSeconds);
 		void ProcessRendererFrame(double a_deltaSeconds);
 
-		void SyncLiveControlMapBindings();
-		// Invalidate and re-broadcast every projection that contains localized text after a locale/catalog change.
-		void RefreshLocalizedData();
-
-		void RefreshKeyboardLabels(const char* a_reason);
-		std::string KeyLabelFor(std::string_view a_name) const;
-
-		void DrainKeyCapture();
-		void CancelArmedKeyCapture();
 
 		bool BeginRelativePointerCapture(std::string_view a_viewId);
 		void EndRelativePointerCapture(std::string_view a_viewId);
 		void CancelRelativePointerCapture(std::string_view a_viewId = {});
 		void DrainRelativePointerCapture();
 		void FinishRelativePointerCapture(API::Views::RelativePointerPhase a_phase);
-
-		void DrainHotkeys();
 
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode);
 
@@ -203,26 +180,20 @@ namespace OSFUI
 		void OnViewGreeted(std::string_view a_viewId);
 		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
-		LocalizationService           _localization;
 		ViewManager                   _views;
 		std::unique_ptr<WebView2HostWebRenderer> _renderer;
 		std::unique_ptr<D3D12Compositor> _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
-		std::unique_ptr<SettingsModule>          _settings;
 		HealthRegistry                          _healthRegistry;
 		RuntimeHealthCoordinator                _runtimeHealth{ *this };
+		OSFSettingsClient                       _osfSettings;
 
-		HotkeyService                           _hotkeys;
-		LiveControlMap                          _controlMap;
-		DeferredMainThreadWork                  _controlMapInit;
-		DeferredMainThreadWork                  _uiIntegrationInit;
-		std::atomic<ScanCode>         _toggleKey{ kInvalidScanCode };
+		DeferredMainThreadWork                  _dataLoadedInit;
 		std::atomic_bool              _devToolsRequested{ false };
 
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;
 
 		ViewPresentationController    _presentation;
-		ViewPolicyStore               _viewPolicy;  // player HUD auto-start choices; main thread
 
 		std::optional<std::string> _pendingViewOpen;
 		std::uint64_t _mainTickSerial{ 0 };
@@ -242,7 +213,6 @@ namespace OSFUI
 			ViewTimingClock::time_point              requestedAt;
 			std::optional<ViewTimingClock::time_point> instantiatedAt;
 		};
-		std::atomic<std::int64_t>     _lastToggleRequestNanos{ 0 };
 		std::optional<ColdOpenTiming> _coldOpenTiming;
 		std::optional<HiddenPrewarmTiming> _hiddenPrewarmTiming;
 
@@ -285,16 +255,9 @@ namespace OSFUI
 		std::atomic_bool              _captureInput{ false };
 		bool                          _captureIntegrationInitialized{ false };
 		bool                          _captureIntegrationAvailable{ false };
-
-		KeyLabels                     _keyLabels;
-		std::atomic_bool              _keyboardLayoutChanged{ false };
-
-		std::atomic_bool              _captureArmed{ false };
-		std::atomic<ScanCode>         _capturedScan{ kInvalidScanCode };
-		std::string                   _captureView;   // main-thread: view that armed capture
-		std::string                   _captureMod;    // main-thread: mod owning the setting being rebound
-		std::string                   _captureKey;    // main-thread: which setting (e.g. "toggleKey")
-		std::atomic<ScanCode>         _captureUpScan{ kInvalidScanCode };
+		bool                          _postDataLoadedReady{ false };
+		bool                          _drawPathRequested{ false };
+		bool                          _webRuntimeInitializing{ false };
 
 		bool OverlayCanDraw() const;
 
@@ -303,6 +266,7 @@ namespace OSFUI
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
+		bool                          _postLoadAttempted{ false };
 		bool                          _developerMode{ false };  // startup-latched; setting changes apply next launch
 		bool                          _highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
 

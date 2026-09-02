@@ -43,7 +43,6 @@ export function harnessPlugin(project, selectedView) {
     height: view.height,
     transparent: view.transparent,
     nativeBridge: true,
-    targetVersion: view.targetVersion || '',
     viewUrl: `/${project.modId}/${view.id}/${view.entry}`,
     version: OSFUI_RELEASE_VERSION,
     bridgeVersion: BRIDGE_VERSION,

@@ -35,9 +35,8 @@ jobs:
           echo "kBridgeProtocolVersion = $V"
           fail=0
           check() { grep -qE "$2" "$1" || { echo "::error file=$1::contract does not claim bridge protocol $V ($2)"; fail=1; }; }
-          check sdk/osfui.d.ts           "Bridge protocol version: $V"
-          check docs/schema/manifest.schema.json        "Bridge protocol $V\."
-          check docs/schema/settings-schema.schema.json "Bridge protocol $V\."
+          check sdk/osfui.d.ts "OSF UI $V web-view contract"
+          check docs/schema/manifest.schema.json "OSF UI $V View Manifest"
           exit $fail
 
       - name: Check every JSON read and write goes through the wrapper
@@ -177,6 +176,10 @@ jobs:
       - name: Stage install layout
         run: xmake install -y -o out/staging "OSF UI"
 
+      - name: Verify package ownership
+        shell: pwsh
+        run: tests/package/test-package.ps1 -DataRoot out/staging
+
       - name: Verify staged layout
         shell: pwsh
         run: |
@@ -184,9 +187,9 @@ jobs:
           $must = @(
             "$root/SFSE/Plugins/OSFUI.dll",
             "$root/SFSE/Plugins/OSFUI.pdb",
-            "$root/SFSE/Plugins/OSFUI/bin/osfui_webview2_host.exe",
-            "$root/SFSE/Plugins/OSFUI/settings/osfui.json",
-            "$root/SFSE/Plugins/OSFUI/views/osfui/settings/manifest.json"
+            "$root/SFSE/Plugins/OSF/UI/bin/osfui_webview2_host.exe",
+            "$root/SFSE/Plugins/OSF/UI/views/shared/osfui.js",
+            "$root/SFSE/Plugins/OSF/Settings/schemas/osfui.json"
           )
           $failed = $false
           foreach ($f in $must) {
@@ -195,14 +198,14 @@ jobs:
               $failed = $true
             }
           }
-          # The runtime needs at least one view to host.
-          $manifests = Get-ChildItem -Path "$root/SFSE/Plugins/OSFUI/views" -Recurse -Filter manifest.json -ErrorAction SilentlyContinue
-          if (-not $manifests) {
-            Write-Host "::error::no views/*/manifest.json in the install layout"
+          $manifests = Get-ChildItem -Path "$root/SFSE/Plugins/OSF/UI/views" -Recurse -Filter manifest.json -ErrorAction SilentlyContinue
+          if ((Test-Path "$root/SFSE/Plugins/OSF/UI/settings") -or
+              (Test-Path "$root/SFSE/Plugins/OSFUI")) {
+            Write-Host "::error::legacy OSF UI data path was staged"
             $failed = $true
           }
           if ($failed) { exit 1 }
-          Write-Host "install layout OK ($(($manifests | Measure-Object).Count) view manifest(s))"
+          Write-Host "install layout OK ($(($manifests | Measure-Object).Count) optional built-in view manifest(s))"
 
       - uses: actions/upload-artifact@v4
         with:

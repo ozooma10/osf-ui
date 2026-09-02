@@ -31,9 +31,13 @@ function harnessModuleResolver() {
 
 export async function devServerConfig(project, view, options = {}) {
   const allow = [project.root];
+  let servedRoot = project.viewsRoot;
   try {
     const canonical = await realpath(project.root);
     if (canonical !== project.root) allow.push(canonical);
+  } catch {}
+  try {
+    servedRoot = await realpath(project.viewsRoot);
   } catch {}
   const configured = mergeConfig(project.vite, {
     plugins: [harnessModuleResolver(), harnessPlugin(project, view)],
@@ -42,7 +46,7 @@ export async function devServerConfig(project, view, options = {}) {
     ...configured,
     // The harness owns the served tree and navigation entry. Project Vite
     // options may extend compilation, but cannot escape the view workspace.
-    root: project.viewsRoot,
+    root: servedRoot,
     base: '/',
     server: {
       ...configured.server,

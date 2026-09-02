@@ -27,7 +27,7 @@ export function verifyOutput() {
   const helper = join(OUT, 'shared/osfui.js');
   if (!existsSync(helper)) fail('composed helper missing: shared/osfui.js');
   else if (readFileSync(helper, 'utf8') !== composeHelper()) {
-    fail('composed helper drifted from the 2.0 core + guarded v1 facade');
+    fail('shipped helper drifted from the 2.0 core');
   }
 
   // Remaining verbatim artifacts must stay byte-identical to their sources.

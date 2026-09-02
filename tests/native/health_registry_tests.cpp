@@ -234,7 +234,7 @@ int main()
 		CHECK(HealthRegistry::RedactPath(R"(C:\Windows\System32\)") == "<path>");
 
 		nlohmann::json context{
-			{ "file", R"(C:\Modding\Starfield\Data\SFSE\Plugins\OSFUI\settings\acme.json)" },
+			{ "file", R"(C:\Modding\Starfield\Data\SFSE\Plugins\OSF\UI\views\acme.json)" },
 			{ "line", 42 },
 			{ "recovered", true },
 			{ "nested", nlohmann::json{ { "drop", "me" } } },  // structured values are refused

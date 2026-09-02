@@ -1,189 +1,21 @@
 #include "Runtime/RuntimeHealthCoordinator.h"
 
-#include "API/BridgeApi.h"
 #include "Composite/UiPass.h"
 #include "Core/Version.h"
-#include "Core/Json.h"
 #include "Runtime/Runtime.h"
 
 namespace OSFUI
 {
-	namespace
-	{
-		constexpr double kPollSeconds{ 2.0 };
-	}
+	namespace { constexpr double kPollSeconds{ 2.0 }; }
 
 	void RuntimeHealthCoordinator::Pump()
 	{
 		auto& runtime = _runtime;
-
-		DrainPluginHealthReports();
-		if (runtime._settings) {
-			const auto generation = runtime._settings->Store().Generation();
-			if (!_settingsSynced || generation != _settingsGeneration) {
-				_settingsGeneration = generation;
-				_settingsSynced = true;
-				SyncSettings();
-			}
-		}
 		if (runtime._uptime >= _nextPoll) {
 			_nextPoll = runtime._uptime + kPollSeconds;
-			SyncCompatibility();
 			UpdateSystemInfo();
 		}
-		runtime._healthRegistry.Broadcast();
-	}
-
-	void RuntimeHealthCoordinator::DrainPluginHealthReports()
-	{
-		auto& runtime = _runtime;
-		const auto ops = API::BridgeApi::Get().TakeHealthIssueOps();
-		const auto qualify = [](const std::string& a_modId, const std::string& a_local) {
-			return a_modId + ":" + a_local;
-		};
-		for (const auto& op : ops) {
-			switch (op.kind) {
-			case API::BridgeApi::HealthIssueOp::Kind::kReport:
-				runtime._healthRegistry.Upsert(HealthRegistry::IssueSpec{
-					.id = qualify(op.modId, op.id),
-					.code = qualify(op.modId, op.code),
-					.severity = op.error ? HealthRegistry::Severity::Error : HealthRegistry::Severity::Warning,
-					.source = op.modId,
-					.sourceKind = HealthRegistry::SourceKind::Mod,
-					.subject = op.subject,
-					.context = op.context,
-					.scope = op.modId,
-				}, runtime._uptime);
-				break;
-			case API::BridgeApi::HealthIssueOp::Kind::kClear:
-				runtime._healthRegistry.Resolve(qualify(op.modId, op.id), runtime._uptime);
-				break;
-			case API::BridgeApi::HealthIssueOp::Kind::kClearExcept:
-				{
-					std::unordered_set<std::string> keep;
-					keep.reserve(op.keep.size());
-					for (const auto& local : op.keep) keep.insert(qualify(op.modId, local));
-					runtime._healthRegistry.ResolveMissingInScope(op.modId, keep, runtime._uptime);
-				}
-				break;
-			}
-		}
-	}
-
-	void RuntimeHealthCoordinator::SyncSettings()
-	{
-		auto& runtime = _runtime;
-		if (!runtime._settings) return;
-		auto& store = runtime._settings->Store();
-		for (auto it = _hotkeyTargetFailures.begin(); it != _hotkeyTargetFailures.end();) {
-			const auto target = store.GetHotkeyTarget(it->second.mod, it->second.key);
-			if (!target || target->script != it->second.script || target->function != it->second.function) {
-				it = _hotkeyTargetFailures.erase(it);
-			} else {
-				++it;
-			}
-		}
-
-		std::vector<SettingsLoadIssue> errors;
-		for (const auto& error : store.LoadErrors()) {
-			errors.push_back({ error.kind, error.file, error.mod, error.message });
-		}
-		for (const auto& issue : store.HotkeyTargetIssues()) {
-			errors.push_back({ "hotkey-target", issue.file, issue.mod + "." + issue.key,
-				issue.message, nlohmann::json::object() });
-		}
-		for (const auto& [id, failure] : _hotkeyTargetFailures) {
-			(void)id;
-			errors.push_back({ "hotkey-target", "", failure.mod + "." + failure.key,
-				failure.message, nlohmann::json{
-					{ "script", failure.script },
-					{ "function", failure.function },
-				} });
-		}
-		_healthReconciler.SyncSettings(runtime._healthRegistry, errors, runtime._uptime);
-	}
-
-	std::string RuntimeHealthCoordinator::HotkeyTargetId(std::string_view a_mod, std::string_view a_key)
-	{
-		return "settings.hotkey-target:" + std::string(a_mod) + "." + std::string(a_key);
-	}
-
-	void RuntimeHealthCoordinator::ReportHotkeyTargetFailure(std::string_view a_mod, std::string_view a_key, std::string_view a_script, std::string_view a_function, std::string_view a_message)
-	{
-		const auto id = HotkeyTargetId(a_mod, a_key);
-		HotkeyTargetFailure failure{
-			std::string(a_mod), std::string(a_key), std::string(a_script),
-			std::string(a_function), std::string(a_message)
-		};
-		if (const auto it = _hotkeyTargetFailures.find(id); it != _hotkeyTargetFailures.end() && it->second.script == failure.script && it->second.function == failure.function && it->second.message == failure.message) {
-			return;
-		}
-		_hotkeyTargetFailures.insert_or_assign(id, failure);
-		REX::ERROR("Runtime: [content] declarative hotkey {}.{} could not queue {}.{} — {}", a_mod, a_key, a_script, a_function, a_message);
-		SyncSettings();
-	}
-
-	void RuntimeHealthCoordinator::ResolveHotkeyTarget(std::string_view a_mod, std::string_view a_key)
-	{
-		if (_hotkeyTargetFailures.erase(HotkeyTargetId(a_mod, a_key)) == 0) {
-			return;
-		}
-		SyncSettings();
-	}
-
-	void RuntimeHealthCoordinator::SyncCompatibility()
-	{
-		auto& runtime = _runtime;
-
-		std::vector<CompatibilityTarget> targets;
-		for (const auto& manifest : runtime._views.All()) {
-			if (IsTargetNewerThanInstalledRelease(manifest.targetVersion)) {
-				targets.push_back({ manifest.id, "view", manifest.targetVersion });
-			}
-		}
-
-		for (const auto& caller : API::BridgeApi::Get().TakeUnsupportedApiCallers()) {
-			if (_unsupportedApiCallers.size() >= API::BridgeApi::kMaxUnsupportedCallers) {
-				break;
-			}
-			const auto known = std::ranges::any_of(_unsupportedApiCallers,
-				[&](const auto& seen) {
-					return seen.module == caller.module;
-				});
-			if (!known) {
-				_unsupportedApiCallers.push_back(caller);
-			}
-		}
-
-		for (const auto& caller : _unsupportedApiCallers) {
-			targets.push_back({
-				caller.module.empty() ? std::string("(unidentified plugin)") : caller.module,
-				"plugin",
-				std::format("{}.{}", caller.major, caller.minor),
-				"compat.unsupported-api",
-				HealthRegistry::Severity::Error,
-				"abi",
-			});
-		}
-		if (runtime._settings) {
-			const auto data = runtime._settings->Store().DataView();
-			if (const auto* mods = Json::GetArray(data, "mods")) {
-				for (const auto& mod : *mods) {
-					const auto target = Json::Get(mod, "targetVersion", "");
-					if (IsTargetNewerThanInstalledRelease(target)) {
-						targets.push_back({ Json::Get(mod, "id", ""), "mod", target });
-					}
-				}
-			}
-		}
-		for (const auto& target : targets) {
-			if (target.code != "compat.unsupported-api") continue;
-			const auto identity = target.code + ':' + target.kind + ':' + target.id;
-			if (_loggedCompatibility.insert(identity).second) {
-				REX::WARN("Compatibility: {} '{}' requested unsupported ABI {}; OSF UI {} refused it", target.kind, target.id, target.targetVersion, kOsfuiReleaseVersion);
-			}
-		}
-		_healthReconciler.SyncCompatibility(runtime._healthRegistry, targets, kOsfuiReleaseVersion, runtime._uptime);
+		runtime._osfSettings.SyncDiagnostics(runtime._healthRegistry.Snapshot());
 	}
 
 	void RuntimeHealthCoordinator::UpdateSystemInfo()
@@ -192,45 +24,40 @@ namespace OSFUI
 		runtime._healthRegistry.SetSystemInfo(nlohmann::json{
 			{ "version", kOsfuiReleaseVersion },
 			{ "bridgeVersion", kBridgeProtocolVersion },
-			{ "renderer", runtime._renderer ? "webview2" : "none" },
-			{ "compositor", runtime._compositor ? "d3d12" : "none" },
-			{ "drawPath", runtime.OverlayCanDraw() ? "ui-pass" : "unavailable" },
+			{ "renderer", runtime._renderer ? "webview2" : "deferred" },
+			{ "compositor", runtime._compositor ? "d3d12" : "deferred" },
+			{ "drawPath", runtime.OverlayCanDraw() ? "ui-pass" : "deferred" },
 			{ "frameGeneration", UiPass::FrameGenerationActive() },
-			{ "nativeFocus", runtime._renderer != nullptr },
-			{ "locale", runtime._localization.Locale() },
 			{ "devMode", runtime._developerMode },
 			{ "highRefreshCapture", runtime._highRefreshCapture },
 		});
 	}
 
-	void RuntimeHealthCoordinator::OnRendererHealth(const WebView2HostWebRenderer::HealthEvent& a_event)
+	void RuntimeHealthCoordinator::OnRendererHealth(
+		const WebView2HostWebRenderer::HealthEvent& a_event)
 	{
 		auto& runtime = _runtime;
-		_healthReconciler.ReportRendererHealth(runtime._healthRegistry, a_event.code, a_event.active, a_event.detail, runtime._renderer != nullptr, runtime._uptime);
+		_healthReconciler.ReportRendererHealth(runtime._healthRegistry, a_event.code,
+			a_event.active, a_event.detail, runtime._renderer != nullptr, runtime._uptime);
 	}
-
 
 	void RuntimeHealthCoordinator::ReportViewLoad(std::string_view a_viewId, bool a_failed,
 		std::string_view a_description, int a_errorCode, std::uint32_t a_attemptsLeft)
 	{
 		auto& runtime = _runtime;
-		_healthReconciler.ReportViewLoad(runtime._healthRegistry, a_viewId, a_failed, a_description, a_errorCode, a_attemptsLeft, runtime._uptime);
+		_healthReconciler.ReportViewLoad(runtime._healthRegistry, a_viewId, a_failed,
+			a_description, a_errorCode, a_attemptsLeft, runtime._uptime);
 	}
 
-	void RuntimeHealthCoordinator::ReportProtocolFault(std::string_view a_viewId, std::string_view a_code)
+	void RuntimeHealthCoordinator::ReportProtocolFault(
+		std::string_view a_viewId, std::string_view a_code)
 	{
 		if (a_viewId.empty()) return;
 		constexpr std::uint32_t kProtocolFaultThreshold = 10;
 		const auto count = ++_viewProtocolFaultCounts[std::string(a_viewId)];
 		if (count == kProtocolFaultThreshold) {
-			_healthReconciler.ReportProtocolMisuse(_runtime._healthRegistry, a_viewId, a_code, count, _runtime._uptime);
+			_healthReconciler.ReportProtocolMisuse(_runtime._healthRegistry,
+				a_viewId, a_code, count, _runtime._uptime);
 		}
-	}
-
-	void RuntimeHealthCoordinator::SyncControlMap()
-	{
-		auto& runtime = _runtime;
-		if (!runtime._controlMap.Initialized()) return;
-		_healthReconciler.SyncControlMap(runtime._healthRegistry, runtime._controlMap.Available(), runtime._controlMap.GameVersion(), runtime._controlMap.FailureReason(), runtime._uptime);
 	}
 }

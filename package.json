@@ -1,8 +1,8 @@
 {
   "name": "osfui",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "OSF UI runtime, built-in views, and view-authoring CLI.",
+  "description": "OSF UI WebView runtime and view-authoring CLI.",
   "license": "GPL-3.0",
   "engines": {
     "node": ">=20.19"

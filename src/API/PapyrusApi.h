@@ -9,27 +9,14 @@
 
 #include <nlohmann/json.hpp>
 
-namespace OSFUI
-{
-	class SettingsStore;
-}
-
-// Getters use the any-thread mirror; mutations drain on main, and registrations reset on game load.
 namespace OSFUI::API::Papyrus
 {
 	// Untrusted script dispatch must reject this trusted platform script.
 	inline constexpr std::string_view kPlatformScriptName = "OSFUI";
-	inline constexpr std::string_view kSettingsScriptName = "OSFUI_Settings";
 	inline constexpr std::string_view kViewScriptName = "OSFUI_View";
 
 	// Main thread and idempotent; binds natives and installs game-load cleanup.
 	void Install();
-
-	// Main thread; dispatches a committed setting to matching script callbacks.
-	void OnSettingChanged(std::string_view a_modId, std::string_view a_key);
-
-	// Main thread; dispatches a hotkey to matching script callbacks.
-	void OnHotkey(std::string_view a_modId, std::string_view a_key);
 
 	enum class StaticDispatchResult
 	{
@@ -38,9 +25,6 @@ namespace OSFUI::API::Papyrus
 		kTargetRejected,
 		kCapacityReached,
 	};
-	// Queue one schema-owned GLOBAL callback; the caller owns diagnostics and lifecycle.
-	StaticDispatchResult DispatchStaticHotkey(std::string_view a_script, std::string_view a_function, std::string_view a_modId, std::string_view a_key);
-
 	// Queue a loose-PEX GLOBAL call while preserving JavaScript scalar types.
 	using StaticCallArg = std::variant<std::string, std::int32_t, float, bool>;
 	StaticDispatchResult DispatchStaticFunction(std::string_view a_script, std::string_view a_function, const std::vector<StaticCallArg>& a_args);
@@ -98,17 +82,8 @@ namespace OSFUI::API::Papyrus
 		nlohmann::json args;
 	};
 
-	struct PendingSettingsOp
-	{
-		std::string    mod;
-		std::string    key;
-		nlohmann::json value;
-		bool           reset{ false };
-	};
-
 	struct PendingBatch
 	{
-		std::vector<PendingSettingsOp> settings;
 		std::vector<ViewState>         states;
 		std::vector<ViewEvent>         events;
 		std::vector<ViewReply>         replies;
@@ -116,6 +91,5 @@ namespace OSFUI::API::Papyrus
 	};
 
 	[[nodiscard]] PendingBatch TakePendingBatch(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
-	void ApplySettingsOps(std::vector<PendingSettingsOp> a_ops, SettingsStore& a_store);
 
 }

@@ -55,17 +55,17 @@ test('endpoint functions receive the generic object payload', async () => {
 });
 
 test('platform registry mirrors current native registrations and excludes removed helpers', async () => {
-  const [runtime, settings] = await Promise.all([
-    readFile(resolve(import.meta.dirname, '../../../../src/Bridge/RuntimeBridge.cpp'), 'utf8'),
-    readFile(resolve(import.meta.dirname, '../../../../src/Settings/SettingsModule.cpp'), 'utf8'),
-  ]);
+  const runtime = await readFile(
+    resolve(import.meta.dirname, '../../../../src/Bridge/RuntimeBridge.cpp'),
+    'utf8',
+  );
   const names = (source, kind) => [
     ...source.matchAll(new RegExp(`Register${kind}\\(\"([^\"]+)\"`, 'g')),
   ].map((match) => match[1]);
   assert.deepEqual([...PLATFORM_SENDS].sort(), ['osfui.hello', ...names(runtime, 'Send')].sort());
   assert.deepEqual(
     [...PLATFORM_REQUESTS].sort(),
-    [...names(runtime, 'Request'), ...names(settings, 'Request')].sort(),
+    names(runtime, 'Request').sort(),
   );
   assert.equal(PLATFORM_SENDS.has('papyrus.send'), false);
   assert.equal(PLATFORM_REQUESTS.has('papyrus.request'), false);

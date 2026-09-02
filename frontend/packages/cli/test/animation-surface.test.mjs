@@ -29,7 +29,6 @@ async function animationFixture(t) {
         height: 900,
         pausesGame: false,
         transparent: true,
-        targetVersion: '2.0.0',
       }],
     });
   `);
@@ -61,9 +60,10 @@ test('loads, checks, and builds the OSF Animation project shape', async (t) => {
   assert.equal(await checkProject(project), 1);
 
   await buildProject(project, { quiet: true });
-  const output = resolve(root, 'build/SFSE/Plugins/OSFUI/views/osf.animation/browser');
+  const output = resolve(root, 'build/Data/SFSE/Plugins/OSF/UI/views/osf.animation/browser');
   const manifest = JSON.parse(await readFile(resolve(output, 'manifest.json'), 'utf8'));
-  assert.equal(manifest.targetVersion, '2.0.0');
+  assert.equal(manifest.manifestVersion, 1);
+  assert.equal(manifest.targetVersion, undefined);
   assert.equal(Object.hasOwn(manifest, 'permissions'), false);
   assert.equal(await access(resolve(output, 'index.html')).then(() => true, () => false), true);
 });

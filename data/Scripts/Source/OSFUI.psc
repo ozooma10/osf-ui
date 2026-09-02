@@ -2,7 +2,7 @@ ScriptName OSFUI Native Hidden
 
 ; OSF UI runtime API.
 ;
-; Settings live in OSFUI_Settings.psc;
+; Settings are provided by the separate OSF Settings product.
 ; JavaScript view communication and presentation live in OSFUI_View.psc.
 
 ; True when the OSF UI native runtime is available.

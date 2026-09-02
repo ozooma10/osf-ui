@@ -21,7 +21,7 @@ describe('build output', () => {
     expect(walk(OUT).filter((f: string) => f.endsWith('.map'))).toEqual([]);
   });
 
-  it('deterministically composes the strict 2.0 helper and guarded v1 facade', () => {
+  it('deterministically emits only the strict 2.0 helper', () => {
     expect(readFileSync(join(OUT, 'shared/osfui.js'), 'utf8')).toBe(composeHelper());
   });
 

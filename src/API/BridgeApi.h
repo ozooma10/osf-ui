@@ -6,14 +6,9 @@
 #include <thread>
 #include <unordered_set>
 
-#include "OSFUI_API.h"
-#include "OSFUI_Diagnostics.h"
-#include "OSFUI_Settings.h"
-#include "OSFUI_Views.h"
+#include <nlohmann/json.hpp>
 
-#include "API/HotkeySubscriptions.h"
-#include "API/SettingsMirror.h"
-#include "API/SettingsSubscriptions.h"
+#include "OSFUI_Views.h"
 
 namespace OSFUI
 {
@@ -25,20 +20,13 @@ namespace OSFUI::API
 	// True for a valid, non-platform endpoint.
 	[[nodiscard]] bool IsUnreservedEndpointName(std::string_view a_name);
 
-	class BridgeApi final :
-		public Settings::ISettings,
-		public Views::IViews,
-		public Diagnostics::IDiagnostics
+	class BridgeApi final : public Views::IViews
 	{
 	public:
 		[[nodiscard]] static BridgeApi& Get();
 
-		void          GetPluginVersion(std::uint32_t& a_major, std::uint32_t& a_minor, std::uint32_t& a_patch);
-		const char*   GetBridgeProtocolVersion();
 		bool          IsBridgeReady();
 		bool          IsReady() override { return IsBridgeReady(); }
-		void          RegisterCommand(const char* a_name, CommandFn a_handler, void* a_user);
-		void          UnregisterCommand(const char* a_name);
 		void          RegisterSend(const char* a_name, Views::SendFn a_handler, void* a_user) override;
 		void          UnregisterSend(const char* a_name) override;
 		bool          RegisterRelativePointer(const char* a_viewId, Views::RelativePointerFn a_handler, void* a_user) override;
@@ -48,26 +36,12 @@ namespace OSFUI::API
 		bool          RegisterViewLifecycle(const char* a_viewId, Views::ViewLifecycleFn a_handler, void* a_user) override;
 		void          UnregisterViewLifecycle(const char* a_viewId) override;
 		void          RegisterRequest(const char* a_name, Views::RequestFn a_handler, void* a_user) override;
-		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user);
 		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
 		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) override;
 		void          SetReadyCallback(Views::ReadyFn a_callback, void* a_user) override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) override;
-		std::uint32_t SubscribeSettings(const char* a_modId, Settings::SettingChangedFn a_fn, void* a_user) override;
-		void          UnsubscribeSettings(std::uint32_t a_token) override;
-		bool          GetSettingBool(const char* a_modId, const char* a_key, bool* a_out) override;
-		bool          GetSettingInt(const char* a_modId, const char* a_key, std::int64_t* a_out) override;
-		bool          GetSettingFloat(const char* a_modId, const char* a_key, double* a_out) override;
-		std::uint32_t GetSettingString(const char* a_modId, const char* a_key, char* a_buf, std::uint32_t a_bufLen) override;
-		bool          RegisterSettingsSchema(const char* a_schemaJson);
-		void          UnregisterSettingsSchema(const char* a_modId);
-		std::uint32_t SubscribeHotkey(const char* a_modId, const char* a_key, Settings::HotkeyFn a_fn, void* a_user) override;
-		void          UnsubscribeHotkey(std::uint32_t a_token) override;
 		bool          RegisterView(const char* a_viewId) override;
-		bool          ReportIssue(const char* a_modId, const char* a_id, const char* a_code, std::uint32_t a_severity, const char* a_subject, const char* a_contextJson) override;
-		bool          ClearIssue(const char* a_modId, const char* a_id) override;
-		bool          ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) override;
 		struct ViewPresentationRequest
 		{
 			std::string                           view;
@@ -79,20 +53,6 @@ namespace OSFUI::API
 		void SetViewCatalog(const std::vector<std::string>& a_viewIds);
 		void SetViewInstantiated(std::string_view a_viewId, bool a_instantiated);
 
-		struct HealthIssueOp
-		{
-			enum class Kind { kReport, kClear, kClearExcept };
-			Kind kind{ Kind::kReport };
-			std::string modId;
-			std::string id;
-			std::string code;
-			bool error{ false };
-			std::string subject;
-			nlohmann::json context;
-			std::vector<std::string> keep;
-		};
-		std::vector<HealthIssueOp> TakeHealthIssueOps();
-
 		struct ViewStateOp
 		{
 			std::string    mod;
@@ -101,38 +61,15 @@ namespace OSFUI::API
 		};
 		std::vector<ViewStateOp> TakeViewStateOps();
 
-		struct SchemaOp
-		{
-			nlohmann::json schema;  // null for unregister
-			std::string    modId;
-		};
-
 		struct PendingBatch
 		{
 			std::vector<ViewPresentationRequest> presentation;
 			std::vector<ViewStateOp>              state;
-			std::vector<SchemaOp>                 schemas;
 			std::vector<std::string>              viewRegistrations;
 		};
 		[[nodiscard]] PendingBatch TakePendingBatch();
 
-		void NoteUnsupportedApiCaller(std::string a_moduleName, std::uint32_t a_major, std::uint32_t a_minor);
-		struct UnsupportedCaller
-		{
-			std::string module;
-			std::uint32_t major{ 0 };
-			std::uint32_t minor{ 0 };
-		};
-		static constexpr std::size_t kMaxUnsupportedCallers = 32;
-		std::vector<UnsupportedCaller> TakeUnsupportedApiCallers();
-
 		std::vector<std::string> TakeViewRegistrations();
-
-		[[nodiscard]] SettingsMirror& Mirror() { return _mirror; }
-
-		[[nodiscard]] SettingsSubscriptions& Subscriptions() { return _subscriptions; }
-
-		[[nodiscard]] HotkeySubscriptions& Hotkeys() { return _hotkeys; }
 
 		void SetBridgeAvailability(MessageBridge* a_bridge);
 		void PumpMainThread();
@@ -189,7 +126,6 @@ namespace OSFUI::API
 		struct RequestRegistration
 		{
 			Views::RequestFn fn{ nullptr };
-			RequestFn legacyFn{ nullptr };
 			void* user{ nullptr };
 		};
 		struct InflightRequest
@@ -200,8 +136,6 @@ namespace OSFUI::API
 			std::string name;
 			bool answered{ false };
 			bool rejected{ false };
-			bool legacyReply{ false };
-			std::string type;
 			std::string payloadJson;
 			std::string code;
 			std::string message;
@@ -212,9 +146,7 @@ namespace OSFUI::API
 			std::string deferToken;
 			std::string name;
 			std::string payloadJson;
-			std::string type;
 			bool        rejected{ false };
-			bool        legacyReply{ false };
 			std::string code;
 			std::string message;
 		};
@@ -231,9 +163,6 @@ namespace OSFUI::API
 			kPendingPresentation = 1u << 1,
 			kPendingState = 1u << 2,
 			kPendingViewRegistrations = 1u << 3,
-			kPendingHealth = 1u << 4,
-			kPendingUnsupported = 1u << 5,
-			kPendingSchemas = 1u << 6,
 		};
 		void MarkPending(std::uint32_t a_bits) noexcept
 		{
@@ -241,16 +170,11 @@ namespace OSFUI::API
 		}
 		std::mutex                                    _mutex;
 		std::atomic<std::uint32_t>                    _pending{ 0 };
-		SettingsMirror                                _mirror;            // own locking; never touched under _mutex
-		SettingsSubscriptions                         _subscriptions;     // own locking; never touched under _mutex
-		HotkeySubscriptions                           _hotkeys;           // own locking; never touched under _mutex
-		std::unordered_map<std::string, Registration>        _commands;          // frozen RegisterCommand set
 		std::unordered_map<std::string, Registration>        _sends;             // strict RegisterSend set
 		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
 		std::unordered_map<std::string, RelativePointerRegistration> _relativePointers;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewOpenPreflightRegistration> _viewOpenPreflights;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewLifecycleRegistration> _viewLifecycles;  // exact view owner, first-wins
-		std::vector<std::string>                      _pendingCommandUnregister;
 		std::vector<std::string>                      _pendingSendUnregister;
 		std::vector<std::string>                      _pendingRequestUnregister;
 		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
@@ -261,10 +185,7 @@ namespace OSFUI::API
 		std::unordered_set<std::string>               _instantiatedViews;  // views with an instantiated document
 		bool                                          _viewCatalogReady{ false };
 		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
-		std::vector<SchemaOp>                         _pendingSchemaOps;   // deprecated schema registrations, drained by Runtime
-		std::vector<UnsupportedCaller>                _unsupportedCallers;
 		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
-		std::vector<HealthIssueOp>                    _pendingHealthIssueOps;
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // endpoint set changed since apply

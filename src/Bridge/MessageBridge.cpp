@@ -58,8 +58,7 @@ namespace OSFUI
 		// Trace only low-volume unsolicited pushes; settlements fold into their inbound trace.
 		bool IsTracedState(std::string_view a_key)
 		{
-			return a_key == "settings" || a_key == "views" || a_key == "diagnostics" || a_key == "i18n" ||
-			       a_key == "keybindings" || a_key == "input-context";
+			return a_key == "views";
 		}
 	}
 
@@ -296,15 +295,6 @@ namespace OSFUI
 				auto payload = a_payload;
 				payload["requestId"] = a_id;
 				command->second(payload, *this);
-				if (!_settled) {
-					Respond(nlohmann::json{ { "ok", true }, { "command", a_name } });
-				}
-				return;
-			}
-			if (const auto send = _sends.find(a_name);
-				send != _sends.end() && IsLegacyApiView(_currentSource)) {
-				// Explicit legacy documents retain the 1.x uniform command acknowledgement.
-				send->second(a_payload, *this);
 				if (!_settled) {
 					Respond(nlohmann::json{ { "ok", true }, { "command", a_name } });
 				}
@@ -627,13 +617,12 @@ namespace OSFUI
 		REX::DEBUG("MessageBridge: ready -> view '{}'", a_viewId);
 	}
 
-	void MessageBridge::OnViewCreated(std::string_view a_viewId, bool a_legacyApi)
+	void MessageBridge::OnViewCreated(std::string_view a_viewId)
 	{
 		// Arm a closed gate so events wait for the new document's hello.
 		auto& gate = _gates[std::string(a_viewId)];
 		gate.greeted = false;
 		gate.eventsOpen = false;
-		gate.legacyApi = a_legacyApi;
 		gate.queued.clear();
 	}
 
@@ -653,12 +642,6 @@ namespace OSFUI
 			}
 		}
 		for (auto& cleanup : dropped) cleanup();
-	}
-
-	bool MessageBridge::IsLegacyApiView(std::string_view a_viewId) const
-	{
-		const auto it = _gates.find(std::string(a_viewId));
-		return it != _gates.end() && it->second.legacyApi;
 	}
 
 	void MessageBridge::Tick(std::chrono::steady_clock::time_point a_now)

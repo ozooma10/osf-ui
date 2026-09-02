@@ -1,9 +1,5 @@
-#include <intrin.h>  // _ReturnAddress — attributes a refusal to the calling plugin
-
-#include "OSFUI_API.h"
+#include "OSFUI_Views.h"
 #include "API/BridgeApi.h"
-#include "Compat/V1/LegacyBridge.h"
-#include "Platform/WindowsPlatform.h"
 
 namespace
 {
@@ -25,38 +21,9 @@ namespace
 	}
 }
 
-extern "C" __declspec(dllexport) OSFUI::API::IOSFUIBridge* OSFUI_RequestBridge(
-	std::uint32_t a_abiVersion) noexcept
-{
-	const auto major = Major(a_abiVersion);
-	const auto minor = Minor(a_abiVersion);
-	if (major != OSFUI::API::kBridgeAPIMajor) {
-		OSFUI::API::BridgeApi::Get().NoteUnsupportedApiCaller(
-			OSFUI::Platform::ModuleNameForAddress(_ReturnAddress()), major, minor);
-		return nullptr;
-	}
-	REX::INFO("BridgeApi: legacy bridge vended (caller ABI {}.{}, runtime ABI {}.{})",
-		major, minor, OSFUI::API::kBridgeAPIMajor, OSFUI::API::kBridgeAPIMinor);
-	return static_cast<OSFUI::API::IOSFUIBridge*>(&OSFUI::API::Legacy::Bridge::Get());
-}
-
-extern "C" __declspec(dllexport) void* OSFUI_RequestSettings(
-	std::uint32_t a_version, std::uint32_t* a_outVersion) noexcept
-{
-	return RequestService("settings", a_version, OSFUI::API::Settings::kVersion,
-		static_cast<OSFUI::API::Settings::ISettings*>(&OSFUI::API::BridgeApi::Get()), a_outVersion);
-}
-
 extern "C" __declspec(dllexport) void* OSFUI_RequestViews(
 	std::uint32_t a_version, std::uint32_t* a_outVersion) noexcept
 {
 	return RequestService("views", a_version, OSFUI::API::Views::kVersion,
 		static_cast<OSFUI::API::Views::IViews*>(&OSFUI::API::BridgeApi::Get()), a_outVersion);
-}
-
-extern "C" __declspec(dllexport) void* OSFUI_RequestDiagnostics(
-	std::uint32_t a_version, std::uint32_t* a_outVersion) noexcept
-{
-	return RequestService("diagnostics", a_version, OSFUI::API::Diagnostics::kVersion,
-		static_cast<OSFUI::API::Diagnostics::IDiagnostics*>(&OSFUI::API::BridgeApi::Get()), a_outVersion);
 }

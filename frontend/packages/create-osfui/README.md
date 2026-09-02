@@ -1,53 +1,30 @@
 # create-osfui
 
-Create a directly deployable [OSF UI](https://github.com/ozooma10/osf-ui) starter for a Starfield mod.
-
-Menu starters use ordinary `index.html`, `style.css`, and `main.js` files. They do not add a frontend framework, a web build step, or project dependencies. The bootstrapper also includes the matching Papyrus declarations or native C++ headers so the generated project is self-contained.
-
-## Quick start
-
-Node.js 20.19 or newer is required.
-
-```sh
-npm create osfui@latest my-osfui-mod
-```
-
-The interactive prompts choose the mod ID, starter type, view name, and integration. To create a project non-interactively:
+Create a directly deployable web-view starter for [OSF UI](https://github.com/ozooma10/osf-ui).
 
 ```sh
 npm create osfui@latest my-osfui-mod -- --yes --mod-id acme.widgets --view main --surface menu --integration papyrus
 ```
 
-The destination must be empty. The bootstrapper never installs dependencies in the generated project.
+The Papyrus and native presets both generate plain HTML, CSS, and JavaScript beneath
+`mod/Data/SFSE/Plugins/OSF/UI/views/<mod-id>/<view-id>/`. No frontend framework or
+dependency install is added. The matching `OSFUI_View` API declarations are copied
+into the generated project.
 
-## Starters
+Settings scaffolding is intentionally not included. Author settings against the
+independent [OSF Settings](https://github.com/ozooma10/osf-settings) SDK and explicitly
+forward only values that a web view needs.
 
-| Starter | Integration | Generated project |
-| --- | --- | --- |
-| Menu | Papyrus | Plain HTML/CSS/JavaScript view, settings schema, Papyrus script, declarations, and build/deploy script |
-| Menu | Native plugin | Plain HTML/CSS/JavaScript view, settings and localization examples, C++ plugin source, OSF UI headers, and XMake project |
-| Settings only | Papyrus | Settings schema, Papyrus hotkey handler, declarations, and build/deploy script; no menu view |
-
-The generated `README.md` contains the build and deployment instructions for the selected starter.
-
-## Options
+Options:
 
 ```text
-npm create osfui@latest [directory] -- [options]
-
---mod-id <id>                 Settings and bridge namespace
---view <id>                   Menu view ID (default: main)
---surface <menu|settings>     Starter type (default: menu)
+--mod-id <id>
+--view <id>
+--surface menu
 --integration <papyrus|native>
---yes                         Use defaults for missing values
---no-install                  Compatibility no-op; starters install nothing
---help                        Show command usage
+--yes
+--no-install
+--help
 ```
 
-The settings-only starter is Papyrus-only. A native integration creates a menu starter.
-
-## Runtime compatibility
-
-Generated manifests target OSF UI 2.0.0. Install a compatible OSF UI runtime in the game before deploying the generated mod.
-
-See the [OSF UI repository](https://github.com/ozooma10/osf-ui) for runtime installation and authoring documentation.
+Generated views require OSF UI 2.x; OSF UI itself requires OSF Settings 1.x.

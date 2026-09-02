@@ -150,7 +150,6 @@ int main()
 	{
 		const auto got = msg::FromJson<msg::Navigate>(json{ { "type", "navigate" } });
 		Check(got.entry == "index.html", "navigate.entry defaults to index.html");
-		Check(!got.legacyApi, "navigate.legacyApi defaults false");
 		Check(got.logicalHeight == osfui::wv2::kDefaultLogicalHeight, "navigate.logicalHeight defaults to the shared constant");
 		Check(got.id.empty(), "navigate.id defaults empty (the caller rejects it)");
 	}
@@ -180,12 +179,10 @@ int main()
 			{ "type", "navigate" },
 			{ "id", "acme.mod/v" },
 			{ "entry", 42 },          // number where a string belongs
-			{ "legacyApi", "yes" },  // string where a bool belongs
 			{ "logicalHeight", "tall" },
 		});
 		Check(got.id == "acme.mod/v", "good field still read alongside bad ones");
 		Check(got.entry == "index.html", "wrong-typed string falls back to default");
-		Check(!got.legacyApi, "wrong-typed bool falls back to default");
 		Check(got.logicalHeight == osfui::wv2::kDefaultLogicalHeight, "wrong-typed number falls back to default");
 	}
 	{

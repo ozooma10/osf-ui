@@ -51,8 +51,8 @@ int main()
 		"the refusal is case-insensitive (Papyrus identifiers are)");
 	Check(Refused(Call("OsFuI", "GetVersion"), "forbidden"),
 		"mixed casing does not slip past the refusal");
-	Check(Refused(Call("OSFUI_Settings", "SetString"), "forbidden"),
-		"the settings native namespace is reserved");
+	Check(Parse(Call("OSFUI_Settings", "SetString")).ok,
+		"the removed 1.x settings script is not retained as an OSF UI alias");
 	Check(Refused(Call("osfui_view", "SetState"), "forbidden"),
 		"the view native namespace is reserved case-insensitively");
 	Check(Parse(Call("OSFUIHelper", "Go")).ok,

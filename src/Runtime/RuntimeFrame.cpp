@@ -1,141 +1,59 @@
 #include "Runtime/Runtime.h"
 
 #include "API/PapyrusApi.h"
-#include "Core/Ids.h"
 #include "Input/FreeCursor.h"
 #include "Input/OverlayInputHook.h"
-#include "Input/PauseMenuEntry.h"
-
-#include "RE/B/BSFixedString.h"
-#include "RE/U/UIMessageQueue.h"
 
 namespace OSFUI
 {
-    void Runtime::ProcessLifecycleWork()
-    {
-		if(_controlMapInit.Take()) {
-			InitializeDataLoadedState();
-		}
-
-		if(_uiIntegrationInit.Take()) {
-			InitializePostDataLoadIntegration();
-		}
-
+	void Runtime::ProcessLifecycleWork()
+	{
+		if (_dataLoadedInit.Take()) InitializeDataLoadedState();
 		DriveBrowserHostRecovery();
-    }
-
-    void Runtime::ProcessControlMapUpdates()
-    {
-		if(_keyboardLayoutChanged.exchange(false)) {
-			RefreshKeyboardLabels("input language change");
-
-			if(_controlMap.RefreshLabels(false)) {
-				SyncLiveControlMapBindings();
-				PublishPlatformState("keybindings");
-			} else if(_controlMap.Initialized() && !_controlMap.Available()) {
-				SyncLiveControlMapBindings();
-				_runtimeHealth.SyncControlMap();
-				PublishPlatformState("keybindings");
-				PublishPlatformState("input-context");
-			}
-		}
-
-		const auto changes = _controlMap.Pump();
-
-		if(changes.keybindings) {
-			SyncLiveControlMapBindings();
-			_runtimeHealth.SyncControlMap();
-			PublishPlatformState("keybindings");
-		}
-
-		if(changes.engineInputContext) {
-			_runtimeHealth.SyncControlMap();
-			PublishPlatformState("input-context");
-		}
 	}
 
-    void Runtime::ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus, std::vector<API::BridgeApi::ViewStateOp> a_bridgeState)
-    {
-		DrainKeyCapture();
-		DrainHotkeys();
-
-		if(_settings) {
-			API::Papyrus::ApplySettingsOps(std::move(a_papyrus.settings), _settings->Store());
-		}
-		if(_bridge) {
-			if(a_papyrus.sessionReset) {
-				_retainedState.ClearSessionScoped();
+	void Runtime::ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus,
+		std::vector<API::BridgeApi::ViewStateOp> a_bridgeState)
+	{
+		if (_bridge) {
+			if (a_papyrus.sessionReset) _retainedState.ClearSessionScoped();
+			for (const auto& state : a_papyrus.states) {
+				_retainedState.Set(state.mod, state.key, state.value, true);
+				PublishModState(state.mod, state.key, state.value);
 			}
-
-			for (const auto& a_state : a_papyrus.states) {
-				_retainedState.Set(a_state.mod, a_state.key, a_state.value, /*sessionScoped*/ true);
-				PublishModState(a_state.mod, a_state.key, a_state.value);
-			}
-
-			for(auto& op : a_bridgeState) {
-				_retainedState.Set(op.mod, op.key, op.value, /*sessionScoped*/ false);
+			for (auto& op : a_bridgeState) {
+				_retainedState.Set(op.mod, op.key, op.value, false);
 				PublishModState(op.mod, op.key, op.value);
 			}
-
-			for (const auto& a_event : a_papyrus.events) {
-				const auto targets = InstantiatedViewsOfMod(a_event.mod);
+			for (const auto& event : a_papyrus.events) {
+				const auto targets = InstantiatedViewsOfMod(event.mod);
 				if (!targets.empty()) {
-					_bridge->Emit(targets, std::format("{}.{}", a_event.mod, a_event.name), nlohmann::json{ { "args", a_event.args } });
+					_bridge->Emit(targets, std::format("{}.{}", event.mod, event.name),
+						nlohmann::json{ { "args", event.args } });
 				}
 			}
 			for (const auto& reply : a_papyrus.replies) {
-				if(reply.rejected) {
-					_bridge->RejectTo(reply.deferToken, reply.code, reply.message);
-				} else {
-					_bridge->RespondTo(reply.deferToken, reply.value);
-				}
+				if (reply.rejected) _bridge->RejectTo(reply.deferToken, reply.code, reply.message);
+				else _bridge->RespondTo(reply.deferToken, reply.value);
 			}
-
 			_bridge->Tick();
 		}
 		API::BridgeApi::Get().PumpMainThread();
-    }
-
-    void Runtime::ProcessSettingsMaintenance()
-    {
-		if (_settings) {
-			_settings->Store().PumpPersistence(_uptime);
-			if (_developerMode) {
-				_settings->PumpSchemaHotReload(_uptime);
-			}
-		}
-    }
-
-    void Runtime::ProcessPauseMenuEntry()
-    {
-		if (!PauseMenuEntry::TakeOpenRequest()) {
-			return;
-		}
-
-		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
-			queue->AddMessage(RE::BSFixedString("PauseMenu"), RE::UI_MESSAGE_TYPE::kHide);
-		} else {
-			REX::WARN("PauseMenuEntry: UIMessageQueue singleton is unavailable; PauseMenu was not hidden");
-		}
-		EnqueueOpenView(std::string(Ids::kSettingsViewId));
 	}
 
-    void Runtime::ReconcileFrameState(double a_deltaSeconds)
-    {
+	void Runtime::ReconcileFrameState(double a_deltaSeconds)
+	{
 		ReconcileFocusMenu();
 		ReconcileNativeFocus();
 		ReconcileControlLayer();
 		ReconcileSimPause();
 		FreeCursor::Apply(_presentation.DesiredCapture());
 		RouteGamepadInput(a_deltaSeconds);
-    }
+	}
 
-    void Runtime::ProcessRendererFrame(double a_deltaSeconds)
-    {
-		if (!_renderer) {
-			return;
-		}
-
+	void Runtime::ProcessRendererFrame(double a_deltaSeconds)
+	{
+		if (!_renderer) return;
 		DriveRecovery();
 		DriveDevTools();
 		PumpDevViewReload();
@@ -147,46 +65,36 @@ namespace OSFUI
 				OnOutputResized(targetSize->width, targetSize->height);
 			}
 		}
-
 		if (const auto packed = _pendingMouseMove.exchange(kNoPendingMouseMove);
 			packed != kNoPendingMouseMove) {
-			_renderer->InjectMouseMove(static_cast<int>(packed >> 32), static_cast<int>(packed & 0xFFFF'FFFFull));
+			_renderer->InjectMouseMove(static_cast<int>(packed >> 32),
+				static_cast<int>(packed & 0xFFFF'FFFFull));
 		}
-
-		{
-			_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire), IsInputCaptured(), _captureArmed.load(), _captureUpScan.load());
-			_renderer->Update(a_deltaSeconds);
-			DrivePendingOpen();
-			SubmitFrameIfVisible();
-		}
+		_renderer->SetAcceleratorKeys(kInvalidScanCode, IsInputCaptured(), false, kInvalidScanCode);
+		_renderer->Update(a_deltaSeconds);
+		DrivePendingOpen();
+		SubmitFrameIfVisible();
 		_runtimeHealth.Pump();
-    }
+	}
 
 	void Runtime::Tick(double a_deltaSeconds)
 	{
-		if (!_initialized) {
-			return;
-		}
+		if (!_initialized || !_osfSettings.Available()) return;
 		++_mainTickSerial;
 		_uptime += a_deltaSeconds;
 		ProcessLifecycleWork();
-		ProcessPauseMenuEntry();
 		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
-		DrainSchemaOps(std::move(bridgeBatch.schemas));
 		DrainViewRegistrations(std::move(bridgeBatch.viewRegistrations));
 		const auto presentationWork = TakePresentationRequests(std::move(bridgeBatch.presentation));
 		auto papyrusBatch = API::Papyrus::TakePendingBatch();
-
-		ProcessControlMapUpdates();
 		ProcessBackendQueues(std::move(papyrusBatch), std::move(bridgeBatch.state));
 		ApplyPresentationRequests(presentationWork);
-
-		ProcessSettingsMaintenance();
 		ReconcileFrameState(a_deltaSeconds);
 		ProcessRendererFrame(a_deltaSeconds);
 		DrainRelativePointerCapture();
 		if (!_lastShownView.empty()) {
-			API::BridgeApi::Get().DispatchViewLifecycle(_lastShownView, API::Views::ViewLifecyclePhase::kFrame);
+			API::BridgeApi::Get().DispatchViewLifecycle(
+				_lastShownView, API::Views::ViewLifecyclePhase::kFrame);
 		}
 	}
 }

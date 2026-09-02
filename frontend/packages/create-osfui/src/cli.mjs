@@ -71,18 +71,14 @@ function validate(options) {
     throw new Error(`--mod-id must be a safe name other than osfui and at most ${MAX_MOD_ID_LENGTH} UTF-8 bytes.`);
   }
   if (!ID.test(options.view)) throw new Error('--view must use lowercase letters, digits, and hyphens.');
-  if (!['menu', 'settings'].includes(options.surface)) {
-    throw new Error('--surface must be menu or settings; this package does not include a HUD starter.');
+  if (options.surface === 'settings') {
+    throw new Error('Settings scaffolding moved to OSF Settings; create-osfui only creates web views.');
+  }
+  if (options.surface !== 'menu') {
+    throw new Error('--surface must be menu; this package does not include a HUD starter.');
   }
   if (!['papyrus', 'native'].includes(options.integration)) {
     throw new Error('--integration must be papyrus or native.');
-  }
-  // This settings-only preset is a recordless GLOBAL onPress handler. It has no
-  // quest/alias load lifecycle with which to maintain an OSFUI_View request
-  // registration, and the native project belongs to the menu/native preset.
-  if (options.surface === 'settings' && options.integration !== 'papyrus') {
-    throw new Error('--surface settings is Papyrus-only; ' +
-      'use --surface menu --integration native for an SFSE-plugin project.');
   }
 }
 
@@ -120,14 +116,11 @@ export async function scaffold(options) {
 
   if (options.integration === 'native') {
     await copySdkFiles(root, 'native', 'native/include', [
-      'OSFUI_Diagnostics.h',
-      'OSFUI_Settings.h',
       'OSFUI_Views.h',
     ]);
   } else {
     await copySdkFiles(root, 'papyrus', 'tools/papyrus', [
       'OSFUI.psc',
-      'OSFUI_Settings.psc',
       'OSFUI_View.psc',
     ]);
   }
@@ -138,16 +131,14 @@ async function main() {
   const options = parse(process.argv.slice(2));
   if (options.help) {
     console.log('npm create osfui@latest [directory] ' +
-      '[-- --mod-id my-mod --view main --surface menu|settings --integration papyrus|native]');
+      '[-- --mod-id my-mod --view main --surface menu --integration papyrus|native]');
     return;
   }
   options.directory = options._[0];
   const interactive = await promptMissing(options);
   validate(options);
   const root = await scaffold(options);
-  const firstCommands = options.surface === 'settings'
-    ? './build-deploy.ps1 -Mo2Mods "path-to-MO2-mods"'
-    : options.integration === 'papyrus'
+  const firstCommands = options.integration === 'papyrus'
       ? './build-papyrus.ps1 -Mo2Mods "path-to-MO2-mods"'
       : 'Open README.md to build the native plugin; the web view is ready to deploy.';
   const next = root === process.cwd()

@@ -11,19 +11,15 @@
 #include "Input/FocusMenu.h"
 #include "Input/FreeCursor.h"
 #include "Input/HardwareCursor.h"
-#include "Input/KeyNames.h"
 #include "Input/MenuMode.h"
 #include "Input/MenuEventSink.h"
 #include "Input/OverlayInputHook.h"
-#include "Input/PauseMenuEntry.h"
 #include "Input/SimPause.h"
 #include "Input/UiLayoutGuard.h"
 #include "Input/XInputPoller.h"
 #include "Core/Paths.h"
-#include "Platform/WindowsPlatform.h"
 #include "Core/Ids.h"
 #include "Render/WebView2HostWebRenderer.h"
-#include "Views/BuiltinViewIds.h"
 
 namespace OSFUI
 {
@@ -38,57 +34,9 @@ namespace OSFUI
 		return Paths::Initialize();
 	}
 
-	void Runtime::InitializeSettingsModule()
-	{
-		const auto schemaDir = Paths::DataDir() / "settings";
-		const auto valuesDir = schemaDir / "values";
-		_settings = std::make_unique<SettingsModule>(schemaDir, valuesDir,
-			[this](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
-				OnSettingChanged(a_mod, a_key, a_value);
-			},
-			// v1 -> v2 values migration: pre-2.x key names were VK-anchored; reanchor to physical key on layout active right now.
-			[](const std::string& a_name) -> std::string {
-				const auto vk = Legacy::ResolveKeyNameVk(a_name);
-				if (vk == 0) {
-					return a_name;
-				}
-				const auto scan = Platform::VkToDirectInputScan(vk);
-				if (scan == 0) {
-					return a_name;
-				}
-				auto name = KeyName(static_cast<ScanCode>(scan));
-				return name.empty() ? a_name : name;
-			});
-
-		const auto* configured = _settings->Store().GetValue("osfui", "developerMode");
-		if (configured && configured->is_boolean()) {
-			_developerMode = configured->get<bool>();
-		} else {
-			_developerMode = false;
-			REX::WARN("Runtime: setting 'osfui.developerMode' is unavailable or invalid; developer mode disabled");
-		}
-		Log::SetDebugLogging(_developerMode);
-		REX::INFO("Runtime: developer mode = {} (restart-latched from osfui.developerMode)", _developerMode);
-
-		configured = _settings->Store().GetValue("osfui", "highRefreshCapture");
-		if (configured && configured->is_boolean()) {
-			_highRefreshCapture = configured->get<bool>();
-		} else {
-			_highRefreshCapture = false;
-			REX::WARN("Runtime: setting 'osfui.highRefreshCapture' is unavailable or invalid; high-refresh capture disabled");
-		}
-		REX::INFO("Runtime: high-refresh capture = {} (restart-latched from osfui.highRefreshCapture)", _highRefreshCapture);
-	}
-
-	void Runtime::LoadLocalization()
-	{
-		_localization.Load(Paths::DataDir() / "l10n", LocalizationService::DetectGameLocale(Paths::StarfieldUserDir()));
-	}
-
 	void Runtime::LoadStartupContent()
 	{
 		_views.DiscoverAll(Paths::ViewsDir());
-		_viewPolicy.Load(Paths::DataDir() / "state" / "view-policy.json");
 
 		std::vector<std::string> discoveredViewIds;
 		discoveredViewIds.reserve(_views.All().size());
@@ -104,9 +52,8 @@ namespace OSFUI
 	{
 		_renderer = std::make_unique<WebView2HostWebRenderer>();
 
-		const auto* view = _views.Find(Ids::kSettingsViewId);
-		const auto initialWidth = view ? view->width : kDefaultViewWidth;
-		const auto initialHeight = view ? view->height : kDefaultViewHeight;
+		const auto initialWidth = kDefaultViewWidth;
+		const auto initialHeight = kDefaultViewHeight;
 
 		_captureSize.store(PackViewSize({ initialWidth, initialHeight }));
 		_viewSize.store(PackViewSize({ initialWidth, initialHeight }));
@@ -171,45 +118,6 @@ namespace OSFUI
 		});
 	}
 
-	void Runtime::InitializeFeatureModules()
-	{
-		_settings->Store().SetTextResolver([this](std::string_view a_mod, std::string_view a_address, std::string_view a_english) {
-			return _localization.Resolve(a_mod, a_address, a_english);
-		});
-
-		auto& store = _settings->Store();
-		store.AddChangeListener([](std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value) {
-			auto& api = API::BridgeApi::Get();
-			api.Mirror().Update(a_mod, a_key, a_value);
-			api.Subscriptions().OnChanged(a_mod, a_key, a_value);
-			API::Papyrus::OnSettingChanged(a_mod, a_key);
-		});
-		store.AddRegistryListener([this] {
-			if (_settings) {  // teardown guard (_settings nulls before modules die)
-				API::BridgeApi::Get().Mirror().Rebuild(_settings->Store().DataView());
-			}
-		});
-
-		store.SetKeyNameResolver(ResolveKeyName);
-
-		_hotkeys.SetSuppression([this] { return IsInputCaptured() || _captureArmed.load(); });
-		store.AddChangeListener([this](std::string_view a_mod, std::string_view a_key, const nlohmann::json&) {
-			if (_settings && _settings->Store().GetSettingType(a_mod, a_key) == "key") {
-				_hotkeys.Rebuild(_settings->Store());
-			}
-		});
-		store.AddRegistryListener([this] {
-			if (_settings) {
-				_hotkeys.Rebuild(_settings->Store());
-			}
-		});
-		_hotkeys.Rebuild(store);  // LoadAll already ran in the module's constructor
-
-		RefreshKeyboardLabels("startup");
-
-		_settings->OnStart();
-	}
-
 	void Runtime::InitializeBridge()
 	{
 		_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
@@ -227,9 +135,6 @@ namespace OSFUI
 
 		RegisterPlatformEndpoints(*_bridge);
 
-		_settings->RegisterEndpoints(*_bridge);
-		_healthRegistry.AttachBridge(*_bridge);
-
 		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (_bridge) {
 				_bridge->HandleWebMessage(a_viewId, a_json);
@@ -245,32 +150,16 @@ namespace OSFUI
 				continue;
 			}
 			if (!HudAutoStartEligible(manifest)) {
-				if (_viewPolicy.HasHudOverride(manifest.id)) {
-					REX::DEBUG("Runtime: HUD '{}' has an auto-start override but is not eligible (catalog-hidden via hub:false, or debugOnly without developer mode); ignored", manifest.id);
-				}
-				continue;
-			}
-			if (!_viewPolicy.HudAutoStart(manifest.id, manifest.openOnStart)) {
 				continue;
 			}
 			EnqueueOpenView(manifest.id);
 			++queued;
 		}
-		REX::INFO("Runtime: queued {} auto-start HUD view(s) for the first main-thread presentation tick; default menu = '{}'", queued, Ids::kSettingsViewId);
-		if (!_views.Find(Ids::kSettingsViewId)) {
-			REX::WARN("Runtime: default view '{}' was not discovered; the toggle key will have nothing to open", Ids::kSettingsViewId);
-		}
+		REX::INFO("Runtime: queued {} manifest-selected HUD view(s) for lazy startup", queued);
     }
 
     void Runtime::ConfigureInputRouting()
     {
-		const auto toggleKey = ResolveKeyName(Ids::kToggleKey);
-		_toggleKey.store(toggleKey, std::memory_order_release);
-
-		if (toggleKey != kInvalidScanCode) {
-			REX::INFO("Runtime: toggleKey '{}' resolved to scan code {:#x}", Ids::kToggleKey, toggleKey);
-		}
-
 		_renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down) {
 			return OnNativeAcceleratorKey(a_vkCode, a_scanCode, a_down);
 		});
@@ -289,46 +178,72 @@ namespace OSFUI
 			return false;
 		}
 
-		LoadLocalization();
-		InitializeSettingsModule();
-		InitializeFeatureModules();
-		LoadStartupContent();
+		_initialized = true;
+		REX::INFO("Runtime: add-on loaded; waiting for SFSE kPostLoad before acquiring OSF Settings");
+		return true;
+	}
 
-		if(!InitializeRenderer()) {
+	void Runtime::OnPostLoad()
+	{
+		if (_postLoadAttempted) {
+			return;
+		}
+		_postLoadAttempted = true;
+		if (!_osfSettings.Initialize()) {
+			REX::ERROR("Runtime: OSF Settings dependency unavailable or ABI-incompatible; OSF UI remains inert");
+			return;
+		}
+		_developerMode = _osfSettings.DeveloperMode();
+		_highRefreshCapture = _osfSettings.HighRefreshCapture();
+		Log::SetDebugLogging(_developerMode);
+		LoadStartupContent();
+		InitializeStartupViews();
+
+		REX::INFO("Runtime: lightweight add-on ready; WebView2 will initialize on first view demand");
+	}
+
+	bool Runtime::EnsureWebRuntime()
+	{
+		if (_renderer && _compositor && _bridge) return true;
+		if (_webRuntimeInitializing || !_osfSettings.Available()) return false;
+		_webRuntimeInitializing = true;
+		if (!InitializeRenderer()) {
+			_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "WebView2 renderer failed to initialize");
+			_webRuntimeInitializing = false;
 			return false;
 		}
-
 		WireRendererLifecycleCallbacks();
-
-		if(!InitializeCompositor()) {
+		if (!InitializeCompositor()) {
+			_osfSettings.ReportFailure("startup.compositor", "webview.compositor-init", "D3D12 compositor failed to initialize");
+			_renderer.reset();
+			_webRuntimeInitializing = false;
 			return false;
 		}
 		WireRenderPipeline();
 		InitializeBridge();
-		InitializeStartupViews();
 		ConfigureInputRouting();
-
+		if (_drawPathRequested && !UiPass::Install()) {
+			_osfSettings.ReportFailure("startup.draw-path", "webview.draw-path", "Scaleform UI pass hook failed");
+			_webRuntimeInitializing = false;
+			return false;
+		}
 		if (_developerMode) {
 			_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_id) {
 				return _renderer && _renderer->RefreshViewFiles(a_id);
 			});
 		}
-
-		_initialized = true;
-		// Push the initial policy derived from whatever is open (incl. nothing).
-		ApplyViewPresentationPolicy();
-
-		PauseMenuEntry::Install();
-
+		_osfSettings.ClearFailure("startup.renderer");
+		_osfSettings.ClearFailure("startup.compositor");
+		_osfSettings.ClearFailure("startup.draw-path");
+		_webRuntimeInitializing = false;
+		REX::INFO("Runtime: lazy WebView2 runtime initialized");
 		return true;
 	}
 
 	bool Runtime::InstallOverlayDrawPath()
 	{
-		if (!_compositor) {
-			return false;
-		}
-		if (!UiPass::Install()) {
+		_drawPathRequested = true;
+		if (_compositor && !UiPass::Install()) {
 			REX::ERROR("Runtime: Scaleform UI pass hook failed");
 			return false;
 		}
@@ -337,32 +252,28 @@ namespace OSFUI
 
 	void Runtime::OnDataLoaded()
 	{
-		_controlMapInit.Request();
+		_dataLoadedInit.Request();
 	}
 
 	void Runtime::OnPostDataLoaded()
 	{
-		_uiIntegrationInit.Request();
+		_postDataLoadedReady = true;
 	}
 
 	void Runtime::InitializeDataLoadedState()
 	{
 		REX::DEBUG("Runtime: consuming kPostDataLoad work on the main-thread tick");
 		API::Papyrus::Install();
-		_controlMap.Initialize();
-		SyncLiveControlMapBindings();
-		_runtimeHealth.SyncControlMap();
-		PublishPlatformState("keybindings");
-		PublishPlatformState("input-context");
 	}
 
-	void Runtime::InitializePostDataLoadIntegration()
+	bool Runtime::EnsureCaptureIntegration()
 	{
-		REX::DEBUG("Runtime: consuming kPostPostDataLoad work on the main-thread tick");
+		if (_captureIntegrationInitialized) return _captureIntegrationAvailable;
+		if (!_postDataLoadedReady) return false;
 		_captureIntegrationInitialized = true;
 		if (!UiLayoutGuard::VerifyUiLayout()) {
 			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
-			return;
+			return false;
 		}
 		const bool menuEventsInstalled = MenuEventSink::Install();
 		const bool focusMenuRegistered = FocusMenu::Register();
@@ -370,16 +281,10 @@ namespace OSFUI
 		_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
 		if (!_captureIntegrationAvailable) {
 			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
-			return;
+			return false;
 		}
-
-		if (const auto* settings = _views.Find(Ids::kSettingsViewId);
-			settings && !_presentation.IsInstantiated(settings->id)) {
-			BeginHiddenPrewarmTiming(settings->id);
-			if (!InstantiateView(*settings, "for hidden startup prewarm")) {
-				CancelHiddenPrewarmTiming(settings->id);
-			}
-		}
+		REX::INFO("Runtime: lazy web-input hook installed above OSF Settings input handling");
+		return true;
 	}
 
 	void Runtime::EnqueuePresentationRequest(ViewPresentationRequest a_req)
@@ -419,13 +324,7 @@ namespace OSFUI
 		for (const auto req : reqs) {
 			switch (req) {
 			case ViewPresentationRequest::ToggleDefault:
-				if (_pendingViewOpen) {
-					CancelPendingOpen();
-				} else if (_presentation.ActiveMenu()) {
-					_presentation.CloseActiveMenu();
-				} else {
-					BeginViewOpen(Ids::kSettingsViewId, "for the default-menu toggle");
-				}
+				// OSF UI 2 has no global toggle or default menu.
 				break;
 			case ViewPresentationRequest::Back: {
 				const auto active = _presentation.ActiveMenu();
@@ -508,12 +407,21 @@ namespace OSFUI
 		if (!manifest) {
 			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — no discovered view has that id", a_id);
+			_osfSettings.ReportFailure("view." + std::string(a_id), "view.not-found",
+				"The requested OSF UI view is not installed", { { "view", a_id } });
+			return false;
+		}
+		if (!EnsureWebRuntime()) {
+			CancelColdOpenTiming(a_id);
+			REX::WARN("Runtime: cannot open '{}' — lazy WebView runtime initialization failed", a_id);
 			return false;
 		}
 		// Require both installation and the lazy render-worker self-test before allowing input capture.
 		if (!OverlayCanDraw()) {
 			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable", a_id);
+			_osfSettings.ReportFailure("view." + std::string(a_id), "view.draw-path-unavailable",
+				"The view cannot open because the UI draw path is unavailable", { { "view", a_id } });
 			return false;
 		}
 		if (_rendererFailed) {
@@ -532,10 +440,15 @@ namespace OSFUI
 			return false;
 		}
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
+		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
+			EnsureCaptureIntegration();
+		}
 		if (requiresCaptureIntegration && _captureIntegrationInitialized &&
 			!_captureIntegrationAvailable) {
 			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
+			_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable",
+				"The view requires web input, but input integration is unavailable", { { "view", a_id } });
 			return false;
 		}
 
@@ -625,14 +538,6 @@ namespace OSFUI
 			if (*a_requestedAt != ViewTimingClock::time_point{} && *a_requestedAt <= now) {
 				requestedAt = *a_requestedAt;
 			}
-		} else {
-			const auto requestedNanos = _lastToggleRequestNanos.exchange(0, std::memory_order_acq_rel);
-			if (requestedNanos > 0) {
-				const auto candidate = ViewTimingClock::time_point(std::chrono::nanoseconds(requestedNanos));
-				if (candidate <= now) {
-					requestedAt = candidate;
-				}
-			}
 		}
 		_coldOpenTiming = ColdOpenTiming{
 			.viewId = std::string(a_viewId),
@@ -688,7 +593,7 @@ namespace OSFUI
 			!_hiddenPrewarmTiming->instantiatedAt) {
 			return;
 		}
-		// If the player opened settings before prewarm completed, the cold-open summary owns the one useful timing line and includes the eventual presentable frame.
+		// If the player opened the view before prewarm completed, the cold-open summary owns the useful timing line.
 		if (_coldOpenTiming && _coldOpenTiming->viewId == a_viewId) {
 			_hiddenPrewarmTiming.reset();
 			return;
@@ -739,6 +644,9 @@ namespace OSFUI
 		}
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
 		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
+			EnsureCaptureIntegration();
+		}
+		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
 			return;
 		}
 		if (requiresCaptureIntegration && !_captureIntegrationAvailable) {
@@ -768,13 +676,6 @@ namespace OSFUI
 		if (a_ids.empty()) {
 			return;
 		}
-		if (!_renderer) {
-			// Drop requests when the overlay has no viable renderer.
-			for (const auto& id : a_ids) {
-				REX::WARN("Runtime: plugin RegisterView('{}') ignored — overlay not running", id);
-			}
-			return;
-		}
 		bool catalogChanged = false;
 		for (const auto& id : a_ids) {
 			// Do not re-register instantiated views and discard their page state.
@@ -796,24 +697,7 @@ namespace OSFUI
 		}
 		if (catalogChanged) {
 			ApplyViewPresentationPolicy();     // openOnStart / z-band changes take effect now
-			BroadcastViewsData();  // Mod Settings picks the new view up live
-		}
-	}
-
-	void Runtime::DrainSchemaOps(std::vector<API::BridgeApi::SchemaOp> a_ops)
-	{
-		if (!_settings || a_ops.empty()) {
-			return;
-		}
-		auto& store = _settings->Store();
-		for (auto& op : a_ops) {
-			if (!op.schema.is_null()) {
-				store.RegisterSchema(std::move(op.schema), SettingsStore::Source::kNative);
-			} else if (store.GetSource(op.modId) == SettingsStore::Source::kNative) {
-				store.RemoveMod(op.modId);
-			} else {
-				REX::WARN("Runtime: UnregisterSettingsSchema('{}') ignored — not a native-registered schema", op.modId);
-			}
+			BroadcastViewsData();
 		}
 	}
 
@@ -861,12 +745,7 @@ namespace OSFUI
 			CancelRelativePointerCapture();
 		}
 		const bool captureChanged = _captureInput.exchange(desiredCapture) != desiredCapture;
-		if (captureChanged) {
-			OverlayInputHook::RequestStateRefresh();
-			if (!desiredCapture) {
-				CancelArmedKeyCapture();
-			}
-		}
+		if (captureChanged) OverlayInputHook::RequestStateRefresh();
 
 		const bool visible = _presentation.DesiredVisible();
 		const bool wasVisible = m_visible.exchange(visible);
@@ -892,10 +771,6 @@ namespace OSFUI
 					_compositor->SetVisible(visible);
 				}
 			}
-		}
-
-		if (!visible && wasVisible && _settings) {
-			_settings->Store().FlushPersistence();
 		}
 
 		if (visible) {
@@ -1007,7 +882,7 @@ namespace OSFUI
 			}
 			m_viewLoads.BeginLoad(manifest.id);
 			_renderer->CreateOrNavigateView(manifest);
-			_bridge->OnViewCreated(manifest.id, IsPre2Target(manifest.targetVersion));
+			_bridge->OnViewCreated(manifest.id);
 			++reloaded;
 		}
 
@@ -1015,8 +890,7 @@ namespace OSFUI
 		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
 		_renderer->Resize(capture.width, capture.height);
 		_renderer->SetViewport(view.width, view.height);
-		_renderer->SetAcceleratorKeys(_toggleKey.load(std::memory_order_acquire),
-			false, _captureArmed.load(), _captureUpScan.load());
+		_renderer->SetAcceleratorKeys(kInvalidScanCode, false, false, kInvalidScanCode);
 		ApplyViewPresentationPolicy();
 		BroadcastViewsData();
 		REX::INFO("Runtime: replayed {} instantiated view(s) to the replacement browser host; overlay left closed", reloaded);
@@ -1056,116 +930,9 @@ namespace OSFUI
 		FreeCursor::Apply(false);
 	}
 
-	void Runtime::OnSettingChanged(std::string_view a_modId, std::string_view a_key, const nlohmann::json& a_value)
-	{
-		if (a_modId != "osfui") {
-			return;
-		}
-
-		if (a_key == "language" && a_value.is_string()) {
-			const auto requested = a_value.get<std::string>();
-			const auto locale = requested == "auto" ? LocalizationService::DetectGameLocale(Paths::StarfieldUserDir()) : LocalizationService::NormalizeLocale(requested);
-			if (_localization.SetLocale(locale)) {
-				RefreshLocalizedData();
-			}
-		} else if (a_key == "developerMode" && a_value.is_boolean()) {
-			const auto desired = a_value.get<bool>();
-			if (desired != _developerMode) {
-				REX::INFO("Runtime: developer mode setting changed to {}; effective mode remains {} until the next launch", desired, _developerMode);
-			}
-		} else if (a_key == "highRefreshCapture" && a_value.is_boolean()) {
-			const auto desired = a_value.get<bool>();
-			if (desired != _highRefreshCapture) {
-				REX::INFO("Runtime: high-refresh capture setting changed to {}; effective mode remains {} until the next launch", desired, _highRefreshCapture);
-			}
-		}
-	}
-
 	void Runtime::NotifyKeyboardLayoutChanged()
 	{
-		_keyboardLayoutChanged.store(true);
-	}
-
-	void Runtime::RefreshKeyboardLabels(const char* a_reason)
-	{
-		if (!_settings) {
-			return;
-		}
-		auto labels = BuildKeyLabels(
-			Platform::MakeKeyLabelSource(OverlayInputHook::GameWindowHandle()),
-			[this](std::string_view a_address, std::string_view a_english) {
-				return _localization.Resolve("osfui", a_address, a_english);
-			});
-		if (labels == _keyLabels) {
-			return;  // same layout + locale: nothing to publish
-		}
-		_keyLabels = std::move(labels);
-		_settings->Store().SetKeyboardLabels(_keyLabels.layout, _keyLabels.labels);
-		_settings->BroadcastData();
-		REX::DEBUG("Runtime: keyboard labels rebuilt ({}; layout '{}', {} keys)", a_reason, _keyLabels.layout, _keyLabels.labels.size());
-	}
-
-	std::string Runtime::KeyLabelFor(std::string_view a_name) const
-	{
-		for (const auto& [name, label] : _keyLabels.labels) {
-			if (name == a_name) {
-				return label;
-			}
-		}
-		return std::string(a_name);
-	}
-
-	void Runtime::RefreshLocalizedData()
-	{
-		RefreshKeyboardLabels("locale change");
-		if (_settings) {
-			_settings->Store().InvalidateLocalizedData();
-			if (_controlMap.RefreshLabels(/*localizationChanged*/ true)) {
-				SyncLiveControlMapBindings();
-				PublishPlatformState("keybindings");
-			} else if (_controlMap.Initialized() && !_controlMap.Available()) {
-				SyncLiveControlMapBindings();
-				_runtimeHealth.SyncControlMap();
-				PublishPlatformState("keybindings");
-				PublishPlatformState("input-context");
-			} else {
-				_settings->BroadcastData();
-			}
-		}
-		BroadcastViewsData();
-		PublishPlatformState("i18n");
-	}
-
-	void Runtime::ApplyGameBindingConflictWarnings(bool a_enabled)
-	{
-		if (!_settings) return;
-		if (_settings->Store().SetGameBindingWarningsEnabled(a_enabled)) {
-			_settings->BroadcastData();
-		}
-		REX::DEBUG("Runtime: game-binding conflict warnings {} (read-only game-binding catalog remains available)", a_enabled ? "enabled" : "disabled");
-	}
-
-	void Runtime::SyncLiveControlMapBindings()
-	{
-		if (!_settings) return;
-		std::vector<SettingsStore::GameBinding> bindings;
-		if (_controlMap.Available()) {
-			const auto owner = _localization.Resolve("osfui", "gameBindings.owner", "Starfield");
-			bindings.reserve(_controlMap.ConflictBindings().size());
-			for (const auto& binding : _controlMap.ConflictBindings()) {
-				bindings.push_back({
-					binding.event, owner + " (" + binding.title + ")", binding.code,
-					KeyName(static_cast<ScanCode>(binding.code)), binding.engineInputContextName, binding.slot,
-					binding.classification, binding.definiteModes, binding.possibleModes,
-				});
-			}
-		}
-		auto& store = _settings->Store();
-		const bool bindingsChanged = store.SetGameBindings(std::move(bindings));
-		const bool warningChanged = store.SetGameBindingWarningsEnabled(true);
-		if (bindingsChanged || warningChanged) {
-			_settings->BroadcastData();
-		}
+		// OSF Settings owns keyboard labels and layout changes.
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)
