@@ -114,6 +114,9 @@ namespace OSFUI::Plugin
 			switch (a_msg->type) {
 				case SFSE::MessagingInterface::kPostLoad:
 					REX::INFO("Plugin: SFSE message kPostLoad");
+					if (Runtime::Get().GetConfig().enabled) {
+						Runtime::Get().InstallOverlayDrawPath();
+					}
 					break;
 				case SFSE::MessagingInterface::kPostPostLoad:
 					REX::INFO("Plugin: SFSE message kPostPostLoad");
@@ -164,6 +167,7 @@ namespace OSFUI::Plugin
 						} else {
 							REX::INFO("Plugin: inputSource=none; input hook not installed (toggle key inert)");
 						}
+						Runtime::Get().EnableEngineUi();
 					}
 					break;
 				default:

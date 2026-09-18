@@ -245,19 +245,8 @@ namespace OSFUI
 		// Size the view to the real output so the page renders aspect-correct.
 		_compositor->SetOutputResizeCallback([this](std::uint32_t a_w, std::uint32_t a_h) { OnOutputResized(a_w, a_h); });
 
-		// The overlay records into Starfield's transparent Scaleform UI layer,
-		// upstream of both real-frame composition and Frame Generation. Vtables
-		// are static .rdata, so installation does not wait for the renderer root
-		// like the D3D12 compositor does. There is no present-time fallback: if
-		// the seam cannot be hooked, nothing draws, so fail loudly.
-		if (UiPassSeam::Install()) {
-			_compositor->SetSeamDrawMode(true);
-		} else {
-			REX::ERROR("Runtime: the Scaleform UI seam could not be hooked — OSF UI will not be "
-					   "visible this session. This usually means another mod hooked the same "
-					   "Scaleform vtable slots first, or the game build is not one the seam has "
-					   "been proven on. See the [UiPassSeam] lines above.");
-		}
+		// Install at SFSE kPostLoad, after Luma has patched the vanilla composite
+		// implementation and installed its call-through hook during Plugin_Load.
 #if defined(OSFUI_WITH_WORLD_SURFACES)
 		if (_config.devMode) {
 			// Investigation-only: characterize Starfield's native
@@ -505,6 +494,22 @@ namespace OSFUI
 		return true;
 	}
 
+	bool Runtime::InstallOverlayDrawPath()
+	{
+		if (!_config.enabled || !_compositor) return false;
+		const bool installed = UiPassSeam::Install();
+		_compositor->SetSeamDrawMode(installed);
+		_overlayDrawAvailable.store(installed, std::memory_order_release);
+		_overlayDrawInstallPending.store(false, std::memory_order_release);
+		_overlayDrawPolicyPending.store(true, std::memory_order_release);
+		if (!installed) {
+			REX::ERROR("Runtime: the Scaleform UI seam could not be hooked — menu opens will be "
+					   "refused this session so OSF UI cannot capture input without a draw path. "
+					   "See the [UiPassSeam] lines above.");
+		}
+		return installed;
+	}
+
 	void Runtime::Shutdown()
 	{
 		// SFSE provides no plugin shutdown callback; this is only reached if
@@ -560,6 +565,11 @@ namespace OSFUI
 	{
 		if (!_initialized) {
 			return;
+		}
+		// Apply startup requests once installation has resolved, even when no
+		// new menu command arrives. ApplyMenuRequests otherwise skips empty work.
+		if (_overlayDrawPolicyPending.exchange(false, std::memory_order_acq_rel)) {
+			ApplyMenuPolicy();
 		}
 		_uptime += a_deltaSeconds;
 		DrainBugReportResult();
@@ -659,21 +669,19 @@ namespace OSFUI
 		}
 		// Reconcile engine menu-mode + control-disable toward the derived capture
 		// state (not visibility): a live HUD must not disable controls.
-		if (_config.focusMenu) {
-			ReconcileFocusMenu();
+		// The BSService queue already drains during boot, before game data exists.
+		// An openOnStart menu must not change input-enable masks then: the manager
+		// can exist while its player-control event listeners still dereference a
+		// null player. kPostPostDataLoad publishes readiness after UI integration.
+		// This latch never resets, so later loss of capture always releases locks.
+		if (_engineUiReady.load(std::memory_order_acquire)) {
+			if (_config.focusMenu) {
+				ReconcileFocusMenu();
+			}
+			ReconcileControlLayer();
+			ReconcileSimPause();
+			FreeCursor::Apply(_menus.DesiredCapture());
 		}
-		// Unconditional, so losing capture releases any engaged lock (a gate here
-		// would stop reconciling and strand the player's controls).
-		ReconcileControlLayer();
-		// Sim pause (manifest pausesGame) — unconditional: a direct
-		// Main::isGameMenuPaused write, independent of the engine focus menu.
-		ReconcileSimPause();
-		// OS-cursor release — unconditional, tracks capture (the same policy that
-		// activates the hardware cursor): while a menu captures input, hold a
-		// reference on MenuCursor::freeCursorRefCount so the per-frame clip
-		// releases the pointer (no engine arrow — the focus menu carries no
-		// ShowCursor bit). Edge-triggered inside Apply.
-		FreeCursor::Apply(_menus.DesiredCapture());
 		if (_config.engineInput) {
 			DrainEngineInput(a_deltaSeconds);
 		}
@@ -933,6 +941,10 @@ namespace OSFUI
 
 	bool Runtime::BeginSurfaceOpen(std::string_view a_id)
 	{
+		if (!_overlayDrawAvailable.load(std::memory_order_acquire)) {
+			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable", a_id);
+			return false;
+		}
 		if (_rendererFailed) {
 			REX::WARN("Runtime: cannot open '{}' - the Web renderer failed earlier this session", a_id);
 			return false;
@@ -1173,6 +1185,17 @@ namespace OSFUI
 	{
 		if (!_renderer) {
 			return;
+		}
+		// Initialize can queue openOnStart menus before kPostLoad. Preserve those
+		// requests without claiming input; the first tick after install applies them.
+		if (_overlayDrawInstallPending.load(std::memory_order_acquire)) {
+			_captureInput.store(false);
+			return;
+		}
+		// Legacy registration and page-driven opens also reach this path.
+		if (!_overlayDrawAvailable.load(std::memory_order_acquire) && _menus.ActiveMenu()) {
+			REX::WARN("Runtime: closing a requested menu because the Scaleform UI draw path is unavailable");
+			_menus.CloseTop();
 		}
 		// Per-surface hidden + composite z, derived from the band order: HUDs
 		// beneath menus; HUDs by `order`, menus by open-stack position.
@@ -1816,12 +1839,14 @@ namespace OSFUI
 		// The fatal callback arrives from renderer Update(), after Tick's normal
 		// policy reconciliation. Release every engine-side effect now instead of
 		// leaving actors, controls, pause, or the cursor stranded for another frame.
-		if (_config.focusMenu) {
-			ReconcileFocusMenu();
+		if (_engineUiReady.load(std::memory_order_acquire)) {
+			if (_config.focusMenu) {
+				ReconcileFocusMenu();
+			}
+			ReconcileControlLayer();
+			ReconcileSimPause();
+			FreeCursor::Apply(false);
 		}
-		ReconcileControlLayer();
-		ReconcileSimPause();
-		FreeCursor::Apply(false);
 	}
 
 	void Runtime::OnRendererHealth(const IWebRenderer::HealthEvent& a_event)

@@ -51,6 +51,9 @@ namespace OSFUI::Platform
 	// are refused. Response bodies are capped.
 	[[nodiscard]] HttpResponse PostJson(std::string_view a_url, std::string_view a_body);
 
+	// File name of the loaded module owning this address, or empty if unknown.
+	[[nodiscard]] std::string ModuleNameForAddress(const void* a_address);
+
 	// True when [a_address, a_address + a_size) is committed, non-guard,
 	// readable memory (VirtualQuery walk). For probing engine pointers.
 	[[nodiscard]] bool IsReadableRange(std::uintptr_t a_address, std::size_t a_size);

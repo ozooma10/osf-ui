@@ -29,6 +29,10 @@ namespace OSFUI
 		[[nodiscard]] static Runtime& Get();
 
 		bool Initialize();
+		// Luma must finish patching the vanilla composite before we chain it.
+		bool InstallOverlayDrawPath();
+		// Lifecycle notification only; engine effects remain on the queued tick.
+		void EnableEngineUi() { _engineUiReady.store(true, std::memory_order_release); }
 		void Shutdown();
 
 		// Advances the renderer and submits a frame when visible. Called on the
@@ -492,6 +496,10 @@ namespace OSFUI
 		std::atomic<KeyCode>          _captureUpVk{ kInvalidKeyCode };
 
 		std::atomic_bool              _visible{ false };
+		std::atomic_bool              _overlayDrawAvailable{ false };
+		std::atomic_bool              _overlayDrawInstallPending{ true };
+		std::atomic_bool              _overlayDrawPolicyPending{ false };
+		std::atomic_bool              _engineUiReady{ false };
 		bool                          _rendererFailed{ false };  // terminal; opens fail closed until restart
 		bool                          _initialized{ false };
 

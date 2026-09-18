@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Abandoned view mirrors in `%LOCALAPPDATA%\OSFUI` are now removed on the next MO2 launch, preventing a full copy of installed views from accumulating after each game session. Mirrors belonging to running processes are preserved, failed deletions are retried on later launches, and settings and WebView2 browser data are left intact.
+- Fixed the render-hook conflict with Luma HDR by installing OSF UI's hooks after peer plugins have loaded, chaining Luma's composite hook, and matching its HDR UI buffer format. If the draw path cannot be installed, menu opens are refused so an invisible overlay cannot capture input.
+- Views configured to open at startup are applied after render-hook installation and no longer change gameplay controls before Starfield finishes loading its game data, preventing an invisible startup menu or a crash before the main menu.
+
 ## 1.5.0 — 2026-07-29
 
 ### Highlights

@@ -225,6 +225,22 @@ namespace OSFUI::Platform
 		return std::filesystem::path(buffer);
 	}
 
+	std::string ModuleNameForAddress(const void* a_address)
+	{
+		if (!a_address) return {};
+		HMODULE module = nullptr;
+		if (!::GetModuleHandleExW(
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				reinterpret_cast<LPCWSTR>(a_address), &module) || !module) {
+			return {};
+		}
+		std::wstring buffer(MAX_PATH, L'\0');
+		const auto length = ::GetModuleFileNameW(module, buffer.data(), static_cast<DWORD>(buffer.size()));
+		if (length == 0 || length >= buffer.size()) return {};
+		buffer.resize(length);
+		return std::filesystem::path(buffer).filename().string();
+	}
+
 	bool IsReadableRange(const std::uintptr_t a_address, const std::size_t a_size)
 	{
 		if (a_address == 0 || a_size == 0) {

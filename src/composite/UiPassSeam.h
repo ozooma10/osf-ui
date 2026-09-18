@@ -15,8 +15,9 @@ namespace OSFUI::UiPassSeam
 	//
 	// Pass executes run on a render-worker pool whose worker changes per frame,
 	// so no engine resource or command list is retained across calls. Hooks fail
-	// closed when a vtable slot does not hold the expected game implementation.
-	// There is no uninstall; process exit owns teardown.
+	// closed when a vtable slot does not hold the expected game implementation,
+	// except for the explicitly proven Luma ScaleformComposite call-through
+	// chain. There is no uninstall; process exit owns teardown.
 	//
 	// Installs the Begin/End/Composite hooks and enables the seam draw. This is
 	// the only path that puts the overlay on screen — the present-time renderer

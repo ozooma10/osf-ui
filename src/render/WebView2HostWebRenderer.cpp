@@ -13,6 +13,7 @@
 #include "core/Log.h"
 #include "core/Version.h"
 #include "runtime/DevViewFiles.h"
+#include "runtime/ViewMirrorCleanup.h"
 #include "input/OverlayInputHook.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -131,7 +132,7 @@ namespace OSFUI
 		{
 			const HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 			if (snapshot == INVALID_HANDLE_VALUE) {
-				return false;
+				return true;  // Unknown: retain the legacy shared mirror.
 			}
 			PROCESSENTRY32W entry{ .dwSize = sizeof(PROCESSENTRY32W) };
 			bool found = false;
@@ -143,8 +144,20 @@ namespace OSFUI
 					}
 				} while (::Process32NextW(snapshot, &entry));
 			}
+			if (!found && ::GetLastError() != ERROR_NO_MORE_FILES) found = true;
 			::CloseHandle(snapshot);
 			return found;
+		}
+
+		bool ProcessIsAlive(std::uint32_t a_pid)
+		{
+			const HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, a_pid);
+			if (!process) {
+				return ::GetLastError() != ERROR_INVALID_PARAMETER;
+			}
+			const bool alive = ::WaitForSingleObject(process, 0) != WAIT_OBJECT_0;
+			::CloseHandle(process);
+			return alive;
 		}
 
 		// Last lines of the host's own log, for embedding into this log when the
@@ -528,6 +541,17 @@ namespace OSFUI
 			mappedViewsRoot = viewsRoot;
             usesViewsMirror = false;
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return;
+			// SFSE has no shutdown callback, so normal exits can strand mirrors too.
+			// Retry at startup; a live or inaccessible owner must keep its files.
+			const auto localRoot = LocalOsfuiDir();
+			const auto cleanup = ViewMirrorCleanup::Scavenge(
+				localRoot, HostProcessRunning(), ProcessIsAlive);
+			if (cleanup.removed) {
+				REX::INFO("WebView2HostWebRenderer: removed {} abandoned views mirror(s)", cleanup.removed);
+			}
+			if (cleanup.failed) {
+				REX::WARN("WebView2HostWebRenderer: {} views mirror cleanup operation(s) failed; retrying next launch", cleanup.failed);
+			}
 			std::error_code ec;
 			// A fresh path per game process is deliberate. Reusing the stable
 			// `views-mirror` folder allowed a stale browser/helper process (or a
@@ -542,7 +566,7 @@ namespace OSFUI
 				mirrorName += std::format("-{}", config.instanceName);
 			}
 #endif
-			const auto mirror = LocalOsfuiDir() / mirrorName;
+			const auto mirror = localRoot / mirrorName;
 			std::filesystem::remove_all(mirror, ec);
 			if (ec) {
 				REX::WARN("WebView2HostWebRenderer: could not clear per-run views mirror '{}' "
@@ -1227,9 +1251,8 @@ namespace OSFUI
 			pipe.Close();
 			if (worker.joinable()) worker.join();
 			started.store(false);
-			// The host and browser are gone, so their per-run real-path view tree
-			// is no longer needed. A crash may strand one, but the next process
-			// uses a different path and cannot consume it.
+			// Best-effort early cleanup. Startup also scavenges abandoned mirrors
+			// because normal process exit does not reliably reach this path.
 			{
 				std::scoped_lock mirrorLock(viewsMirrorMutex);
 				if (usesViewsMirror && mappedViewsRoot != viewsRoot) {
@@ -1237,7 +1260,7 @@ namespace OSFUI
 					std::filesystem::remove_all(mappedViewsRoot, ec);
 					if (ec) {
 						REX::DEBUG("WebView2HostWebRenderer: per-run views mirror cleanup "
-								   "deferred to the OS ({})", ec.message());
+								   "will be retried next launch ({})", ec.message());
 					}
 					usesViewsMirror = false;
 				}

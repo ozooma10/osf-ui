@@ -51,6 +51,8 @@ SUITES=(
 "config_defaults_tests config_defaults_tests.cpp ../../src/core/Config.cpp ../../src/runtime/Json.cpp"
 "world_surface_config_tests world_surface_config_tests.cpp ../../src/core/Config.cpp ../../src/runtime/Json.cpp"
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/runtime/DevViewFiles.cpp"
+"view_mirror_cleanup_tests view_mirror_cleanup_tests.cpp"
+"ui_pass_seam_policy_tests ui_pass_seam_policy_tests.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
