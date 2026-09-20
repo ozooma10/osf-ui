@@ -1,0 +1,10 @@
+{
+  "manifestVersion": 1,
+  "title": "Settings integration example",
+  "entry": "index.html",
+  "kind": "menu",
+  "width": 900,
+  "height": 560,
+  "capturesInput": true,
+  "pausesGame": false
+}

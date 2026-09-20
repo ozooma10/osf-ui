@@ -23,10 +23,12 @@ int main()
 {
     const auto runtime = Read("../../src/Runtime/Runtime.cpp");
     const auto input = Read("../../src/Input/RuntimeInput.cpp");
+    const auto plugin = Read("../../src/Core/Plugin.cpp");
+    const auto frame = Read("../../src/Runtime/RuntimeFrame.cpp");
     const auto ids = Read("../../src/Core/Ids.h");
 
     const auto init = runtime.find("bool Runtime::Initialize()");
-    const auto postLoad = runtime.find("void Runtime::OnPostLoad()");
+    const auto postLoad = runtime.find("void Runtime::OnPostPostLoad()");
     const auto lazy = runtime.find("bool Runtime::EnsureWebRuntime()");
     Check(init != std::string::npos && postLoad != std::string::npos && lazy != std::string::npos,
         "runtime entry points exist");
@@ -38,7 +40,17 @@ int main()
         "lightweight initialization does not construct the WebView runtime");
     const auto postLoadBody = runtime.substr(postLoad, lazy - postLoad);
     Check(postLoadBody.find("_osfSettings.Initialize()") != std::string::npos,
-        "OSF Settings is acquired on SFSE kPostLoad");
+        "OSF Settings is acquired on SFSE kPostPostLoad");
+    Check(plugin.find("case SFSE::MessagingInterface::kPostPostLoad:") != std::string::npos,
+        "dependency acquisition is dispatched at the Slim SDK lifecycle point");
+    Check(frame.find("_retainedState.Set") < frame.find("if (_bridge)"),
+        "owner state is retained before a lazy browser exists");
+    const auto tick = frame.substr(frame.find("void Runtime::Tick"));
+    Check(tick.find("_runtimeHealth.Pump()") < tick.find("!_osfSettings.Available()"),
+        "diagnostics retry even while the renderer is absent or UI is inert");
+    const auto policy = runtime.substr(runtime.find("void Runtime::ApplyViewPresentationPolicy()"));
+    Check(policy.find("ReconcileInputSuppression()") < policy.find("SetInputTargetView"),
+        "hotkeys are blocked before the browser receives input focus");
     const auto lazyEnd = runtime.find("bool Runtime::InstallOverlayDrawPath()", lazy);
     const auto lazyBody = runtime.substr(lazy, lazyEnd - lazy);
     Check(lazyBody.find("InitializeRenderer()") != std::string::npos &&

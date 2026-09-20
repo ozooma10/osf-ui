@@ -70,12 +70,12 @@ namespace OSFUI
 			_browserHostRecovery.Reset();
 			_rendererFailed = false;
 			_rendererFailureLatched = false;
+			_osfSettings.ClearFailure("runtime.renderer");
 			REX::INFO("Runtime: replacement browser host responded on attempt {}; the overlay remains closed until the player opens it", attempts);
 		}
 		m_viewLoads.FinishLoad(id, a_failed);
 		m_viewInputGrants.ResetPage(id);
 		if (!a_failed) {
-			_osfSettings.ClearFailure("view." + id);
 			const auto loadedAt = ViewTimingClock::now();
 			if (_coldOpenTiming && _coldOpenTiming->viewId == id) {
 				_coldOpenTiming->loadedAt = loadedAt;
@@ -99,9 +99,6 @@ namespace OSFUI
 		if(recovery.exhausted) {
 			REX::ERROR("view '{}' has exhausted its crash-recovery budget; destroying and unregistering the view (fix its files and relaunch)", a_viewId);
 			_runtimeHealth.ReportViewLoad(a_viewId, true, a_description, a_errorCode, 0);
-			_osfSettings.ReportFailure("view." + id, "view.load-failed",
-				"A web view exhausted its recovery budget",
-				{ { "view", id }, { "url", a_url }, { "detail", a_description }, { "errorCode", a_errorCode } });
 			TearDownFailedView(id);
 			return;
 		}

@@ -146,7 +146,8 @@ namespace OSFUI::API::Views
 		bool Init(std::uint32_t a_version = kBaseVersion) noexcept
 		{
 			std::uint32_t actual = 0;
-			return Attach(RequestInterface(a_version, &actual), actual);
+			auto* api = RequestInterface(a_version, &actual);
+			return Attach(api, actual);
 		}
 		// Attaches a fetched interface or detaches on nullptr/incompatible version.
 		bool Attach(IViews* a_api, std::uint32_t a_version = kVersion) noexcept

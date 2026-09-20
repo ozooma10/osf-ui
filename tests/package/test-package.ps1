@@ -22,6 +22,7 @@ foreach ($relative in $required) {
 }
 
 foreach ($relative in 'SFSE\Plugins\OSFUI', 'SFSE\Plugins\OSFSettings.dll',
+        'SFSE\Plugins\OSFUISettingsExample.dll', 'SFSE\Plugins\OSF\UI\views\osfui-example',
         'Scripts\OSFUI_Settings.pex') {
     if (Test-Path -LiteralPath (Join-Path $root $relative)) {
         throw "OSF UI package contains legacy or sibling-owned path: $relative"

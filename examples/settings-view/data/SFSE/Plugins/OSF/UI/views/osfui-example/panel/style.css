@@ -1,0 +1,6 @@
+html { color-scheme: dark; font: 20px system-ui, sans-serif; background: #111b25; color: #f2f5f7; }
+body { margin: 0; }
+main { padding: 48px; }
+h1 { font-size: 32px; }
+p { line-height: 1.6; }
+button { margin-top: 24px; padding: 12px 28px; font: inherit; cursor: pointer; }

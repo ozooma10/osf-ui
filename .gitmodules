@@ -3,4 +3,4 @@
 	url = https://github.com/ozooma10/commonlibsf.git
 [submodule "lib/osf-settings"]
 	path = lib/osf-settings
-	url = https://github.com/ozooma10/osf-settings.git
+	url = https://github.com/ozooma10/osf-settings-slim.git

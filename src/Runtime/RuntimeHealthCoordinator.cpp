@@ -1,36 +1,18 @@
 #include "Runtime/RuntimeHealthCoordinator.h"
 
-#include "Composite/UiPass.h"
-#include "Core/Version.h"
 #include "Runtime/Runtime.h"
 
 namespace OSFUI
 {
-	namespace { constexpr double kPollSeconds{ 2.0 }; }
-
 	void RuntimeHealthCoordinator::Pump()
 	{
-		auto& runtime = _runtime;
-		if (runtime._uptime >= _nextPoll) {
-			_nextPoll = runtime._uptime + kPollSeconds;
-			UpdateSystemInfo();
-		}
-		runtime._osfSettings.SyncDiagnostics(runtime._healthRegistry.Snapshot());
+		_runtime._osfSettings.SyncDiagnostics(_runtime._healthRegistry.ActiveIssues());
 	}
 
-	void RuntimeHealthCoordinator::UpdateSystemInfo()
+	void RuntimeHealthCoordinator::OnViewGreeted(std::string_view a_viewId)
 	{
-		auto& runtime = _runtime;
-		runtime._healthRegistry.SetSystemInfo(nlohmann::json{
-			{ "version", kOsfuiReleaseVersion },
-			{ "bridgeVersion", kBridgeProtocolVersion },
-			{ "renderer", runtime._renderer ? "webview2" : "deferred" },
-			{ "compositor", runtime._compositor ? "d3d12" : "deferred" },
-			{ "drawPath", runtime.OverlayCanDraw() ? "ui-pass" : "deferred" },
-			{ "frameGeneration", UiPass::FrameGenerationActive() },
-			{ "devMode", runtime._developerMode },
-			{ "highRefreshCapture", runtime._highRefreshCapture },
-		});
+		_viewProtocolFaultCounts.erase(std::string(a_viewId));
+		_runtime._healthRegistry.Resolve(std::format("view.protocol-misuse:{}", a_viewId));
 	}
 
 	void RuntimeHealthCoordinator::OnRendererHealth(
@@ -38,7 +20,7 @@ namespace OSFUI
 	{
 		auto& runtime = _runtime;
 		_healthReconciler.ReportRendererHealth(runtime._healthRegistry, a_event.code,
-			a_event.active, a_event.detail, runtime._renderer != nullptr, runtime._uptime);
+			a_event.active, a_event.detail, runtime._renderer != nullptr);
 	}
 
 	void RuntimeHealthCoordinator::ReportViewLoad(std::string_view a_viewId, bool a_failed,
@@ -46,7 +28,7 @@ namespace OSFUI
 	{
 		auto& runtime = _runtime;
 		_healthReconciler.ReportViewLoad(runtime._healthRegistry, a_viewId, a_failed,
-			a_description, a_errorCode, a_attemptsLeft, runtime._uptime);
+			a_description, a_errorCode, a_attemptsLeft);
 	}
 
 	void RuntimeHealthCoordinator::ReportProtocolFault(
@@ -57,7 +39,7 @@ namespace OSFUI
 		const auto count = ++_viewProtocolFaultCounts[std::string(a_viewId)];
 		if (count == kProtocolFaultThreshold) {
 			_healthReconciler.ReportProtocolMisuse(_runtime._healthRegistry,
-				a_viewId, a_code, count, _runtime._uptime);
+				a_viewId, a_code, count);
 		}
 	}
 }

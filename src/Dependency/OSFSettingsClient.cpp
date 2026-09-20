@@ -1,93 +1,164 @@
 #include "Dependency/OSFSettingsClient.h"
 
-#include <iomanip>
-#include <sstream>
-
 #include "Core/Json.h"
-#include "Core/Version.h"
 
 namespace OSFUI
 {
+	namespace
+	{
+		using Status = OSFSettings::API::Status;
+		using Severity = OSFSettings::API::Diagnostics::Severity;
+		constexpr const char* kRepair = "Check the mod installation and the OSF UI log, then restart Starfield.";
+	}
+
 	bool OSFSettingsClient::Initialize()
 	{
-		_settingsAvailable = _settings.Init(OSFSettings::API::Settings::kVersion);
-		_diagnosticsAvailable = _diagnostics.Init(OSFSettings::API::Diagnostics::kVersion);
-		if (!_settingsAvailable) {
-			REX::ERROR("OSF UI requires OSF Settings >=1.0.0 <2.0.0; compatible RequestSettings table was not found");
-			if (_diagnosticsAvailable) ReportFailure("dependency", "dependency.settings-incompatible",
-				"OSF UI requires OSF Settings >=1.0.0 <2.0.0");
+		const bool settingsAvailable = _settings.Init();
+		const bool diagnosticsAvailable = _diagnostics.Init();
+		_available = settingsAvailable && _settings.IsReady() && diagnosticsAvailable;
+		if (!_available) {
+			REX::ERROR("OSF UI requires ready OSF Settings Slim services (settings ABI 1.0 and diagnostics ABI 1.0); settings={}, ready={}, diagnostics={}",
+				settingsAvailable, _settings.IsReady(), diagnosticsAvailable);
+			ReportFailure("dependency", "dependency.settings-unavailable", "OSF UI cannot start without compatible OSF Settings services");
 			return false;
 		}
-		if (!_diagnosticsAvailable) {
-			REX::ERROR("OSF UI requires the OSF Settings v1 Diagnostics table");
-			return false;
-		}
-
-		OSFSettings::API::Diagnostics::ComponentInfo info;
-		info.id = "osfui"; info.name = "OSF UI"; info.version = kOsfuiReleaseVersion; info.build = "webview-addon";
-		_diagnostics.RegisterComponent(info);
-		_settings.GetBool("osfui", "developerMode", &_developerMode);
-		_settings.GetBool("osfui", "highRefreshCapture", &_highRefreshCapture);
+		ReadStartupBool("developerMode", _developerMode);
+		ReadStartupBool("highRefreshCapture", _highRefreshCapture);
 		ClearFailure("dependency");
 		return true;
 	}
 
-	std::string OSFSettingsClient::BoundedId(std::string_view a_id)
+	void OSFSettingsClient::ReadStartupBool(const char* a_key, bool& a_value)
 	{
-		if (a_id.size() <= 64) return std::string(a_id);
-		std::uint64_t hash = 14695981039346656037ull;
-		for (const auto c : a_id) { hash ^= static_cast<unsigned char>(c); hash *= 1099511628211ull; }
-		std::ostringstream suffix; suffix << std::hex << std::setw(16) << std::setfill('0') << hash;
-		return std::string(a_id.substr(0, 47)) + "-" + suffix.str();
+		a_value = false;
+		const auto status = _settings.GetBool("osfui", a_key, &a_value);
+		if (status == Status::Ok) return;
+		a_value = false;
+		REX::WARN("OSF Settings read failed for osfui/{}: status {}; using false until restart", a_key, static_cast<unsigned>(status));
+		IssueText issue{ Severity::Warning, "An OSF UI startup setting could not be read",
+			std::format("{} is disabled for this session.", a_key),
+			"Reinstall OSF UI's osfui.json settings schema and restart Starfield." };
+		const auto id = std::string("settings.") + a_key;
+		_directFailures.insert_or_assign(id, issue);
+		Report(id, issue);
+	}
+
+	bool OSFSettingsClient::Check(Status a_status, std::string a_operation)
+	{
+		if (a_status == Status::Ok) {
+			_failedOperations.erase(a_operation);
+			return true;
+		}
+		if (_failedOperations.insert(a_operation).second) {
+			REX::WARN("OSF Settings {} failed: status {}; will retry", a_operation, static_cast<unsigned>(a_status));
+		}
+		return false;
+	}
+
+	void OSFSettingsClient::Report(std::string_view a_id, const IssueText& a_issue)
+	{
+		if (!_diagnostics) return;
+		const auto id = std::string(a_id);
+		const auto existing = _reported.find(id);
+		if (existing != _reported.end() && existing->second == a_issue) return;
+		const OSFSettings::API::Diagnostics::Issue issue{
+			.modId = "osfui", .id = id.c_str(), .severity = a_issue.severity,
+			.title = a_issue.title.c_str(), .impact = a_issue.impact.c_str(), .nextSteps = a_issue.nextSteps.c_str()
+		};
+		if (Check(_diagnostics.Report(issue), "report " + id)) _reported.insert_or_assign(id, a_issue);
+	}
+
+	bool OSFSettingsClient::Clear(std::string_view a_id)
+	{
+		const auto id = std::string(a_id);
+		_failedOperations.erase("report " + id);
+		if (!_reported.contains(id)) return true;
+		if (!Check(_diagnostics.Clear("osfui", id.c_str()), "clear " + id)) return false;
+		_reported.erase(id);
+		return true;
 	}
 
 	void OSFSettingsClient::ReportFailure(std::string_view a_id, std::string_view a_code,
 		std::string_view a_message, const nlohmann::json& a_context)
 	{
-		if (!_diagnosticsAvailable) return;
-		const auto id = BoundedId(a_id); auto context = Json::Dump(a_context);
-		_directFailures.insert(id);
-		_diagnostics.Report("osfui", id.c_str(), std::string(a_code).c_str(),
-			OSFSettings::API::Diagnostics::Severity::kError, std::string(a_message).c_str(), context.c_str());
+		REX::ERROR("OSF UI failure {} [{}]: {} {}", a_id, a_code, a_message, Json::Dump(a_context));
+		IssueText issue{ Severity::Error, std::string(a_message), {}, kRepair };
+		if (const auto view = Json::Get(a_context, "view", ""); !view.empty()) {
+			issue.impact = std::format("The view '{}' is unavailable.", view);
+		}
+		const auto id = std::string(a_id);
+		_directFailures.insert_or_assign(id, issue);
+		Report(id, issue);
 	}
 
 	void OSFSettingsClient::ClearFailure(std::string_view a_id)
 	{
-		if (!_diagnosticsAvailable) return;
-		const auto id = BoundedId(a_id);
-		_directFailures.erase(id);
-		_diagnostics.Clear("osfui", id.c_str());
+		_directFailures.erase(std::string(a_id));
+		Clear(a_id);
 	}
 
-	void OSFSettingsClient::SyncDiagnostics(const nlohmann::json& a_snapshot)
+	OSFSettingsClient::IssueText OSFSettingsClient::Describe(const HealthRegistry::IssueSpec& a_issue)
 	{
-		if (!_diagnosticsAvailable) return;
-		const auto serialized = Json::Dump(a_snapshot);
-		if (serialized == _lastSnapshot) return;
-		_lastSnapshot = serialized;
-		nlohmann::json keep = nlohmann::json::array();
-		for (const auto& id : _directFailures) keep.push_back(id);
-		if (const auto* issues = Json::GetArray(a_snapshot, "issues")) for (const auto& issue : *issues) {
-			if (Json::Get(issue, "status", "active") != "active") continue;
-			const auto id = BoundedId(Json::Get(issue, "id", "runtime")); keep.push_back(id);
-			const auto code = Json::Get(issue, "code", "runtime.failure");
-			const auto message = Json::Get(issue, "subject", code);
-			const auto severity = Json::Get(issue, "severity", "warning") == "error" ?
-				OSFSettings::API::Diagnostics::Severity::kError : OSFSettings::API::Diagnostics::Severity::kWarning;
-			auto context = issue.contains("context") ? Json::Dump(issue["context"]) : std::string("{}");
-			_diagnostics.Report("osfui", id.c_str(), code.c_str(), severity, message.c_str(), context.c_str());
+		IssueText result{ a_issue.severity == HealthRegistry::Severity::Error ? Severity::Error : Severity::Warning,
+			"OSF UI encountered a WebView problem", "A mod's web interface may be unavailable or degraded.", kRepair };
+		if (a_issue.code == "view.load-retrying") {
+			result.title = "A mod WebView is taking longer to load";
+			result.nextSteps = "OSF UI is retrying automatically. Check the mod installation if the problem persists.";
+		} else if (a_issue.code == "view.load-failed") {
+			result.title = "A mod WebView could not load";
+		} else if (a_issue.code == "view.protocol-misuse") {
+			result.title = "A mod WebView is sending unsupported requests";
+			result.nextSteps = "Update the owning mod and OSF UI to compatible versions.";
+		} else if (a_issue.code == "host.ring-truncated") {
+			result.title = "OSF UI is dropping browser frame data";
+			result.impact = "WebViews may appear incomplete or fail to refresh.";
 		}
-		const auto keepJson = Json::Dump(keep); _diagnostics.ClearExcept("osfui", keepJson.c_str());
+		if (a_issue.code.starts_with("view.") && !a_issue.subject.empty()) {
+			result.impact = std::format("The view '{}' may be unavailable or degraded.", a_issue.subject);
+		}
+		return result;
 	}
 
-	void OSFSettingsClient::AcquireInputSuppression()
+	void OSFSettingsClient::SyncDiagnostics(std::span<const HealthRegistry::IssueSpec> a_issues)
 	{
-		if (!_suppressionLease && _settingsAvailable) _suppressionLease = _settings.AcquireSuppression("osfui-web-focus");
+		if (!_diagnostics) return;
+		std::unordered_set<std::string> keep;
+		for (const auto& [id, issue] : _directFailures) {
+			keep.insert(id);
+			Report(id, issue);
+		}
+		for (const auto& issue : a_issues) {
+			keep.insert(issue.id);
+			if (!_directFailures.contains(issue.id)) Report(issue.id, Describe(issue));
+		}
+		// Copy IDs before erasing; a failed clear must remain cached for a later retry.
+		std::vector<std::string> resolved;
+		for (const auto& [id, issue] : _reported) if (!keep.contains(id)) resolved.push_back(id);
+		for (const auto& id : resolved) Clear(id);
+		std::erase_if(_failedOperations, [&](const auto& operation) {
+			return operation.starts_with("report ") && !keep.contains(operation.substr(7));
+		});
 	}
 
-	void OSFSettingsClient::ReleaseInputSuppression()
+	bool OSFSettingsClient::AcquireInputSuppression()
 	{
-		if (!_suppressionLease) return;
-		_settings.ReleaseSuppression(_suppressionLease); _suppressionLease = 0;
+		if (_hotkeyBlock) return true;
+		if (!_available) return false;
+		OSFSettings::API::HotkeyBlock block{};
+		const auto status = _settings.AcquireHotkeyBlock(&block);
+		if (!Check(status, "acquire hotkey block") || !block) return false;
+		_hotkeyBlock = block;
+		ClearFailure("input.hotkey-block");
+		return true;
+	}
+
+	bool OSFSettingsClient::ReleaseInputSuppression()
+	{
+		if (!_hotkeyBlock) return true;
+		const auto status = _settings.ReleaseHotkeyBlock(_hotkeyBlock);
+		if (status != Status::UnknownHotkeyBlock && !Check(status, "release hotkey block")) return false;
+		_hotkeyBlock = 0;
+		_failedOperations.erase("release hotkey block");
+		return true;
 	}
 }

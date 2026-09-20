@@ -300,18 +300,33 @@ namespace OSFUI
 		}
 	}
 
+	bool Runtime::ReconcileInputSuppression()
+	{
+		if (!_presentation.DesiredCapture()) {
+			// Retry failed releases after the close edge, including cancellation and renderer failure.
+			_osfSettings.ReleaseInputSuppression();
+			return true;
+		}
+		if (_osfSettings.AcquireInputSuppression()) return true;
+		_osfSettings.ReportFailure("input.hotkey-block", "input.hotkey-block",
+			"The WebView cannot capture input because OSF hotkeys could not be blocked");
+		CancelPendingOpen();
+		_viewOpenPreflightBarriers.clear();
+		_presentation.CloseAll();
+		return false;
+	}
+
 	void Runtime::ReconcileFocusMenu()
 	{
+		if (!ReconcileInputSuppression()) ApplyViewPresentationPolicy();
 		const bool wantOpen = _presentation.DesiredCapture();
 		if (wantOpen != _focusMenuOpen) {
 			_focusMenuOpen = wantOpen;
 			_focusMenuMismatchSince = -1.0;  // fresh request: full grace window
 			if (wantOpen) {
-				_osfSettings.AcquireInputSuppression();
 				FocusMenu::Open();
 			} else {
 				FocusMenu::Close();
-				_osfSettings.ReleaseInputSuppression();
 			}
 			return;
 		}

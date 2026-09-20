@@ -179,16 +179,16 @@ namespace OSFUI
 		}
 
 		_initialized = true;
-		REX::INFO("Runtime: add-on loaded; waiting for SFSE kPostLoad before acquiring OSF Settings");
+		REX::INFO("Runtime: add-on loaded; waiting for SFSE kPostPostLoad before acquiring OSF Settings");
 		return true;
 	}
 
-	void Runtime::OnPostLoad()
+	void Runtime::OnPostPostLoad()
 	{
-		if (_postLoadAttempted) {
+		if (_postPostLoadAttempted) {
 			return;
 		}
-		_postLoadAttempted = true;
+		_postPostLoadAttempted = true;
 		if (!_osfSettings.Initialize()) {
 			REX::ERROR("Runtime: OSF Settings dependency unavailable or ABI-incompatible; OSF UI remains inert");
 			return;
@@ -718,6 +718,9 @@ namespace OSFUI
 			_presentation.CloseActiveMenu();
 		}
 
+		// Block OSF hotkeys before publishing browser visibility or input capture.
+		ReconcileInputSuppression();
+
 		const auto layers = _presentation.DesiredLayers();
 		for (const auto& layer : layers) {
 			_renderer->SetViewOrder(layer.id, layer.z);
@@ -731,6 +734,7 @@ namespace OSFUI
 		// A menu switch is intentionally show-before-hide. The browser host keeps the outgoing visual until the incoming view passes its paint handshake;
 		for (const auto& layer : layers) {
 			if (!layer.hidden) {
+				_osfSettings.ClearFailure("view." + layer.id);
 				_renderer->SetViewHidden(layer.id, false);
 			}
 		}
@@ -903,6 +907,9 @@ namespace OSFUI
 		}
 		_rendererFailureLatched = true;
 		_rendererFailed = true;
+		_osfSettings.ReportFailure("runtime.renderer", "webview.renderer-failed",
+			"The OSF UI browser stopped working",
+			{ { "view", a_event.viewId }, { "stage", a_event.stage }, { "detail", a_event.description }, { "errorCode", a_event.errorCode } });
 		const bool retryableBrowserHostLoss =
 			a_event.stage == "host-connection" && _renderer;
 		if (retryableBrowserHostLoss) {

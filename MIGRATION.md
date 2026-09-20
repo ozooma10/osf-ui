@@ -1,8 +1,8 @@
 # Migrating to OSF UI 2.0
 
 OSF UI 2.0 is an intentional compatibility break. It is now only a WebView
-host, JavaScript bridge, compositor, and web-input add-on. Install OSF Settings
-1.x alongside it.
+host, JavaScript bridge, compositor, and web-input add-on. Install OSF Settings Slim
+with settings and diagnostics ABI 1.0 alongside it.
 
 ## Removed from OSF UI
 
@@ -17,9 +17,20 @@ host, JavaScript bridge, compositor, and web-input add-on. Install OSF Settings
 - every legacy 1.x bridge/schema alias
 
 Use `OSFUI_RequestViews`, `OSFUI_Views.h`, `OSFUI.psc`, and `OSFUI_View.psc`
-with explicit qualified view IDs. Settings, actions, diagnostics, hotkeys,
-localization, and suppression leases are provided by the
-[OSF Settings SDK](https://github.com/ozooma10/osf-settings).
+with explicit qualified view IDs. Use the
+[OSF Settings Slim SDK](https://github.com/ozooma10/osf-settings-slim) for native
+settings, diagnostics, hotkey callbacks, and hotkey blocks. Former Settings
+Papyrus APIs, actions, and localization services are outside this release.
+
+UI now acquires `OSFSettings_RequestAPI` and `OSFSettings_RequestDiagnosticsAPI`
+at SFSE `kPostPostLoad`. ABI versions are independent of plugin release versions;
+the older extracted Settings service is not compatible. Diagnostic reports use
+`Issue` with `Report`/`Clear`, and input capture uses `AcquireHotkeyBlock` /
+`ReleaseHotkeyBlock`. There are no compatibility adapters for the old exports.
+
+A consuming native mod registers a callback hotkey with Slim and calls
+`OSFUI::API::Views::Client::RequestMenu` from that callback. Settings does not need
+to know about WebView IDs. See the [complete example](examples/settings-view/README.md).
 
 ## Paths
 

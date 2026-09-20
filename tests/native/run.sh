@@ -42,15 +42,17 @@ if [[ -z "${CXX:-}" ]] && ! command -v clang++ >/dev/null 2>&1 && ! command -v g
     fi
 fi
 CXX="${CXX:-clang++}"
-BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I ../../tools/webview2_shared -I $DEPS -I stubs"
+BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I ../../lib/osf-settings/sdk -I ../../tools/webview2_shared -I $DEPS -I stubs"
 
 # Each suite is "<name> <translation units...>". Keep the source lists in sync
 # with what each suite actually exercises; duplicates across suites are free
 # (compiled once, see UNIQUE below).
 SUITES=(
 "json_tests json_tests.cpp ../../src/Core/Json.cpp"
-"health_registry_tests health_registry_tests.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
-"runtime_health_tests runtime_health_tests.cpp ../../src/Diagnostics/HealthReconciler.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
+"health_registry_tests health_registry_tests.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/Core/Json.cpp"
+"runtime_health_tests runtime_health_tests.cpp ../../src/Diagnostics/HealthReconciler.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/Core/Json.cpp"
+"settings_client_tests settings_client_tests.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/Core/Json.cpp"
+"settings_view_example_tests settings_view_example_tests.cpp ../../examples/settings-view/src/SettingsViewConsumer.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "scan_code_tests scan_code_tests.cpp ../../src/Input/KeyNames.cpp"
 "bridge_api_tests bridge_api_tests.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "papyrus_form_tests papyrus_form_tests.cpp ../../src/API/PapyrusApi.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Core/Json.cpp"
@@ -112,7 +114,7 @@ if [[ "$MSVC" == 1 ]]; then
         echo '@echo off'
         echo "call \"$(cygpath -w "$VSROOT")\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul || exit /b 1"
         echo "cd /d \"$HERE_W\\$BUILD\" || exit /b 1"
-        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\webview2_shared\" /I \"$HERE_W\\$DEPS\" /I \"$HERE_W\\stubs\" /FI \"$HERE_W\\stubs\\pch.h\""
+        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\webview2_shared\" /I \"$HERE_W\\$DEPS\" /I \"$HERE_W\\stubs\" /I \"$HERE_W\\..\\..\\lib\\osf-settings\\sdk\" /FI \"$HERE_W\\stubs\\pch.h\""
         printf 'cl %s /MP /c' "$FLAGS"
         for s in "${UNIQUE[@]}"; do printf ' "%s"' "$(winsrc "$s")"; done
         printf ' /Foobj\\ || exit /b 1\n'

@@ -34,7 +34,7 @@ namespace OSFUI
 		static Runtime& Get();
 
 		bool Initialize();
-		void OnPostLoad();
+		void OnPostPostLoad();
 		// Install the render hook after peer plugins have had a chance to establish their hook chain.
 		bool InstallOverlayDrawPath();
 		void OnDataLoaded();
@@ -128,6 +128,7 @@ namespace OSFUI
 		void DrainViewRegistrations(std::vector<std::string> a_ids);
 
 		// open/close engine focus menu to match active menu capture policy.
+		bool ReconcileInputSuppression();
 		void ReconcileFocusMenu();
 
 		void ReconcileSimPause();
@@ -266,7 +267,7 @@ namespace OSFUI
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins
 		BrowserHostRecovery           _browserHostRecovery;
 		bool                          _initialized{ false };
-		bool                          _postLoadAttempted{ false };
+		bool                          _postPostLoadAttempted{ false };
 		bool                          _developerMode{ false };  // startup-latched; setting changes apply next launch
 		bool                          _highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
 

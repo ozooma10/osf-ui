@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "osfui-example",
+  "title": "OSF UI Settings Example",
+  "groups": {
+    "Panel": [{ "key": "showDetails", "label": "Show details", "type": "bool", "default": false }]
+  },
+  "hotkeys": [{ "id": "openPanel", "label": "Open example panel", "default": "F6" }]
+}

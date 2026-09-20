@@ -15,16 +15,17 @@ namespace OSFUI
 	void Runtime::ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus,
 		std::vector<API::BridgeApi::ViewStateOp> a_bridgeState)
 	{
+		// Retain owner state before the first WebView exists; its greeting will replay it.
+		if (a_papyrus.sessionReset) _retainedState.ClearSessionScoped();
+		for (const auto& state : a_papyrus.states) {
+			_retainedState.Set(state.mod, state.key, state.value, true);
+			PublishModState(state.mod, state.key, state.value);
+		}
+		for (auto& op : a_bridgeState) {
+			_retainedState.Set(op.mod, op.key, op.value, false);
+			PublishModState(op.mod, op.key, op.value);
+		}
 		if (_bridge) {
-			if (a_papyrus.sessionReset) _retainedState.ClearSessionScoped();
-			for (const auto& state : a_papyrus.states) {
-				_retainedState.Set(state.mod, state.key, state.value, true);
-				PublishModState(state.mod, state.key, state.value);
-			}
-			for (auto& op : a_bridgeState) {
-				_retainedState.Set(op.mod, op.key, op.value, false);
-				PublishModState(op.mod, op.key, op.value);
-			}
 			for (const auto& event : a_papyrus.events) {
 				const auto targets = InstantiatedViewsOfMod(event.mod);
 				if (!targets.empty()) {
@@ -74,12 +75,14 @@ namespace OSFUI
 		_renderer->Update(a_deltaSeconds);
 		DrivePendingOpen();
 		SubmitFrameIfVisible();
-		_runtimeHealth.Pump();
 	}
 
 	void Runtime::Tick(double a_deltaSeconds)
 	{
-		if (!_initialized || !_osfSettings.Available()) return;
+		if (!_initialized) return;
+		// Flush even while inert or before any renderer exists (including startup failures).
+		_runtimeHealth.Pump();
+		if (!_osfSettings.Available()) return;
 		++_mainTickSerial;
 		_uptime += a_deltaSeconds;
 		ProcessLifecycleWork();

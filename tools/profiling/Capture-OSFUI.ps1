@@ -11,7 +11,7 @@
 
 .PARAMETER Label
   Short scenario name such as baseline-never-opened, overlay-hidden, or
-  settings-visible-1440p.
+  webview-visible-1440p.
 
 .PARAMETER WprProfile
   CpuGpu records symbolizable sampled CPU stacks plus GPU activity. General

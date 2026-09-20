@@ -46,7 +46,7 @@ Use a short CPU/GPU trace for a hitch or steady-state workload:
 
 ```powershell
 .\tools\profiling\Capture-OSFUI.ps1 `
-  -Label settings-visible-1440p -DurationSeconds 60 -WprProfile CpuGpu
+  -Label webview-visible-1440p -DurationSeconds 60 -WprProfile CpuGpu
 ```
 
 Use low-overhead sampling for a lifecycle/memory soak:

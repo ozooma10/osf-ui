@@ -159,6 +159,7 @@ namespace OSFUI
 		if (!_bridge) {
 			return;
 		}
+		_runtimeHealth.OnViewGreeted(a_viewId);
 		PublishPlatformState("views", a_viewId);
 		const std::string mod{ Ids::ModOf(a_viewId) };
 		if (const auto* entries = _retainedState.Find(mod)) {

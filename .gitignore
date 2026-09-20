@@ -30,5 +30,6 @@ tests/native/vc140.pdb
 
 # Local scratch mods. Anchored and directory-scoped on purpose: a bare
 # `examples` would also swallow any nested examples/ directory.
-/examples/
+/examples/*
+!/examples/settings-view/
 *.pex

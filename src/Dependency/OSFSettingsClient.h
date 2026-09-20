@@ -1,44 +1,54 @@
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "OSFSettings.h"
-#ifdef ERROR
-#undef ERROR
-#endif
-#ifdef min
-#undef min
-#endif
-#ifdef max
-#undef max
-#endif
+#include "OSFSettings_Diagnostics.h"
+#include "Diagnostics/HealthRegistry.h"
 
 namespace OSFUI
 {
+	// All calls belong to the runtime thread. SDK interfaces live for the process lifetime.
 	class OSFSettingsClient final
 	{
 	public:
 		bool Initialize();
-		[[nodiscard]] bool Available() const { return _settingsAvailable && _diagnosticsAvailable; }
+		[[nodiscard]] bool Available() const { return _available; }
 		[[nodiscard]] bool DeveloperMode() const { return _developerMode; }
 		[[nodiscard]] bool HighRefreshCapture() const { return _highRefreshCapture; }
-		void SyncDiagnostics(const nlohmann::json& a_snapshot);
+		void SyncDiagnostics(std::span<const HealthRegistry::IssueSpec> a_issues);
 		void ReportFailure(std::string_view a_id, std::string_view a_code, std::string_view a_message,
 			const nlohmann::json& a_context = nlohmann::json::object());
 		void ClearFailure(std::string_view a_id);
-		void AcquireInputSuppression();
-		void ReleaseInputSuppression();
+		[[nodiscard]] bool AcquireInputSuppression();
+		bool ReleaseInputSuppression();
 
 	private:
-		[[nodiscard]] static std::string BoundedId(std::string_view a_id);
-		OSFSettings::API::Settings::Client _settings;
+		struct IssueText
+		{
+			OSFSettings::API::Diagnostics::Severity severity{ OSFSettings::API::Diagnostics::Severity::Error };
+			std::string title;
+			std::string impact;
+			std::string nextSteps;
+			bool operator==(const IssueText&) const = default;
+		};
+		static IssueText Describe(const HealthRegistry::IssueSpec& a_issue);
+		void ReadStartupBool(const char* a_key, bool& a_value);
+		void Report(std::string_view a_id, const IssueText& a_issue);
+		bool Clear(std::string_view a_id);
+		bool Check(OSFSettings::API::Status a_status, std::string a_operation);
+
+		OSFSettings::API::Client _settings;
 		OSFSettings::API::Diagnostics::Client _diagnostics;
-		bool _settingsAvailable{};
-		bool _diagnosticsAvailable{};
+		bool _available{};
 		bool _developerMode{};
 		bool _highRefreshCapture{};
-		std::uint64_t _suppressionLease{};
-		std::string _lastSnapshot;
-		std::unordered_set<std::string> _directFailures;
+		OSFSettings::API::HotkeyBlock _hotkeyBlock{};
+		std::unordered_map<std::string, IssueText> _directFailures;
+		// Cache only accepted reports. Failed reports/clears are retried by the next runtime tick.
+		std::unordered_map<std::string, IssueText> _reported;
+		std::unordered_set<std::string> _failedOperations;
 	};
 }

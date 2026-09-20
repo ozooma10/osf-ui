@@ -12,7 +12,7 @@ dependency install is added. The matching `OSFUI_View` API declarations are copi
 into the generated project.
 
 Settings scaffolding is intentionally not included. Author settings against the
-independent [OSF Settings](https://github.com/ozooma10/osf-settings) SDK and explicitly
+independent [OSF Settings](https://github.com/ozooma10/osf-settings-slim) SDK and explicitly
 forward only values that a web view needs.
 
 Options:
@@ -27,4 +27,4 @@ Options:
 --help
 ```
 
-Generated views require OSF UI 2.x; OSF UI itself requires OSF Settings 1.x.
+Generated views require OSF UI 2.x; OSF UI itself requires the Slim settings and diagnostics ABI 1.0 services.

@@ -174,7 +174,7 @@ namespace osfui::wv2
 			std::thread([] {
 				const auto choice = ::MessageBoxW(nullptr,
 					L"OSF UI cannot start because the Microsoft Edge WebView2 Runtime is not installed on this PC.\n\n"
-					L"The in-game overlay, including Mod Settings, will not appear without it.\n\n"
+					L"Mod WebViews will not appear without it. OSF Settings remains available.\n\n"
 					L"Open the download in your browser now? Run the downloaded \"MicrosoftEdgeWebview2Setup.exe\", then restart the game.",
 
 					L"OSF UI - WebView2 Runtime missing",

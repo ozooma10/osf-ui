@@ -104,6 +104,8 @@ try {
     $forbidden = @(
         'SFSE\Plugins\OSFUI',
         'SFSE\Plugins\OSFSettings.dll',
+        'SFSE\Plugins\OSFUISettingsExample.dll',
+        'SFSE\Plugins\OSF\UI\views\osfui-example',
         'Scripts\OSFUI_Settings.pex'
     )
     foreach ($path in $forbidden) {
@@ -136,7 +138,7 @@ try {
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
     Write-Host "Created $archive" -ForegroundColor Green
     Write-Host "SHA256 $hash"
-    Write-Host 'Requires OSF Settings >=1.0.0 <2.0.0, SFSE, and Address Library.'
+    Write-Host 'Requires OSF Settings Slim (settings ABI 1.0 and diagnostics ABI 1.0), SFSE, and Address Library.'
 }
 finally {
     Pop-Location

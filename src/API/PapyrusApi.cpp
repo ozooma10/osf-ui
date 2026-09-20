@@ -37,7 +37,7 @@ namespace OSFUI::API::Papyrus
 			RE::BSFixedString                         scriptName;  // set => global target (DispatchStaticCall)
 			RE::BSFixedString                         fn;
 			std::string                               modId;
-			std::string                               key;  // setting/hotkey filter or exact view endpoint
+			std::string                               key;  // exact view endpoint
 		};
 
 		// Queue FormIDs, never TESForm pointers; serialize them on the main thread.
@@ -146,17 +146,6 @@ namespace OSFUI::API::Papyrus
 			return token;
 		}
 
-		// Capture strings by value until the asynchronous VM consumes them.
-		auto MakeArgs(RE::BSFixedString a_mod, RE::BSFixedString a_key)
-		{
-			return [mod = std::move(a_mod), key = std::move(a_key)](RE::BSScrapArray<RE::BSScript::Variable>& a_args) -> bool {
-				a_args.resize(2);
-				a_args[0] = mod;
-				a_args[1] = key;
-				return true;
-			};
-		}
-
 		void PackValue(RE::BSScript::Variable& a_out, const Value& a_value)
 		{
 			std::visit([&]<class T>(const T& a_item) {
@@ -257,30 +246,6 @@ namespace OSFUI::API::Papyrus
 				}
 				return true;
 			};
-		}
-
-		// Any-thread because VM dispatch only queues the call.
-		void DispatchToTargets(const std::vector<Target>& a_targets, std::string_view a_arg1, std::string_view a_arg2)
-		{
-			if (a_targets.empty()) {
-				return;
-			}
-			auto* vm = VM::GetSingleton();
-			if (!vm) {
-				REX::WARN("PapyrusApi: dispatch with no VM");
-				return;
-			}
-			const RE::BSFixedString arg1{ std::string(a_arg1).c_str() };
-			const RE::BSFixedString arg2{ std::string(a_arg2).c_str() };
-			for (const auto& t : a_targets) {
-				DispatchOne(vm, t, MakeArgs(arg1, arg2));
-			}
-		}
-
-		// The filter values are also the call arguments.
-		void Dispatch(Kind a_kind, std::string_view a_modId, std::string_view a_key)
-		{
-			DispatchToTargets(CollectTargets(a_kind, a_modId, a_key), a_modId, a_key);
 		}
 
 		bool DispatchSend(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId)

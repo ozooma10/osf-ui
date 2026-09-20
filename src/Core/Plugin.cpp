@@ -64,9 +64,9 @@ namespace OSFUI::Plugin
 				return;
 			}
 			switch (a_msg->type) {
-				case SFSE::MessagingInterface::kPostLoad:
-					REX::INFO("Plugin: SFSE message kPostLoad");
-					Runtime::Get().OnPostLoad();
+				case SFSE::MessagingInterface::kPostPostLoad:
+					REX::INFO("Plugin: SFSE message kPostPostLoad");
+					Runtime::Get().OnPostPostLoad();
 					Runtime::Get().InstallOverlayDrawPath();
 					break;
 				case SFSE::MessagingInterface::kPostDataLoad:

@@ -20,20 +20,24 @@ int main()
     HealthRegistry registry;
     HealthReconciler reconciler;
 
-    reconciler.ReportViewLoad(registry, "acme/view", true, "timeout", -1, 2, 1.0);
+    reconciler.ReportViewLoad(registry, "acme/view", true, "timeout", -1, 2);
     assert(registry.IsActive("view.load-retrying:acme/view"));
-    reconciler.ReportViewLoad(registry, "acme/view", true, "timeout", -1, 0, 2.0);
+    reconciler.ReportViewLoad(registry, "acme/view", true, "timeout", -1, 0);
     assert(!registry.IsActive("view.load-retrying:acme/view"));
     assert(registry.IsActive("view.load-failed:acme/view"));
-    reconciler.ReportViewLoad(registry, "acme/view", false, "", 0, 0, 3.0);
+    reconciler.ReportViewLoad(registry, "acme/view", false, "", 0, 0);
     assert(!registry.IsActive("view.load-failed:acme/view"));
 
-    reconciler.ReportRendererHealth(registry, "host.disconnected", true, "pipe closed", true, 4.0);
+    reconciler.ReportRendererHealth(registry, "host.disconnected", true, "pipe closed", true);
     assert(registry.IsActive("host.disconnected"));
-    reconciler.ReportRendererHealth(registry, "host.disconnected", false, "", true, 5.0);
+    reconciler.ReportRendererHealth(registry, "host.disconnected", false, "", true);
     assert(!registry.IsActive("host.disconnected"));
 
-    reconciler.ReportProtocolMisuse(registry, "acme/view", "unknown-endpoint", 3, 6.0);
+    reconciler.ReportProtocolMisuse(registry, "acme/view", "unknown-endpoint", 3);
     assert(registry.IsActive("view.protocol-misuse:acme/view"));
+    reconciler.ReportViewLoad(registry, "acme/view", true, "timeout", -1, 0);
+    reconciler.ReportViewLoad(registry, "acme/view", true, "timeout", -1, 2);
+    assert(!registry.IsActive("view.load-failed:acme/view"));
+    assert(registry.IsActive("view.load-retrying:acme/view"));
     std::cout << "runtime_health_tests: ok\n";
 }
