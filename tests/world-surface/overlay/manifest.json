@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "title": "World test overlay companion",
+  "kind": "hud",
+  "entry": "index.html",
+  "width": 1600,
+  "height": 900,
+  "transparent": true,
+  "capturesInput": false,
+  "pausesGame": false,
+  "openOnStart": false
+}

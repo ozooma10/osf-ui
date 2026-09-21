@@ -16,6 +16,8 @@
 #include <taskschd.h>
 #include <wrl/client.h>
 
+#include <atomic>
+#include <cstdint>
 #include <format>
 
 #ifdef ShellExecute
@@ -191,13 +193,16 @@ namespace osfui::wv2
 			exec->put_Path(_bstr_t(a_exe.c_str()));
 			exec->put_Arguments(_bstr_t(a_args.c_str()));
 
-			const auto taskName = std::format(L"OSFUI-WebView2-Host-{}", ::GetCurrentProcessId());
-			// Clear a leftover from a crashed earlier run before registering.
-			root->DeleteTask(_bstr_t(taskName.c_str()), 0);
+			// Overlay and world hosts can launch concurrently from this process.
+			// Each worker must own its task until Run/DeleteTask have finished.
+			static std::atomic<std::uint64_t> launchSerial{ 0 };
+			const auto taskName = std::format(L"OSFUI-WebView2-Host-{}-{}-{}-{}",
+				::GetCurrentProcessId(), ::GetCurrentThreadId(), ::GetTickCount64(),
+				launchSerial.fetch_add(1, std::memory_order_relaxed));
 
 			ComPtr<IRegisteredTask> registered;
 			hr = root->RegisterTaskDefinition(_bstr_t(taskName.c_str()), task.Get(),
-				TASK_CREATE_OR_UPDATE, _variant_t{}, _variant_t{},
+				TASK_CREATE, _variant_t{}, _variant_t{},
 				TASK_LOGON_INTERACTIVE_TOKEN, _variant_t(L""), &registered);
 			if (FAILED(hr) || !registered) {
 				a_detail += "RegisterTaskDefinition=" + Hr(hr) + "; ";

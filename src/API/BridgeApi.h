@@ -42,6 +42,16 @@ namespace OSFUI::API
 		void          SetReadyCallback(Views::ReadyFn a_callback, void* a_user) override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) override;
 		bool          RegisterView(const char* a_viewId) override;
+		Views::InteractionToken BeginInteraction(const char* a_viewId, Views::InteractionFn a_callback, void* a_context) override;
+		bool EndInteraction(Views::InteractionToken a_token) override;
+		struct InteractionRequest
+		{
+			Views::InteractionToken token{ 0 };
+			std::string view;
+			Views::InteractionFn callback{ nullptr };
+			void* context{ nullptr };
+			std::chrono::steady_clock::time_point requestedAt;
+		};
 		struct ViewPresentationRequest
 		{
 			std::string                           view;
@@ -66,6 +76,7 @@ namespace OSFUI::API
 			std::vector<ViewPresentationRequest> presentation;
 			std::vector<ViewStateOp>              state;
 			std::vector<std::string>              viewRegistrations;
+			std::vector<InteractionRequest>       interactions;
 		};
 		[[nodiscard]] PendingBatch TakePendingBatch();
 
@@ -163,6 +174,7 @@ namespace OSFUI::API
 			kPendingPresentation = 1u << 1,
 			kPendingState = 1u << 2,
 			kPendingViewRegistrations = 1u << 3,
+			kPendingInteraction = 1u << 4,
 		};
 		void MarkPending(std::uint32_t a_bits) noexcept
 		{
@@ -180,6 +192,8 @@ namespace OSFUI::API
 		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
 		std::uint64_t                                 _nextRequestToken{ 1 };
 		std::vector<PendingSend>                       _pendingSends;
+		std::vector<InteractionRequest>                _pendingInteractions;
+		Views::InteractionToken                        _nextInteractionToken{ 1 };
 		std::vector<ViewPresentationRequest>          _pendingViewPresentationRequests;  // RequestMenu compatibility ops, drained by Runtime
 		std::unordered_set<std::string>               _knownViews;         // boot-discovered qualified view ids
 		std::unordered_set<std::string>               _instantiatedViews;  // views with an instantiated document

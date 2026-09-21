@@ -142,6 +142,7 @@
 					return;
 				}
 				focusEpoch = request.epoch;
+				log.Info(std::format("focus request begin: focused={} epoch={}", request.focused, focusEpoch));
 				if (!request.focused) RecoverAllPressedMouseButtons("focus revoke");
 				focusGranted = request.focused;
 				if (!request.view.empty()) {
@@ -167,6 +168,7 @@
 				ApplyMouseCapture();
 				if (!focusGranted) ReleaseInputFocus("focus revoke");
 				ApplyCaptureCadence();
+				log.Info(std::format("focus request complete: focused={} epoch={}", focusGranted, focusEpoch));
 			}
 
 			void HandleMouse(const json& a_msg) { SendMouse(a_msg); }

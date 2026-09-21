@@ -8,11 +8,12 @@ namespace OSFUI
 	inline constexpr std::uint32_t kDefaultViewWidth{ 1600 };
 	inline constexpr std::uint32_t kDefaultViewHeight{ 900 };
 
-	// Menus may own input/pause; HUDs render over gameplay without capture.
+	// Menus may own input/pause; HUDs and world materials are passive.
 	enum class ViewKind : std::uint8_t
 	{
 		Menu,
 		Hud,
+		World,
 	};
 
 	// Mirrors OSF/UI/views/<modId>/<viewName>/manifest.json.
@@ -32,14 +33,16 @@ namespace OSFUI
 		bool                  menuInputEligible{ true };  // derived from kind
 		std::filesystem::path rootDir;  // directory containing the manifest
 
-		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud"
+		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud" | "world"
+		// World-only: square BGRA8 material placeholder dimensions, before replacement.
+		std::uint32_t placeholderSize{ 0 };
 
-		// Menu-only: while this is the active menu, route input into the page. Forced false for HUDs.
+		// Menu-only: while this is the active menu, route input into the page.
 		bool capturesInput{ true };
-		// Menus pause by default through SimPause; HUDs force this false.
+		// Menus pause by default through SimPause; passive views force this false.
 		bool pausesGame{ true };
 
-		// Menu: open at load. HUD: show at load.
+		// HUD: show at load. World views start when their material is discovered.
 		bool openOnStart{ false };
 
 		// HUD-only order is clamped to 0..999 within the framework-owned band.

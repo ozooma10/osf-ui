@@ -1045,7 +1045,7 @@ namespace osfui::wv2
 
 			[[nodiscard]] bool GameIsForeground() const
 			{
-				return gameTopLevel && ::GetForegroundWindow() == gameTopLevel;
+				return gameTopLevel && !::IsIconic(gameTopLevel) && ::GetForegroundWindow() == gameTopLevel;
 			}
 
 			void PublishFocusState(View* a_eventView = nullptr, bool a_gotFocus = false)
@@ -1075,7 +1075,7 @@ namespace osfui::wv2
 			void RequestInputFocus(std::string_view a_reason)
 			{
 				if (!focusGranted || !inputTarget || !inputTarget->controller ||
-					inputTarget->hidden || !GameIsForeground()) {
+					inputTarget->hidden || !GameIsForeground() || FocusedView() == inputTarget) {
 					PublishFocusState();
 					return;
 				}
@@ -1152,7 +1152,8 @@ namespace osfui::wv2
 								ReconcileInputWidgetSubclass();
 								if (view != inputTarget) QueueFocusReconcile();
 							} else {
-								ReleaseInputFocus("unexpected GotFocus");
+								// Never re-enter Chromium's focus transition from its own callback.
+								QueueFocusReconcile();
 							}
 							return S_OK;
 						}).Get(), &token);
@@ -2042,9 +2043,9 @@ namespace osfui::wv2
 					return 0;
 				}
 				if (self && a_msg == kReconcileFocusMessage) {
-					if (static_cast<std::uint64_t>(a_wparam) == self->focusEpoch &&
-						self->focusGranted) {
-						self->RequestInputFocus("focus event");
+					if (static_cast<std::uint64_t>(a_wparam) == self->focusEpoch) {
+						if (self->focusGranted) self->RequestInputFocus("focus event");
+						else self->ReleaseInputFocus("focus event");
 					}
 					return 0;
 				}
@@ -2296,7 +2297,10 @@ namespace osfui::wv2
 						DrainGameMessages();
 						TickReveals();
 						MSG message{};
-						while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+						// Focus callbacks can post more window messages. Keep servicing native
+						// commands (especially focus revocation) even while that queue stays busy.
+						for (std::size_t dispatched = 0; dispatched < 64 &&
+							::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++dispatched) {
 							::TranslateMessage(&message);
 							::DispatchMessageW(&message);
 						}
@@ -2370,9 +2374,9 @@ namespace osfui::wv2
 			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName),
 			elevated ? "yes" : "no", ToUtf8(exePath)));
 
-		// Production permits exactly one browser host per game process.
+		// Each presentation owns one host: overlay or a dedicated world texture.
 		const auto mutexName =
-			std::format(L"Local\\osfui-wv2-host-{}", a_options.gamePid);
+			std::format(L"Local\\osfui-wv2-host-{}-{}", a_options.gamePid, a_options.instance);
 		const HANDLE instanceMutex = ::CreateMutexW(nullptr, TRUE, mutexName.c_str());
 		if (!instanceMutex || ::GetLastError() == ERROR_ALREADY_EXISTS) {
 			app.log.Error("another browser-host instance is already running for this game pid");

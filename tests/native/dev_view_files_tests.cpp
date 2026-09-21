@@ -100,6 +100,15 @@ int main()
 	assert(fs::is_directory(mirror / "swap"));
 	assert(Read(mirror / "swap" / "child.txt") == "directory");
 
+
+	const auto unicodeSource = root / "unicode-source";
+	const auto unicodeMirror = root / "unicode-mirror";
+	const auto unicodeName = fs::path(u8"\u9ebb\u96c0/\U0001f3ae.js");
+	Write(unicodeSource / unicodeName, "unicode asset");
+	assert(OSFUI::DevViewFiles::Fingerprint(unicodeSource));
+	assert(OSFUI::DevViewFiles::SyncTree(unicodeSource, unicodeMirror, error));
+	assert(Read(unicodeMirror / unicodeName) == "unicode asset");
+
 	fs::remove_all(root);
 	std::cout << "dev_view_files_tests: ok\n";
 	return 0;

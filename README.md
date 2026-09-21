@@ -28,6 +28,7 @@ the shared `OSF` parent or the OSF Settings sibling subtree.
 - Native view API: [`sdk/OSFUI_Views.h`](sdk/OSFUI_Views.h)
 - Papyrus view API: [`data/Scripts/Source/OSFUI_View.psc`](data/Scripts/Source/OSFUI_View.psc)
 - Manifest schema: [`docs/schema/manifest.schema.json`](docs/schema/manifest.schema.json)
+- Material-backed world views: [`docs/world-surfaces.md`](docs/world-surfaces.md)
 - Starter: `npm create osfui@latest`
 
 OSF UI never injects Settings data into a page. The owning mod must read OSF

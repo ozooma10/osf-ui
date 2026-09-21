@@ -6,6 +6,8 @@ namespace OSFUI::Platform
 {
 	// Map a VK to current-layout DIK for synthetic-input fallback.
 	[[nodiscard]] std::uint32_t VkToDirectInputScan(std::uint32_t a_vk);
+	[[nodiscard]] bool AnyKeyDown();
+	[[nodiscard]] bool GameIsForeground();
 
 	// Return only the owning module's filename so diagnostics never expose the player's full path.
 	[[nodiscard]] std::string ModuleNameForAddress(const void* a_address);

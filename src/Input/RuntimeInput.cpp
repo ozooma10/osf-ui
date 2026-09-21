@@ -27,6 +27,7 @@ namespace OSFUI
 
 	void Runtime::NotifyGameWindowFocused()
 	{
+		CancelWorldInteraction();
 		if (_relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
 			_relativePointerStop.store(RelativePointerStop::kCancel, std::memory_order_release);
 		}
@@ -44,7 +45,7 @@ namespace OSFUI
     
 	bool Runtime::IsInputCaptured() const
 	{
-		return _initialized && _captureInput.load() && m_visible.load();
+		return _initialized && ((_captureInput.load() && m_visible.load()) || _worldInputRenderer.load());
 	}
 
 	bool Runtime::OnGameWindowKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down)
@@ -57,17 +58,19 @@ namespace OSFUI
 		}
 
 		const bool captured = IsInputCaptured();
+		auto* target = _worldInputRenderer.load(std::memory_order_acquire);
+		if (!target) target = _renderer.get();
 		if (a_down) {
 			if (captured && a_scanCode == kScanEscape) {
 				EnqueuePresentationRequest(ViewPresentationRequest::Back);
-			} else if (captured && _renderer) {
-				_renderer->InjectKeyEvent(a_vkCode, true);
+			} else if (captured && target) {
+				target->InjectKeyEvent(a_vkCode, true);
 			} else if (Log::DebugEnabled()) {
 				REX::DEBUG("Runtime: OnGameWindowKey down (vk {}, scan {}) passed to the game", a_vkCode, a_scanCode);
 			}
 		} else {
-			if (captured && _renderer) {
-				_renderer->InjectKeyEvent(a_vkCode, false);
+			if (captured && target) {
+				target->InjectKeyEvent(a_vkCode, false);
 			} else if (Log::DebugEnabled()) {
 				REX::DEBUG("Runtime: OnGameWindowKey up (vk {}, scan {}) passed to the game", a_vkCode, a_scanCode);
 			}
@@ -85,7 +88,7 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
 	{
-		if (!IsInputCaptured() || !_renderer || a_clientW <= 0 || a_clientH <= 0) {
+		if (!IsPointerCaptured() || !_renderer || a_clientW <= 0 || a_clientH <= 0) {
 			return;
 		}
 
@@ -155,7 +158,7 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseButton(int a_button, bool a_down)
 	{
-		if (!IsInputCaptured() || !_renderer) {
+		if (!IsPointerCaptured() || !_renderer) {
 			return;
 		}
 		if (!a_down || (_viewGeometryReady.load(std::memory_order_acquire) &&
@@ -169,7 +172,7 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseWheel(int a_wheelDelta)
 	{
-		if (!IsInputCaptured() || !_renderer) {
+		if (!IsPointerCaptured() || !_renderer) {
 			return;
 		}
 		if (_relativePointerActive.load(std::memory_order_acquire)) {
@@ -302,7 +305,7 @@ namespace OSFUI
 
 	bool Runtime::ReconcileInputSuppression()
 	{
-		if (!_presentation.DesiredCapture()) {
+		if (!WantsInputCapture()) {
 			// Retry failed releases after the close edge, including cancellation and renderer failure.
 			_osfSettings.ReleaseInputSuppression();
 			return true;
@@ -313,13 +316,14 @@ namespace OSFUI
 		CancelPendingOpen();
 		_viewOpenPreflightBarriers.clear();
 		_presentation.CloseAll();
+		FinishWorldInteraction("input-unavailable");
 		return false;
 	}
 
 	void Runtime::ReconcileFocusMenu()
 	{
 		if (!ReconcileInputSuppression()) ApplyViewPresentationPolicy();
-		const bool wantOpen = _presentation.DesiredCapture();
+		const bool wantOpen = WantsInputCapture();
 		if (wantOpen != _focusMenuOpen) {
 			_focusMenuOpen = wantOpen;
 			_focusMenuMismatchSince = -1.0;  // fresh request: full grace window
@@ -369,11 +373,13 @@ namespace OSFUI
 			}
 		};
 
-		if (!IsInputCaptured() || !_renderer) {
+		auto* target = _worldInputRenderer.load(std::memory_order_acquire);
+		if (!target) target = _renderer.get();
+		if (!IsInputCaptured() || !target) {
 			endSession();
 			return;
 		}
-		const auto active = _presentation.ActiveMenu();
+		const auto active = _worldInteraction ? std::optional<std::string>(_worldInteraction->view) : _presentation.ActiveMenu();
 		if (!active) {
 			endSession();
 			return;
@@ -382,7 +388,7 @@ namespace OSFUI
 		const auto mode = m_viewInputGrants.GamepadModeFor(*active);
 		const auto frame = m_gamepadSession.Update(m_gamepadSource.Poll(), mode, a_deltaSeconds, _uptime);
 
-		const auto applyAction = [this](GamepadSession::Action a_action) {
+		const auto applyAction = [this, target](GamepadSession::Action a_action) {
 			std::uint32_t key = 0;
 			switch (a_action) {
 			case GamepadSession::Action::kUp:       key = 0x26; break;  // VK_UP
@@ -397,12 +403,16 @@ namespace OSFUI
 				return;
 			}
 			// Discrete down+up tap: a missed release cannot leave a stuck key.
-			_renderer->InjectKeyEvent(key, true);
-			_renderer->InjectKeyEvent(key, false);
+			target->InjectKeyEvent(key, true);
+			target->InjectKeyEvent(key, false);
 		};
 
 		for (std::size_t i = 0; i < frame.buttonEdgeCount; ++i) {
 			const auto& edge = frame.buttonEdges[i];
+			if (_worldInteraction && edge.idCode == XInputButton::kBack && edge.down) {
+				FinishWorldInteraction("back");
+				return;
+			}
 			if (_bridge) {
 				_bridge->Emit(*active, "ui.gamepad", nlohmann::json{ { "kind", "button" }, { "button", { { "id", edge.idCode }, { "down", edge.down } } } });
 			}
@@ -414,14 +424,14 @@ namespace OSFUI
 		}
 
 		applyAction(frame.navigationAction);
-		if (frame.wheelDelta != 0) {
+		if (frame.wheelDelta != 0 && !_worldInteraction) {
 			_renderer->InjectMouseWheel(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), frame.wheelDelta);
 		}
 	}
 
 	void Runtime::ReconcileControlLayer()
 	{
-		ControlLayer::Apply(_presentation.DesiredCapture());
+		ControlLayer::Apply(WantsInputCapture());
 		FocusMenu::SetGamepadCapture(IsInputCaptured());
 	}
 

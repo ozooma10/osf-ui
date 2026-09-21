@@ -76,6 +76,7 @@ namespace SettingsTest
         }
         Status GetString(const char*, const char*, char*, std::uint32_t, std::uint32_t*) noexcept override { return Status::TypeMismatch; }
         Status SetString(const char*, const char*, const char*, std::uint32_t) noexcept override { return Status::TypeMismatch; }
+        Status ReadRegistry(const char*, RegistryFn, void*) noexcept override { return Status::InternalError; }
     };
 
     struct Diagnostics : OSFSettings::API::Diagnostics::IDiagnostics

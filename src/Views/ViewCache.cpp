@@ -1,4 +1,5 @@
 #include "Views/ViewCache.h"
+#include "Core/Utf8Path.h"
 
 #include <algorithm>
 #include <array>
@@ -90,7 +91,7 @@ namespace OSFUI::ViewCache
 
 		bool Fail(std::string& a_error, const std::filesystem::path& a_path, const std::error_code& a_ec)
 		{
-			a_error = a_path.filename().string() + ": " + a_ec.message();
+			a_error = Utf8Path(a_path.filename()) + ": " + a_ec.message();
 			return false;
 		}
 
@@ -117,7 +118,7 @@ namespace OSFUI::ViewCache
 				const bool regular = it->is_regular_file(ec);
 				if (ec) break;
 				if (!regular) {
-					a_error = relative.generic_string() + ": unsupported filesystem entry";
+					a_error = Utf8Path(relative) + ": unsupported filesystem entry";
 					return false;
 				}
 
@@ -126,7 +127,7 @@ namespace OSFUI::ViewCache
 				a_snapshot.files.push_back({
 					.source = it->path(),
 					.relativePath = relative,
-					.relative = relative.generic_string(),
+					.relative = Utf8Path(relative),
 					.size = size,
 				});
 			}

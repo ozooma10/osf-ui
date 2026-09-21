@@ -23,16 +23,23 @@
     "width": { "type": "integer", "minimum": 1, "maximum": 16384, "default": 1600 },
     "height": { "type": "integer", "minimum": 1, "maximum": 16384, "default": 900 },
     "transparent": { "type": "boolean", "default": true },
-    "kind": { "type": "string", "enum": ["menu", "hud"], "default": "menu" },
+    "kind": { "type": "string", "enum": ["menu", "hud", "world"], "default": "menu" },
+    "placeholderSize": {
+      "type": "integer",
+      "minimum": 256,
+      "maximum": 4096,
+      "not": { "enum": [256, 512, 1024, 2048, 4096] },
+      "description": "Required for world views. Exact width and height of the square, single-mip BGRA8 material placeholder. World views are opaque, passive, and start when their material is discovered; transparency, input, pause, openOnStart, and order are ignored."
+    },
     "capturesInput": {
       "type": "boolean",
       "default": true,
-      "description": "Menu-only. HUD views are always passive."
+      "description": "Menu-only. HUD and world views are always passive."
     },
     "pausesGame": {
       "type": "boolean",
       "default": true,
-      "description": "Menu-only. HUD views never pause."
+      "description": "Menu-only. HUD and world views never pause."
     },
     "openOnStart": {
       "type": "boolean",
@@ -49,5 +56,15 @@
       "default": false,
       "description": "A debug-only HUD autostarts only when osfui.developerMode is enabled in OSF Settings."
     }
-  }
+  },
+  "allOf": [{
+    "if": { "properties": { "kind": { "const": "world" } }, "required": ["kind"] },
+    "then": {
+      "required": ["placeholderSize"],
+      "properties": {
+        "width": { "maximum": 4096 },
+        "height": { "maximum": 4096 }
+      }
+    }
+  }]
 }

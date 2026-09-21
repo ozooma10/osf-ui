@@ -20,6 +20,7 @@
 #include "Core/Paths.h"
 #include "Core/Ids.h"
 #include "Render/WebView2HostWebRenderer.h"
+#include "World/WorldTexture.h"
 
 namespace OSFUI
 {
@@ -120,7 +121,12 @@ namespace OSFUI
 
 	void Runtime::InitializeBridge()
 	{
+		if (_bridge) return;
 		_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
+			if (const auto* manifest = _views.Find(a_viewId); manifest && manifest->kind == ViewKind::World) {
+				SendToWorldView(a_viewId, a_json);
+				return;
+			}
 			if (_renderer) {
 				_renderer->SendMessageToWeb(a_viewId, a_json);
 			}
@@ -135,11 +141,6 @@ namespace OSFUI
 
 		RegisterPlatformEndpoints(*_bridge);
 
-		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
-			if (_bridge) {
-				_bridge->HandleWebMessage(a_viewId, a_json);
-			}
-		});
 	}
 
     void Runtime::InitializeStartupViews()
@@ -197,6 +198,7 @@ namespace OSFUI
 		_highRefreshCapture = _osfSettings.HighRefreshCapture();
 		Log::SetDebugLogging(_developerMode);
 		LoadStartupContent();
+		ConfigureWorldViews();
 		InitializeStartupViews();
 
 		REX::INFO("Runtime: lightweight add-on ready; WebView2 will initialize on first view demand");
@@ -221,6 +223,9 @@ namespace OSFUI
 		}
 		WireRenderPipeline();
 		InitializeBridge();
+		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
+			if (_bridge) _bridge->HandleWebMessage(a_viewId, a_json);
+		});
 		ConfigureInputRouting();
 		if (_drawPathRequested && !UiPass::Install()) {
 			_osfSettings.ReportFailure("startup.draw-path", "webview.draw-path", "Scaleform UI pass hook failed");
@@ -243,6 +248,8 @@ namespace OSFUI
 	bool Runtime::InstallOverlayDrawPath()
 	{
 		_drawPathRequested = true;
+		// The main-menu render pass arms texture discovery before a cell streams.
+		if (!_worldViews.empty()) return UiPass::Install();
 		if (_compositor && !UiPass::Install()) {
 			REX::ERROR("Runtime: Scaleform UI pass hook failed");
 			return false;
@@ -327,6 +334,10 @@ namespace OSFUI
 				// OSF UI 2 has no global toggle or default menu.
 				break;
 			case ViewPresentationRequest::Back: {
+				if (_worldInteraction) {
+					FinishWorldInteraction("back");
+					break;
+				}
 				const auto active = _presentation.ActiveMenu();
 				if (_pendingViewOpen) {
 					CancelPendingOpen();
@@ -346,6 +357,7 @@ namespace OSFUI
 				break;
 			}
 			case ViewPresentationRequest::CloseAll:
+				FinishWorldInteraction("closed");
 				CancelPendingOpen();
 				_viewOpenPreflightBarriers.clear();
 				_presentation.CloseAll();
@@ -411,6 +423,11 @@ namespace OSFUI
 				"The requested OSF UI view is not installed", { { "view", a_id } });
 			return false;
 		}
+		if (manifest->kind == ViewKind::World) {
+			REX::WARN("Runtime: '{}' is a material-backed world view; it cannot open as an overlay", a_id);
+			return false;
+		}
+		if (manifest->kind == ViewKind::Menu) FinishWorldInteraction("menu-opened");
 		if (!EnsureWebRuntime()) {
 			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — lazy WebView runtime initialization failed", a_id);
@@ -816,6 +833,12 @@ namespace OSFUI
 
 	void Runtime::ReconcileNativeFocus()
 	{
+		if (auto* world = _worldInputRenderer.load(std::memory_order_acquire)) {
+			if (!_worldNativeFocus && FocusMenu::IsRegistered() && FocusMenu::IsOpenInEngine()) {
+				_worldNativeFocus = true;
+				world->SetNativeFocus(true);
+			}
+		}
 		if (!_renderer) {
 			return;
 		}
@@ -885,6 +908,7 @@ namespace OSFUI
 				continue;
 			}
 			m_viewLoads.BeginLoad(manifest.id);
+			m_viewInputGrants.ResetPage(manifest.id);
 			_renderer->CreateOrNavigateView(manifest);
 			_bridge->OnViewCreated(manifest.id);
 			++reloaded;

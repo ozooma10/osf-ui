@@ -36,8 +36,8 @@ namespace OSFUI
 	bool ViewPresentationController::Open(std::string_view a_id)
 	{
 		const auto* view = FindInstantiated(a_id);
-		if (!view) {
-			return false;  // not instantiated
+		if (!view || view->kind == ViewKind::World) {
+			return false;  // world materials never enter fullscreen presentation
 		}
 		const std::string id(a_id);
 
@@ -114,6 +114,9 @@ namespace OSFUI
 		std::vector<Layer> layers;
 		layers.reserve(_instantiated.size());
 		for (const auto& [id, view] : _instantiated) {
+			if (view.kind == ViewKind::World) {
+				continue;
+			}
 			Layer layer;
 			layer.id = id;
 			if (view.kind == ViewKind::Hud) {

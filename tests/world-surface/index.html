@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OSF UI world screen test</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+  body { color: #fff; background: #071421; font: 700 3vw/1.1 Arial, sans-serif; }
+  /* The vanilla donor screen samples roughly the top half of its texture. */
+  main { height: 48%; display: grid; grid-template-rows: 25% 43% 24% 8%; padding: 2%; border: 1vw solid #28e9da; }
+  header { align-self: center; }
+  #phase { display: grid; place-content: center; background: #e12c66; color: #fff; font-size: 8vw; }
+  footer { align-self: center; font-size: 2.5vw; }
+  .bar { display: flex; }
+  .bar i { flex: 1; background: #fff; }
+  .bar i:nth-child(2) { background: #28e9da; }
+  .bar i:nth-child(3) { background: #ffd447; }
+  .bar i:nth-child(4) { background: #e12c66; }
+</style>
+<main>
+  <header>OSF UI<br>LIVE WORLD SCREEN</header>
+  <div id="phase">FRAME 0</div>
+  <footer><span id="bridge">BRIDGE PENDING</span><br><span id="clock">0.0 s</span> · 1000 × 1000</footer>
+  <div class="bar"><i></i><i></i><i></i><i></i></div>
+</main>
+<script>
+  const phase = document.getElementById('phase');
+  const clock = document.getElementById('clock');
+  const began = performance.now();
+  const bridge = window.osfui;
+  if (bridge && typeof bridge.postMessage === 'function') {
+    bridge.onMessage = (json) => {
+      try {
+        if (JSON.parse(json).kind === 'ready') document.getElementById('bridge').textContent = 'BRIDGE READY';
+      } catch { document.getElementById('bridge').textContent = 'BRIDGE INVALID'; }
+    };
+    bridge.postMessage(JSON.stringify({ kind: 'send', name: 'osfui.hello', payload: {} }));
+  }
+  let previous = -1;
+  function frame(now) {
+    const elapsed = (now - began) / 1000;
+    const number = Math.floor(elapsed * 2);
+    if (number !== previous) {
+      previous = number;
+      phase.textContent = `FRAME ${number}`;
+      phase.style.background = number % 2 ? '#15715f' : '#e12c66';
+      clock.textContent = `${elapsed.toFixed(1)} s`;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</html>

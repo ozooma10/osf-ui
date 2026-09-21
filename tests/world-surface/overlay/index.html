@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Independent overlay host test</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  aside { position: absolute; top: 3%; right: 3%; padding: 14px 20px; border: 2px solid #28e9da;
+    border-radius: 5px; color: white; background: #071421e8; font: 700 22px/1.4 Arial, sans-serif; }
+  output { display: block; color: #28e9da; font-size: 18px; }
+</style>
+<aside>OVERLAY HOST<output id="counter">TICK 0</output><output id="bridge">BRIDGE PENDING</output></aside>
+<script>
+  const counter = document.getElementById('counter');
+  const began = performance.now();
+  const bridge = window.osfui;
+  if (bridge && typeof bridge.postMessage === 'function') {
+    bridge.onMessage = (json) => {
+      try {
+        if (JSON.parse(json).kind === 'ready') document.getElementById('bridge').textContent = 'BRIDGE READY';
+      } catch { document.getElementById('bridge').textContent = 'BRIDGE INVALID'; }
+    };
+    bridge.postMessage(JSON.stringify({ kind: 'send', name: 'osfui.hello', payload: {} }));
+  }
+  setInterval(() => { counter.textContent = `TICK ${Math.floor((performance.now() - began) / 500)}`; }, 500);
+</script>
+</html>

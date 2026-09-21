@@ -19,7 +19,7 @@ int main()
     SettingsTest::Install(&settings, &diagnostics);
     SettingsTest::viewsAcquire = [](std::uint32_t version, std::uint32_t* actual) noexcept -> void* {
         *actual = OSFUI::API::Views::kVersion;
-        return version == *actual ? static_cast<OSFUI::API::Views::IViews*>(&OSFUI::API::BridgeApi::Get()) : nullptr;
+        return OSFUI::API::Views::Supports(*actual, version) ? static_cast<OSFUI::API::Views::IViews*>(&OSFUI::API::BridgeApi::Get()) : nullptr;
     };
     auto& api = OSFUI::API::BridgeApi::Get();
     api.SetViewCatalog({SettingsViewExample::kViewId});

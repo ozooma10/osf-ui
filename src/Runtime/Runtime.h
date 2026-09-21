@@ -43,6 +43,7 @@ namespace OSFUI
 		void Tick(double a_deltaSeconds);
 
 		bool IsVisible() const;
+		bool NeedsFrameUpdates() const { return IsVisible() || _worldViewsActive.load(std::memory_order_acquire); }
 
 		void EnqueuePresentationRequest(ViewPresentationRequest a_req);
 
@@ -53,6 +54,8 @@ namespace OSFUI
 
 		//true when overlay owns input. pused to decide whether to consume game input and route into web view.
 		bool IsInputCaptured() const;
+		bool IsPointerCaptured() const { return IsInputCaptured() && !_worldInputRenderer.load(); }
+		void CancelWorldInteraction();  // Thread-safe deferred cancellation.
 
 		// Called by the WndProc hook on WM_KEYDOWN/WM_KEYUP (window-message thread):
 		bool OnGameWindowKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down);
@@ -85,6 +88,13 @@ namespace OSFUI
 		void WireRenderPipeline();
 		void InitializeBridge();
 		void InitializeStartupViews();
+		void ConfigureWorldViews();
+		void TickWorldViews(double a_deltaSeconds);
+		bool IsWorldViewInstantiated(std::string_view a_id) const;
+		void SendToWorldView(std::string_view a_id, std::string_view a_json);
+		void ApplyWorldInteractionRequests(const std::vector<API::BridgeApi::InteractionRequest>& a_requests);
+		void FinishWorldInteraction(const char* a_reason);
+		bool WantsInputCapture() const { return _presentation.DesiredCapture() || _worldInteraction.has_value(); }
 		void ConfigureInputRouting();
 
 		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down);
@@ -182,6 +192,22 @@ namespace OSFUI
 		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
 		ViewManager                   _views;
+		struct WorldView
+		{
+			ViewManifest manifest;
+			std::unique_ptr<WebView2HostWebRenderer> renderer;
+			BrowserHostRecovery recovery;
+			bool failed{ false };
+		};
+		std::vector<WorldView> _worldViews;
+		std::atomic_bool _worldViewsActive{ false };
+		std::optional<API::BridgeApi::InteractionRequest> _worldInteraction;
+		std::optional<API::BridgeApi::InteractionRequest> _pendingWorldInteraction;
+		std::uint64_t _worldNeutralTick{ 0 };
+		std::atomic<WebView2HostWebRenderer*> _worldInputRenderer{ nullptr };
+		std::atomic_bool _worldInteractionCancel{ false };
+		bool _worldNativeFocus{ false };
+		double _worldSnapshotAt{ 0.0 };
 		std::unique_ptr<WebView2HostWebRenderer> _renderer;
 		std::unique_ptr<D3D12Compositor> _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;

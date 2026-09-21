@@ -1,4 +1,5 @@
 #include "Views/Dev/DevViewFiles.h"
+#include "Core/Utf8Path.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -23,7 +24,7 @@ namespace OSFUI::DevViewFiles
 
 		bool Fail(std::string& a_error, const std::filesystem::path& a_path, const std::error_code& a_ec)
 		{
-			a_error = a_path.filename().string() + ": " + a_ec.message();
+			a_error = Utf8Path(a_path.filename()) + ": " + a_ec.message();
 			return false;
 		}
 	}  // namespace
@@ -51,7 +52,7 @@ namespace OSFUI::DevViewFiles
 					break;
 				continue;
 			}
-			const auto relative = it->path().lexically_relative(a_viewDir).generic_string();
+			const auto relative = Utf8Path(it->path().lexically_relative(a_viewDir));
 			// Exclude manifests at every depth because their discovery is restart-only.
 			if (it->path().filename() == "manifest.json")
 				continue;
@@ -125,13 +126,13 @@ namespace OSFUI::DevViewFiles
 
 		// Deterministic order places assets before entry HTML that references them.
 		std::ranges::sort(sourceEntries, {}, [](const SourceEntry& a_entry) {
-			return a_entry.relative.generic_string();
+			return Utf8Path(a_entry.relative);
 		});
 
 		std::unordered_set<std::string> sourcePaths;
 		sourcePaths.reserve(sourceEntries.size());
 		for (const auto& entry : sourceEntries) {
-			sourcePaths.insert(entry.relative.generic_string());
+			sourcePaths.insert(Utf8Path(entry.relative));
 			const auto destination = a_destination / entry.relative;
 			const bool destinationExists = std::filesystem::exists(destination, ec);
 			if (ec)
@@ -169,7 +170,7 @@ namespace OSFUI::DevViewFiles
 			end;
 			!ec && it != end; it.increment(ec)) {
 			const auto relative = it->path().lexically_relative(a_destination);
-			if (!sourcePaths.contains(relative.generic_string())) {
+			if (!sourcePaths.contains(Utf8Path(relative))) {
 				stale.push_back(it->path());
 			}
 		}

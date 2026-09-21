@@ -186,7 +186,7 @@ namespace OSFUI
 		}
 	}
 
-	RE::Scaleform::Ptr<RE::IMenu>* FocusMenu::Creator(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	RE::Scaleform::Ptr<RE::IMenu> FocusMenu::Creator()
 	{
 		// Build an engine-initialized menu with a live +0xB0 name for keyed dispatch.
 		BuildVtable();
@@ -194,8 +194,7 @@ namespace OSFUI
 		auto* obj = std::calloc(1, kAllocSize);
 		if (!obj) {
 			// Hand the engine a null Ptr; the open fails without crashing.
-			*reinterpret_cast<void**>(a_out) = nullptr;
-			return a_out;
+			return nullptr;
 		}
 
 		// Engine base initialization installs vtables, refcount, and null uiMovie.
@@ -224,11 +223,12 @@ namespace OSFUI
 		InstallInputReceiver(obj);
 
 		// Store directly into Scaleform::Ptr to avoid AddRef through the patched vtable.
-		*reinterpret_cast<void**>(a_out) = obj;
+		RE::Scaleform::Ptr<RE::IMenu> result;
+		*reinterpret_cast<void**>(&result) = obj;
 
 		REX::DEBUG("FocusMenu: creator built engine-initialised menu obj=0x{:016X} flags=0x{:08X} (uiMovie=null, name@+0xB0 set)",
 			reinterpret_cast<std::uintptr_t>(obj), static_cast<std::uint32_t>(flags));
-		return a_out;
+		return result;
 	}
 
 	bool FocusMenu::Register()

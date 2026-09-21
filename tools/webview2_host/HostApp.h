@@ -26,6 +26,7 @@ namespace osfui::wv2
 	{
 		std::wstring          pipeName;
 		std::uint32_t         gamePid{ 0 };
+		std::wstring          instance;
 		std::filesystem::path logFile;       // empty = no file log
 	};
 

@@ -15,7 +15,7 @@ namespace OSFUI::Plugin
 			{
 				const auto now = std::chrono::steady_clock::now();
 				const auto nowTicks = now.time_since_epoch().count();
-				if (!Runtime::Get().IsVisible() && nowTicks < m_nextIdleTick.load(std::memory_order_relaxed)) {
+				if (!Runtime::Get().NeedsFrameUpdates() && nowTicks < m_nextIdleTick.load(std::memory_order_relaxed)) {
 					return;
 				}
 				m_nextIdleTick.store((now + kIdleTickInterval).time_since_epoch().count(), std::memory_order_relaxed);

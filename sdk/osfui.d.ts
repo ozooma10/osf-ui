@@ -104,7 +104,9 @@ export interface ViewManifestV1 {
   width?: number;
   height?: number;
   transparent?: boolean;
-  kind?: "menu" | "hud";
+  kind?: "menu" | "hud" | "world";
+  /** Required for world: square BGRA8 placeholder size, 256..4096, not a power of two. */
+  placeholderSize?: number;
   capturesInput?: boolean;
   pausesGame?: boolean;
   openOnStart?: boolean;

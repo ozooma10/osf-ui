@@ -153,7 +153,16 @@ namespace OSFUI
 			std::string_view a_name, std::string_view a_prefix)
 		{
 			if (!a_name.starts_with(a_prefix)) return std::nullopt;
-			const auto digits = a_name.substr(a_prefix.size());
+			auto digits = a_name.substr(a_prefix.size());
+			if (a_prefix == "views-dev-") {
+				const auto separator = digits.find('-');
+				if (separator != std::string_view::npos) {
+					const auto instance = digits.substr(separator);
+					if (instance != "-world-0" && instance != "-world-1" &&
+						instance != "-world-2" && instance != "-world-3") return std::nullopt;
+					digits = digits.substr(0, separator);
+				}
+			}
 			if (digits.empty()) return std::nullopt;
 			std::uint64_t value = 0;
 			for (const unsigned char ch : digits) {
@@ -610,7 +619,8 @@ namespace OSFUI
 			const auto started = std::chrono::steady_clock::now();
 			if (config.devMode) {
 				ScavengeLegacyViewMirrors(localRoot);
-				const auto mirror = localRoot / std::format("views-dev-{}", ::GetCurrentProcessId());
+				const auto mirror = localRoot / std::format("views-dev-{}{}{}", ::GetCurrentProcessId(),
+					config.instanceName.empty() ? "" : "-", config.instanceName);
 				std::error_code ec;
 				std::filesystem::remove_all(mirror, ec);
 				if (ec) {
@@ -694,6 +704,10 @@ namespace OSFUI
 		// Mirror the VFS-only host executable to a real versioned path before external launch.
 		bool MirrorHostExe()
 		{
+			// Every renderer shares this versioned executable. Keep concurrent
+			// startup workers from inspecting or launching a partially copied file.
+			static std::mutex mirrorMutex;
+			std::scoped_lock mirrorLock(mirrorMutex);
 			const auto mirrorDir = LocalOsfuiDir() / "bin" / kOsfuiReleaseVersion;
 			browserHostExeMirror = mirrorDir / "osfui_webview2_host.exe";
 			std::error_code ec;
@@ -877,10 +891,11 @@ namespace OSFUI
 				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17);
 			std::mt19937_64 rng(pipeSeed);
 			const auto nonce = static_cast<std::uint32_t>(rng());
-			const auto pipeName = std::format(L"{}{}-{:08x}",
-				osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), nonce);
+			const auto pipeName = std::format(L"{}{}-{}-{:08x}",
+				osfui::wv2::kPipePrefix, ::GetCurrentProcessId(), ToWide(config.instanceName), nonce);
 			auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
 				pipeName, ::GetCurrentProcessId(), browserHostLog.native());
+			if (!config.instanceName.empty()) args += L" --instance=" + ToWide(config.instanceName);
 
 			// Claim the first pipe instance before launch to prevent name squatting.
 			if (!pipe.CreateServer(pipeName)) {
@@ -1576,7 +1591,22 @@ namespace OSFUI
 		_impl->config = a_config;
 		_impl->viewsRoot = a_config.dataDir / "views";
 		_impl->userData = LocalOsfuiDir() / "WebView2";
+#if defined(OSFUI_TEST_HARNESS)
+		// The owned harness can keep browser storage outside normal player profiles.
+		if (std::ifstream input(a_config.dataDir / "OSFUI.TestBrowser.json"); input) {
+			const auto config = json::parse(input);
+			const auto path = std::filesystem::u8path(config.at("path").get<std::string>());
+			if (!path.is_absolute() || !std::filesystem::is_directory(path)) return false;
+			_impl->userData = path;
+		}
+#endif
 		_impl->browserHostLog = BrowserHostLogPath();
+		if (!a_config.instanceName.empty()) {
+			if (a_config.instanceName.size() > 32 || a_config.instanceName.find_first_not_of(
+				"abcdefghijklmnopqrstuvwxyz0123456789-") != std::string::npos) return false;
+			_impl->userData /= a_config.instanceName;
+			_impl->browserHostLog.replace_filename(std::format("OSF UI.webview2-host.{}.log", a_config.instanceName));
+		}
 		_impl->browserHostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
 		_impl->width = (std::max)(1u, a_config.width);
 		_impl->height = (std::max)(1u, a_config.height);
@@ -1724,7 +1754,7 @@ namespace OSFUI
 					DWORD focusPid = 0;
 					::GetWindowThreadProcessId(info.hwndFocus, &focusPid);
 					inGameTree = info.hwndFocus == browserHostSession.topLevel || ::IsChild(browserHostSession.topLevel, info.hwndFocus) != FALSE;
-					focusInHost = focusPid != ::GetCurrentProcessId();
+					focusInHost = browserHostSession.pid != 0 && focusPid == browserHostSession.pid;
 				}
 
 				std::string target;

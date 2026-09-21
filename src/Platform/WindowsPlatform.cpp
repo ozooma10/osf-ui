@@ -12,6 +12,21 @@
 
 namespace OSFUI::Platform
 {
+	bool AnyKeyDown()
+	{
+		for (int key = 1; key < 255; ++key) {
+			if ((::GetAsyncKeyState(key) & 0x8000) != 0) return true;
+		}
+		return false;
+	}
+
+	bool GameIsForeground()
+	{
+		DWORD pid = 0;
+		::GetWindowThreadProcessId(::GetForegroundWindow(), &pid);
+		return pid == ::GetCurrentProcessId();
+	}
+
 	std::uint32_t VkToDirectInputScan(std::uint32_t a_vk)
 	{
 		// Pin Pause, NumLock, and PrintScreen to DIK values rather than ambiguous API composites.

@@ -30,6 +30,6 @@ namespace OSFUI
 		static void SetGamepadCapture(bool a_capture);
 
 		// Creator handed to RE::UI::RegisterMenu (UIMenuEntry::Create_t).
-		static RE::Scaleform::Ptr<RE::IMenu>* Creator(RE::Scaleform::Ptr<RE::IMenu>* a_out);
+		static RE::Scaleform::Ptr<RE::IMenu> Creator();
 	};
 }

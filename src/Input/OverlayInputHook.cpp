@@ -174,7 +174,7 @@ namespace OSFUI::OverlayInputHook
 			auto& runtime = Runtime::Get();
 
 			// Reconcile the main-thread capture edge on the window thread.
-			const bool wantHwCursor = runtime.IsInputCaptured();
+			const bool wantHwCursor = runtime.IsPointerCaptured();
 			if (wantHwCursor != g_hwCursorActive) {
 				g_hwCursorActive = wantHwCursor;
 				g_hasLastAbsoluteClient = false;
@@ -335,6 +335,8 @@ namespace OSFUI::OverlayInputHook
 
 	std::optional<ClientSize> GameWindowClientSize()
 	{
+		// Passive HUDs need the client size before any input hook is installed.
+		if (!g_hwnd) g_hwnd = FindGameWindow();
 		RECT client{};
 		if (!g_hwnd || !::GetClientRect(g_hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
 			return std::nullopt;

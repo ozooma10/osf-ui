@@ -1,0 +1,14 @@
+{
+  "manifestVersion": 1,
+  "title": "World surface test",
+  "description": "Private animated test card rendered only on the QASmoke display.",
+  "kind": "world",
+  "entry": "index.html",
+  "width": 1000,
+  "height": 1000,
+  "placeholderSize": 1000,
+  "transparent": false,
+  "capturesInput": false,
+  "pausesGame": false,
+  "openOnStart": true
+}
