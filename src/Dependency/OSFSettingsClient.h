@@ -10,11 +10,13 @@
 
 namespace OSFUI
 {
+	struct ViewManifest;
 	// All calls belong to the runtime thread. SDK interfaces live for the process lifetime.
 	class OSFSettingsClient final
 	{
 	public:
 		bool Initialize();
+		void RegisterLaunchers(std::span<const ViewManifest> a_views);
 		[[nodiscard]] bool Available() const { return _available; }
 		[[nodiscard]] bool DeveloperMode() const { return _developerMode; }
 		[[nodiscard]] bool HighRefreshCapture() const { return _highRefreshCapture; }

@@ -9,6 +9,10 @@ Slim owns the `osfui-example` schema and its native **Open example panel** hotke
 boolean through `SetViewState`. The hotkey callback queues `RequestMenu`; it does
 not call the engine. All registrations and their owner live for the game process.
 The panel consumes ordinary retained state and closes with its button or Escape.
+Its manifest also opts into the shared Launcher tab under OSF UI Example. Opening
+uses the normal RequestMenu preflight/runtime pipeline. The view owns closing;
+reopen Settings through its normal hotkey or menu entry. Include that cycle in
+the acceptance run below.
 
 ## Build and stage on Windows
 

@@ -15,6 +15,16 @@
     },
     "title": { "type": "string" },
     "description": { "type": "string" },
+    "launcher": {
+      "type": "object",
+      "description": "Opt this menu into the OSF Settings launcher. Omit for private, HUD, and world views.",
+      "required": ["modId"],
+      "additionalProperties": false,
+      "properties": {
+        "modId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9._-]+$", "not": { "enum": [".", ".."] } },
+        "modTitle": { "type": "string", "maxLength": 256 }
+      }
+    },
     "entry": {
       "type": "string",
       "default": "index.html",
@@ -58,6 +68,9 @@
     }
   },
   "allOf": [{
+    "if": { "required": ["launcher"] },
+    "then": { "properties": { "kind": { "const": "menu" } } }
+  }, {
     "if": { "properties": { "kind": { "const": "world" } }, "required": ["kind"] },
     "then": {
       "required": ["placeholderSize"],

@@ -198,6 +198,7 @@ namespace OSFUI
 		_highRefreshCapture = _osfSettings.HighRefreshCapture();
 		Log::SetDebugLogging(_developerMode);
 		LoadStartupContent();
+		_osfSettings.RegisterLaunchers(_views.All());
 		ConfigureWorldViews();
 		InitializeStartupViews();
 

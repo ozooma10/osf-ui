@@ -106,3 +106,13 @@ target("OSF UI")
 
     -- The host must exist before data deployment packages it.
     add_deps("osfui-webview2-host")
+
+target("osfui-manifest-tests")
+    add_undefines("NDEBUG")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/view_manifest_tests.cpp", "src/Views/ViewManifest.cpp", "src/Core/Json.cpp")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk")
+    set_pcxxheader("tests/native/stubs/pch.h")
+    add_packages("nlohmann_json")

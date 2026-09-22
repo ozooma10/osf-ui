@@ -1,6 +1,9 @@
 #include "Dependency/OSFSettingsClient.h"
 
 #include "Core/Json.h"
+#include "API/BridgeApi.h"
+#include "Views/ViewManifest.h"
+#include "vendor/OSFSettings_Launcher.h"
 
 namespace OSFUI
 {
@@ -26,6 +29,26 @@ namespace OSFUI
 		ReadStartupBool("highRefreshCapture", _highRefreshCapture);
 		ClearFailure("dependency");
 		return true;
+	}
+
+	void OSFSettingsClient::RegisterLaunchers(std::span<const ViewManifest> a_views)
+	{
+		OSFSettings::API::Launcher::Client launcher;
+		if (!launcher.Init()) return; // Optional; direct view opens still work with older Settings.
+		for (const auto& view : a_views) {
+			if (view.kind != ViewKind::Menu || view.launcherMod.empty() || (view.debugOnly && !_developerMode)) continue;
+			const auto result = launcher.Register({
+				.modId = view.launcherMod.c_str(), .id = view.id.c_str(), .modTitle = view.launcherModTitle.c_str(),
+				.title = view.title.c_str(), .description = view.description.c_str(),
+				.open = [](const char*, const char* id, void*) noexcept {
+					try {
+						if (!API::BridgeApi::Get().RequestMenu(id, true)) REX::WARN("Launcher could not queue view '{}'", id);
+					} catch (...) { REX::ERROR("Launcher could not queue WebView request"); }
+				}
+			});
+			if (result != OSFSettings::API::Launcher::Status::Ok)
+				REX::WARN("Launcher registration for '{}' failed: {}", view.id, static_cast<unsigned>(result));
+		}
 	}
 
 	void OSFSettingsClient::ReadStartupBool(const char* a_key, bool& a_value)

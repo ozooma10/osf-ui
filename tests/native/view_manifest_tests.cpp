@@ -48,6 +48,19 @@ int main()
 	assert(manifest);
 	assert(manifest->id == "demo.mod/terminal");
 	assert(manifest->title == "Cargo terminal");
+	assert(manifest->launcherMod.empty());
+	Write(path, R"({"manifestVersion":1,"launcher":{"modId":"demo.mod","modTitle":"Demo"}})");
+	manifest = OSFUI::ViewManifest::Load(path);
+	assert(manifest && manifest->launcherMod == "demo.mod" && manifest->launcherModTitle == "Demo");
+	for (const auto invalid : {
+		R"({"manifestVersion":1,"launcher":true})",
+		R"({"manifestVersion":1,"launcher":{"modId":"Invalid ID"}})",
+		R"({"manifestVersion":1,"kind":"hud","launcher":{"modId":"demo"}})",
+		R"({"manifestVersion":1,"launcher":{"modId":"demo","modTitle":1}})"
+	}) {
+		Write(path, invalid);
+		assert(!OSFUI::ViewManifest::Load(path));
+	}
 
 	Write(path, R"({
 		"manifestVersion": 1,

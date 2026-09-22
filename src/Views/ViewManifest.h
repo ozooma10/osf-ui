@@ -23,6 +23,8 @@ namespace OSFUI
 		std::string           id;
 		std::string           title;
 		std::string           description;
+		std::string           launcherMod; // Nonempty opts this menu into the shared launcher.
+		std::string           launcherModTitle;
 		// Owning mod id is the views/ folder name.
 		std::string           mod;
 		std::string           entry{ "index.html" };

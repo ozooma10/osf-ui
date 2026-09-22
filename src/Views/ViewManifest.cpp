@@ -24,7 +24,7 @@ namespace OSFUI
 		}
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
-				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry",
+				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry", "launcher",
 					"width", "height", "transparent", "kind", "placeholderSize",
 					"capturesInput", "pausesGame", "openOnStart", "order" },
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
@@ -74,6 +74,20 @@ namespace OSFUI
 		manifest.openOnStart = Json::Get(*json, "openOnStart", manifest.openOnStart);
 		manifest.order = static_cast<std::int32_t>(Json::Get(*json, "order", manifest.order));
 		manifest.debugOnly = Json::Get(*json, "debugOnly", manifest.debugOnly);
+		if (const auto launcher = json->find("launcher"); launcher != json->end()) {
+			if (!launcher->is_object() || !launcher->contains("modId") || !(*launcher)["modId"].is_string() ||
+				(launcher->contains("modTitle") && !(*launcher)["modTitle"].is_string()) || manifest.kind != ViewKind::Menu) {
+				REX::ERROR("ViewManifest: {} launcher requires a menu and an object with modId and optional modTitle", a_path.string());
+				return std::nullopt;
+			}
+			manifest.launcherMod = (*launcher)["modId"].get<std::string>();
+			manifest.launcherModTitle = launcher->value("modTitle", manifest.launcherMod);
+			if (manifest.launcherMod.empty() || manifest.launcherMod.size() > 128 || manifest.launcherMod == "." || manifest.launcherMod == ".." ||
+				manifest.launcherMod.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789._-") != std::string::npos) {
+				REX::ERROR("ViewManifest: {} launcher.modId must be a valid OSF Settings mod ID", a_path.string());
+				return std::nullopt;
+			}
+		}
 
 		if (manifest.kind == ViewKind::World) {
 			// Validate the authored integers before narrowing/clamping. A wrapped
