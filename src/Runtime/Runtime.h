@@ -8,7 +8,6 @@
 #include "Composite/D3D12Compositor.h"
 #include "Dependency/OSFSettingsClient.h"
 #include "Input/GamepadSession.h"
-#include "Input/ScanCode.h"
 #include "Render/WebView2HostWebRenderer.h"
 #include "Diagnostics/HealthRegistry.h"
 #include "Runtime/DeferredMainThreadWork.h"
@@ -58,10 +57,8 @@ namespace OSFUI
 		void CancelWorldInteraction();  // Thread-safe deferred cancellation.
 
 		// Called by the WndProc hook on WM_KEYDOWN/WM_KEYUP (window-message thread):
-		bool OnGameWindowKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down);
+		bool OnGameWindowKey(std::uint32_t a_vkCode, bool a_down);
 
-		// Called by the WndProc hook on WM_INPUTLANGCHANGE (window-message thread): flags the keycap-label map for a main-thread rebuild.
-		void NotifyKeyboardLayoutChanged();
 		// Called by the WndProc hook when Starfield regains focus during an active capture.
 		void NotifyGameWindowFocused();
 
@@ -97,7 +94,7 @@ namespace OSFUI
 		bool WantsInputCapture() const { return _presentation.DesiredCapture() || _worldInteraction.has_value(); }
 		void ConfigureInputRouting();
 
-		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down);
+		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down);
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
 		void SubmitFrameIfVisible();
 

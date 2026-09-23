@@ -229,12 +229,7 @@
 			void HandleAccelState(const json& a_msg)
 			{
 				const bool wasCaptured = captured;
-				const auto state = msg::FromJson<msg::AccelState>(a_msg);
-				toggleScan = state.toggleScan;
-				captured = state.captured;
-				captureArmed = state.captureArmed;
-				captureUpScan = state.captureUpScan;
-				ReconcileInputWidgetSubclass();
+				captured = msg::FromJson<msg::AccelState>(a_msg).captured;
 				if (wasCaptured && !captured) handledKeys.clear();
 			}
 

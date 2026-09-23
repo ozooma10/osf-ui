@@ -28,7 +28,7 @@ namespace OSFUI
 		_worldInteraction.reset();
 		if (auto* renderer = _worldInputRenderer.exchange(nullptr, std::memory_order_acq_rel)) {
 			renderer->SetNativeFocus(false);
-			renderer->SetAcceleratorKeys(kInvalidScanCode, false, false, kInvalidScanCode);
+			renderer->SetInputCaptured(false);
 		}
 		_worldNativeFocus = false;
 		_worldInteractionCancel.store(false, std::memory_order_release);
@@ -85,7 +85,7 @@ namespace OSFUI
 			_pendingWorldInteraction.reset();
 			_worldInteraction = request;
 			world->renderer->SetInputTargetView(request.view);
-			world->renderer->SetAcceleratorKeys(kInvalidScanCode, true, false, kInvalidScanCode);
+			world->renderer->SetInputCaptured(true);
 			_worldInputRenderer.store(world->renderer.get(), std::memory_order_release);
 			(void)m_gamepadSession.End();
 			m_gamepadSource.Reset();
@@ -170,8 +170,8 @@ namespace OSFUI
 					continue;
 				}
 				world.renderer->SetSharedRingHandler([i](const SharedRingDesc& desc) { WorldTexture::SetSharedRing(i, desc); });
-				world.renderer->SetNativeAcceleratorHandler([this](std::uint32_t vk, std::uint32_t scan, bool down) {
-					return OnNativeAcceleratorKey(vk, scan, down);
+				world.renderer->SetNativeAcceleratorHandler([this](std::uint32_t vk, bool down) {
+					return OnNativeAcceleratorKey(vk, down);
 				});
 				world.renderer->SetWebMessageHandler([this, i](std::string_view id, std::string_view json) {
 					const auto& instance = _worldViews[i];

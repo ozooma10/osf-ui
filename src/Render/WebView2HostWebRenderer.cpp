@@ -321,9 +321,8 @@ namespace OSFUI
 		std::uint32_t        width{ 1 }, height{ 1 };
 		std::uint32_t        viewportWidth{ 1 }, viewportHeight{ 1 };
 		bool                 pointerInputEnabled{ true };
-		// accelState mirror (SetAcceleratorKeys diffs against this)
-		std::uint32_t accToggle{ 0 }, accCaptureUp{ 0 };
-		bool          accCaptured{ false }, accArmed{ false }, accSent{ false };
+		// accelState mirror (SetInputCaptured diffs against this)
+		bool          accCaptured{ false }, accSent{ false };
 		std::string   relativePointerView;
 		bool          relativePointerActive{ false };
 
@@ -1024,9 +1023,7 @@ namespace OSFUI
 					.height = viewportHeight,
 					.presentationEpoch = presentationEpoch,
 				}));
-				addBootstrap(ToJson(msg::AccelState{ .toggleScan = accToggle,
-					.captured = accCaptured, .captureArmed = accArmed,
-					.captureUpScan = accCaptureUp }));
+				addBootstrap(ToJson(msg::AccelState{ .captured = accCaptured }));
 				addBootstrap(ToJson(msg::PointerInput{ .enabled = pointerInputEnabled }));
 				accSent = true;
 				for (const auto& view : views) {
@@ -1129,7 +1126,7 @@ namespace OSFUI
 					// Invoked off the game thread; the handler must stay cheap.
 					if (onAccelerator) {
 						const auto accel = msg::FromJson<msg::Accelerator>(message);
-						onAccelerator(accel.vk, accel.scan, accel.down);
+						onAccelerator(accel.vk, accel.down);
 					}
 				} else if (type == msg::RelativePointer::kType) {
 					// Invoked off the game thread; Runtime only touches atomic accumulators.
@@ -1911,27 +1908,17 @@ namespace OSFUI
 		}
 	}
 
-	void WebView2HostWebRenderer::SetAcceleratorKeys(std::uint32_t a_toggleScan,
-		bool a_captured, bool a_captureArmed,
-		std::uint32_t a_captureUpScan)
+	void WebView2HostWebRenderer::SetInputCaptured(bool a_captured)
 	{
 		bool changed = false;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
-			changed = !_impl->accSent || _impl->accToggle != a_toggleScan ||
-				_impl->accCaptured != a_captured ||
-				_impl->accArmed != a_captureArmed ||
-				_impl->accCaptureUp != a_captureUpScan;
-			_impl->accToggle = a_toggleScan;
+			changed = !_impl->accSent || _impl->accCaptured != a_captured;
 			_impl->accCaptured = a_captured;
-			_impl->accArmed = a_captureArmed;
-			_impl->accCaptureUp = a_captureUpScan;
 			if (changed && _impl->connected.load()) _impl->accSent = true;
 		}
 		if (changed) {
-			_impl->Send(ToJson(msg::AccelState{ .toggleScan = a_toggleScan,
-				.captured = a_captured, .captureArmed = a_captureArmed,
-				.captureUpScan = a_captureUpScan }));
+			_impl->Send(ToJson(msg::AccelState{ .captured = a_captured }));
 		}
 	}
 

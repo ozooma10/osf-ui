@@ -38,8 +38,8 @@ namespace OSFUI
 
     namespace
     {
-        constexpr KeyCode kVkF12 { 0x7B };
-        constexpr ScanCode kScanEscape{ 0x01 };
+        constexpr std::uint32_t kVkEscape{ 0x1B };
+        constexpr std::uint32_t kVkF12{ 0x7B };
     }
 
     
@@ -48,7 +48,7 @@ namespace OSFUI
 		return _initialized && ((_captureInput.load() && m_visible.load()) || _worldInputRenderer.load());
 	}
 
-	bool Runtime::OnGameWindowKey(std::uint32_t a_vkCode, ScanCode a_scanCode, bool a_down)
+	bool Runtime::OnGameWindowKey(std::uint32_t a_vkCode, bool a_down)
 	{
 		if (_developerMode && a_vkCode == kVkF12) {
 			if (a_down) {
@@ -61,29 +61,28 @@ namespace OSFUI
 		auto* target = _worldInputRenderer.load(std::memory_order_acquire);
 		if (!target) target = _renderer.get();
 		if (a_down) {
-			if (captured && a_scanCode == kScanEscape) {
+			if (captured && a_vkCode == kVkEscape) {
 				EnqueuePresentationRequest(ViewPresentationRequest::Back);
 			} else if (captured && target) {
 				target->InjectKeyEvent(a_vkCode, true);
 			} else if (Log::DebugEnabled()) {
-				REX::DEBUG("Runtime: OnGameWindowKey down (vk {}, scan {}) passed to the game", a_vkCode, a_scanCode);
+				REX::DEBUG("Runtime: OnGameWindowKey down (vk {}) passed to the game", a_vkCode);
 			}
 		} else {
 			if (captured && target) {
 				target->InjectKeyEvent(a_vkCode, false);
 			} else if (Log::DebugEnabled()) {
-				REX::DEBUG("Runtime: OnGameWindowKey up (vk {}, scan {}) passed to the game", a_vkCode, a_scanCode);
+				REX::DEBUG("Runtime: OnGameWindowKey up (vk {}) passed to the game", a_vkCode);
 			}
 		}
 		return captured;
 	}
 
-	bool Runtime::OnNativeAcceleratorKey(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down)
+	bool Runtime::OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down)
 	{
-		const auto scan = static_cast<ScanCode>(a_scanCode);
 		const bool frameworkOwned = (_developerMode && a_vkCode == kVkF12) ||
-			(a_vkCode == 0x1B && IsInputCaptured());
-		return frameworkOwned && OnGameWindowKey(a_vkCode, scan, a_down);
+			(a_vkCode == kVkEscape && IsInputCaptured());
+		return frameworkOwned && OnGameWindowKey(a_vkCode, a_down);
 	}
 
 	void Runtime::OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)

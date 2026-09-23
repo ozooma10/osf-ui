@@ -303,16 +303,10 @@ namespace osfui::wv2::msg
 	struct AccelState
 	{
 		static constexpr std::string_view kType = "accelState";
-		std::uint32_t toggleScan{ 0 };
-		bool          captured{ false };
-		bool          captureArmed{ false };
-		std::uint32_t captureUpScan{ 0 };
+		bool captured{ false };
 
 		static constexpr auto kFields = std::tuple{
-			F("toggleScan", &AccelState::toggleScan),
 			F("captured", &AccelState::captured),
-			F("captureArmed", &AccelState::captureArmed),
-			F("captureUpScan", &AccelState::captureUpScan),
 		};
 	};
 
@@ -478,12 +472,10 @@ namespace osfui::wv2::msg
 	{
 		static constexpr std::string_view kType = "accelerator";
 		std::uint32_t vk{ 0 };
-		std::uint32_t scan{ 0 };
 		bool          down{ false };
 
 		static constexpr auto kFields = std::tuple{
 			F("vk", &Accelerator::vk),
-			F("scan", &Accelerator::scan),
 			F("down", &Accelerator::down),
 		};
 	};

@@ -71,7 +71,7 @@ namespace OSFUI
 			_renderer->InjectMouseMove(static_cast<int>(packed >> 32),
 				static_cast<int>(packed & 0xFFFF'FFFFull));
 		}
-		_renderer->SetAcceleratorKeys(kInvalidScanCode, IsInputCaptured(), false, kInvalidScanCode);
+		_renderer->SetInputCaptured(IsInputCaptured());
 		_renderer->Update(a_deltaSeconds);
 		DrivePendingOpen();
 		SubmitFrameIfVisible();

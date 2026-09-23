@@ -2,8 +2,6 @@
 
 #include "Core/Log.h"
 #include "Input/HardwareCursor.h"
-#include "Input/ScanCode.h"
-#include "Platform/WindowsPlatform.h"
 #include "Runtime/Runtime.h"
 
 // Keep <Windows.h> here with NOGDI to avoid wingdi's ERROR macro.
@@ -20,18 +18,6 @@ namespace OSFUI::OverlayInputHook
 		WNDPROC g_gameProc{ nullptr };
 		HWND    g_hwnd{ nullptr };
 		std::atomic_bool g_chainCycleLogged{ false };
-
-		// Normalize WM key identity to DIK, falling back from absent synthetic scan codes to VK mapping.
-		ScanCode MessageScanCode(std::uint32_t a_vk, LPARAM a_lparam)
-		{
-			const auto rawScan = static_cast<std::uint8_t>((a_lparam >> 16) & 0xFF);
-			const bool extended = (a_lparam & 0x01000000) != 0;
-			const auto scan = ComposeScanCode(a_vk, rawScan, extended);
-			if (scan != kInvalidScanCode) {
-				return scan;
-			}
-			return static_cast<ScanCode>(Platform::VkToDirectInputScan(a_vk));
-		}
 		thread_local bool g_forwardingOriginal{ false };
 
 		// Window-thread cursor state observes capture edges published by the main thread.
@@ -210,7 +196,7 @@ namespace OSFUI::OverlayInputHook
 				const bool repeat = (a_lparam & 0x40000000) != 0;
 				// Route only the initial press so auto-repeat cannot retrigger toggles.
 				const bool consume = repeat ? runtime.IsInputCaptured() :
-					                              runtime.OnGameWindowKey(vk, MessageScanCode(vk, a_lparam), true);
+					                              runtime.OnGameWindowKey(vk, true);
 				if (consume) {
 					return 0;
 				}
@@ -220,15 +206,11 @@ namespace OSFUI::OverlayInputHook
 			case WM_SYSKEYUP:
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
-				if (runtime.OnGameWindowKey(vk, MessageScanCode(vk, a_lparam), false)) {
+				if (runtime.OnGameWindowKey(vk, false)) {
 					return 0;
 				}
 				break;
 			}
-			case WM_INPUTLANGCHANGE:
-				// Flag layout changes for a main-thread keycap rebuild without consuming them.
-				runtime.NotifyKeyboardLayoutChanged();
-				break;
 			case WM_CHAR:
 				// Chromium receives native text and IME; swallow the game's duplicate stream while captured.
 				if (runtime.IsInputCaptured()) return 0;

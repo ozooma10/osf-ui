@@ -11,7 +11,6 @@
 #include "Input/FocusMenu.h"
 #include "Input/FreeCursor.h"
 #include "Input/HardwareCursor.h"
-#include "Input/MenuMode.h"
 #include "Input/MenuEventSink.h"
 #include "Input/OverlayInputHook.h"
 #include "Input/SimPause.h"
@@ -161,8 +160,8 @@ namespace OSFUI
 
     void Runtime::ConfigureInputRouting()
     {
-		_renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down) {
-			return OnNativeAcceleratorKey(a_vkCode, a_scanCode, a_down);
+		_renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_vkCode, bool a_down) {
+			return OnNativeAcceleratorKey(a_vkCode, a_down);
 		});
     }
 
@@ -919,7 +918,7 @@ namespace OSFUI
 		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
 		_renderer->Resize(capture.width, capture.height);
 		_renderer->SetViewport(view.width, view.height);
-		_renderer->SetAcceleratorKeys(kInvalidScanCode, false, false, kInvalidScanCode);
+		_renderer->SetInputCaptured(false);
 		ApplyViewPresentationPolicy();
 		BroadcastViewsData();
 		REX::INFO("Runtime: replayed {} instantiated view(s) to the replacement browser host; overlay left closed", reloaded);
@@ -960,11 +959,6 @@ namespace OSFUI
 		ReconcileControlLayer();
 		ReconcileSimPause();
 		FreeCursor::Apply(false);
-	}
-
-	void Runtime::NotifyKeyboardLayoutChanged()
-	{
-		// OSF Settings owns keyboard labels and layout changes.
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)

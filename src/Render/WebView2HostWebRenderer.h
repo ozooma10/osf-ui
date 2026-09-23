@@ -52,7 +52,7 @@ namespace OSFUI
 		using HealthHandler = std::function<void(const HealthEvent& a_event)>;
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
 		using NativeAcceleratorHandler =
-			std::function<bool(std::uint32_t a_vkCode, std::uint32_t a_scanCode, bool a_down)>;
+			std::function<bool(std::uint32_t a_vkCode, bool a_down)>;
 		using RelativePointerHandler = std::function<void(
 			std::string_view a_viewId, std::int32_t a_dx, std::int32_t a_dy,
 			std::int32_t a_wheel)>;
@@ -82,8 +82,8 @@ namespace OSFUI
 		void SetRelativePointerHandler(RelativePointerHandler a_handler);
 		void SetRelativePointerCapture(std::string_view a_viewId, bool a_active);
 		void SetNativeFocus(bool a_focused);
-		void SetAcceleratorKeys(std::uint32_t a_toggleScan,
-			bool a_captured, bool a_captureArmed, std::uint32_t a_captureUpScan);
+		// While captured, the browser host hands Escape back through the accelerator handler.
+		void SetInputCaptured(bool a_captured);
 		void SetSharedRingHandler(SharedRingHandler a_handler);
 		void SetHealthHandler(HealthHandler a_handler);
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down);

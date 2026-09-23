@@ -53,7 +53,6 @@ SUITES=(
 "runtime_health_tests runtime_health_tests.cpp ../../src/Diagnostics/HealthReconciler.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/Core/Json.cpp"
 "settings_client_tests settings_client_tests.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/Diagnostics/HealthRegistry.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "settings_view_example_tests settings_view_example_tests.cpp ../../examples/settings-view/src/SettingsViewConsumer.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
-"scan_code_tests scan_code_tests.cpp"
 "bridge_api_tests bridge_api_tests.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "papyrus_form_tests papyrus_form_tests.cpp ../../src/API/PapyrusApi.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Core/Json.cpp"
 "view_manifest_tests view_manifest_tests.cpp ../../src/Views/ViewManifest.cpp ../../src/Core/Json.cpp"

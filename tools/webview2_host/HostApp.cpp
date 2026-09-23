@@ -4,7 +4,6 @@
 #include "Core/Version.h"
 #include "Core/Ids.h"
 #include "Input/AbsoluteMouseMapping.h"
-#include "Input/ScanCode.h"
 #include "Core/Json.h"
 #include "Views/ViewCache.h"
 #include "Wv2BoundedQueue.h"
@@ -59,21 +58,6 @@ namespace osfui::wv2
 
 		// Wire message shapes, compiled by the game side too (Wv2Messages.h).
 		namespace msg = osfui::wv2::msg;
-
-		std::uint32_t ComposeAcceleratorScan(std::uint32_t a_vk, std::uint32_t a_rawScan, bool a_extended)
-		{
-			const auto scan = OSFUI::ComposeScanCode(a_vk, static_cast<std::uint8_t>(a_rawScan & 0xFF), a_extended);
-			if (scan != OSFUI::kInvalidScanCode) {
-				return scan;
-			}
-			const UINT composite = ::MapVirtualKeyW(a_vk, MAPVK_VK_TO_VSC_EX);
-			if (composite == 0) {
-				return 0;
-			}
-			const UINT prefix = composite >> 8;
-			const UINT base = composite & 0xFFu;
-			return (prefix == 0xE0u || prefix == 0xE1u) ? (0x80u | base) : base;
-		}
 
 		struct Logger
 		{
@@ -290,8 +274,7 @@ namespace osfui::wv2
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
 			View* inputTarget{ nullptr };  // mouse/focus/synthetic-key target
 			bool  captureStarted{ false };
-			std::uint32_t toggleScan{ 0x44 /*F10*/ }, captureUpScan{ 0 };
-			bool          captured{ false }, captureArmed{ false };
+			bool          captured{ false };
 			bool          focusGranted{ false };
 			bool          pointerInputEnabled{ true };
 			std::uint64_t focusEpoch{ 0 };
@@ -312,8 +295,8 @@ namespace osfui::wv2
 			std::unordered_map<std::string, std::unordered_set<std::string>> egressWarned;
 			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
 
-			HWND    captureWidget{ nullptr };
-			WNDPROC captureWidgetProc{ nullptr };
+			HWND    inputWidget{ nullptr };
+			WNDPROC inputWidgetProc{ nullptr };
 			static inline App* s_app{ nullptr };
 
 			ComPtr<ID3D11Device>         device;
@@ -565,8 +548,8 @@ namespace osfui::wv2
 			void DestroyOneView(View& a_view)
 			{
 				RecoverPressedMouseButtons(a_view, "view destruction");
-				if (captureWidget && ::IsChild(a_view.window, captureWidget)) {
-					RemoveCaptureSubclass();
+				if (inputWidget && ::IsChild(a_view.window, inputWidget)) {
+					RemoveInputWidgetSubclass();
 				}
 				if (a_view.compositionController) {
 					a_view.compositionController->put_RootVisualTarget(nullptr);
@@ -1179,14 +1162,9 @@ namespace osfui::wv2
 							const bool down =
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
 								kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
-							const auto scan = ComposeAcceleratorScan(key,
-								physical.ScanCode, physical.IsExtendedKey != FALSE);
 							const bool frameworkOwned =
-								captureArmed ||
-								(captureUpScan != 0 && scan == captureUpScan) ||
-								(toggleScan != 0 && scan == toggleScan) ||
 								(devMode && key == VK_F12) ||
-								(key == 0x1B && captured);
+								(key == VK_ESCAPE && captured);
 							const bool alreadyHandled = handledKeys.contains(key);
 							const bool duplicateDown = down &&
 								(alreadyHandled || (frameworkOwned && physical.WasKeyDown));
@@ -1195,7 +1173,7 @@ namespace osfui::wv2
 							if (!duplicateDown &&
 								(frameworkOwned || (!down && alreadyHandled))) {
 								Send(msg::ToJson(msg::Accelerator{
-									.vk = key, .scan = scan, .down = down }));
+									.vk = key, .down = down }));
 							}
 							if (handled) {
 								a_args->put_Handled(TRUE);
@@ -1651,22 +1629,22 @@ namespace osfui::wv2
 
 			void ReconcileInputWidgetSubclass()
 			{
-				if (captureArmed || focusGranted) {
+				if (focusGranted) {
 					HWND widget = FindInputTargetWidget();
-					if (!widget || widget == captureWidget) return;
-					RemoveCaptureSubclass();  // the input target changed
+					if (!widget || widget == inputWidget) return;
+					RemoveInputWidgetSubclass();  // the input target changed
 					s_app = this;             // before install: the proc may run immediately
 					auto* previous = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
 						widget, GWLP_WNDPROC,
-						reinterpret_cast<LONG_PTR>(&CaptureWndProc)));
+						reinterpret_cast<LONG_PTR>(&InputWidgetWndProc)));
 					if (!previous) {
 						s_app = nullptr;  // subclass refused; accelerators still work
 						return;
 					}
-					captureWidget = widget;
-					captureWidgetProc = previous;
+					inputWidget = widget;
+					inputWidgetProc = previous;
 				} else {
-					RemoveCaptureSubclass();
+					RemoveInputWidgetSubclass();
 				}
 			}
 
@@ -1692,21 +1670,21 @@ namespace osfui::wv2
 				return true;
 			}
 
-			void RemoveCaptureSubclass()
+			void RemoveInputWidgetSubclass()
 			{
-				if (!captureWidget) return;
+				if (!inputWidget) return;
 				const auto current = reinterpret_cast<WNDPROC>(
-					::GetWindowLongPtrW(captureWidget, GWLP_WNDPROC));
-				if (current == &CaptureWndProc && captureWidgetProc) {
-					::SetWindowLongPtrW(captureWidget, GWLP_WNDPROC,
-						reinterpret_cast<LONG_PTR>(captureWidgetProc));
+					::GetWindowLongPtrW(inputWidget, GWLP_WNDPROC));
+				if (current == &InputWidgetWndProc && inputWidgetProc) {
+					::SetWindowLongPtrW(inputWidget, GWLP_WNDPROC,
+						reinterpret_cast<LONG_PTR>(inputWidgetProc));
 				}
-				captureWidget = nullptr;
-				captureWidgetProc = nullptr;
+				inputWidget = nullptr;
+				inputWidgetProc = nullptr;
 				s_app = nullptr;  // after the restore above, never before
 			}
 
-			static LRESULT CALLBACK CaptureWndProc(
+			static LRESULT CALLBACK InputWidgetWndProc(
 				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 			{
 				auto* self = s_app;
@@ -1714,21 +1692,8 @@ namespace osfui::wv2
 					self->SendFocusedMouseWheel(a_wparam)) {
 					return 0;
 				}
-				if (self && self->captureArmed &&
-					(a_msg == WM_KEYDOWN || a_msg == WM_SYSKEYDOWN)) {
-					const auto vk = static_cast<std::uint32_t>(a_wparam);
-					const bool repeat = (a_lparam & 0x40000000) != 0;
-					if (!repeat) {
-						const auto scan = ComposeAcceleratorScan(vk,
-							static_cast<std::uint32_t>((a_lparam >> 16) & 0xFF),
-							(a_lparam & 0x01000000) != 0);
-						self->Send(msg::ToJson(msg::Accelerator{
-							.vk = vk, .scan = scan, .down = true }));
-						return 0;
-					}
-				}
-				const auto proc = (self && self->captureWidgetProc)
-					? self->captureWidgetProc
+				const auto proc = (self && self->inputWidgetProc)
+					? self->inputWidgetProc
 					: nullptr;
 				return proc ? ::CallWindowProcW(proc, a_hwnd, a_msg, a_wparam, a_lparam)
 							: ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
@@ -2171,7 +2136,6 @@ namespace osfui::wv2
 				lastPublishedFocusView.clear();
 				ResetRelativePointerCapture();
 				SetRawMouseInput(false);
-				captureArmed = false;
 				ReconcileInputWidgetSubclass();
 				ApplyMouseCapture();
 				captureClosing.store(true);

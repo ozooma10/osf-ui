@@ -1,11 +1,9 @@
 #pragma once
 
-// Shared Win32 adapters for input translation and loaded-module facts.
+// Shared Win32 adapters for input state and loaded-module facts.
 
 namespace OSFUI::Platform
 {
-	// Map a VK to current-layout DIK for synthetic-input fallback.
-	[[nodiscard]] std::uint32_t VkToDirectInputScan(std::uint32_t a_vk);
 	[[nodiscard]] bool AnyKeyDown();
 	[[nodiscard]] bool GameIsForeground();
 
