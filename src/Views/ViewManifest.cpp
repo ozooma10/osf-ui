@@ -25,7 +25,7 @@ namespace OSFUI
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry", "launcher",
-					"width", "height", "transparent", "kind", "placeholderSize",
+					"width", "height", "transparent", "kind",
 					"capturesInput", "pausesGame", "openOnStart", "order" },
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
@@ -59,12 +59,11 @@ namespace OSFUI
 
 		// Unknown kinds are malformed rather than silently gaining menu/input privileges.
 		const auto kindStr = Json::Get(*json, "kind", "menu");
-		if (kindStr != "menu" && kindStr != "hud" && kindStr != "world") {
-			REX::ERROR("ViewManifest: [content] {} kind '{}' must be 'menu', 'hud', or 'world'", a_path.string(), kindStr);
+		if (kindStr != "menu" && kindStr != "hud") {
+			REX::ERROR("ViewManifest: [content] {} kind '{}' must be 'menu' or 'hud'", a_path.string(), kindStr);
 			return std::nullopt;
 		}
-		manifest.kind = kindStr == "world" ? ViewKind::World :
-			(kindStr == "hud" ? ViewKind::Hud : ViewKind::Menu);
+		manifest.kind = (kindStr == "hud") ? ViewKind::Hud : ViewKind::Menu;
 		// Derive interactivity from active-menu policy; ignore the pre-1.0 manifest field.
 		manifest.menuInputEligible = manifest.kind == ViewKind::Menu;
 		manifest.capturesInput = Json::Get(*json, "capturesInput", manifest.capturesInput);
@@ -87,38 +86,6 @@ namespace OSFUI
 			}
 		}
 
-		if (manifest.kind == ViewKind::World) {
-			// Validate the authored integers before narrowing/clamping. A wrapped
-			// value must never select an unrelated engine texture signature.
-			const auto readSize = [&](std::string_view a_key, std::uint32_t a_default,
-				std::uint32_t a_minimum) -> std::optional<std::uint32_t> {
-				const auto it = json->find(a_key);
-				if (it == json->end()) {
-					return a_default >= a_minimum ? std::optional(a_default) : std::nullopt;
-				}
-				if (!it->is_number_integer() ||
-					(!it->is_number_unsigned() && it->get<std::int64_t>() < 0)) {
-					return std::nullopt;
-				}
-				const auto value = it->get<std::uint64_t>();
-				return value >= a_minimum && value <= 4096 ?
-					std::optional(static_cast<std::uint32_t>(value)) : std::nullopt;
-			};
-			const auto width = readSize("width", kDefaultViewWidth, 1);
-			const auto height = readSize("height", kDefaultViewHeight, 1);
-			const auto placeholder = readSize("placeholderSize", 0, 256);
-			if (!width || !height || !placeholder ||
-				(*placeholder & (*placeholder - 1)) == 0) {
-				REX::ERROR("ViewManifest: [content] world '{}' requires width/height in 1..4096 and a non-power-of-two placeholderSize in 256..4096", manifest.id);
-				return std::nullopt;
-			}
-			manifest.width = *width;
-			manifest.height = *height;
-			manifest.placeholderSize = *placeholder;
-			manifest.openOnStart = false;
-			manifest.order = 0;
-		}
-
 		// Reject entry paths that escape the view's asset folder.
 		const auto entryPath = std::filesystem::path(manifest.entry);
 		if (entryPath.is_absolute() ||
@@ -128,10 +95,10 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		// Passive views cannot acquire fullscreen input or pause ownership.
-		if (manifest.kind != ViewKind::Menu) {
+		// Force HUDs passive so malformed manifests cannot capture input or pause.
+		if (manifest.kind == ViewKind::Hud) {
 			if (manifest.capturesInput || manifest.pausesGame) {
-				REX::WARN("ViewManifest: [content] {} view '{}' cannot capture input or pause; forcing both off", kindStr, manifest.id);
+				REX::WARN("ViewManifest: [content] HUD '{}' cannot capture input or pause; forcing both off", manifest.id);
 			}
 			manifest.capturesInput = false;
 			manifest.pausesGame = false;

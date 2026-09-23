@@ -2,7 +2,6 @@
 
 #include "Composite/D3D12Compositor.h"  // RecordOverlayIntoRenderTarget
 #include "Composite/EngineD3D12.h"
-#include "World/WorldTexture.h"
 #include "Composite/UiPassPolicy.h"
 #include "Composite/UiTargetFormat.h"
 #include "Core/Log.h"
@@ -317,7 +316,6 @@ namespace OSFUI::UiPass
 
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			WorldTexture::Install();
 			EnsureDrawHooksInstalled();
 			if (g_usePostComposite.load(std::memory_order_acquire)) {
 				// Bound an unfinished post-composite search to the frame that opened it.

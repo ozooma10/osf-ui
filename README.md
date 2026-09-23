@@ -34,7 +34,6 @@ the shared `OSF` parent or the OSF Settings sibling subtree.
 - Native API: [`sdk/OSFUI.h`](sdk/OSFUI.h), `OSFUI::API::Client` via `OSFUI_RequestAPI`
 - Papyrus API: [`data/Scripts/Source/OSFUI.psc`](data/Scripts/Source/OSFUI.psc)
 - Manifest schema: [`docs/schema/manifest.schema.json`](docs/schema/manifest.schema.json)
-- Material-backed world views: [`docs/world-surfaces.md`](docs/world-surfaces.md)
 - Starter: `npm create osfui@latest`
 
 OSF UI never injects Settings data into a page. The owning mod must read OSF
@@ -44,7 +43,7 @@ Menu views can opt into the OSF Settings mod launcher with
 `"launcher": { "modId": "mymod", "modTitle": "My Mod" }` in their manifest.
 All opted-in views appear together in the top-level Launcher tab. Use your lowercase OSF mod ID as the owner.
 The view's title and description label the destination; its qualified view ID
-remains unchanged. Omit `launcher` for private views. HUD/world views cannot opt
+remains unchanged. Omit `launcher` for private views. HUD views cannot opt
 in, and debug-only entries appear only with developer mode enabled. This uses
 the optional launcher ABI 2.0; direct view APIs still work with older Settings.
 Discovery registers metadata without starting WebView2. Opening uses the normal

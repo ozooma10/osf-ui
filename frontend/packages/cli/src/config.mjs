@@ -102,20 +102,8 @@ export async function loadProject(cwd, command = 'serve') {
     if (!await exists(entryPath)) throw new Error(`View entry not found: ${entryPath}`);
 
     const kind = authored.kind ?? 'menu';
-    if (kind !== 'menu' && kind !== 'hud' && kind !== 'world') {
-      throw new Error(`view "${authored.id}" kind must be "menu", "hud", or "world".`);
-    }
-    if (kind === 'world') {
-      const size = authored.placeholderSize;
-      if (!Number.isInteger(size) || size < 256 || size > 4096 || (size & (size - 1)) === 0) {
-        throw new Error(`world view "${authored.id}" requires a non-power-of-two placeholderSize in 256..4096.`);
-      }
-      for (const key of ['width', 'height']) {
-        if (authored[key] !== undefined &&
-            (!Number.isInteger(authored[key]) || authored[key] < 1 || authored[key] > 4096)) {
-          throw new Error(`world view "${authored.id}" ${key} must be an integer in 1..4096.`);
-        }
-      }
+    if (kind !== 'menu' && kind !== 'hud') {
+      throw new Error(`view "${authored.id}" kind must be "menu" or "hud".`);
     }
     views.push({
       ...authored,
@@ -130,11 +118,9 @@ export async function loadProject(cwd, command = 'serve') {
       kind,
       width: dimension(authored.width, 1600),
       height: dimension(authored.height, 900),
-      transparent: kind !== 'world' && authored.transparent !== false,
+      transparent: authored.transparent !== false,
       capturesInput: kind === 'menu' && authored.capturesInput !== false,
       pausesGame: kind === 'menu' && authored.pausesGame !== false,
-      openOnStart: kind !== 'world' && authored.openOnStart === true,
-      order: kind === 'world' ? 0 : authored.order,
     });
   }
 
@@ -168,7 +154,6 @@ export function manifestFor(view) {
     kind: view.kind,
     width: view.width,
     height: view.height,
-    ...(view.kind === 'world' ? { placeholderSize: view.placeholderSize } : {}),
     transparent: view.transparent,
     capturesInput: view.capturesInput,
     pausesGame: view.pausesGame,

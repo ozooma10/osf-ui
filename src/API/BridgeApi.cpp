@@ -262,28 +262,6 @@ namespace OSFUI::API
 		return true;
 	}
 
-	InteractionToken BridgeApi::BeginInteraction(const char* a_viewId, InteractionFn a_callback, void* a_context)
-	{
-		if (!a_viewId || !a_callback || !Ids::IsValidQualifiedViewId(a_viewId)) return 0;
-		std::lock_guard lock(_mutex);
-		const auto* id = FindIdCaseInsensitive(_knownViews, a_viewId);
-		if (!id || _pendingInteractions.size() >= 64 || _nextInteractionToken == 0) return 0;
-		const auto token = _nextInteractionToken++;
-		_pendingInteractions.push_back({ token, *id, a_callback, a_context, std::chrono::steady_clock::now() });
-		MarkPending(kPendingInteraction);
-		return token;
-	}
-
-	bool BridgeApi::EndInteraction(InteractionToken a_token)
-	{
-		if (!a_token) return false;
-		std::lock_guard lock(_mutex);
-		if (_pendingInteractions.size() >= 64) return false;
-		_pendingInteractions.push_back({ .token = a_token });
-		MarkPending(kPendingInteraction);
-		return true;
-	}
-
 	void BridgeApi::SetViewCatalog(const std::vector<std::string>& a_viewIds)
 	{
 		std::lock_guard lock(_mutex);
@@ -353,7 +331,7 @@ namespace OSFUI::API
 	BridgeApi::PendingBatch BridgeApi::TakePendingBatch()
 	{
 		constexpr auto frameBits = kPendingPresentation | kPendingState |
-			kPendingViewRegistrations | kPendingInteraction;
+			kPendingViewRegistrations;
 		const auto reasons = _pending.fetch_and(~frameBits, std::memory_order_acq_rel);
 		PendingBatch batch;
 		if (!(reasons & frameBits)) return batch;
@@ -361,7 +339,6 @@ namespace OSFUI::API
 		batch.presentation.swap(_pendingViewPresentationRequests);
 		batch.state.swap(_pendingStateOps);
 		batch.viewRegistrations.swap(_pendingViewRegs);
-		batch.interactions.swap(_pendingInteractions);
 		return batch;
 	}
 

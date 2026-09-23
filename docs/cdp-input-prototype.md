@@ -69,8 +69,7 @@ native-path cleanup; the deployed cleanup build still needs an in-game check:
    reopen while holding a key or mouse button; verify no input remains held.
 3. Alt+Tab away while typing or dragging, then return. Confirm the game does not
    fight the other application's focus and resumes input on return.
-4. Check controller navigation, interactive world views, and relative-pointer
-   interactions. Repeatedly switch views and reopen menus.
+4. Check controller navigation and relative-pointer interactions. Repeatedly switch views and reopen menus.
 5. Check a physical IME's preedit, commit, cancellation, and candidate window.
 
 Known limits of the prototype:

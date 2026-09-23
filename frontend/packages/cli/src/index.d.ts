@@ -1,6 +1,6 @@
 import type { UserConfig } from 'vite';
 
-export type ViewKind = 'menu' | 'hud' | 'world';
+export type ViewKind = 'menu' | 'hud';
 
 export interface OsfuiViteEnv {
   command: 'serve' | 'build';
@@ -19,8 +19,6 @@ export interface ViewConfig {
   kind?: ViewKind;
   width?: number;
   height?: number;
-  /** Required for world views: square BGRA8 placeholder size, 256..4096, not a power of two. */
-  placeholderSize?: number;
   transparent?: boolean;
   capturesInput?: boolean;
   pausesGame?: boolean;

@@ -15,8 +15,6 @@ namespace OSFUI
 		bool          devMode{ false };
 		bool          highRefreshCapture{ false };
 		std::filesystem::path dataDir;
-		// Empty for the overlay; internal world instances own separate browser profiles.
-		std::string instanceName;
 	};
 
 	// Out-of-process WebView2 client using a named pipe and shared-texture ring to avoid MO2 injection.

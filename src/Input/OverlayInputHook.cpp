@@ -186,7 +186,7 @@ namespace OSFUI::OverlayInputHook
 			auto& runtime = Runtime::Get();
 
 			// Reconcile the main-thread capture edge on the window thread.
-			const bool wantHwCursor = runtime.IsPointerCaptured() && ::GetForegroundWindow() == a_hwnd;
+			const bool wantHwCursor = runtime.IsInputCaptured() && ::GetForegroundWindow() == a_hwnd;
 			const bool keyboardCaptured = runtime.IsInputCaptured();
 			if (keyboardCaptured != g_keyboardCaptured) {
 				g_keyboardCaptured = keyboardCaptured;

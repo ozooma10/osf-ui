@@ -1737,9 +1737,9 @@ namespace osfui::wv2
 			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName),
 			elevated ? "yes" : "no", ToUtf8(exePath)));
 
-		// Each presentation owns one host: overlay or a dedicated world texture.
+		// Production permits exactly one browser host per game process.
 		const auto mutexName =
-			std::format(L"Local\\osfui-wv2-host-{}-{}", a_options.gamePid, a_options.instance);
+			std::format(L"Local\\osfui-wv2-host-{}", a_options.gamePid);
 		const HANDLE instanceMutex = ::CreateMutexW(nullptr, TRUE, mutexName.c_str());
 		if (!instanceMutex || ::GetLastError() == ERROR_ALREADY_EXISTS) {
 			app.log.Error("another browser-host instance is already running for this game pid");

@@ -91,10 +91,8 @@ namespace OSFUI
 		auto papyrusBatch = API::Papyrus::TakePendingBatch();
 		ProcessBackendQueues(std::move(papyrusBatch), std::move(bridgeBatch.state));
 		ApplyPresentationRequests(presentationWork);
-		ApplyWorldInteractionRequests(bridgeBatch.interactions);
 		ReconcileFrameState(a_deltaSeconds);
 		ProcessRendererFrame(a_deltaSeconds);
-		TickWorldViews(a_deltaSeconds);
 		DrainRelativePointerCapture();
 		if (!_lastShownView.empty()) {
 			API::BridgeApi::Get().DispatchViewLifecycle(

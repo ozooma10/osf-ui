@@ -31,18 +31,6 @@ namespace
 
 int main()
 {
-	// Even an accidentally registered world view cannot become an overlay.
-	{
-		ViewPresentationController controller;
-		controller.AddInstantiated({ "a/screen", ViewKind::World, true, true, 0 });
-		assert(!controller.Open("a/screen"));
-		assert(!controller.ActiveMenu());
-		assert(!controller.DesiredVisible());
-		assert(!controller.DesiredCapture());
-		assert(!controller.DesiredPause());
-		assert(controller.DesiredLayers().empty());
-	}
-
 	// Unknown ids: every transition refuses, nothing changes.
 	{
 		ViewPresentationController controller;

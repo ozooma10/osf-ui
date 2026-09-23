@@ -17,15 +17,4 @@ describe('manifest schema', () => {
     expect(validate({ kind: 'hud' })).toBe(false);
     expect(validate({ manifestVersion: 2, kind: 'hud' })).toBe(false);
   });
-
-  it('requires a precise world texture signature and bounded browser dimensions', () => {
-    expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize: 1000 })).toBe(true);
-    expect(validate({ manifestVersion: 1, kind: 'world' })).toBe(false);
-    for (const placeholderSize of [null, '1000', 1000.5, -1, 255, 256, 512, 1024, 2048, 4096, 4097]) {
-      expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize })).toBe(false);
-    }
-    expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize: 1000, width: 4096, height: 1 })).toBe(true);
-    expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize: 1000, width: 4097 })).toBe(false);
-    expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize: 1000, height: 0 })).toBe(false);
-  });
 });

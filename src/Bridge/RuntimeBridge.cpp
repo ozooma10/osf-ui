@@ -107,7 +107,7 @@ namespace OSFUI
 	{
 		std::unordered_set<std::string> targets;
 		for (const auto& manifest : _views.All()) {
-			if (!_presentation.IsInstantiated(manifest.id) && !IsWorldViewInstantiated(manifest.id)) {
+			if (!_presentation.IsInstantiated(manifest.id)) {
 				continue;
 			}
 			if (Ids::EqualsCaseInsensitiveAscii(Ids::ModOf(manifest.id), a_mod)) {
@@ -148,7 +148,7 @@ namespace OSFUI
 			return;
 		}
 		for (const auto& manifest : _views.All()) {
-			if (_presentation.IsInstantiated(manifest.id) || IsWorldViewInstantiated(manifest.id)) {
+			if (_presentation.IsInstantiated(manifest.id)) {
 				deliver(manifest.id);
 			}
 		}
@@ -226,10 +226,6 @@ namespace OSFUI
 				return;
 			}
 			id = manifest->id;
-			if (manifest->kind == ViewKind::World) {
-				a_b.Reject("world-view", "Material-backed views cannot open as overlay menus");
-				return;
-			}
 			if (manifest->kind == ViewKind::Menu && manifest->capturesInput && _captureIntegrationInitialized && !_captureIntegrationAvailable) {
 				REX::WARN("Runtime: menu.open refused — required input integration is unavailable");
 				a_b.Reject("input-unavailable", "required input integration is unavailable");

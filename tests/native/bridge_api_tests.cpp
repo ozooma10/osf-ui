@@ -48,34 +48,10 @@ int main()
     auto presentation = api.TakeViewPresentationRequests();
     CHECK(presentation.size() == 1 && presentation[0].view == "acme/panel" && presentation[0].open);
 
-    const auto interactionCallback = +[](API::InteractionToken, const char*, API::InteractionPhase, const char*, void*) noexcept {};
-    CHECK(api.BeginInteraction("missing/screen", interactionCallback, nullptr) == 0);
-    CHECK(api.BeginInteraction("acme/panel", nullptr, nullptr) == 0);
-    CHECK(!api.EndInteraction(0));
-    const auto token = api.BeginInteraction("ACME/panel", interactionCallback, &g_ready);
-    CHECK(token != 0);
-    CHECK(api.EndInteraction(token));
-    const auto interactions = api.TakePendingBatch().interactions;
-    CHECK(interactions.size() == 2);
-    CHECK(interactions[0].view == "acme/panel" && interactions[0].token == token);
-    CHECK(interactions[0].context == &g_ready && interactions[0].callback == interactionCallback);
-    CHECK(interactions[1].view.empty() && interactions[1].token == token && !interactions[1].callback);
-    CHECK(api.TakePendingBatch().interactions.empty());
-    for (int i = 0; i < 64; ++i) CHECK(api.BeginInteraction("acme/panel", interactionCallback, nullptr) > token);
-    CHECK(api.BeginInteraction("acme/panel", interactionCallback, nullptr) == 0);
-    CHECK(!api.EndInteraction(token));
-    CHECK(api.TakePendingBatch().interactions.size() == 64);
-
     API::Client client;
     CHECK(client.Attach(&api));
-    const auto clientToken = client.BeginInteraction("acme/panel", interactionCallback, nullptr);
-    CHECK(clientToken > token);
-    CHECK(client.EndInteraction(clientToken));
-    CHECK(api.TakePendingBatch().interactions.size() == 2);
     CHECK(!client.Attach(&api, API::kVersion + 1));
     CHECK(!client && client.Version() == 0);
-    CHECK(client.BeginInteraction("acme/panel", interactionCallback, nullptr) == 0);
-    CHECK(!client.EndInteraction(token));
 
     CHECK(api.RegisterView("acme/panel"));
     CHECK(!api.RegisterView("osfui/settings"));
@@ -111,7 +87,7 @@ int main()
         R"({"kind":"send","name":"acme.increment","payload":{"amount":1}})");
     CHECK(g_send == 1);
 
-    // A failed world host stops draining native sends. Reattaching a replacement
+    // A failed browser host stops draining native sends. Reattaching a replacement
     // restores availability, but delivery still waits for its document greeting.
     api.SetViewInstantiated("acme/panel", false);
     bridge.OnViewDestroyed("acme/panel");

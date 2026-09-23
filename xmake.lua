@@ -13,12 +13,6 @@ add_rules("plugin.vsxmake.autoupdate")
 -- JSON for view manifests and the message bridge
 add_requires("nlohmann_json")
 
-option("test_harness")
-    set_default(false)
-    set_showmenu(true)
-    set_description("Include private world-surface test observations")
-option_end()
-
 -- The mirrored host is self-contained: static CRT and WebView2 loader.
 target("osfui-webview2-host")
     set_kind("binary")
@@ -75,10 +69,6 @@ target("wv2-pipe-tests")
 
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
 target("OSF UI")
-    if has_config("test_harness") then
-        add_defines("OSFUI_TEST_HARNESS")
-        add_includedirs("tests/world-surface")
-    end
     -- Keep the binary basename independent of the MO2 folder name.
     set_basename("OSFUI")
     add_rules("commonlibsf.plugin", {

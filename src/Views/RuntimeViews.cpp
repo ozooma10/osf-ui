@@ -12,7 +12,6 @@ namespace OSFUI
 {
     bool Runtime::InstantiateView(const ViewManifest& a_manifest, std::string_view a_reason)
 	{
-		if (a_manifest.kind == ViewKind::World) return false;
 		const auto& id = a_manifest.id;
 		if (_presentation.IsInstantiated(id)) {
 			return true;
@@ -153,7 +152,7 @@ namespace OSFUI
 		API::BridgeApi::Get().SetViewInstantiated(a_id, false);
 		bool instantiatedViewRemains = false;
 		for (const auto& manifest : _views.All()) {
-			if (_presentation.IsInstantiated(manifest.id) || IsWorldViewInstantiated(manifest.id)) {
+			if (_presentation.IsInstantiated(manifest.id)) {
 				instantiatedViewRemains = true;
 				break;
 			}
@@ -216,7 +215,7 @@ namespace OSFUI
 		nlohmann::json views = nlohmann::json::array();
 		const auto     active = _presentation.ActiveMenu();
 		for (const auto& m : _views.All()) {
-			const bool instantiated = _presentation.IsInstantiated(m.id) || IsWorldViewInstantiated(m.id);
+			const bool instantiated = _presentation.IsInstantiated(m.id);
 			const auto state = m_viewLoads.GetState(m.id);
 			const char* loadState =
 				state == ViewLoadState::Failed   ? "failed" :
@@ -227,7 +226,7 @@ namespace OSFUI
 				{ "title", m.title },
 				{ "description", m.description },
 				{ "mod", m.mod },
-				{ "kind", m.kind == ViewKind::World ? "world" : m.kind == ViewKind::Hud ? "hud" : "menu" },
+				{ "kind", m.kind == ViewKind::Hud ? "hud" : "menu" },
 				{ "interactive", m.menuInputEligible },
 				{ "open", _presentation.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },

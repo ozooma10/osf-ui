@@ -75,12 +75,6 @@ namespace OSFUI::API
 	// Receives (viewId, phase, user) for an exact menu view.
 	using ViewLifecycleFn = void (*)(const char* a_viewId, ViewLifecyclePhase a_phase, void* a_user) noexcept;
 
-	using InteractionToken = std::uint64_t;
-	enum class InteractionPhase : std::uint32_t { kStarted, kEnded, kRejected };
-	// Main thread; reason and viewId have callback lifetime. Keep context alive until Ended/Rejected.
-	using InteractionFn = void (*)(InteractionToken a_token, const char* a_viewId,
-		InteractionPhase a_phase, const char* a_reason, void* a_context) noexcept;
-
 	struct IUI
 	{
 		// True while at least one bridge-enabled document is live.
@@ -115,13 +109,6 @@ namespace OSFUI::API
 		virtual bool RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_callback, void* a_user) = 0;
 		// Removes lifecycle callbacks for a view.
 		virtual void UnregisterViewLifecycle(const char* a_viewId) = 0;
-		// Queue exclusive keyboard/gamepad ownership of an already loaded world view.
-		// Zero means not queued. Otherwise exactly one Started then Ended, or one Rejected.
-		// Admission waits for released input and expires after five seconds.
-		// Escape/Back, focus return, a menu opening, or browser failure ends ownership.
-		virtual InteractionToken BeginInteraction(const char* a_viewId, InteractionFn a_callback, void* a_context) = 0;
-		// Ends only this token; stale tokens cannot release a newer owner.
-		virtual bool EndInteraction(InteractionToken a_token) = 0;
 
 	protected:
 		// OSF UI owns the interface.
@@ -227,14 +214,6 @@ namespace OSFUI::API
 		void UnregisterViewLifecycle(const char* a_view) const noexcept
 		{
 			if (m_api) m_api->UnregisterViewLifecycle(a_view);
-		}
-		InteractionToken BeginInteraction(const char* a_view, InteractionFn a_callback, void* a_context) const noexcept
-		{
-			return m_api ? m_api->BeginInteraction(a_view, a_callback, a_context) : 0;
-		}
-		bool EndInteraction(InteractionToken a_token) const noexcept
-		{
-			return m_api && m_api->EndInteraction(a_token);
 		}
 
 	private:

@@ -46,8 +46,6 @@ namespace OSFUI
 		}
 
 		if (a_event.opening) {
-			// Any engine menu other than our input sentinel revokes a world session.
-			if (name != "OSFUI_FocusMenu") Runtime::Get().CancelWorldInteraction();
 			// Force-hide on system transitions to release input before game state becomes invalid.
 			if ((name == "LoadingMenu" || name == "MainMenu") && Runtime::Get().IsVisible()) {
 				REX::DEBUG("MenuEventSink: '{}' opened -> closing all OSF UI views", name);

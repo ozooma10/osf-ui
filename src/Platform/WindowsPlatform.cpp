@@ -12,21 +12,6 @@
 
 namespace OSFUI::Platform
 {
-	bool AnyKeyDown()
-	{
-		for (int key = 1; key < 255; ++key) {
-			if ((::GetAsyncKeyState(key) & 0x8000) != 0) return true;
-		}
-		return false;
-	}
-
-	bool GameIsForeground()
-	{
-		DWORD pid = 0;
-		::GetWindowThreadProcessId(::GetForegroundWindow(), &pid);
-		return pid == ::GetCurrentProcessId();
-	}
-
 	std::string ModuleNameForAddress(const void* a_address)
 	{
 		if (!a_address) {
