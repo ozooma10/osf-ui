@@ -30,4 +30,4 @@ Install the staged output as its own MO2 mod next to OSF UI and OSF Settings, en
 5. Cause a browser-host failure: input releases, an OSF UI Mod Issue appears, and it clears on recovery.
 6. With no view requested, no WebView helper starts. OSF Settings stays usable without WebView2; requesting a view reports a failure.
 
-`tests/native` exercises this plugin against the vendored Settings SDK and UI's queued request path; the frontend test drives the panel with real helper frames. Neither replaces the in-game steps.
+`tests/native` exercises this plugin against the vendored Settings SDK and UI's queued request path. It does not replace the in-game steps.

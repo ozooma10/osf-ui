@@ -2,7 +2,7 @@
 
 A WebView2 add-on for Starfield mods: view discovery, the JavaScript/native/Papyrus bridge, D3D12 compositing, focus, and web input. Settings, hotkeys, and issue reporting belong to [OSF Settings](https://github.com/ozooma10/osf-settings-slim).
 
-For mod authors, start with `npm create osfui@latest`, then read the API for your side of the bridge.
+For mod authors, read the API for your side of the bridge.
 
 | Reference | Use it to |
 | --- | --- |
@@ -39,7 +39,7 @@ Data/SFSE/Plugins/OSF/Settings/schemas/osfui.json
 
 ## Build and test
 
-Use XMake, an MSVC compiler with C++23 support, and Node 22. Deploy and package builds also compile `OSFUI.psc`; set `PAPYRUS_COMPILER` and `PAPYRUS_IMPORTS` if the Creation Kit compiler is outside the defaults in `tools/build-papyrus.ps1`.
+Use XMake, an MSVC compiler with C++23 support. Deploy and package builds also compile `OSFUI.psc`; set `PAPYRUS_COMPILER` and `PAPYRUS_IMPORTS` if the Creation Kit compiler is outside the defaults in `tools/build-papyrus.ps1`.
 
 ```powershell
 git submodule update --init --recursive
@@ -50,7 +50,6 @@ xmake build -P . -y "OSF UI"
 
 ```sh
 bash tests/native/run.sh   # Bash 4+ and a C++23 compiler
-npm run verify             # Node 26: NODE_OPTIONS=--no-experimental-webstorage
 ```
 
 ## Release package

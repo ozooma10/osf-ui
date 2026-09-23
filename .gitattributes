@@ -1,4 +1,2 @@
-# Frontend sources are authored LF. Generated output lives under ignored build/
-# and inherits these line endings before xmake installs it.
+# The shared web kit is authored LF and shipped byte-for-byte.
 frontend/** text eol=lf
-frontend/**/*.png binary

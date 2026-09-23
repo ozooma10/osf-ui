@@ -91,8 +91,6 @@ target("OSF UI")
     set_pcxxheader("src/pch.h")
 
     before_build(function(target)
-        import("frontend_views", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
-        frontend_views.build()
         if os.getenv("XSE_SF_MODS_PATH") or os.getenv("XSE_SF_GAME_PATH") then
             import("runtime_payload", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
             runtime_payload.build_papyrus()
@@ -106,8 +104,6 @@ target("OSF UI")
 
     -- `xmake install` skips before_build, so packaging needs this install hook.
     before_install(function(target)
-        import("frontend_views", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
-        frontend_views.build()
         import("runtime_payload", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
         runtime_payload.build_papyrus()
     end)

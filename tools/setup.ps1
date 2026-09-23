@@ -59,4 +59,4 @@ if (-not $Force -and (Test-Path $header) -and (Test-Path $staticLib)) {
 
 Write-Host ""
 Step "Setup complete. Build with:  xmake build"
-Warn "Runtime deps not handled here: xmake 3.0+, the Edge WebView2 Evergreen runtime, and (for the frontend) Node."
+Warn "Runtime deps not handled here: xmake 3.0+, and the Edge WebView2 Evergreen runtime."

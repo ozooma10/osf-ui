@@ -12,9 +12,6 @@ build/
 vs*/
 dist/
 out/
-node_modules/
-frontend/packages/cli/assets/
-frontend/packages/cli/types/
 tests/papyrus/OSFUITest.pex
 
 # local SDK/package drops (use WEBVIEW2_SDK_DIR for an external location)

@@ -22,8 +22,8 @@ local function sync_data(target)
     -- OSF UI owns only OSF/UI and the one osfui schema. Never clean OSF or
     -- OSF/Settings: those paths are shared with the independent dependency.
     os.rm(views)
-    os.mkdir(uidata)
-    os.cp(path.join(projectdir, "build", "frontend", "views"), uidata)
+    os.mkdir(path.join(views, "shared"))
+    os.cp(path.join(projectdir, "frontend", "src", "shared-kit", "*"), path.join(views, "shared"))
 
     copy_if_exists(
         path.join(projectdir, "data", "SFSE", "Plugins", "OSF", "Settings", "schemas", "osfui.json"),
@@ -57,7 +57,7 @@ function deploy(target)
     local projectdir = os.projectdir()
     local files = os.files(path.join(projectdir, "data", "**"))
     table.insert(files, path.join(projectdir, "build", "papyrus", "OSFUI.pex"))
-    table.join2(files, os.files(path.join(projectdir, "build", "frontend", "views", "**")))
+    table.join2(files, os.files(path.join(projectdir, "frontend", "src", "shared-kit", "**")))
     depend.on_changed(function()
         sync_data(target)
         cprint("${dim}deploying owned OSF/UI paths and osfui schema to %s ..", target:installdir())
