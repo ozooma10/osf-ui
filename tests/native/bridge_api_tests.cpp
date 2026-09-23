@@ -113,7 +113,6 @@ int main()
     CHECK(g_sent[1]["name"] == "acme.during-recovery");
     CHECK(g_sent[1]["payload"]["value"] == 7);
 
-    api.UnregisterSend("acme.increment");
     api.SetReadyCallback(nullptr, nullptr);
     api.SetBridgeAvailability(nullptr);
     api.PumpMainThread();

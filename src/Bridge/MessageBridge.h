@@ -45,10 +45,6 @@ namespace OSFUI
 		void RegisterSend(std::string a_name, SendHandler a_handler);
 		bool RegisterRequest(std::string a_name, RequestHandler a_handler);
 
-		// Missing endpoints are harmless during hot cleanup and resync.
-		void UnregisterSend(std::string_view a_name);
-		void UnregisterRequest(std::string_view a_name);
-
 		// Optional bounded registry consulted only after exact native endpoints miss.
 		void SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request);
 

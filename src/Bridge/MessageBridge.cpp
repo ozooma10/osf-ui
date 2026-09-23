@@ -86,16 +86,6 @@ namespace OSFUI
 		return true;
 	}
 
-	void MessageBridge::UnregisterSend(std::string_view a_name)
-	{
-		_sends.erase(std::string(a_name));
-	}
-
-	void MessageBridge::UnregisterRequest(std::string_view a_name)
-	{
-		_requests.erase(std::string(a_name));
-	}
-
 	void MessageBridge::SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request)
 	{
 		_fallbackProbe = std::move(a_probe);

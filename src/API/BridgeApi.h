@@ -27,7 +27,6 @@ namespace OSFUI::API
 
 		bool          IsReady() override;
 		void          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) override;
-		void          UnregisterSend(const char* a_name) override;
 		bool          RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) override;
 		void          UnregisterRelativePointer(const char* a_viewId) override;
 		bool          RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) override;
@@ -35,7 +34,6 @@ namespace OSFUI::API
 		bool          RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) override;
 		void          UnregisterViewLifecycle(const char* a_viewId) override;
 		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
-		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
 		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) override;
 		void          SetReadyCallback(ReadyFn a_callback, void* a_user) override;
@@ -174,8 +172,6 @@ namespace OSFUI::API
 		std::unordered_map<std::string, RelativePointerRegistration> _relativePointers;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewOpenPreflightRegistration> _viewOpenPreflights;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewLifecycleRegistration> _viewLifecycles;  // exact view owner, first-wins
-		std::vector<std::string>                      _pendingSendUnregister;
-		std::vector<std::string>                      _pendingRequestUnregister;
 		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
 		std::uint64_t                                 _nextRequestToken{ 1 };
 		std::vector<PendingSend>                       _pendingSends;

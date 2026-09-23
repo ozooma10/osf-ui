@@ -80,13 +80,11 @@ namespace OSFUI::API
 		// True while at least one bridge-enabled document is live.
 		virtual bool IsReady() = 0;
 		// Registers a one-way endpoint; callbacks run on the main thread.
+		// Endpoints are permanent: register once at plugin load, and keep the callback and user pointer alive until process exit.
+		// A plugin that no longer wants a command ignores it inside the callback.
 		virtual void RegisterSend(const char* a_name, SendFn a_callback, void* a_user) = 0;
-		// Removes a one-way endpoint; unknown names are ignored.
-		virtual void UnregisterSend(const char* a_name) = 0;
-		// Registers a request/reply endpoint; callbacks run on the main thread.
+		// Registers a request/reply endpoint; callbacks run on the main thread. Same lifetime rules as RegisterSend.
 		virtual void RegisterRequest(const char* a_name, RequestFn a_callback, void* a_user) = 0;
-		// Removes a request endpoint; unknown names are ignored.
-		virtual void UnregisterRequest(const char* a_name) = 0;
 		// Queues a one-shot event for a view. payload must be valid JSON.
 		virtual bool SendToWeb(const char* a_viewId, const char* a_event, const char* a_payload) = 0;
 		// Stores mod-scoped state and replays it to fresh documents.
@@ -158,17 +156,9 @@ namespace OSFUI::API
 		{
 			if (m_api) m_api->RegisterSend(a_name, a_fn, a_user);
 		}
-		void UnregisterSend(const char* a_name) const noexcept
-		{
-			if (m_api) m_api->UnregisterSend(a_name);
-		}
 		void RegisterRequest(const char* a_name, RequestFn a_fn, void* a_user) const noexcept
 		{
 			if (m_api) m_api->RegisterRequest(a_name, a_fn, a_user);
-		}
-		void UnregisterRequest(const char* a_name) const noexcept
-		{
-			if (m_api) m_api->UnregisterRequest(a_name);
 		}
 		bool SendToWeb(const char* a_view, const char* a_type, const char* a_json) const noexcept
 		{

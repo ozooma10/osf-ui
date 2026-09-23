@@ -58,21 +58,8 @@ namespace OSFUI::API
 			return;
 		}
 		_sends[name] = { a_handler, a_user };
-		std::erase(_pendingSendUnregister, name);
 		_dirty = true;
 		MarkPending(kPendingPump);
-	}
-
-	void BridgeApi::UnregisterSend(const char* a_name)
-	{
-		if (!a_name) return;
-		const std::string name(a_name);
-		std::lock_guard lock(_mutex);
-		if (_sends.erase(name)) {
-			_pendingSendUnregister.push_back(name);
-			_dirty = true;
-			MarkPending(kPendingPump);
-		}
 	}
 
 	void BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user)
@@ -89,21 +76,8 @@ namespace OSFUI::API
 			return;
 		}
 		_requests[name] = { a_handler, a_user };
-		std::erase(_pendingRequestUnregister, name);
 		_dirty = true;
 		MarkPending(kPendingPump);
-	}
-
-	void BridgeApi::UnregisterRequest(const char* a_name)
-	{
-		if (!a_name) return;
-		const std::string name(a_name);
-		std::lock_guard lock(_mutex);
-		if (_requests.erase(name)) {
-			_pendingRequestUnregister.push_back(name);
-			_dirty = true;
-			MarkPending(kPendingPump);
-		}
 	}
 
 	bool BridgeApi::RegisterRelativePointer(const char* a_viewId,
@@ -429,7 +403,6 @@ namespace OSFUI::API
 		const auto reasons = _pending.fetch_and(~kPendingPump, std::memory_order_acq_rel);
 		if (!(reasons & kPendingPump)) return;
 		MessageBridge* bridge = nullptr;
-		std::vector<std::string> sendRemovals, requestRemovals;
 		std::vector<std::pair<std::string, Registration>> sendsToRegister;
 		std::vector<std::pair<std::string, RequestRegistration>> requestsToRegister;
 		std::vector<PendingSend> sends;
@@ -441,15 +414,8 @@ namespace OSFUI::API
 			std::lock_guard lock(_mutex);
 			bridge = _bridge;
 			if (bridge) {
-				const bool changed = bridge != _appliedBridge;
-				if (changed || _dirty) {
-					if (changed) {
-						_pendingSendUnregister.clear();
-						_pendingRequestUnregister.clear();
-					} else {
-						sendRemovals.swap(_pendingSendUnregister);
-						requestRemovals.swap(_pendingRequestUnregister);
-					}
+				// Endpoints only ever grow, so a resync re-applies the whole set.
+				if (bridge != _appliedBridge || _dirty) {
 					for (const auto& item : _sends) sendsToRegister.push_back(item);
 					for (const auto& item : _requests) requestsToRegister.push_back(item);
 					_appliedBridge = bridge;
@@ -479,8 +445,6 @@ namespace OSFUI::API
 			}
 		}
 		if (bridge) {
-			for (const auto& name : sendRemovals) bridge->UnregisterSend(name);
-			for (const auto& name : requestRemovals) bridge->UnregisterRequest(name);
 			for (const auto& [name, registration] : sendsToRegister) {
 				bridge->RegisterSend(name, [name, registration](const nlohmann::json& payload,
 					MessageBridge& source) {
