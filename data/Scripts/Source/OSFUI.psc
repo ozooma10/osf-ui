@@ -1,16 +1,9 @@
 ScriptName OSFUI Native Hidden
 
-; OSF UI runtime API.
-;
-; Settings are provided by the separate OSF Settings product.
-; View communication and presentation are provided by this script.
-
 ; True when the OSF UI native runtime is available.
 bool Function IsAvailable() Global Native
 
-; Packed release version: major*10000 + minor*100 + patch.
 int Function GetVersion() Global Native
-; Human-readable release version, for display and diagnostics only.
 string Function GetVersionString() Global Native
 
 ; This script mirrors the four communication semantics:
@@ -20,14 +13,59 @@ string Function GetVersionString() Global Native
 ;   JavaScript on()       <- EmitEvent
 ;   JavaScript state      <- SetState (retained and replayed)
 ;
-; Registrations and reply tokens are SESSION-scoped. Register again after every game load. Never save a registration or reply token.
+; Registrations and reply tokens are session-scoped, register again after every game load.
 ;
-; Scalar values support None, bool, int, float, string, and Form through Papyrus Var. Papyrus cannot implicitly convert typed arrays to Var, so state and reply arrays use explicit typed functions.
-; Send/request and event argument lists use Var[] explicitly. Unsupported objects, structs, and nested arrays are rejected instead of being silently converted.
+; Scalar values support None, bool, int, float, string, and Form through Papyrus Var; Send/request and event argument lists use Var[] explicitly.
 ;
 ; The shared JavaScript helper wraps direct send arguments as { args: [...] }.
-; Native-only endpoints may instead define a richer JSON object payload.
+
+; =============================================================================
+; Recommended setup: register once per session
+; =============================================================================
 ;
+; Registrations are cleared on every game load. Put the bridge on a quest that starts with the game, register in OnInit, and register again from OnPlayerLoadGame:
+;
+;   ScriptName MyMod:Bridge extends Quest
+;
+;   Event OnInit()
+;       RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
+;       RegisterBridge()
+;   EndEvent
+;
+;   Event Actor.OnPlayerLoadGame(Actor akSender)
+;       RegisterBridge()
+;   EndEvent
+;
+;   Function RegisterBridge()
+;       int sendResult = OSFUI.RegisterSend(self, "mymod", "equip")
+;       int requestResult = OSFUI.RegisterRequest(self, "mymod", "getCount")
+;       If sendResult <= 0 || requestResult <= 0
+;           Debug.Trace("MyMod: OSFUI registration failed: " + sendResult + " / " + requestResult)
+;       EndIf
+;   EndFunction
+;
+;   Function OnOSFUISend(string asName, Var[] akArgs, string asSourceViewId)
+;       ; see "JavaScript -> Papyrus: send"
+;   EndFunction
+;
+;   Function OnOSFUIRequest(string asName, Var[] akArgs, string asSourceViewId, string asReplyToken)
+;       ; see "JavaScript -> Papyrus: request"
+;   EndFunction
+;
+; A ReferenceAlias filled with the player can use its own Event OnPlayerLoadGame() instead of the remote event.
+;
+; Registration results (RegisterSend, RegisterSendStatic, RegisterRequest, RegisterRequestStatic):
+;    1    registered for this session
+;   -1    akReceiver is None, or asScript is empty
+;   -2    asModId is not a valid OSF mod id
+;   -3    asName is reserved or malformed, or "<asModId>.<asName>" exceeds 128 characters
+;   -4    the endpoint belongs to another script, or is already registered with the other kind (send vs request)
+;   -5    registration table full
+;
+; Registering is idempotent per script: the same script registering the same endpoint again succeeds,
+; and a new instance of the same script (for example a restarted quest) takes the endpoint over.
+; Registrations cannot be removed; they last until the next game load. A script that no longer wants a command can ignore it in the callback.
+; The failure reason is also written to the OSF UI log.
 
 ; =============================================================================
 ; JavaScript -> Papyrus: send
@@ -50,7 +88,7 @@ string Function GetVersionString() Global Native
 ;       EndIf
 ;   EndFunction
 ;
-; Returns a session-scoped registration token, or 0 on failure.
+; Returns 1 when registered, or a negative code (see "Registration results" above).
 int Function RegisterSend(ScriptObject akReceiver, string asModId, string asName) Global Native
 ; GLOBAL-function variant. It still must be registered again after game load.
 int Function RegisterSendStatic(string asScript, string asModId, string asName) Global Native
@@ -61,8 +99,7 @@ int Function RegisterSendStatic(string asScript, string asModId, string asName) 
 ; =============================================================================
 
 ; Use RegisterRequest when JavaScript must await a value or a structured error.
-;
-; A name cannot simultaneously be a send and request endpoint. The first registration wins.
+; A name cannot simultaneously be a send and request endpoint; registering the other kind returns -4.
 ;
 ; JavaScript
 ;   const count = await osfui.request("getCount")
@@ -81,6 +118,8 @@ int Function RegisterSendStatic(string asScript, string asModId, string asName) 
 ; Reply resolves the JavaScript promise to the raw bridge value (3 above).
 ; Reject rejects it with asCode/asMessage. Settle every request exactly once on every path; otherwise JavaScript waits until timeout.
 ; The token expires and must never be saved or reused.
+;
+; Returns 1 when registered, or a negative code (see "Registration results" above).
 int Function RegisterRequest(ScriptObject akReceiver, string asModId, string asName) Global Native
 
 ; GLOBAL-function variant. It still must be registered again after game load.
@@ -132,9 +171,6 @@ bool Function SetStateForms(string asModId, string asKey, Form[] akForms) Global
 ; The handler receives { args: [...] }. Events are delivered at most once and never retained or replayed. Use SetState for reload-safe data.
 bool Function EmitEvent(string asModId, string asName, Var[] akArgs = None) Global Native
 
-
-; Remove a send/request registration. Returns false for 0 or a stale or session-expired token.
-bool Function Unregister(int aiRegistrationToken) Global Native
 
 ; =============================================================================
 ; View presentation

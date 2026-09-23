@@ -21,17 +21,15 @@ namespace OSFUI::API::Papyrus
 		using PapVM = RE::BSScript::IVirtualMachine;
 		using VM = RE::BSScript::Internal::VirtualMachine;
 
-		// Tokens pack a generation and slot; zero is failure.
-
 		enum class Kind : std::uint8_t
 		{
 			kSend,
 			kRequest,
 		};
 
+		// Registrations live until the next game load; there is no per-entry removal.
 		struct Entry
 		{
-			std::uint16_t                             generation{ 0 };  // 0 = empty slot
 			Kind                                      kind{ Kind::kSend };
 			RE::BSTSmartPointer<RE::BSScript::Object> receiver;    // instance target (DispatchMethodCall)
 			RE::BSFixedString                         scriptName;  // set => global target (DispatchStaticCall)
@@ -77,8 +75,7 @@ namespace OSFUI::API::Papyrus
 		{
 			std::mutex                                          lock;
 			std::atomic_bool                                   pending{ false };
-			std::vector<Entry>                                  slots;
-			std::uint16_t                                       nextGen{ 1 };
+			std::vector<Entry>                                  entries;
 			std::vector<QueuedState>                            states;
 			std::vector<QueuedEvent>                            events;
 			std::unordered_map<std::string, PendingViewRequest> viewRequests;
@@ -101,35 +98,28 @@ namespace OSFUI::API::Papyrus
 		// BSFixedString preserves process-first casing, so normalize before matching.
 		using StringUtil::ToLowerAscii;
 
-		constexpr std::int32_t MakeToken(std::uint16_t a_gen, std::uint16_t a_slot)
+		// Registration results returned to Papyrus; documented in OSFUI.psc.
+		enum RegisterResult : std::int32_t
 		{
-			return (static_cast<std::int32_t>(a_gen) << 16) | a_slot;
-		}
+			kRegistered = 1,
+			kErrInvalidTarget = -1,  // None receiver or empty script name
+			kErrInvalidModId = -2,
+			kErrInvalidName = -3,    // reserved, malformed, or qualified name too long
+			kErrConflict = -4,       // endpoint owned by another script or registered with the other kind
+			kErrTableFull = -5,
+		};
+
+		constexpr std::size_t kMaxEntries = 0xFFFF;
 
 		// Caller holds the process-state lock and supplies exactly one target kind.
 		std::int32_t AddEntry(Kind a_kind, const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver, RE::BSFixedString a_scriptName, std::string_view a_fn, std::string_view a_modId, std::string_view a_key)
 		{
-			std::uint16_t slot = 0;
-			for (; slot < State().slots.size(); slot++) {
-				if (State().slots[slot].generation == 0) {
-					break;
-				}
-			}
-			if (slot == State().slots.size()) {
-				if (State().slots.size() >= 0xFFFF) {
-					REX::ERROR("PapyrusApi: callback table full");
-					return 0;
-				}
-				State().slots.emplace_back();
+			if (State().entries.size() >= kMaxEntries) {
+				REX::ERROR("PapyrusApi: callback table full");
+				return kErrTableFull;
 			}
 
-			const std::uint16_t gen = State().nextGen++;
-			if (State().nextGen == 0) {
-				State().nextGen = 1;  // never mint generation 0 (the empty-slot marker)
-			}
-
-			Entry& e = State().slots[slot];
-			e.generation = gen;
+			Entry& e = State().entries.emplace_back();
 			e.kind = a_kind;
 			e.receiver = a_receiver;
 			e.scriptName = a_scriptName;
@@ -137,13 +127,12 @@ namespace OSFUI::API::Papyrus
 			e.modId = std::string(a_modId);
 			e.key = std::string(a_key);
 
-			const auto token = MakeToken(gen, slot);
 			const char* signature = a_kind == Kind::kRequest ? "string, Var[], string, string" : "string, Var[], string";
-			REX::DEBUG("PapyrusApi: registered token {:#010x} -> {}{}({}) ({} filter '{}'{}{})",
-				token, e.scriptName.empty() ? "" : std::string(e.scriptName.c_str()) + ".", e.fn.c_str(), signature,
+			REX::DEBUG("PapyrusApi: registered {}{}({}) ({} filter '{}'{}{})",
+				e.scriptName.empty() ? "" : std::string(e.scriptName.c_str()) + ".", e.fn.c_str(), signature,
 				a_kind == Kind::kSend ? "send" : "request",
 				e.modId, e.key.empty() ? "" : ".", e.key);
-			return token;
+			return kRegistered;
 		}
 
 		void PackValue(RE::BSScript::Variable& a_out, const Value& a_value)
@@ -208,8 +197,8 @@ namespace OSFUI::API::Papyrus
 		{
 			std::vector<Target> targets;
 			std::lock_guard     l{ State().lock };
-			for (const auto& e : State().slots) {
-				if (e.generation == 0 || e.kind != a_kind) {
+			for (const auto& e : State().entries) {
+				if (e.kind != a_kind) {
 					continue;
 				}
 				// BSFixedString casing is process-global, so match filters case-insensitively.
@@ -493,25 +482,60 @@ namespace OSFUI::API::Papyrus
 			return modId;
 		}
 
+		std::string_view TypeNameOf(const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver)
+		{
+			const auto* type = a_receiver ? a_receiver->type.get() : nullptr;
+			const char* name = type ? type->name.c_str() : nullptr;
+			return name ? std::string_view(name) : std::string_view{};
+		}
+
+		// Idempotent per script: re-registering an owned endpoint succeeds, and a new instance of the same script takes it over.
 		std::int32_t RegisterEndpoint(Kind a_kind, const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver, const RE::BSFixedString& a_script, const RE::BSFixedString& a_modId, const RE::BSFixedString& a_name, std::string_view a_callback, std::string_view a_native)
 		{
-			const auto modId = ValidateModId(a_modId);
-			const std::string name(a_name.c_str());
-			const auto qualifiedLength = modId ? modId->size() + 1 + name.size() : 0;
-			if ((!a_receiver.get() && a_script.empty()) || !modId || !IsUnreservedEndpointName(name) || qualifiedLength > 128) {
-				REX::DEBUG("PapyrusApi: {}: missing target, invalid mod id, reserved endpoint, or qualified name too long", a_native);
-				return 0;
+			if (!a_receiver.get() && a_script.empty()) {
+				REX::WARN("PapyrusApi: [content] {} refused — receiver is None or script name is empty", a_native);
+				return kErrInvalidTarget;
 			}
+			const auto modId = ValidateModId(a_modId);
+			if (!modId) {
+				REX::WARN("PapyrusApi: [content] {}('{}') refused — invalid mod id", a_native,
+					std::string_view(a_modId.c_str() ? a_modId.c_str() : "").substr(0, 64));
+				return kErrInvalidModId;
+			}
+			const std::string name(a_name.c_str() ? a_name.c_str() : "");
+			if (!IsUnreservedEndpointName(name) || modId->size() + 1 + name.size() > 128) {
+				REX::WARN("PapyrusApi: [content] {}('{}', '{}') refused — reserved, malformed, or too-long endpoint name",
+					a_native, *modId, std::string_view(name).substr(0, 64));
+				return kErrInvalidName;
+			}
+
 			const auto qualified = *modId + "." + name;
 			std::lock_guard l{ State().lock };
-			for (const auto& entry : State().slots) {
-				if (!entry.generation || (entry.kind != Kind::kSend && entry.kind != Kind::kRequest)) {
+			for (Entry& entry : State().entries) {
+				if (!Ids::EqualsCaseInsensitiveAscii(entry.modId + "." + entry.key, qualified)) {
 					continue;
 				}
-				if (Ids::EqualsCaseInsensitiveAscii(entry.modId + "." + entry.key, qualified)) {
-					REX::WARN("PapyrusApi: [content] {}('{}') refused — endpoint already registered (first wins)", a_native, qualified);
-					return 0;
+				if (entry.kind != a_kind) {
+					REX::WARN("PapyrusApi: [content] {}('{}') refused — already registered as a {} endpoint (a name cannot be both send and request)",
+						a_native, qualified, entry.kind == Kind::kSend ? "send" : "request");
+					return kErrConflict;
 				}
+				const bool sameStatic = !a_script.empty() && !entry.scriptName.empty() &&
+				                        Ids::EqualsCaseInsensitiveAscii(entry.scriptName.c_str(), a_script.c_str());
+				const bool sameInstance = a_receiver.get() && entry.receiver.get() == a_receiver.get();
+				if (sameStatic || sameInstance) {
+					REX::DEBUG("PapyrusApi: {}('{}') already registered by this script", a_native, qualified);
+					return kRegistered;
+				}
+				// A restarted quest is a new Object of the same script; let it take over instead of being blocked by its dead predecessor.
+				if (a_receiver.get() && entry.receiver.get() && !TypeNameOf(a_receiver).empty() &&
+					Ids::EqualsCaseInsensitiveAscii(TypeNameOf(entry.receiver), TypeNameOf(a_receiver))) {
+					entry.receiver = a_receiver;
+					REX::INFO("PapyrusApi: {}('{}') rebound to a new instance of script '{}'", a_native, qualified, TypeNameOf(a_receiver));
+					return kRegistered;
+				}
+				REX::WARN("PapyrusApi: [content] {}('{}') refused — endpoint already registered by another script", a_native, qualified);
+				return kErrConflict;
 			}
 			return AddEntry(a_kind, a_receiver, a_script, a_callback, *modId, name);
 		}
@@ -654,23 +678,6 @@ namespace OSFUI::API::Papyrus
 		{
 			return RejectPendingViewRequest(a_token, a_code, a_message);
 		}
-		bool Unregister(PapVM&, std::uint32_t, std::monostate, std::int32_t a_token)
-		{
-			if (a_token == 0) {
-				return false;
-			}
-			const auto slot = static_cast<std::uint16_t>(a_token & 0xFFFF);
-			const auto gen = static_cast<std::uint16_t>((a_token >> 16) & 0xFFFF);
-
-			std::lock_guard l{ State().lock };
-			if (slot >= State().slots.size() || State().slots[slot].generation != gen) {
-				return false;  // stale/invalid token
-			}
-			State().slots[slot] = Entry{};  // generation 0 -> empty; drops the receiver smart pointer
-			REX::DEBUG("PapyrusApi: unregistered token {:#010x}", a_token);
-			return true;
-		}
-
 		bool Open(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_viewId)
 		{
 			const auto id = ToLowerAscii(a_viewId.c_str());
@@ -709,7 +716,6 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kPlatformScriptName, "EmitEvent", &EmitEvent, true, false);
 			a_vm->BindNativeMethod(kPlatformScriptName, "Open", &Open, true, false);
 			a_vm->BindNativeMethod(kPlatformScriptName, "Close", &Close, true, false);
-			a_vm->BindNativeMethod(kPlatformScriptName, "Unregister", &Unregister, true, false);
 
 			REX::INFO("PapyrusApi: natives bound on script '{}'", kPlatformScriptName);
 		}
@@ -723,16 +729,15 @@ namespace OSFUI::API::Papyrus
 			return false;
 		}
 
-		// Clear after VM teardown without releasing stale receivers or reusing old tokens.
+		// Clear after VM teardown without releasing stale receivers.
 		void ClearRegistrations()
 		{
 			std::lock_guard l{ State().lock };
-			std::size_t dropped = 0;
-			for (auto& e : State().slots) {
-				dropped += e.generation != 0;
+			const std::size_t dropped = State().entries.size();
+			for (auto& e : State().entries) {
 				std::construct_at(std::addressof(e.receiver));  // overwrite ptr = null, skip Release
 			}
-			State().slots.clear();
+			State().entries.clear();
 			// Drop queued session identities and signal the runtime to clear retained copies.
 			State().viewRequests.clear();
 			State().states.clear();
@@ -811,15 +816,13 @@ namespace OSFUI::API::Papyrus
 			};
 		};
 		// The caller's own namespace always wins for a local name.
-		for (const auto& entry : State().slots) {
-			if (!entry.generation || (entry.kind != Kind::kSend && entry.kind != Kind::kRequest)) continue;
+		for (const auto& entry : State().entries) {
 			if (Ids::EqualsCaseInsensitiveAscii(entry.modId, a_sourceModId) && Ids::EqualsCaseInsensitiveAscii(entry.key, a_name)) {
 				return make(entry);
 			}
 		}
 		// Do not split at a dot: mod IDs and local endpoint names may both contain dots.
-		for (const auto& entry : State().slots) {
-			if (!entry.generation || (entry.kind != Kind::kSend && entry.kind != Kind::kRequest)) continue;
+		for (const auto& entry : State().entries) {
 			if (Ids::EqualsCaseInsensitiveAscii(entry.modId + "." + entry.key, a_name)) {
 				return make(entry);
 			}
