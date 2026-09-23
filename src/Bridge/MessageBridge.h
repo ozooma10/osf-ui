@@ -81,10 +81,6 @@ namespace OSFUI
 		void PublishState(const std::unordered_set<std::string>& a_viewIds, std::string_view a_mod,
 			std::string_view a_key, const nlohmann::json& a_value);
 
-		// Broadcast platform state and events to every greeted view.
-		void PublishStateAll(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value);
-		void EmitAll(std::string_view a_name, const nlohmann::json& a_payload);
-
 		// Create a closed event gate that queues until the document says hello.
 		void OnViewCreated(std::string_view a_viewId);
 		// Drop the gate, queued events, and deferred requests owned by the view.

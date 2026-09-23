@@ -17,7 +17,6 @@ namespace OSFUI
         struct FailureDecision
         {
             bool exhausted{ false };
-            std::uint32_t attemptsCompleted{ 0 };
             std::uint32_t attemptsRemaining{ 0 };
             std::uint32_t nextAttempt{ 0 };
             double retryDelay{ 0.0 };
@@ -25,7 +24,6 @@ namespace OSFUI
 
         bool Clear(std::string_view a_viewId);
         void ClearAll();
-        bool Contains(std::string_view a_viewId) const;
 
         FailureDecision ScheduleFailure(std::string_view a_viewId, double a_now);
 

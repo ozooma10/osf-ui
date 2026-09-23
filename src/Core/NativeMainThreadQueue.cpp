@@ -42,30 +42,17 @@ namespace OSFUI::NativeMainThreadQueue
 			std::string _label;
 			std::function<void()> _onDrop;
 		};
-	}
 
-	QueueState SnapshotState()
-	{
-		QueueState state;
-		state.currentThreadId = REX::W32::GetCurrentThreadId();
-		state.drainOwnerThreadId = RE::BSService::TaskQueue::GetDrainOwnerThreadID();
-
-		auto* queue = RE::BSService::TaskQueue::GetSingleton();
-		state.singleton = reinterpret_cast<std::uintptr_t>(queue);
-		state.queueEnabled = queue && RE::BSService::TaskQueue::IsQueueEnabled();
-		state.insideDrain = state.drainOwnerThreadId != 0 && state.currentThreadId == state.drainOwnerThreadId;
-		return state;
-	}
-
-	bool IsAvailable()
-	{
-		const auto state = SnapshotState();
-		return state.insideDrain || (state.singleton != 0 && state.queueEnabled);
+		bool InsideDrain()
+		{
+			const auto owner = RE::BSService::TaskQueue::GetDrainOwnerThreadID();
+			return owner != 0 && REX::W32::GetCurrentThreadId() == owner;
+		}
 	}
 
 	PostResult Post(std::function<void()> a_task, std::string_view a_label, std::function<void()> a_onDrop)
 	{
-		if (SnapshotState().insideDrain) {
+		if (InsideDrain()) {
 			a_task();
 			return PostResult::RanInline;
 		}
@@ -83,19 +70,5 @@ namespace OSFUI::NativeMainThreadQueue
 
 		delete task;
 		return PostResult::Unavailable;
-	}
-
-	const char* ToString(const PostResult a_result)
-	{
-		switch (a_result) {
-		case PostResult::Queued:
-			return "queued";
-		case PostResult::RanInline:
-			return "ran-inline";
-		case PostResult::Unavailable:
-			return "unavailable";
-		default:
-			return "unknown";
-		}
 	}
 }

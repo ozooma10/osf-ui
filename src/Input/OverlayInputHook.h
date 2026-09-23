@@ -21,8 +21,7 @@ namespace OSFUI
 		// Install once on the first main-thread tick; never un-subclass another overlay's chain.
 		bool Install();
 		void RequestStateRefresh();
-		// Subclassed game window and authority for window-thread platform facts.
-		[[nodiscard]] void* GameWindowHandle();
+		// Subclassed game window's client size, the authority for window-thread platform facts.
 		[[nodiscard]] std::optional<ClientSize> GameWindowClientSize();
 
 		namespace detail

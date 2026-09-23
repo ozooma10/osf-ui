@@ -32,8 +32,7 @@
   "include": ["src", "test", "scripts"],
   "exclude": [
     "node_modules",
-    // Frozen public contract, shipped verbatim - described by osfui-global.d.ts,
-    // never compiled.
+    // Frozen public contract, shipped verbatim and never compiled.
     "src/shared-kit/osfui.js",
     "src/shared-kit/gamepadnav.js"
   ]

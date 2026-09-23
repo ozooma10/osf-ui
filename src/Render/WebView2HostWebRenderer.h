@@ -29,7 +29,6 @@ namespace OSFUI
 			bool             failed{ false };
 			std::string_view url;
 			std::string_view description;
-			std::string_view errorDomain;
 			int              errorCode{ 0 };
 		};
 

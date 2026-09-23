@@ -213,14 +213,13 @@ jobs:
               $failed = $true
             }
           }
-          $manifests = Get-ChildItem -Path "$root/SFSE/Plugins/OSF/UI/views" -Recurse -Filter manifest.json -ErrorAction SilentlyContinue
           if ((Test-Path "$root/SFSE/Plugins/OSF/UI/settings") -or
               (Test-Path "$root/SFSE/Plugins/OSFUI")) {
             Write-Host "::error::legacy OSF UI data path was staged"
             $failed = $true
           }
           if ($failed) { exit 1 }
-          Write-Host "install layout OK ($(($manifests | Measure-Object).Count) optional built-in view manifest(s))"
+          Write-Host "install layout OK"
 
       - uses: actions/upload-artifact@v4
         with:

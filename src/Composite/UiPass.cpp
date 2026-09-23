@@ -511,9 +511,4 @@ namespace OSFUI::UiPass
 		const auto packed = (static_cast<std::uint64_t>(a_width) << 32) | a_height;
 		g_expectedOutputSize.store(packed, std::memory_order_release);
 	}
-
-	bool FrameGenerationActive()
-	{
-		return g_fgTargetPolicy.FrameGenerationActive();
-	}
 }

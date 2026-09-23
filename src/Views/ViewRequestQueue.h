@@ -9,7 +9,6 @@ namespace OSFUI
 {
     enum class ViewPresentationRequest
     {
-        ToggleDefault,
         Back,
         CloseAll
     };

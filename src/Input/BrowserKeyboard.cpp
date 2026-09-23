@@ -1,26 +1,9 @@
 #include "Input/BrowserKeyboard.h"
+#include "Win32Util.h"
 #include "Wv2Messages.h"
-
-#define WIN32_LEAN_AND_MEAN
-#define NOGDI
-#define NOMINMAX
-#include <Windows.h>
 
 namespace OSFUI
 {
-	std::string BrowserInputUtf8(std::wstring_view a_text)
-	{
-		if (a_text.empty()) return {};
-		const auto length = static_cast<int>(a_text.size());
-		const int bytes = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-			a_text.data(), length, nullptr, 0, nullptr, nullptr);
-		if (bytes <= 0) return {};
-		std::string result(bytes, '\0');
-		::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_text.data(), length,
-			result.data(), bytes, nullptr, nullptr);
-		return result;
-	}
-
 	namespace
 	{
 		std::string NamedKey(std::uint32_t vk)
@@ -123,7 +106,7 @@ namespace OSFUI
 			// Flag 4 avoids changing Windows' dead-key composition state.
 			const int count = ::ToUnicodeEx(a_vk, scan, state, text, 8, 4, ::GetKeyboardLayout(0));
 			if (count < 0) event.key = "Dead";
-			else if (count > 0) event.key = BrowserInputUtf8(std::wstring_view(text, static_cast<std::size_t>(count)));
+			else if (count > 0) event.key = osfui::win32::ToUtf8(std::wstring_view(text, static_cast<std::size_t>(count)));
 		}
 		return event;
 	}

@@ -19,8 +19,6 @@ namespace OSFUI
         void BeginLoad(std::string_view a_id);
         void FinishLoad(std::string_view a_id, bool a_failed);
 
-        void Forget(std::string_view a_id);
-
         ViewLoadState GetState(std::string_view a_id) const;
 
     private:

@@ -421,12 +421,6 @@ namespace OSFUI
 		bool writerFailed{ false };
 		std::atomic_bool outboundOverflowed{ false };
 
-		[[nodiscard]] BrowserHostSession BrowserHostSessionSnapshot()
-		{
-			std::scoped_lock lock(sessionMutex);
-			return session;
-		}
-
 		void SetTopLevel(HWND a_topLevel)
 		{
 			std::scoped_lock lock(sessionMutex);
@@ -1276,7 +1270,6 @@ namespace OSFUI
 							.failed = value.failed,
 							.url = value.text,
 							.description = value.detail,
-							.errorDomain = "WebView2Host",
 							.errorCode = value.code
 						};
 						onLoad(event);
@@ -1777,19 +1770,25 @@ namespace OSFUI
 		_impl->Send(ToJson(msg::WindowActive{ .active = a_active }));
 	}
 
+	namespace
+	{
+		// Shift/Ctrl held while a mouse event is sampled, as Win32 MK_* flags.
+		std::uint32_t HeldMouseModifiers()
+		{
+			return (::GetAsyncKeyState(VK_SHIFT) & 0x8000 ? MK_SHIFT : 0u) |
+				(::GetAsyncKeyState(VK_CONTROL) & 0x8000 ? MK_CONTROL : 0u);
+		}
+	}
+
 	void WebView2HostWebRenderer::InjectMouseMove(int a_x, int a_y)
 	{
-		const auto modifiers = (::GetAsyncKeyState(VK_SHIFT) & 0x8000 ? MK_SHIFT : 0u) |
-			(::GetAsyncKeyState(VK_CONTROL) & 0x8000 ? MK_CONTROL : 0u);
-		_impl->Send(ToJson(msg::Mouse{ .kind = "move", .x = a_x, .y = a_y, .modifiers = modifiers }));
+		_impl->Send(ToJson(msg::Mouse{ .kind = "move", .x = a_x, .y = a_y, .modifiers = HeldMouseModifiers() }));
 	}
 	void WebView2HostWebRenderer::InjectMouseButton(
 		int a_x, int a_y, int a_button, bool a_down)
 	{
-		const auto modifiers = (::GetAsyncKeyState(VK_SHIFT) & 0x8000 ? MK_SHIFT : 0u) |
-			(::GetAsyncKeyState(VK_CONTROL) & 0x8000 ? MK_CONTROL : 0u);
 		_impl->Send(ToJson(msg::Mouse{ .kind = "button", .x = a_x, .y = a_y,
-			.button = a_button, .down = a_down, .modifiers = modifiers }));
+			.button = a_button, .down = a_down, .modifiers = HeldMouseModifiers() }));
 	}
 	void WebView2HostWebRenderer::InjectMouseWheel(int a_x, int a_y, int a_wheelDelta)
 	{
@@ -1800,10 +1799,8 @@ namespace OSFUI
 	void WebView2HostWebRenderer::InjectPhysicalMouseWheel(
 		int a_x, int a_y, int a_wheelDelta)
 	{
-		const auto modifiers = (::GetAsyncKeyState(VK_SHIFT) & 0x8000 ? MK_SHIFT : 0u) |
-			(::GetAsyncKeyState(VK_CONTROL) & 0x8000 ? MK_CONTROL : 0u);
 		_impl->Send(ToJson(msg::Mouse{ .kind = "physicalWheel", .x = a_x, .y = a_y,
-			.wheel = a_wheelDelta, .modifiers = modifiers }));
+			.wheel = a_wheelDelta, .modifiers = HeldMouseModifiers() }));
 	}
 
 	void WebView2HostWebRenderer::OpenDevTools(std::string_view a_viewId)

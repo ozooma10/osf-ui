@@ -10,9 +10,6 @@ export async function sharedAssetPath(name) {
     resolve(HERE, '..', 'assets', name),
     resolve(HERE, '..', '..', '..', 'src', 'shared-kit', name),
   ];
-  if (name === 'gamepadnav.js') {
-    candidates.push(resolve(HERE, '..', '..', '..', 'src', 'shared-kit', 'gamepadnav.js'));
-  }
   for (const path of candidates) {
     try {
       await access(path);

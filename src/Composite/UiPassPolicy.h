@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string_view>
 
+#include "Core/StringUtil.h"
+
 namespace OSFUI::UiPass::detail
 {
 	enum class CommandListHookState
@@ -62,27 +64,6 @@ namespace OSFUI::UiPass::detail
 		PostCompositeTargetFormat format{ PostCompositeTargetFormat::Rgba8 };
 	};
 
-	[[nodiscard]] constexpr char FoldAscii(const char a_character)
-	{
-		return a_character >= 'A' && a_character <= 'Z' ?
-			static_cast<char>(a_character + ('a' - 'A')) : a_character;
-	}
-
-	[[nodiscard]] constexpr bool EqualsAsciiInsensitive(
-		const std::string_view a_left,
-		const std::string_view a_right)
-	{
-		if (a_left.size() != a_right.size()) {
-			return false;
-		}
-		for (std::size_t i = 0; i < a_left.size(); ++i) {
-			if (FoldAscii(a_left[i]) != FoldAscii(a_right[i])) {
-				return false;
-			}
-		}
-		return true;
-	}
-
 	// Vanilla uses ScaleformEnd so generated and rendered frames receive the same
 	// overlay. Luma owns a proven RGBA16F post-composite surface; other foreign
 	// owners have no proven target contract and also use ScaleformEnd.
@@ -93,7 +74,7 @@ namespace OSFUI::UiPass::detail
 		if (a_vanillaComposite) {
 			return {};
 		}
-		if (EqualsAsciiInsensitive(a_foreignOwner, "Luma.dll")) {
+		if (StringUtil::EqualsCaseInsensitiveAscii(a_foreignOwner, "Luma.dll")) {
 			return { true, PostCompositeTargetFormat::Rgba16Float };
 		}
 		return {};

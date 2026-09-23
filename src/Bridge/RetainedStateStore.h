@@ -31,16 +31,8 @@ namespace OSFUI
 		// Returns one mod's values in deterministic insertion order.
 		[[nodiscard]] const std::vector<Entry>* Find(std::string_view a_mod) const;
 
-		// Drop one mod's state (its plugin unloaded / its schema went away).
-		void RemoveMod(std::string_view a_mod);
-
 		// Drop session-scoped entries while retaining native state.
 		void ClearSessionScoped();
-
-		// Drop everything (shutdown / renderer teardown).
-		void Clear();
-
-		[[nodiscard]] std::size_t ModCount() const { return _mods.size(); }
 
 	private:
 		// Canonical lowercase mod id -> bounded entries in insertion order.

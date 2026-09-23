@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Input/HardwareCursor.h"
 #include "Input/BrowserKeyboard.h"
+#include "Win32Util.h"
 #include "Runtime/Runtime.h"
 #include "Wv2CdpInput.h"
 
@@ -49,7 +50,7 @@ namespace OSFUI::OverlayInputHook
 			if (a_character < 0x20 && a_character != u'\r') return;
 			const auto text = g_textInput.Push(a_character);
 			if (!text.empty()) {
-				a_runtime.OnGameWindowText({ .text = BrowserInputUtf8(std::wstring(text.begin(), text.end())) });
+				a_runtime.OnGameWindowText({ .text = osfui::win32::ToUtf8(std::wstring(text.begin(), text.end())) });
 			}
 		}
 
@@ -293,12 +294,12 @@ namespace OSFUI::OverlayInputHook
 				if (runtime.IsInputCaptured()) {
 					if (const auto context = ::ImmGetContext(a_hwnd)) {
 						if (a_lparam & GCS_RESULTSTR) {
-							runtime.OnGameWindowText({ .text = BrowserInputUtf8(ImeString(context, GCS_RESULTSTR)), .kind = "commit" });
+							runtime.OnGameWindowText({ .text = osfui::win32::ToUtf8(ImeString(context, GCS_RESULTSTR)), .kind = "commit" });
 						}
 						if (a_lparam & GCS_COMPSTR) {
 							const auto text = ImeString(context, GCS_COMPSTR);
 							const auto cursor = ::ImmGetCompositionStringW(context, GCS_CURSORPOS, nullptr, 0);
-							runtime.OnGameWindowText({ .text = BrowserInputUtf8(text), .kind = "composition",
+							runtime.OnGameWindowText({ .text = osfui::win32::ToUtf8(text), .kind = "composition",
 								.cursor = static_cast<std::uint32_t>(std::clamp<LONG>(cursor, 0, static_cast<LONG>(text.size()))) });
 						}
 						::ImmReleaseContext(a_hwnd, context);
@@ -400,11 +401,6 @@ namespace OSFUI::OverlayInputHook
 		if (g_hwnd) {
 			::PostMessageW(g_hwnd, kRefreshInputStateMessage, 0, 0);
 		}
-	}
-
-	void* GameWindowHandle()
-	{
-		return g_hwnd;
 	}
 
 	std::optional<ClientSize> GameWindowClientSize()

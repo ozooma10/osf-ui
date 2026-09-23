@@ -123,9 +123,6 @@ namespace OSFUI
 		void BeginColdOpenTiming(std::string_view a_viewId, std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);
 		void CancelColdOpenTiming(std::string_view a_viewId);
 		void FinishColdOpenTiming(std::string_view a_viewId);
-		void BeginHiddenPrewarmTiming(std::string_view a_viewId);
-		void CancelHiddenPrewarmTiming(std::string_view a_viewId);
-		void FinishHiddenPrewarmTiming(std::string_view a_viewId, std::chrono::steady_clock::time_point a_loadedAt);
 
 		void DrainViewRegistrations(std::vector<std::string> a_ids);
 
@@ -226,14 +223,7 @@ namespace OSFUI
 			std::optional<ViewTimingClock::time_point> instantiatedAt;
 			std::optional<ViewTimingClock::time_point> loadedAt;
 		};
-		struct HiddenPrewarmTiming
-		{
-			std::string                              viewId;
-			ViewTimingClock::time_point              requestedAt;
-			std::optional<ViewTimingClock::time_point> instantiatedAt;
-		};
 		std::optional<ColdOpenTiming> _coldOpenTiming;
-		std::optional<HiddenPrewarmTiming> _hiddenPrewarmTiming;
 
 		bool _inputFocusGranted{ false };
 

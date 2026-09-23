@@ -80,6 +80,4 @@ namespace OSFUI::Json
 	}
 
 	void ReportUnknownKeys(const Value& a_obj, std::initializer_list<std::string_view> a_known, std::string_view a_sourceName, bool a_warn);
-
-	void CheckFormatVersion(const Value& a_obj, std::string_view a_key, std::int64_t a_known, std::string_view a_sourceName);
 }

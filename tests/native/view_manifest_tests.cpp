@@ -94,7 +94,7 @@ int main()
 	manifest = OSFUI::ViewManifest::Load(path);
 	assert(manifest && manifest->kind == OSFUI::ViewKind::World);
 	assert(manifest->placeholderSize == 1000 && manifest->width == 1600 && manifest->height == 900);
-	assert(!manifest->transparent && !manifest->menuInputEligible && !manifest->capturesInput);
+	assert(!manifest->menuInputEligible && !manifest->capturesInput);
 	assert(!manifest->pausesGame && !manifest->openOnStart && manifest->order == 0);
 
 	Write(path, R"({ "manifestVersion": 1, "kind": "world" })");

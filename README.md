@@ -103,8 +103,7 @@ used; Windows CI is configured to validate the same schemas with the Windows SDK
 use `NODE_OPTIONS=--no-experimental-webstorage npm run verify` for jsdom tests;
 CI uses Node 22.
 
-See the [verification record](docs/SETTINGS-INTEGRATION-VERIFICATION.md) for completed
-checks and remaining Windows/package prerequisites. See [`MIGRATION.md`](MIGRATION.md) for the intentional 1.x compatibility break.
+See [`MIGRATION.md`](MIGRATION.md) for the intentional 1.x compatibility break.
 
 ## License
 

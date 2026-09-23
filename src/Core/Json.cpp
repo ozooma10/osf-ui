@@ -40,13 +40,6 @@ namespace OSFUI::Json
 		}
 	}
 
-	void CheckFormatVersion(const Value& a_obj, std::string_view a_key, std::int64_t a_known, std::string_view a_sourceName)
-	{
-		if (const auto v = Get(a_obj, a_key, a_known); v > a_known) {
-			REX::INFO("{} declares {} {} (this build knows {}) - written for a newer OSF UI; unknown fields are ignored", a_sourceName, a_key, v, a_known);
-		}
-	}
-
 	void ReportUnknownKeys(const Value& a_obj, std::initializer_list<std::string_view> a_known, std::string_view a_sourceName, bool a_warn)
 	{
 		if (!a_obj.is_object()) {

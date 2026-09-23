@@ -40,7 +40,6 @@ namespace OSFUI
 		}
 
 		ViewManifest manifest;
-		manifest.rootDir = a_path.parent_path();
 		manifest.id = modId + "/" + viewName;
 		manifest.mod = modId;
 		if (!Ids::IsValidQualifiedViewId(manifest.id)) {
@@ -57,7 +56,6 @@ namespace OSFUI
 			Json::Get(*json, "width", manifest.width), 1, 16384));
 		manifest.height = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::Get(*json, "height", manifest.height), 1, 16384));
-		manifest.transparent = Json::Get(*json, "transparent", manifest.transparent);
 
 		// Unknown kinds are malformed rather than silently gaining menu/input privileges.
 		const auto kindStr = Json::Get(*json, "kind", "menu");
@@ -117,7 +115,6 @@ namespace OSFUI
 			manifest.width = *width;
 			manifest.height = *height;
 			manifest.placeholderSize = *placeholder;
-			manifest.transparent = false;
 			manifest.openOnStart = false;
 			manifest.order = 0;
 		}

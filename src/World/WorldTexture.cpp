@@ -504,11 +504,6 @@ namespace OSFUI::WorldTexture
 		return true;
 	}
 
-	bool IsInstalled()
-	{
-		return GetState().installed.load(std::memory_order_acquire);
-	}
-
 	void SetSharedRing(std::size_t a_surface, const SharedRingDesc& a_desc)
 	{
 		const OwnedHandles handles{ a_desc };

@@ -12,17 +12,11 @@ namespace OSFUI
         m_states.clear();
     }
 
-    bool ViewRecoveryTracker::Contains(std::string_view a_viewId) const
-    {
-        return m_states.contains(std::string(a_viewId));
-    }
-
     ViewRecoveryTracker::FailureDecision ViewRecoveryTracker::ScheduleFailure(std::string_view a_viewId, double a_now)
     {
         auto& state = m_states[std::string(a_viewId)];
 
         FailureDecision decision;
-        decision.attemptsCompleted = state.attempts;
 
         if(state.attempts >= kMaxAttempts) {
             decision.exhausted = true;

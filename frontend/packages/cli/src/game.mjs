@@ -1,10 +1,9 @@
-import { rmSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
-import { AUTHOR_MARKER, BUILD_MARKER, LOCAL_FILE } from './constants.mjs';
+import { BUILD_MARKER, LOCAL_FILE } from './constants.mjs';
 import { buildProject } from './build.mjs';
 
 export function deploymentRoot(project, modsRoot) {
@@ -71,7 +70,6 @@ async function deployRootFor(project, explicit) {
 
 export async function startGameSync(project, server, options = {}) {
   const deployRoot = await deployRootFor(project, options.deploy);
-  const marker = resolve(deployRoot, 'Data/SFSE/Plugins/OSF/UI', AUTHOR_MARKER);
   let building = false;
   let pending = false;
   const sync = async () => {
@@ -80,12 +78,6 @@ export async function startGameSync(project, server, options = {}) {
     try {
       await buildProject(project, { quiet: true });
       await mirrorTree(project.outDir, deployRoot);
-      await mkdir(resolve(marker, '..'), { recursive: true });
-      await writeFile(marker, `${JSON.stringify({
-        enabled: true,
-        expiresAt: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
-        source: '@osfui/cli',
-      }, null, 2)}\n`);
       console.log(`[osfui] Synced ${project.views.length} view(s) to ${deployRoot}`);
     } catch (error) {
       console.error(`[osfui] Game sync failed: ${error.message}`);
@@ -100,11 +92,5 @@ export async function startGameSync(project, server, options = {}) {
   server.watcher.on('change', onChange);
   server.watcher.on('add', onChange);
   server.watcher.on('unlink', onChange);
-  const cleanup = async () => { try { await rm(marker, { force: true }); } catch {} };
-  process.once('SIGINT', async () => { await cleanup(); process.exit(130); });
-  process.once('SIGTERM', async () => { await cleanup(); process.exit(143); });
-  process.once('exit', () => { try { rmSync(marker, { force: true }); } catch {} });
-  server.httpServer?.once('close', () => { void cleanup(); });
-  console.log('[osfui] Temporary developer mode enabled for this session.');
-  return { deployRoot, marker, cleanup };
+  return { deployRoot };
 }

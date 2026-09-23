@@ -47,7 +47,6 @@ namespace OSFUI::WorldTexture
 	// Call once the renderer exists, before the placeholder material is loaded.
 	// Successful installation and destination textures last for the process.
 	bool Install();
-	[[nodiscard]] bool IsInstalled();
 
 	// Transfers ownership of every duplicated handle, including on failure.
 	void SetSharedRing(std::size_t a_surface, const SharedRingDesc& a_desc);

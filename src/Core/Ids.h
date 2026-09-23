@@ -105,10 +105,4 @@ namespace OSFUI::Ids
 		return slash == std::string_view::npos ? a_id : a_id.substr(0, slash);
 	}
 
-	[[nodiscard]] inline std::string_view ViewNameOf(std::string_view a_id) noexcept
-	{
-		const auto slash = a_id.find('/');
-		return slash == std::string_view::npos ? a_id : a_id.substr(slash + 1);
-	}
-
 }

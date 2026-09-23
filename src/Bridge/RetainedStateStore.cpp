@@ -49,11 +49,6 @@ namespace OSFUI
 		return it == _mods.end() ? nullptr : &it->second;
 	}
 
-	void RetainedStateStore::RemoveMod(std::string_view a_mod)
-	{
-		_mods.erase(StringUtil::ToLowerAscii(a_mod));
-	}
-
 	void RetainedStateStore::ClearSessionScoped()
 	{
 		for (auto it = _mods.begin(); it != _mods.end();) {
@@ -61,10 +56,5 @@ namespace OSFUI
 			std::erase_if(entries, [](const Entry& a_entry) { return a_entry.sessionScoped; });
 			it = entries.empty() ? _mods.erase(it) : std::next(it);
 		}
-	}
-
-	void RetainedStateStore::Clear()
-	{
-		_mods.clear();
 	}
 }

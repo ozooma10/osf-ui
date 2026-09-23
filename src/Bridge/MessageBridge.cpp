@@ -536,34 +536,6 @@ namespace OSFUI
 		}
 	}
 
-	void MessageBridge::PublishStateAll(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value)
-	{
-		if (!_send || _gates.empty()) {
-			return;
-		}
-		const auto valueJson = Json::Dump(a_value);
-		for (const auto& [view, gate] : _gates) {
-			if (gate.greeted) {
-				PublishJsonState(view, a_mod, a_key, valueJson);
-			}
-		}
-	}
-
-	void MessageBridge::EmitAll(std::string_view a_name, const nlohmann::json& a_payload)
-	{
-		if (!_send || _gates.empty()) {
-			return;
-		}
-		// Broadcast one-shot events only to documents already present and greeted.
-		const auto encoded = EncodeEvent(a_name, Json::Dump(a_payload));
-		for (const auto& [view, gate] : _gates) {
-			if (gate.eventsOpen) {
-				NoteTracedReply(a_name);
-				_send(view, encoded);
-			}
-		}
-	}
-
 	void MessageBridge::SendReady(std::string_view a_viewId)
 	{
 		if (!_send || a_viewId.empty()) {

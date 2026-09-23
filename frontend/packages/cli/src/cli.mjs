@@ -38,7 +38,8 @@ Usage:
   osfui build
   osfui doctor
 
-Instantiated views reload automatically and F12 opens WebView2 DevTools while dev --game is running.`);
+dev --game rebuilds and syncs views into the MO2 mod folder. Live reload and F12 DevTools
+require OSF UI developer mode, which is set in OSF Settings.`);
 }
 
 async function main() {

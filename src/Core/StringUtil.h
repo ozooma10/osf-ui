@@ -24,17 +24,7 @@ namespace OSFUI::StringUtil
 		return out;
 	}
 
-	[[nodiscard]] inline std::string_view TrimAscii(std::string_view a_s) noexcept
-	{
-		constexpr std::string_view kWs = " \t\n\v\f\r";
-		const auto first = a_s.find_first_not_of(kWs);
-		if (first == std::string_view::npos) {
-			return {};
-		}
-		return a_s.substr(first, a_s.find_last_not_of(kWs) - first + 1);
-	}
-
-	[[nodiscard]] inline bool EqualsCaseInsensitiveAscii(std::string_view a_lhs, std::string_view a_rhs) noexcept
+	[[nodiscard]] constexpr bool EqualsCaseInsensitiveAscii(std::string_view a_lhs, std::string_view a_rhs) noexcept
 	{
 		if (a_lhs.size() != a_rhs.size()) {
 			return false;
@@ -66,19 +56,5 @@ namespace OSFUI::StringUtil
 			--n;
 		}
 		return n;
-	}
-
-	inline void TruncateUtf8(std::string& a_s, std::size_t a_maxBytes)
-	{
-		a_s.resize(Utf8TruncateLen(a_s, a_maxBytes));
-	}
-
-	[[nodiscard]] inline std::string_view SkipLeadingUtf8Continuations(std::string_view a_s) noexcept
-	{
-		std::size_t i = 0;
-		while (i < a_s.size() && detail::IsUtf8Continuation(a_s[i])) {
-			++i;
-		}
-		return a_s.substr(i);
 	}
 }

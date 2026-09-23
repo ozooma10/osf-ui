@@ -11,5 +11,4 @@ namespace OSFUI::UiPass
 
 	bool DrawEnabled();
 	bool UsesScaleformEnd();
-	bool FrameGenerationActive();
 }
