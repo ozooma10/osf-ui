@@ -62,15 +62,10 @@ string Function GetVersionString() Global Native
 ;   -4    the endpoint belongs to another script, or is already registered with the other kind (send vs request)
 ;   -5    registration table full
 ;
-; Registering is idempotent per script: the same script registering the same endpoint again succeeds,
-; and a new instance of the same script (for example a restarted quest) takes the endpoint over.
-; Registrations cannot be removed; they last until the next game load. A script that no longer wants a command can ignore it in the callback.
-; The failure reason is also written to the OSF UI log.
 
 ; =============================================================================
 ; JavaScript -> Papyrus: send
 ; =============================================================================
-
 ; Use RegisterSend for a one-way command when JavaScript does not need a result.
 ;
 ; A view owned by asModId uses the short local name; other views use the fully-qualified "<asModId>.<asName>" address.
@@ -117,11 +112,9 @@ int Function RegisterSendStatic(string asScript, string asModId, string asName) 
 ;
 ; Reply resolves the JavaScript promise to the raw bridge value (3 above).
 ; Reject rejects it with asCode/asMessage. Settle every request exactly once on every path; otherwise JavaScript waits until timeout.
-; The token expires and must never be saved or reused.
 ;
 ; Returns 1 when registered, or a negative code (see "Registration results" above).
 int Function RegisterRequest(ScriptObject akReceiver, string asModId, string asName) Global Native
-
 ; GLOBAL-function variant. It still must be registered again after game load.
 int Function RegisterRequestStatic(string asScript, string asModId, string asName) Global Native
 
