@@ -86,25 +86,3 @@ Known limits of the prototype:
 - Keyboard/text CDP commands are ordered with each other. Mouse input uses the
   separate composition API, so very fast mixed mouse/keyboard sequences also
   deserve testing.
-
-## Local build dependency note
-
-This working copy was missing `lib/osf-settings/sdk`. The prototype was compiled
-against SDK headers extracted from the README's exact pinned Slim commit
-`2330e02e9922da688e5c85d3a1a8b981bfa8a6d6` into the ignored directory
-`external/osf-settings-sdk`, using a temporary compiler include override:
-
-```powershell
-$savedCdpCl = $env:CL
-$cdpSdkPath = (Resolve-Path external/osf-settings-sdk).Path
-try {
-    $env:CL = '/I"' + $cdpSdkPath + '" ' + $savedCdpCl
-    xmake build 'OSF UI'
-    & 'C:/Program Files/Git/bin/bash.exe' tests/native/run.sh
-} finally {
-    $env:CL = $savedCdpCl
-}
-```
-
-The SDK version and sibling Settings repository were not changed. A checkout
-with the normal pinned SDK dependency present does not need this override.

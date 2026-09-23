@@ -70,13 +70,10 @@ Install the Creation Kit Papyrus compiler and vanilla imports; set `PAPYRUS_COMP
 and `PAPYRUS_IMPORTS` if they are outside the defaults in `tools/build-papyrus.ps1`.
 Native builds without a deployment target do not require the Papyrus toolchain.
 
-The Settings SDK source is pinned by `lib/osf-settings` to Slim commit
-`2330e02e9922da688e5c85d3a1a8b981bfa8a6d6`. UI compiles against its public SDK;
-it does not build or distribute OSF Settings. The Slim repository currently
-requires authenticated access. CI accepts an `OSF_DEPENDENCIES_TOKEN` secret
-with read access to the dependency repository; ordinary development checkouts
-need equivalent Git credentials. The older extracted Settings
-project uses different exports and cannot satisfy this dependency.
+The OSF Settings SDK headers are vendored in [`sdk/vendor/`](sdk/vendor/README.md).
+UI compiles against those public headers; it does not build or distribute OSF
+Settings. The older extracted Settings project uses different exports and cannot
+satisfy this dependency.
 
 OSF UI reads `developerMode` and `highRefreshCapture` once at startup. Both
 require a game restart; failed reads use `false` and report a Mod Issue.
@@ -93,14 +90,10 @@ Host checks (Bash 4+ and a C++23 compiler):
 
 ```sh
 bash tests/native/run.sh
-bash tests/schema/run.sh
 npm run verify
 ```
 
-The schema check compiles Slim's actual parser against the runtime and example boolean
-schemas. Its portable stubs abort if string conversion or native key lookup is
-used; Windows CI is configured to validate the same schemas with the Windows SDK. On Node 26,
-use `NODE_OPTIONS=--no-experimental-webstorage npm run verify` for jsdom tests;
+On Node 26, use `NODE_OPTIONS=--no-experimental-webstorage npm run verify` for jsdom tests;
 CI uses Node 22.
 
 See [`MIGRATION.md`](MIGRATION.md) for the intentional 1.x compatibility break.

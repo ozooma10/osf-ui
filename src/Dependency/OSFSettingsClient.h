@@ -4,8 +4,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "OSFSettings.h"
-#include "OSFSettings_Diagnostics.h"
+#include "vendor/OSFSettings.h"
+#include "vendor/OSFSettings_Diagnostics.h"
 #include "Diagnostics/HealthRegistry.h"
 
 namespace OSFUI

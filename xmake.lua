@@ -97,7 +97,7 @@ target("OSF UI")
 
     add_files("src/**.cpp")
     add_headerfiles("src/**.h", "sdk/**.h")
-    add_includedirs("src", "tools/webview2_shared", "sdk", "lib/osf-settings/sdk")
+    add_includedirs("src", "tools/webview2_shared", "sdk")
     set_pcxxheader("src/pch.h")
 
     before_build(function(target)

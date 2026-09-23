@@ -1,7 +1,7 @@
 #pragma once
 
-#include "OSFSettings.h"
-#include "OSFSettings_Diagnostics.h"
+#include "vendor/OSFSettings.h"
+#include "vendor/OSFSettings_Diagnostics.h"
 #include <map>
 #include <set>
 #include <string>
@@ -77,6 +77,8 @@ namespace SettingsTest
         Status GetString(const char*, const char*, char*, std::uint32_t, std::uint32_t*) noexcept override { return Status::TypeMismatch; }
         Status SetString(const char*, const char*, const char*, std::uint32_t) noexcept override { return Status::TypeMismatch; }
         Status ReadRegistry(const char*, RegistryFn, void*) noexcept override { return Status::InternalError; }
+        Status RegisterAction(const char*, const char*, ActionFn, void*) noexcept override { return Status::Ok; }
+        Status CompleteAction(Invocation, bool, const char*) noexcept override { return Status::UnknownInvocation; }
     };
 
     struct Diagnostics : OSFSettings::API::Diagnostics::IDiagnostics

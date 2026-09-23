@@ -1,11 +1,12 @@
-# OSF Settings launcher SDK
+# OSF Settings SDK (vendored)
 
-`OSFSettings_Launcher.h` is an exact copy of the public header from the sibling
-OSF Settings Slim project (`sdk/OSFSettings_Launcher.h`), launcher ABI 1.0.
-Only this new optional service is vendored while the pinned Settings submodule
-predates it. The existing Settings and Diagnostics SDKs still come from that
-submodule. No provider implementation is included.
+These headers are exact copies of the public SDK from the OSF Settings Slim
+project (`sdk/`), taken at Slim commit `140b93e8074af53e954f028a00122f5be59a9f37`:
 
-Update this copy with the provider header whenever that ABI changes. Once the
-Settings submodule is advanced to a revision containing it, remove this copy and
-include the header from the pinned SDK instead.
+- `OSFSettings.h`: settings ABI 1.0
+- `OSFSettings_Diagnostics.h`: diagnostics ABI 1.0
+- `OSFSettings_Launcher.h`: optional launcher ABI 1.0
+
+No provider implementation is included. To update, copy the same files from
+Slim's `sdk/` folder unchanged and update the commit above. Include them as
+`"vendor/OSFSettings.h"` and so on; `sdk/` is already on the include path.

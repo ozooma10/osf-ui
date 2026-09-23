@@ -49,9 +49,9 @@ open the panel. OSF UI itself has no built-in panel or open hotkey.
 6. With no views demanded, verify no WebView helper starts. OSF Settings must
    remain usable when WebView2 is absent; requesting a WebView reports a failure.
 
-The native test suite exercises this consumer against Slim's real SDK and UI's
-real queued Views implementation. `tests/schema` validates both schemas with
-Slim's actual parser. The frontend test drives the panel with real helper frames.
+The native test suite exercises this consumer against the vendored Settings SDK
+and UI's real queued request implementation. The frontend test drives the panel
+with real helper frames.
 These checks do not replace the in-game acceptance steps above. Use the existing
 OSF Test Harness policy and isolated profile when performing those checks.
 

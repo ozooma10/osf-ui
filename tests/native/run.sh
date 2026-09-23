@@ -42,7 +42,7 @@ if [[ -z "${CXX:-}" ]] && ! command -v clang++ >/dev/null 2>&1 && ! command -v g
     fi
 fi
 CXX="${CXX:-clang++}"
-BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I ../../lib/osf-settings/sdk -I ../../tools/webview2_shared -I $DEPS -I stubs"
+BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I ../../tools/webview2_shared -I $DEPS -I stubs"
 
 # Each suite is "<name> <translation units...>". Keep the source lists in sync
 # with what each suite actually exercises; duplicates across suites are free
@@ -114,7 +114,7 @@ if [[ "$MSVC" == 1 ]]; then
         echo '@echo off'
         echo "call \"$(cygpath -w "$VSROOT")\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul || exit /b 1"
         echo "cd /d \"$HERE_W\\$BUILD\" || exit /b 1"
-        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\webview2_shared\" /I \"$HERE_W\\$DEPS\" /I \"$HERE_W\\stubs\" /I \"$HERE_W\\..\\..\\lib\\osf-settings\\sdk\" /FI \"$HERE_W\\stubs\\pch.h\""
+        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\webview2_shared\" /I \"$HERE_W\\$DEPS\" /I \"$HERE_W\\stubs\" /FI \"$HERE_W\\stubs\\pch.h\""
         printf 'cl %s /MP /c' "$FLAGS"
         for s in "${UNIQUE[@]}"; do printf ' "%s"' "$(winsrc "$s")"; done
         printf ' /Foobj\\ || exit /b 1\n'

@@ -16,7 +16,7 @@ target("OSF UI Settings Example")
         description = "Development example: Slim settings and hotkey open an OSF UI view"
     })
     add_files("src/*.cpp")
-    add_includedirs("src", path.join(repo, "sdk"), path.join(repo, "lib/osf-settings/sdk"))
+    add_includedirs("src", path.join(repo, "sdk"))
     after_install(function(target)
         -- The example is a standalone MO2 mod. Copy the plugin explicitly so
         -- its hotkey is present alongside the view and Settings schema.

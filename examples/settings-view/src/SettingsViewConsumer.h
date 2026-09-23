@@ -1,7 +1,7 @@
 #pragma once
 
 #include <mutex>
-#include "OSFSettings.h"
+#include "vendor/OSFSettings.h"
 #include "OSFUI.h"
 
 namespace SettingsViewExample

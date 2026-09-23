@@ -17,17 +17,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # Tests use Slim's pinned SDK and schema parser; engine/loader calls use native stubs.
+      # Tests use the vendored Settings SDK; engine/loader calls use native stubs.
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.OSF_DEPENDENCIES_TOKEN || github.token }}
           submodules: true
 
       - name: Run native suites
         # The suite returns its failing-check count as the process exit code.
         run: |
           bash tests/native/run.sh
-          bash tests/schema/run.sh
         env:
           CXX: clang++
 
@@ -120,9 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Slim requires a token with read access to its repository.
-          token: ${{ secrets.OSF_DEPENDENCIES_TOKEN || github.token }}
-          # Engine build dependencies and the pinned Slim SDK
+          # Engine build dependencies
           submodules: recursive
 
       - uses: actions/setup-node@v4
@@ -175,13 +171,10 @@ jobs:
       - name: Build
         run: xmake build -y
 
-      - name: Build Settings integration example and validate schemas
+      - name: Build Settings integration example
         run: |
           xmake f -y -P examples/settings-view -m ${{ matrix.mode }}
           xmake build -y -P examples/settings-view
-          xmake f -y -P tests/schema
-          xmake build -y -P tests/schema
-          xmake run -P tests/schema settings-schema-tests
 
       - name: Run WebView2 pipe transport tests
         run: |
