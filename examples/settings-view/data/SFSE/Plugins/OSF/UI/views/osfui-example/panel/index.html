@@ -10,10 +10,14 @@
 <body>
   <main>
     <h1>Settings integration example</h1>
-    <p>Change “Show details” in OSF Settings, then open this panel with F6.</p>
+    <p>Open this panel with F6. Type, hold Backspace, drag the slider, and Alt+Tab away and back to test input.</p>
     <p id="status">Waiting for the owning mod’s settings…</p>
     <p id="details" hidden>This section is controlled by the setting your mod forwarded.</p>
-    <button id="close" autofocus>Close</button>
+    <label for="typing">Text input</label>
+    <input id="typing" type="text" autocomplete="off" placeholder="Type here" autofocus>
+    <label for="drag">Drag the slider: <output id="dragValue">50</output></label>
+    <input id="drag" type="range" min="0" max="100" value="50">
+    <button id="close">Close</button>
   </main>
 </body>
 </html>

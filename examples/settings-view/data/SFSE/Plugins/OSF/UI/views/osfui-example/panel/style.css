@@ -4,3 +4,6 @@ main { padding: 48px; }
 h1 { font-size: 32px; }
 p { line-height: 1.6; }
 button { margin-top: 24px; padding: 12px 28px; font: inherit; cursor: pointer; }
+label { display: block; margin-top: 20px; }
+input[type="text"] { display: block; box-sizing: border-box; width: min(100%, 600px); margin-top: 8px; padding: 10px; color: inherit; background: #263747; border: 1px solid #6c8496; border-radius: 4px; font: inherit; }
+input[type="range"] { display: block; width: min(100%, 600px); margin-top: 12px; }

@@ -9,6 +9,12 @@ OSF UI stays inert until it acquires ready OSF Settings Slim services at SFSE
 `kPostPostLoad` (settings ABI 1.0 and diagnostics ABI 1.0). Its
 out-of-process WebView2 helper is created lazily only when a view is demanded.
 OSF UI may ship with zero built-in views.
+For an in-game test panel, install the separate [settings example](examples/settings-view/README.md)
+and press F6. Enabling OSF UI alone does not add a menu or hotkey.
+
+The current [forwarded-input prototype](docs/cdp-input-prototype.md) keeps native
+focus in Starfield and sends physical keyboard/text input through Chromium's
+DevTools Protocol. The helper process and shared-texture rendering remain in use.
 
 ## Runtime layout
 

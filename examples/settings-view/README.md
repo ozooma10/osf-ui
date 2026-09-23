@@ -9,6 +9,7 @@ Slim owns the `osfui-example` schema and its native **Open example panel** hotke
 boolean through `SetViewState`. The hotkey callback queues `RequestMenu`; it does
 not call the engine. All registrations and their owner live for the game process.
 The panel consumes ordinary retained state and closes with its button or Escape.
+It includes a text field and slider for testing keyboard, mouse, and focus behavior.
 Its manifest also opts into the shared Launcher tab under OSF UI Example. Opening
 uses the normal RequestMenu preflight/runtime pipeline. The view owns closing;
 reopen Settings through its normal hotkey or menu entry. Include that cycle in
@@ -24,13 +25,17 @@ $env:XSE_SF_MODS_PATH = $null
 $env:XSE_SF_GAME_PATH = $null
 xmake f -P examples/settings-view -y -m releasedbg
 xmake build -P examples/settings-view -y
-xmake install -P examples/settings-view -o out/settings-view-example -y
+xmake install -P examples/settings-view -o out/settings-view-example -y "OSF UI Settings Example"
 ```
 
 Install the staged contents as a separate test mod alongside the OSF UI and
 OSF Settings Slim packages in the isolated OSF Testing profile. The example
 needs the production UI package's shared `osfui.js`; it does not carry its own
 copy. The schema must be installed before starting Starfield.
+
+For a local MO2 test, install the staged contents as a separate mod named
+`OSF UI Settings Example`, enable it in MO2, then start Starfield. Press F6 to
+open the panel. OSF UI itself has no built-in panel or open hotkey.
 
 ## Acceptance
 
