@@ -1,8 +1,6 @@
 {
-  "schemaVersion": 1,
-  "id": "osfui",
   "title": "OSF UI",
-  "description": "Optional WebView hosting and compositing for Starfield mods.",
+  "description": "Starfield Web Interface Framework",
   "groups": {
     "Runtime": [
       {
