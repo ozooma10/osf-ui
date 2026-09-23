@@ -9,13 +9,11 @@
 #include "Dependency/OSFSettingsClient.h"
 #include "Input/GamepadSession.h"
 #include "Render/WebView2HostWebRenderer.h"
-#include "Diagnostics/HealthRegistry.h"
 #include "Runtime/DeferredMainThreadWork.h"
 #include "Runtime/AdaptiveViewGeometry.h"
 #include "Views/Dev/DevViewReloadWorker.h"
 #include "Views/ViewPresentationController.h"
 #include "Render/BrowserHostRecovery.h"
-#include "Runtime/RuntimeHealthCoordinator.h"
 #include "Bridge/MessageBridge.h"
 #include "Input/ViewInputGrants.h"
 #include "Views/ViewManager.h"
@@ -68,7 +66,6 @@ namespace OSFUI
 		void OnGameWindowMouseWheel(int a_wheelDelta);
 
 	private:
-		friend class RuntimeHealthCoordinator;
 		Runtime() = default;
 
 		bool InitializePaths();
@@ -200,8 +197,6 @@ namespace OSFUI
 		std::unique_ptr<WebView2HostWebRenderer> _renderer;
 		std::unique_ptr<D3D12Compositor> _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
-		HealthRegistry                          _healthRegistry;
-		RuntimeHealthCoordinator                _runtimeHealth{ *this };
 		OSFSettingsClient                       _osfSettings;
 
 		DeferredMainThreadWork                  _dataLoadedInit;
@@ -214,6 +209,7 @@ namespace OSFUI
 		std::optional<std::string> _pendingViewOpen;
 		std::uint64_t _mainTickSerial{ 0 };
 		std::unordered_map<std::string, std::uint64_t> _viewOpenPreflightBarriers;
+		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;
 
 		using ViewTimingClock = std::chrono::steady_clock;
 		struct ColdOpenTiming

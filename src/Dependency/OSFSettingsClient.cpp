@@ -62,7 +62,7 @@ namespace OSFUI
 			std::format("{} is disabled for this session.", a_key),
 			"Reinstall OSF UI's osfui.json settings schema and restart Starfield." };
 		const auto id = std::string("settings.") + a_key;
-		_directFailures.insert_or_assign(id, issue);
+		_desired.insert_or_assign(id, issue);
 		Report(id, issue);
 	}
 
@@ -101,66 +101,55 @@ namespace OSFUI
 		return true;
 	}
 
+	OSFSettingsClient::IssueText OSFSettingsClient::Describe(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_context)
+	{
+		IssueText result{ Severity::Error, std::string(a_message), {}, kRepair };
+		const auto view = Json::Get(a_context, "view", "");
+		if (!view.empty()) result.impact = std::format("The view '{}' is unavailable.", view);
+		const auto degraded = std::format("The view '{}' may be unavailable or degraded.", view);
+		if (a_code == "view.load-retrying") {
+			result = { Severity::Warning, "A mod WebView is taking longer to load", degraded,
+				"OSF UI is retrying automatically. Check the mod installation if the problem persists." };
+		} else if (a_code == "view.load-failed") {
+			result.title = "A mod WebView could not load";
+		} else if (a_code == "view.protocol-misuse") {
+			result = { Severity::Warning, "A mod WebView is sending unsupported requests", degraded,
+				"Update the owning mod and OSF UI to compatible versions." };
+		} else if (a_code == "host.ring-truncated") {
+			result = { Severity::Warning, "OSF UI is dropping browser frame data",
+				"WebViews may appear incomplete or fail to refresh.", kRepair };
+		}
+		return result;
+	}
+
 	void OSFSettingsClient::ReportFailure(std::string_view a_id, std::string_view a_code,
 		std::string_view a_message, const nlohmann::json& a_context)
 	{
-		REX::ERROR("OSF UI failure {} [{}]: {} {}", a_id, a_code, a_message, Json::Dump(a_context));
-		IssueText issue{ Severity::Error, std::string(a_message), {}, kRepair };
-		if (const auto view = Json::Get(a_context, "view", ""); !view.empty()) {
-			issue.impact = std::format("The view '{}' is unavailable.", view);
+		const auto issue = Describe(a_code, a_message, a_context);
+		if (issue.severity == Severity::Error) {
+			REX::ERROR("OSF UI failure {} [{}]: {} {}", a_id, a_code, a_message, Json::Dump(a_context));
+		} else {
+			REX::WARN("OSF UI health {} [{}]: {} {}", a_id, a_code, a_message, Json::Dump(a_context));
 		}
 		const auto id = std::string(a_id);
-		_directFailures.insert_or_assign(id, issue);
+		_desired.insert_or_assign(id, issue);
 		Report(id, issue);
 	}
 
 	void OSFSettingsClient::ClearFailure(std::string_view a_id)
 	{
-		_directFailures.erase(std::string(a_id));
+		_desired.erase(std::string(a_id));
 		Clear(a_id);
 	}
 
-	OSFSettingsClient::IssueText OSFSettingsClient::Describe(const HealthRegistry::IssueSpec& a_issue)
-	{
-		IssueText result{ a_issue.severity == HealthRegistry::Severity::Error ? Severity::Error : Severity::Warning,
-			"OSF UI encountered a WebView problem", "A mod's web interface may be unavailable or degraded.", kRepair };
-		if (a_issue.code == "view.load-retrying") {
-			result.title = "A mod WebView is taking longer to load";
-			result.nextSteps = "OSF UI is retrying automatically. Check the mod installation if the problem persists.";
-		} else if (a_issue.code == "view.load-failed") {
-			result.title = "A mod WebView could not load";
-		} else if (a_issue.code == "view.protocol-misuse") {
-			result.title = "A mod WebView is sending unsupported requests";
-			result.nextSteps = "Update the owning mod and OSF UI to compatible versions.";
-		} else if (a_issue.code == "host.ring-truncated") {
-			result.title = "OSF UI is dropping browser frame data";
-			result.impact = "WebViews may appear incomplete or fail to refresh.";
-		}
-		if (a_issue.code.starts_with("view.") && !a_issue.subject.empty()) {
-			result.impact = std::format("The view '{}' may be unavailable or degraded.", a_issue.subject);
-		}
-		return result;
-	}
-
-	void OSFSettingsClient::SyncDiagnostics(std::span<const HealthRegistry::IssueSpec> a_issues)
+	void OSFSettingsClient::RetryDiagnostics()
 	{
 		if (!_diagnostics) return;
-		std::unordered_set<std::string> keep;
-		for (const auto& [id, issue] : _directFailures) {
-			keep.insert(id);
-			Report(id, issue);
-		}
-		for (const auto& issue : a_issues) {
-			keep.insert(issue.id);
-			if (!_directFailures.contains(issue.id)) Report(issue.id, Describe(issue));
-		}
+		for (const auto& [id, issue] : _desired) Report(id, issue);
 		// Copy IDs before erasing; a failed clear must remain cached for a later retry.
-		std::vector<std::string> resolved;
-		for (const auto& [id, issue] : _reported) if (!keep.contains(id)) resolved.push_back(id);
-		for (const auto& id : resolved) Clear(id);
-		std::erase_if(_failedOperations, [&](const auto& operation) {
-			return operation.starts_with("report ") && !keep.contains(operation.substr(7));
-		});
+		std::vector<std::string> stale;
+		for (const auto& [id, issue] : _reported) if (!_desired.contains(id)) stale.push_back(id);
+		for (const auto& id : stale) Clear(id);
 	}
 
 	bool OSFSettingsClient::AcquireInputSuppression()

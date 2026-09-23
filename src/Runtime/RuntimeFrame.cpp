@@ -80,7 +80,7 @@ namespace OSFUI
 	{
 		if (!_initialized) return;
 		// Flush even while inert or before any renderer exists (including startup failures).
-		_runtimeHealth.Pump();
+		_osfSettings.RetryDiagnostics();
 		if (!_osfSettings.Available()) return;
 		++_mainTickSerial;
 		_uptime += a_deltaSeconds;

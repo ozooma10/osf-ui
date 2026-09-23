@@ -159,7 +159,8 @@ namespace OSFUI
 		if (!_bridge) {
 			return;
 		}
-		_runtimeHealth.OnViewGreeted(a_viewId);
+		_viewProtocolFaultCounts.erase(std::string(a_viewId));
+		_osfSettings.ClearFailure(std::format("view.protocol-misuse:{}", a_viewId));
 		PublishPlatformState("views", a_viewId);
 		const std::string mod{ Ids::ModOf(a_viewId) };
 		if (const auto* entries = _retainedState.Find(mod)) {
@@ -184,7 +185,11 @@ namespace OSFUI
 		if (!a_viewFault || a_viewId.empty()) {
 			return;
 		}
-		_runtimeHealth.ReportProtocolFault(a_viewId, a_code);
+		constexpr std::uint32_t kProtocolFaultThreshold = 10;
+		if (++_viewProtocolFaultCounts[std::string(a_viewId)] == kProtocolFaultThreshold) {
+			_osfSettings.ReportFailure(std::format("view.protocol-misuse:{}", a_viewId), "view.protocol-misuse", a_message,
+				{ { "view", std::string(a_viewId) }, { "code", std::string(a_code) }, { "count", kProtocolFaultThreshold } });
+		}
 	}
 
     void Runtime::RegisterPlatformEndpoints(MessageBridge& a_bridge)

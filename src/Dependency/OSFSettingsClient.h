@@ -1,12 +1,13 @@
 #pragma once
 
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <nlohmann/json.hpp>
 
 #include "vendor/OSFSettings.h"
 #include "vendor/OSFSettings_Diagnostics.h"
-#include "Diagnostics/HealthRegistry.h"
 
 namespace OSFUI
 {
@@ -20,10 +21,13 @@ namespace OSFUI
 		[[nodiscard]] bool Available() const { return _available; }
 		[[nodiscard]] bool DeveloperMode() const { return _developerMode; }
 		[[nodiscard]] bool HighRefreshCapture() const { return _highRefreshCapture; }
-		void SyncDiagnostics(std::span<const HealthRegistry::IssueSpec> a_issues);
+		// Known codes get their user-facing text and severity from Describe; a_message titles anything else.
+		// Technical context stays in the native log, never in Settings issue text.
 		void ReportFailure(std::string_view a_id, std::string_view a_code, std::string_view a_message,
 			const nlohmann::json& a_context = nlohmann::json::object());
 		void ClearFailure(std::string_view a_id);
+		// Retries reports and clears the SDK rejected earlier. Called once per runtime tick.
+		void RetryDiagnostics();
 		[[nodiscard]] bool AcquireInputSuppression();
 		bool ReleaseInputSuppression();
 
@@ -36,7 +40,7 @@ namespace OSFUI
 			std::string nextSteps;
 			bool operator==(const IssueText&) const = default;
 		};
-		static IssueText Describe(const HealthRegistry::IssueSpec& a_issue);
+		static IssueText Describe(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_context);
 		void ReadStartupBool(const char* a_key, bool& a_value);
 		void Report(std::string_view a_id, const IssueText& a_issue);
 		bool Clear(std::string_view a_id);
@@ -48,8 +52,8 @@ namespace OSFUI
 		bool _developerMode{};
 		bool _highRefreshCapture{};
 		OSFSettings::API::HotkeyBlock _hotkeyBlock{};
-		std::unordered_map<std::string, IssueText> _directFailures;
-		// Cache only accepted reports. Failed reports/clears are retried by the next runtime tick.
+		// What OSF UI wants shown versus what Settings accepted. Rejected reports/clears retry on the next tick.
+		std::unordered_map<std::string, IssueText> _desired;
 		std::unordered_map<std::string, IssueText> _reported;
 		std::unordered_set<std::string> _failedOperations;
 	};

@@ -44,7 +44,7 @@ int main()
         CHECK(client.Initialize());
         CHECK(client.DeveloperMode() && client.HighRefreshCapture());
         settings.values["developerMode"] = false;
-        client.SyncDiagnostics({});
+        client.RetryDiagnostics();
         CHECK(client.DeveloperMode()); // Startup-only, no live subscription.
         CHECK(settings.reads == 2 && !settings.changed);
     }
@@ -95,55 +95,51 @@ int main()
         Install(&settings, &diagnostics);
         OSFSettingsClient client;
         CHECK(client.Initialize());
-        HealthRegistry registry;
-        HealthRegistry::IssueSpec issue{.id = "view.load-failed:demo/panel", .code = "view.load-failed",
-            .severity = HealthRegistry::Severity::Error, .subject = "demo/panel",
-            .context = {{"detail", "C:/private/technical.log"}}};
-        registry.Upsert(issue);
+        const std::string id = "view.load-failed:demo/panel";
+        const nlohmann::json context{{"view", "demo/panel"}, {"detail", "C:/private/technical.log"}};
         diagnostics.reportStatus = Status::InternalError;
-        client.SyncDiagnostics(registry.ActiveIssues());
-        CHECK(!diagnostics.Has(issue.id));
+        client.ReportFailure(id, "view.load-failed", "ERR_CONNECTION_REFUSED", context);
+        CHECK(!diagnostics.Has(id));
         diagnostics.reportStatus = Status::Ok;
-        client.SyncDiagnostics(registry.ActiveIssues());
-        CHECK(diagnostics.Has(issue.id));
-        CHECK(diagnostics.Get(issue.id).title == "A mod WebView could not load");
-        CHECK(diagnostics.Get(issue.id).impact.find("demo/panel") != std::string::npos);
-        CHECK(diagnostics.Get(issue.id).impact.find("private") == std::string::npos);
+        client.RetryDiagnostics();
+        CHECK(diagnostics.Has(id));
+        // Known codes get fixed user-facing text; technical message and context stay in the log.
+        CHECK(diagnostics.Get(id).title == "A mod WebView could not load");
+        CHECK(diagnostics.Get(id).impact.find("demo/panel") != std::string::npos);
+        CHECK(diagnostics.Get(id).impact.find("private") == std::string::npos);
         const auto count = diagnostics.reports;
-        client.SyncDiagnostics(registry.ActiveIssues());
-        CHECK(diagnostics.reports == count);
-        issue.severity = HealthRegistry::Severity::Warning;
-        registry.Upsert(issue);
+        client.ReportFailure(id, "view.load-failed", "ERR_CONNECTION_REFUSED", context);
+        client.RetryDiagnostics();
+        CHECK(diagnostics.reports == count); // Unchanged issue text is not re-reported.
+        // A rejected update keeps the last accepted text until the retry succeeds.
         diagnostics.reportStatus = Status::InternalError;
-        client.SyncDiagnostics(registry.ActiveIssues());
-        CHECK(diagnostics.Get(issue.id).severity == OSFSettings::API::Diagnostics::Severity::Error);
+        client.ReportFailure(id, "view.load-retrying", "ERR_CONNECTION_REFUSED", context);
+        CHECK(diagnostics.Get(id).severity == OSFSettings::API::Diagnostics::Severity::Error);
         diagnostics.reportStatus = Status::Ok;
-        client.SyncDiagnostics(registry.ActiveIssues());
-        CHECK(diagnostics.Get(issue.id).severity == OSFSettings::API::Diagnostics::Severity::Warning);
-        // A runtime sweep must preserve direct failures and other mods' reports.
+        client.RetryDiagnostics();
+        CHECK(diagnostics.Get(id).severity == OSFSettings::API::Diagnostics::Severity::Warning);
+        // A retry sweep must preserve other pending failures and other mods' reports.
         diagnostics.Report({.modId = "other", .id = "keep", .title = "Keep me"});
         client.ReportFailure("startup.renderer", "webview.renderer-init", "Browser unavailable");
-        registry.Resolve(issue.id);
         diagnostics.clearStatus = Status::InternalError;
-        client.SyncDiagnostics(registry.ActiveIssues());
-        CHECK(diagnostics.Has(issue.id));
+        client.ClearFailure(id);
+        CHECK(diagnostics.Has(id));
         diagnostics.clearStatus = Status::Ok;
-        client.SyncDiagnostics(registry.ActiveIssues());
-        CHECK(!diagnostics.Has(issue.id));
+        client.RetryDiagnostics();
+        CHECK(!diagnostics.Has(id));
         CHECK(diagnostics.Has("startup.renderer"));
         CHECK(diagnostics.issues.contains({"other", "keep"}));
         diagnostics.clearStatus = Status::InternalError;
         client.ClearFailure("startup.renderer");
         CHECK(diagnostics.Has("startup.renderer"));
         diagnostics.clearStatus = Status::Ok;
-        client.SyncDiagnostics({});
+        client.RetryDiagnostics();
         CHECK(!diagnostics.Has("startup.renderer"));
         diagnostics.reportStatus = Status::InternalError;
-        registry.Upsert(issue);
-        client.SyncDiagnostics(registry.ActiveIssues());
-        registry.Resolve(issue.id);
+        client.ReportFailure(id, "view.load-failed", "ERR_CONNECTION_REFUSED", context);
+        client.ClearFailure(id);
         const auto clearCount = diagnostics.clears;
-        client.SyncDiagnostics(registry.ActiveIssues());
+        client.RetryDiagnostics();
         CHECK(diagnostics.clears == clearCount); // Never clear a report that was not accepted.
         diagnostics.reportStatus = Status::Ok;
         const std::string longId(200, 'x');

@@ -87,7 +87,8 @@ namespace OSFUI
 		});
 
 		_renderer->SetHealthHandler([this](const WebView2HostWebRenderer::HealthEvent& a_e) {
-			_runtimeHealth.OnRendererHealth(a_e);
+			if (a_e.active) _osfSettings.ReportFailure(a_e.code, a_e.code, a_e.detail);
+			else _osfSettings.ClearFailure(a_e.code);
 		});
 
 		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
