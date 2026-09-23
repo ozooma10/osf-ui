@@ -1,11 +1,7 @@
 # __OSFUI_PROJECT_NAME__
 
-This starter contains a plain web view and a native SFSE bridge example. View files
-are already in their final location:
-
-`mod/Data/SFSE/Plugins/OSF/UI/views/__OSFUI_MOD_ID__/__OSFUI_VIEW_ID__/`
-
-Add CommonLibSF and build the plugin:
+A plain web view plus a native SFSE bridge example. View files are already at
+`mod/Data/SFSE/Plugins/OSF/UI/views/__OSFUI_MOD_ID__/__OSFUI_VIEW_ID__/`.
 
 ```powershell
 git submodule add https://github.com/ozooma10/commonlibsf.git native/lib/commonlibsf
@@ -14,12 +10,6 @@ xmake build -P .
 xmake install -P .
 ```
 
-The C++ example uses only `OSFUI.h`. It registers send/request handlers,
-publishes retained state, emits an event, and registers the qualified view ID.
-If this mod has player settings, use the separate OSF Settings SDK and explicitly
-forward the values that the page needs.
+The plugin uses only `OSFUI.h`: it registers send/request handlers, publishes retained state, emits an event, and registers the qualified view ID. Register at `kPostPostLoad` without waiting for `Client::IsReady()`; the browser starts lazily.
 
-For a complete settings-to-view integration, see the OSF UI repository's
-`examples/settings-view`: declare a callback hotkey in Slim, register it at
-SFSE `kPostPostLoad`, then queue `RequestMenu` and explicitly publish setting state.
-Do not wait for `OSFUI::API::Client::IsReady()` before registration: the browser starts lazily.
+For settings, use the OSF Settings SDK and forward only the values the page needs. To open the view from a hotkey, declare a callback hotkey in OSF Settings and queue `RequestMenu` from it, as in the OSF UI repository's `examples/settings-view`.

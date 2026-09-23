@@ -1,22 +1,29 @@
 # OSF UI
 
-OSF UI 2.x is the optional WebView add-on for Starfield mods. It owns view
-discovery, the JavaScript/native/Papyrus bridge, D3D compositing, focus, and web
-input. Settings storage and editing, hotkeys, keybindings, and shared issue reporting
-belong to [OSF Settings](https://github.com/ozooma10/osf-settings-slim).
+A WebView2 add-on for Starfield mods: view discovery, the JavaScript/native/Papyrus bridge, D3D12 compositing, focus, and web input. Settings, hotkeys, and issue reporting belong to [OSF Settings](https://github.com/ozooma10/osf-settings-slim).
 
-OSF UI stays inert until it acquires ready OSF Settings Slim services at SFSE
-`kPostPostLoad` (settings ABI 1.0 and diagnostics ABI 1.0). Its
-out-of-process WebView2 helper is created lazily only when a view is demanded.
-OSF UI may ship with zero built-in views.
-For an in-game test panel, install the separate [settings example](examples/settings-view/README.md)
-and press F6. Enabling OSF UI alone does not add a menu or hotkey.
+For mod authors, start with `npm create osfui@latest`, then read the API for your side of the bridge.
 
-The current [forwarded-input prototype](docs/cdp-input-prototype.md) keeps native
-focus in Starfield and sends physical keyboard/text input through Chromium's
-DevTools Protocol. The helper process and shared-texture rendering remain in use.
+| Reference | Use it to |
+| --- | --- |
+| [osfui.d.ts](sdk/osfui.d.ts) | Call `send`, `request`, `on`, and `state` from a page |
+| [OSFUI.h](sdk/OSFUI.h) | Open views, handle messages, and publish state from C++ (`OSFUI::API::Client` via `OSFUI_RequestAPI`) |
+| [OSFUI.psc](data/Scripts/Source/OSFUI.psc) | The same from Papyrus |
+| [manifest.schema.json](docs/schema/manifest.schema.json) | Describe a view |
+| [Settings example](examples/settings-view/README.md) | Open a view from an OSF Settings hotkey and forward a setting |
 
-## Runtime layout
+<details>
+<summary>additional topics</summary>
+
+- [Migrating from 1.x](MIGRATION.md)
+- [Forwarded input](docs/cdp-input-prototype.md): how keyboard and text reach WebView2
+- [Profiling](tools/profiling/README.md)
+
+</details>
+
+## Runtime
+
+Requires Starfield 1.16.244, SFSE, Address Library, OSF Settings (settings and diagnostics ABI 1.0), and the Edge WebView2 Evergreen Runtime. OSF UI stays inert until OSF Settings is ready at `kPostPostLoad` and starts the WebView2 helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
 
 ```text
 Data/SFSE/Plugins/OSFUI.dll
@@ -25,79 +32,35 @@ Data/SFSE/Plugins/OSF/UI/views/<mod-id>/<view-name>/
 Data/SFSE/Plugins/OSF/Settings/schemas/osfui.json
 ```
 
-The archive owns `OSF/UI` and exactly the `osfui.json` schema. It never cleans
-the shared `OSF` parent or the OSF Settings sibling subtree.
+- Pages receive only state their owning mod publishes with `SetViewState` / `OSFUI.SetState`. Read OSF Settings in your mod and forward what the page needs.
+- A menu view joins the OSF Settings **Launcher** tab with `"launcher": { "modId": "mymod", "modTitle": "My Mod" }` in its manifest. Omit it for private views; HUD views cannot opt in. Debug-only views appear only in developer mode.
+- `developerMode` and `highRefreshCapture` are read once at startup; changes need a restart.
+- A WebView failure releases input and shows as a Mod Issue in OSF Settings; details go to the native log.
 
-## Authoring
+## Build and test
 
-- Web bridge types: [`sdk/osfui.d.ts`](sdk/osfui.d.ts)
-- Native API: [`sdk/OSFUI.h`](sdk/OSFUI.h), `OSFUI::API::Client` via `OSFUI_RequestAPI`
-- Papyrus API: [`data/Scripts/Source/OSFUI.psc`](data/Scripts/Source/OSFUI.psc)
-- Manifest schema: [`docs/schema/manifest.schema.json`](docs/schema/manifest.schema.json)
-- Starter: `npm create osfui@latest`
-
-OSF UI never injects Settings data into a page. The owning mod must read OSF
-Settings and explicitly publish the minimal values the view needs.
-
-Menu views can opt into the OSF Settings mod launcher with
-`"launcher": { "modId": "mymod", "modTitle": "My Mod" }` in their manifest.
-All opted-in views appear together in the top-level Launcher tab. Use your lowercase OSF mod ID as the owner.
-The view's title and description label the destination; its qualified view ID
-remains unchanged. Omit `launcher` for private views. HUD views cannot opt
-in, and debug-only entries appear only with developer mode enabled. This uses
-the optional launcher ABI 2.0; direct view APIs still work with older Settings.
-Discovery registers metadata without starting WebView2. Opening uses the normal
-RequestMenu preflight/load/input pipeline. The view owns closing; players reopen
-Settings through its normal hotkey or menu entry.
-
-## Build and package
+Use XMake, an MSVC compiler with C++23 support, and Node 22. Deploy and package builds also compile `OSFUI.psc`; set `PAPYRUS_COMPILER` and `PAPYRUS_IMPORTS` if the Creation Kit compiler is outside the defaults in `tools/build-papyrus.ps1`.
 
 ```powershell
 git submodule update --init --recursive
 pwsh tools/setup.ps1
 xmake f -P . -m releasedbg
 xmake build -P . -y "OSF UI"
-npm run verify
+```
+
+```sh
+bash tests/native/run.sh   # Bash 4+ and a C++23 compiler
+npm run verify             # Node 26: NODE_OPTIONS=--no-experimental-webstorage
+```
+
+## Release package
+
+```powershell
 pwsh tools/package.ps1
 ```
 
-The runtime targets Starfield 1.16.244 and requires SFSE, Address Library, OSF
-Settings Slim with the SDK interfaces above, and the Edge WebView2 Evergreen Runtime.
-
-Deploying or packaging compiles the single `OSFUI.psc` into `build/papyrus/OSFUI.pex`.
-Install the Creation Kit Papyrus compiler and vanilla imports; set `PAPYRUS_COMPILER`
-and `PAPYRUS_IMPORTS` if they are outside the defaults in `tools/build-papyrus.ps1`.
-Native builds without a deployment target do not require the Papyrus toolchain.
-
-The OSF Settings SDK headers are vendored in [`sdk/vendor/`](sdk/vendor/README.md).
-UI compiles against those public headers; it does not build or distribute OSF
-Settings. The older extracted Settings project uses different exports and cannot
-satisfy this dependency.
-
-OSF UI reads `developerMode` and `highRefreshCapture` once at startup. Both
-require a game restart; failed reads use `false` and report a Mod Issue.
-WebView failure detection and recovery remain in UI. Settings receives current,
-readable issue reports; technical details stay in the native log. Input capture
-holds a Slim hotkey block, and closes if that block cannot be acquired.
-
-The [development example](examples/settings-view/README.md) demonstrates a
-Slim hotkey opening a view and a setting explicitly forwarded by its native owner.
-It is excluded from the production package. Settings Papyrus APIs, actions, and
-localization services are not part of this first migration.
-
-Host checks (Bash 4+ and a C++23 compiler):
-
-```sh
-bash tests/native/run.sh
-npm run verify
-```
-
-On Node 26, use `NODE_OPTIONS=--no-experimental-webstorage npm run verify` for jsdom tests;
-CI uses Node 22.
-
-See [`MIGRATION.md`](MIGRATION.md) for the intentional 1.x compatibility break.
+Writes `dist/OSF-UI-<version>.zip` with its checksum. The archive owns `OSF/UI` and `osfui.json` only; it never removes the shared `OSF` parent or the OSF Settings subtree.
 
 ## License
 
-OSF UI is licensed under [GPL-3.0](LICENSE), with the additional permissions in
-[EXCEPTIONS](EXCEPTIONS). See [CREDITS.md](CREDITS.md).
+[GPL-3.0](LICENSE) with the additional permissions in [EXCEPTIONS](EXCEPTIONS). See [CREDITS.md](CREDITS.md).

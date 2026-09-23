@@ -1,29 +1,19 @@
 # create-osfui
 
-Create a directly deployable web-view starter for [OSF UI](https://github.com/ozooma10/osf-ui).
+Scaffold a deployable web view for [OSF UI](https://github.com/ozooma10/osf-ui).
 
 ```sh
 npm create osfui@latest my-osfui-mod -- --yes --mod-id acme.widgets --view main --surface menu --integration papyrus
 ```
 
-The Papyrus and native presets both generate plain HTML, CSS, and JavaScript beneath
-`mod/Data/SFSE/Plugins/OSF/UI/views/<mod-id>/<view-id>/`. No frontend framework or
-dependency install is added. The matching `OSFUI` API declarations are copied
-into the generated project.
+| Option | Values |
+| --- | --- |
+| `--mod-id <id>` | Lowercase OSF mod ID |
+| `--view <id>` | View ID |
+| `--surface` | `menu` |
+| `--integration` | `papyrus` or `native` |
+| `--yes` | Skip prompts |
 
-Settings scaffolding is intentionally not included. Author settings against the
-independent [OSF Settings](https://github.com/ozooma10/osf-settings-slim) SDK and explicitly
-forward only values that a web view needs.
+Both presets emit plain HTML, CSS, and JavaScript at `mod/Data/SFSE/Plugins/OSF/UI/views/<mod-id>/<view-id>/` plus the `OSFUI` type declarations. No framework, no install step.
 
-Options:
-
-```text
---mod-id <id>
---view <id>
---surface menu
---integration <papyrus|native>
---yes
---help
-```
-
-Generated views require OSF UI 2.x; OSF UI itself requires the Slim settings and diagnostics ABI 1.0 services.
+Settings are not scaffolded: use the [OSF Settings](https://github.com/ozooma10/osf-settings-slim) SDK and forward only the values the page needs. Generated views need OSF UI 2.x.

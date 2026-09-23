@@ -1,87 +1,40 @@
-# Forwarded WebView2 input prototype
+# Forwarded input
 
-This prototype keeps native keyboard focus on Starfield while an OSF UI menu is
-open. WebView2 still runs in the helper process and uses the existing composition
-controller, capture, shared textures, and D3D12 compositor. It changes input
-ownership rather than moving Chromium into the game process.
+Starfield keeps native keyboard focus while a menu view is open. WebView2 stays in the helper process with the existing composition controller, capture, shared textures, and D3D12 compositor; only input ownership changes.
 
-## Input path
+## Path
 
-- The game window forwards physical key down/up events, including repeats,
-  modifiers, physical key codes, and layout-dependent key names.
-- The helper sends `Input.dispatchKeyEvent` through
-  `ICoreWebView2::CallDevToolsProtocolMethod`. Chromium performs normal editing
-  actions such as Backspace, Tab, and Ctrl+A.
-- `WM_CHAR` supplies translated text, including dead-key results and UTF-16
-  surrogate pairs. Key events do not also insert text. IME composition and commits
-  use `Input.imeSetComposition` and `Input.insertText`.
-- Mouse events still use `ICoreWebView2CompositionController::SendMouseInput`.
-  Button state and Shift/Ctrl are included for dragging and modified clicks.
-- The helper stays under its offscreen `WS_EX_NOACTIVATE` owner. It does not
-  reparent into Starfield, call `MoveFocus`, register its own raw mouse input,
-  subclass Chromium's input widget, or acquire native mouse capture.
-- Input is admitted only after the game's focus menu is ready, and only while
-  Starfield is foreground. Hiding a view, changing the input target, revoking the
-  grant, or losing game focus releases held keys and cancels browser composition.
-- Existing synthetic controller navigation remains a separate bridge message.
-  Escape and developer F12 remain framework-owned.
+- The game window forwards physical key down/up (repeats, modifiers, physical codes, layout key names). The helper dispatches them with `Input.dispatchKeyEvent` over `ICoreWebView2::CallDevToolsProtocolMethod`, so Chromium handles Backspace, Tab, and Ctrl+A itself.
+- `WM_CHAR` supplies text (dead keys, surrogate pairs) via `Input.insertText`; IME uses `Input.imeSetComposition`. Key events never also insert text.
+- Mouse uses `ICoreWebView2CompositionController::SendMouseInput` with button state and Shift/Ctrl.
+- The helper stays under its offscreen `WS_EX_NOACTIVATE` owner: no reparenting, `MoveFocus`, raw input, widget subclassing, or mouse capture.
+- Input is admitted only once the focus menu is ready and while Starfield is foreground. Hiding a view, changing target, revoking the grant, or losing focus releases held keys and cancels composition.
+- Controller navigation stays a separate bridge message. Escape and F12 (developer) stay framework-owned.
 
-CDP calls are serialized per view, including focus emulation and key releases.
-The queue is capped at 256 commands and fails after a command stalls for five
-seconds. A failure enters the existing browser-host recovery path. Closing or
-navigating a view discards its pending commands; late callbacks cannot dispatch
-more input from the discarded queue. Physical input resumes after the new
-document loads. An already-dispatched command cannot be recalled.
+CDP calls are serialized per view, capped at 256 queued commands, and fail into browser-host recovery after a five-second stall. Closing or navigating a view discards pending commands; input resumes when the new document loads.
 
-## Trying it
+## Check it
 
-Forwarded input is the sole input path. Deploy the rebuilt DLL and helper together;
-this change uses IPC protocol 16. Restart Starfield, open an interactive view, and look
-for `WebView2 input mode: forwarded CDP` in the native log or
-`input mode: forwarded CDP` in `OSF UI.webview2-host.log`. The helper logs the first
-physical keyboard event and the first translated text event without logging their
-contents.
-
-## Verification and remaining checks
-
-The prototype build passed all 29 native test suites and the real WebView2 smoke
-test on Windows. Both the rebuilt DLL and helper were deployed to the MO2
-`OSF UI` mod and verified against their build-output SHA-256 hashes.
-
-Automated native tests cover command order, failure, timeout, overflow, close with
-a pending callback, key release tracking, message round trips, and Unicode
-boundaries. The Windows `wv2-cdp-smoke` target creates a real composition WebView2
-controller and checks text, Unicode, Backspace repeat, Ctrl+A, Tab, and IME protocol
-commands while asserting that the test process did not acquire native focus.
+Deploy the DLL and helper together and restart. The native log prints `WebView2 input mode: forwarded CDP`; `OSF UI.webview2-host.log` prints `input mode: forwarded CDP` and logs the first key and first text event without contents.
 
 ```powershell
 xmake build wv2-cdp-smoke
 & .\build\windows\x64\releasedbg\wv2-cdp-smoke.exe
 ```
 
-The standalone test does not exercise Starfield's message pump, rendering, or a
-physical IME. Typing in the example view's input field worked in-game before the
-native-path cleanup; the deployed cleanup build still needs an in-game check:
+The smoke test drives a real composition controller through text, Unicode, Backspace repeat, Ctrl+A, Tab, and IME commands and asserts the process never took native focus. Native tests cover ordering, failure, timeout, overflow, close with a pending callback, key release tracking, round trips, and Unicode boundaries. Neither exercises Starfield's message pump, rendering, or a physical IME.
 
-1. Type in a text field, including punctuation, shifted characters, and a non-US
-   layout. Check arrows, held Backspace, Ctrl+A, Ctrl+C/V, Tab, and Shift+Tab.
-2. Drag a slider or text selection, scroll, and try Shift/Ctrl clicks. Close and
-   reopen while holding a key or mouse button; verify no input remains held.
-3. Alt+Tab away while typing or dragging, then return. Confirm the game does not
-   fight the other application's focus and resumes input on return.
-4. Check controller navigation and relative-pointer interactions. Repeatedly switch views and reopen menus.
-5. Check a physical IME's preedit, commit, cancellation, and candidate window.
+In-game:
 
-Known limits of the prototype:
+1. Type punctuation, shifted characters, and a non-US layout; arrows, held Backspace, Ctrl+A/C/V, Tab, Shift+Tab.
+2. Drag a slider and a selection, scroll, Shift/Ctrl click. Close and reopen while holding a key or button; nothing stays held.
+3. Alt+Tab away mid-typing or mid-drag and return; the game must not fight the other window's focus.
+4. Controller navigation, relative pointer, repeated view switches and reopens.
+5. Physical IME preedit, commit, cancel, and candidate window.
 
-- Disabling `Emulation.setFocusEmulationEnabled` does not reliably make
-  `document.hasFocus()` false. Native input gating and explicit key releases are
-  the deactivation mechanism; DOM focus/blur events are not an ownership signal.
-- OS IME candidate positioning is not connected to the DOM caret. Native browser
-  popups, clipboard shortcuts, and accessibility behavior need live validation.
-- Physical keyboard/text delivery relies on Starfield delivering `WM_KEY*` and
-  `WM_CHAR` to the hooked window. The runtime smoke test validates Chromium's CDP
-  behavior, not that game-side delivery. The first-event logs distinguish these.
-- Keyboard/text CDP commands are ordered with each other. Mouse input uses the
-  separate composition API, so very fast mixed mouse/keyboard sequences also
-  deserve testing.
+## Limits
+
+- Disabling `Emulation.setFocusEmulationEnabled` does not reliably clear `document.hasFocus()`; native gating and key releases are the deactivation mechanism, not DOM focus events.
+- The IME candidate window is not positioned at the DOM caret. Browser popups, clipboard, and accessibility need live checks.
+- Delivery depends on Starfield passing `WM_KEY*` and `WM_CHAR` to the hooked window; the smoke test validates only Chromium's side. The first-event logs tell the two apart.
+- Keyboard/text commands are ordered with each other but not with mouse input, which uses the composition API.

@@ -1,72 +1,42 @@
 # Migrating to OSF UI 2.0
 
-OSF UI 2.0 is an intentional compatibility break. It is now only a WebView
-host, JavaScript bridge, compositor, and web-input add-on. Install OSF Settings Slim
-with settings and diagnostics ABI 1.0 alongside it.
+OSF UI 2.0 is only a WebView host, JavaScript bridge, compositor, and web-input add-on. Settings, hotkeys, and diagnostics moved to [OSF Settings](https://github.com/ozooma10/osf-settings-slim); install it alongside (settings and diagnostics ABI 1.0). There are no compatibility aliases or adapters.
 
-## Removed from OSF UI
+## Removed
 
-- `OSFUI_RequestBridge`, `OSFUI_RequestSettings`, and
-  `OSFUI_RequestDiagnostics` exports
-- `OSFUI_API.h`, `OSFUI_Settings.h`, and `OSFUI_Diagnostics.h`
-- `OSFUI_Settings.psc`
-- the HTML Settings and Keybindings views
-- F10, Pause/Main Menu injection, deep links, and the default Settings view ID
-- manifest `hub`, `targetVersion`, catalog, and view-policy fields
-- automatic Settings data in the JavaScript bridge
-- every legacy 1.x bridge/schema alias
+- Exports `OSFUI_RequestBridge`, `OSFUI_RequestSettings`, `OSFUI_RequestDiagnostics`, and `OSFUI_RequestViews`
+- Headers `OSFUI_API.h`, `OSFUI_Settings.h`, `OSFUI_Diagnostics.h`, and `OSFUI_Views.h`; the `OSFUI::API::Views` namespace
+- Scripts `OSFUI_Settings.psc` and `OSFUI_View.psc`
+- The HTML Settings and Keybindings views, F10, Pause/Main Menu injection, deep links, and the default Settings view ID
+- Manifest `hub`, `targetVersion`, catalog, and view-policy fields
+- Automatic Settings data in the JavaScript bridge
 
-Use `OSFUI_RequestAPI`, `OSFUI.h`, and `OSFUI.psc` with explicit qualified view IDs.
-The native interface is `OSFUI::API::IUI`, with `OSFUI::API::Client` as its wrapper.
-All Papyrus functions, including runtime queries and view communication, live on `OSFUI`.
-The former `OSFUI_RequestViews` export, `OSFUI_Views.h`, `OSFUI::API::Views`
-namespace, and `OSFUI_View.psc` have been removed without aliases. Rebuild native
-consumers against the new header and recompile scripts after changing `OSFUI_View`
-calls to `OSFUI`. The new native API is version 1.0 and exposes the complete interface;
-it does not support the old Views API revisions. Request replies take only JSON:
-`request.Respond(json)`. Use the
-[OSF Settings Slim SDK](https://github.com/ozooma10/osf-settings-slim) for native
-settings, diagnostics, hotkey callbacks, and hotkey blocks. Former Settings
-Papyrus APIs, actions, and localization services are outside this release.
+## Replace with
 
-UI now acquires `OSFSettings_RequestAPI` and `OSFSettings_RequestDiagnosticsAPI`
-at SFSE `kPostPostLoad`. ABI versions are independent of plugin release versions;
-the older extracted Settings service is not compatible. Diagnostic reports use
-`Issue` with `Report`/`Clear`, and input capture uses `AcquireHotkeyBlock` /
-`ReleaseHotkeyBlock`. There are no compatibility adapters for the old exports.
+| 1.x | 2.0 |
+| --- | --- |
+| `OSFUI_RequestViews`, `OSFUI::API::Views` | `OSFUI_RequestAPI`, `OSFUI::API::IUI` wrapped by `OSFUI::API::Client` ([OSFUI.h](sdk/OSFUI.h), API 1.0) |
+| `OSFUI_View.psc` | [OSFUI.psc](data/Scripts/Source/OSFUI.psc); recompile scripts |
+| Request replies | JSON only: `request.Respond(json)` |
+| Settings, diagnostics, hotkeys | OSF Settings SDK: `Issue` with `Report` / `Clear`; `AcquireHotkeyBlock` / `ReleaseHotkeyBlock` |
+| Opening a view from a hotkey | Register a callback hotkey with OSF Settings and call `Client::RequestMenu` from it ([example](examples/settings-view/README.md)) |
 
-A consuming native mod registers a callback hotkey with Slim and calls
-`OSFUI::API::Client::RequestMenu` from that callback. Settings does not need
-to know about WebView IDs. See the [complete example](examples/settings-view/README.md).
+Always pass explicit qualified view IDs. Settings Papyrus APIs, actions, and localization are not part of this release.
 
 ## Paths
 
-Move views from:
+Move views from `Data/SFSE/Plugins/OSFUI/views/<mod>/<view>/` to `Data/SFSE/Plugins/OSF/UI/views/<mod>/<view>/`. OSF UI installs only its own schema, `Data/SFSE/Plugins/OSF/Settings/schemas/osfui.json`; other schemas ship with their mod.
 
-`Data/SFSE/Plugins/OSFUI/views/<mod>/<view>/`
+## Manifests
 
-to:
-
-`Data/SFSE/Plugins/OSF/UI/views/<mod>/<view>/`
-
-OSF UI installs its own Settings schema at
-`Data/SFSE/Plugins/OSF/Settings/schemas/osfui.json`. Other mod schemas belong
-to the OSF Settings package or the owning mod.
-
-View manifests now require `"manifestVersion": 1`. Remove `hub` and
-`targetVersion`. Only HUD views satisfying
-`kind == "hud" && openOnStart && (!debugOnly || developerMode)` autostart.
-The stale IDs `osfui/settings` and `osfui/keybinds` are rejected.
+- Add `"manifestVersion": 1`; remove `hub` and `targetVersion`.
+- Only HUD views with `openOnStart` autostart; `debugOnly` ones also need developer mode.
+- `osfui/settings` and `osfui/keybinds` are rejected.
 
 ## Saved values
 
-There is no saved-value migration. OSF Settings does not read the old OSFUI
-data tree. Re-author schemas for OSF Settings schema v1; new values are stored
-as `{"formatVersion":1,"values":{...}}` beneath its independent data subtree.
+Not migrated. Re-author schemas for OSF Settings schema v1; values are stored as `{"formatVersion":1,"values":{...}}` under its own data tree.
 
-## Explicit forwarding
+## State
 
-Web pages receive only state their owning mod publishes with `SetViewState` or
-`OSFUI.SetState`. Read settings through OSF Settings and forward the
-minimal values needed by the page. This is a deliberate privacy and coupling
-boundary.
+Pages receive only what their mod publishes with `SetViewState` or `OSFUI.SetState`. Read OSF Settings in the mod and forward the values the page needs.
