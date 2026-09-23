@@ -4,12 +4,12 @@
 #include <algorithm>
 #include <string>
 
-#include "OSFUI_Views.h"
+#include "OSFUI.h"
 
 namespace
 {
     using Json = nlohmann::json;
-    OSFUI::API::Views::Client g_views;
+    OSFUI::API::Client g_views;
 
     constexpr const char* kModId = "__OSFUI_MOD_ID__";
     constexpr const char* kViewId = "__OSFUI_MOD_ID__/__OSFUI_VIEW_ID__";
@@ -44,13 +44,13 @@ namespace
             kNotice, event.c_str());
     }
 
-    void OnGetState(const OSFUI::API::Views::Request& request, void*) noexcept
+    void OnGetState(const OSFUI::API::Request& request, void*) noexcept
     {
         const auto response = Encode(Json{ { "count", g_count } });
         request.Respond(response.c_str());
     }
 
-    void OnGreet(const OSFUI::API::Views::Request& request, void*) noexcept
+    void OnGreet(const OSFUI::API::Request& request, void*) noexcept
     {
         auto payload = Json::parse(request.payloadJson ? request.payloadJson : "{}", nullptr, false);
         if (!payload.is_object() || !payload.contains("name") || !payload["name"].is_string()) {

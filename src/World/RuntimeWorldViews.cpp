@@ -21,7 +21,7 @@ namespace OSFUI
 		if (_pendingWorldInteraction) {
 			const auto request = std::move(*_pendingWorldInteraction);
 			_pendingWorldInteraction.reset();
-			request.callback(request.token, request.view.c_str(), API::Views::InteractionPhase::kRejected, a_reason, request.context);
+			request.callback(request.token, request.view.c_str(), API::InteractionPhase::kRejected, a_reason, request.context);
 		}
 		if (!_worldInteraction) return;
 		const auto owner = std::move(*_worldInteraction);
@@ -37,7 +37,7 @@ namespace OSFUI
 		m_gamepadSource.Reset();
 		OverlayInputHook::RequestStateRefresh();
 		REX::INFO("WorldInteraction: '{}' ended ({})", owner.view, a_reason);
-		owner.callback(owner.token, owner.view.c_str(), API::Views::InteractionPhase::kEnded, a_reason, owner.context);
+		owner.callback(owner.token, owner.view.c_str(), API::InteractionPhase::kEnded, a_reason, owner.context);
 	}
 
 	void Runtime::ApplyWorldInteractionRequests(const std::vector<API::BridgeApi::InteractionRequest>& a_requests)
@@ -50,7 +50,7 @@ namespace OSFUI
 				continue;
 			}
 			if (_worldInteraction || _pendingWorldInteraction) {
-				request.callback(request.token, request.view.c_str(), API::Views::InteractionPhase::kRejected, "busy", request.context);
+				request.callback(request.token, request.view.c_str(), API::InteractionPhase::kRejected, "busy", request.context);
 			} else {
 				_pendingWorldInteraction = request;
 				_worldNeutralTick = 0;
@@ -92,7 +92,7 @@ namespace OSFUI
 			OverlayInputHook::RequestStateRefresh();
 			if (_bridge) _bridge->Emit(request.view, "ui.interaction", nlohmann::json{ { "active", true } });
 			REX::INFO("WorldInteraction: '{}' started", request.view);
-			request.callback(request.token, request.view.c_str(), API::Views::InteractionPhase::kStarted, "requested", request.context);
+			request.callback(request.token, request.view.c_str(), API::InteractionPhase::kStarted, "requested", request.context);
 		}
 	}
 

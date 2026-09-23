@@ -27,7 +27,7 @@ describe('build output', () => {
 
   const verbatim: Array<[string, string]> = [
     ['src/shared-kit/osfui.css', 'shared/osfui.css'],
-    ['src/legacy/padnav.js', 'shared/gamepadnav.js'],
+    ['src/shared-kit/gamepadnav.js', 'shared/gamepadnav.js'],
   ];
 
   it.each(verbatim)('%s is copied byte-identically to %s', (src, out) => {

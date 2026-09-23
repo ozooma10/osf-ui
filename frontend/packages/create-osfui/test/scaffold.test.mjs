@@ -51,11 +51,11 @@ test('copies only the OSF UI 2 public surface', async (t) => {
   const papyrus = await create(t, 'papyrus');
   assert.equal(papyrus.result.status, 0, papyrus.result.stderr);
   assert.deepEqual((await readdir(resolve(papyrus.root, 'tools/papyrus'))).sort(),
-    ['OSFUI.psc', 'OSFUI_View.psc']);
+    ['OSFUI.psc']);
 
   const native = await create(t, 'native');
   assert.equal(native.result.status, 0, native.result.stderr);
-  assert.deepEqual(await readdir(resolve(native.root, 'native/include')), ['OSFUI_Views.h']);
+  assert.deepEqual(await readdir(resolve(native.root, 'native/include')), ['OSFUI.h']);
   const source = await readFile(resolve(native.root, 'native/src/main.cpp'), 'utf8');
   assert.doesNotMatch(source, /OSFUI_Settings|OSFUI_Diagnostics|RequestBridge/);
 });

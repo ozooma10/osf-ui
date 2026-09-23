@@ -13,7 +13,6 @@ namespace OSFUI::API::Papyrus
 {
 	// Untrusted script dispatch must reject this trusted platform script.
 	inline constexpr std::string_view kPlatformScriptName = "OSFUI";
-	inline constexpr std::string_view kViewScriptName = "OSFUI_View";
 
 	// Main thread and idempotent; binds natives and installs game-load cleanup.
 	void Install();

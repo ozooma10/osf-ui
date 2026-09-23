@@ -25,8 +25,8 @@ the shared `OSF` parent or the OSF Settings sibling subtree.
 ## Authoring
 
 - Web bridge types: [`sdk/osfui.d.ts`](sdk/osfui.d.ts)
-- Native view API: [`sdk/OSFUI_Views.h`](sdk/OSFUI_Views.h)
-- Papyrus view API: [`data/Scripts/Source/OSFUI_View.psc`](data/Scripts/Source/OSFUI_View.psc)
+- Native API: [`sdk/OSFUI.h`](sdk/OSFUI.h), `OSFUI::API::Client` via `OSFUI_RequestAPI`
+- Papyrus API: [`data/Scripts/Source/OSFUI.psc`](data/Scripts/Source/OSFUI.psc)
 - Manifest schema: [`docs/schema/manifest.schema.json`](docs/schema/manifest.schema.json)
 - Material-backed world views: [`docs/world-surfaces.md`](docs/world-surfaces.md)
 - Starter: `npm create osfui@latest`
@@ -59,8 +59,13 @@ pwsh tools/package.ps1
 The runtime targets Starfield 1.16.244 and requires SFSE, Address Library, OSF
 Settings Slim with the SDK interfaces above, and the Edge WebView2 Evergreen Runtime.
 
+Deploying or packaging compiles the single `OSFUI.psc` into `build/papyrus/OSFUI.pex`.
+Install the Creation Kit Papyrus compiler and vanilla imports; set `PAPYRUS_COMPILER`
+and `PAPYRUS_IMPORTS` if they are outside the defaults in `tools/build-papyrus.ps1`.
+Native builds without a deployment target do not require the Papyrus toolchain.
+
 The Settings SDK source is pinned by `lib/osf-settings` to Slim commit
-`929074399b6f1c584ecefa2d481c9a8c073bd36f`. UI compiles against its public SDK;
+`2330e02e9922da688e5c85d3a1a8b981bfa8a6d6`. UI compiles against its public SDK;
 it does not build or distribute OSF Settings. The Slim repository currently
 requires authenticated access. CI accepts an `OSF_DEPENDENCIES_TOKEN` secret
 with read access to the dependency repository; ordinary development checkouts

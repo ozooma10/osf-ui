@@ -14,7 +14,7 @@ xmake build -P .
 xmake install -P .
 ```
 
-The C++ example uses only `OSFUI_Views.h`. It registers send/request handlers,
+The C++ example uses only `OSFUI.h`. It registers send/request handlers,
 publishes retained state, emits an event, and registers the qualified view ID.
 If this mod has player settings, use the separate OSF Settings SDK and explicitly
 forward the values that the page needs.
@@ -22,4 +22,4 @@ forward the values that the page needs.
 For a complete settings-to-view integration, see the OSF UI repository's
 `examples/settings-view`: declare a callback hotkey in Slim, register it at
 SFSE `kPostPostLoad`, then queue `RequestMenu` and explicitly publish setting state.
-Do not wait for `Views::IsReady()` before registration: the browser starts lazily.
+Do not wait for `OSFUI::API::Client::IsReady()` before registration: the browser starts lazily.

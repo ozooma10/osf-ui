@@ -42,9 +42,9 @@ namespace OSFUI::API
 		return *instance;
 	}
 
-	bool BridgeApi::IsBridgeReady() { return _bridgeAvailable.load(); }
+	bool BridgeApi::IsReady() { return _bridgeAvailable.load(); }
 
-	void BridgeApi::RegisterSend(const char* a_name, Views::SendFn a_handler, void* a_user)
+	void BridgeApi::RegisterSend(const char* a_name, SendFn a_handler, void* a_user)
 	{
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
@@ -75,7 +75,7 @@ namespace OSFUI::API
 		}
 	}
 
-	void BridgeApi::RegisterRequest(const char* a_name, Views::RequestFn a_handler, void* a_user)
+	void BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user)
 	{
 		if (!a_name || !a_handler) return;
 		const std::string name(a_name);
@@ -107,7 +107,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::RegisterRelativePointer(const char* a_viewId,
-		Views::RelativePointerFn a_handler, void* a_user)
+		RelativePointerFn a_handler, void* a_user)
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
@@ -129,7 +129,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::DispatchRelativePointer(std::string_view a_viewId,
-		Views::RelativePointerPhase a_phase, float a_dx, float a_dy, float a_wheel)
+		RelativePointerPhase a_phase, float a_dx, float a_dy, float a_wheel)
 	{
 		RelativePointerRegistration registration;
 		{
@@ -144,7 +144,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::RegisterViewOpenPreflight(const char* a_viewId,
-		Views::ViewOpenPreflightFn a_handler, void* a_user)
+		ViewOpenPreflightFn a_handler, void* a_user)
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
@@ -174,7 +174,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::RegisterViewLifecycle(const char* a_viewId,
-		Views::ViewLifecycleFn a_handler, void* a_user)
+		ViewLifecycleFn a_handler, void* a_user)
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
@@ -190,7 +190,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::DispatchViewLifecycle(const std::string& a_viewId,
-		Views::ViewLifecyclePhase a_phase)
+		ViewLifecyclePhase a_phase)
 	{
 		ViewLifecycleRegistration registration;
 		{
@@ -235,7 +235,7 @@ namespace OSFUI::API
 		return true;
 	}
 
-	void BridgeApi::SetReadyCallback(Views::ReadyFn a_callback, void* a_user)
+	void BridgeApi::SetReadyCallback(ReadyFn a_callback, void* a_user)
 	{
 		std::unique_lock lock(_mutex);
 		if (_readyInvoking && _readyInvokingThread != std::this_thread::get_id()) {
@@ -262,7 +262,7 @@ namespace OSFUI::API
 		return true;
 	}
 
-	Views::InteractionToken BridgeApi::BeginInteraction(const char* a_viewId, Views::InteractionFn a_callback, void* a_context)
+	InteractionToken BridgeApi::BeginInteraction(const char* a_viewId, InteractionFn a_callback, void* a_context)
 	{
 		if (!a_viewId || !a_callback || !Ids::IsValidQualifiedViewId(a_viewId)) return 0;
 		std::lock_guard lock(_mutex);
@@ -274,7 +274,7 @@ namespace OSFUI::API
 		return token;
 	}
 
-	bool BridgeApi::EndInteraction(Views::InteractionToken a_token)
+	bool BridgeApi::EndInteraction(InteractionToken a_token)
 	{
 		if (!a_token) return false;
 		std::lock_guard lock(_mutex);
@@ -365,12 +365,14 @@ namespace OSFUI::API
 		return batch;
 	}
 
-	void BridgeApi::RespondThunk(std::uint64_t token, const char* type,
-		const char* json) noexcept { Get().RespondRequest(token, type, json); }
+	void BridgeApi::RespondThunk(std::uint64_t token, const char* json) noexcept
+	{
+		Get().RespondRequest(token, json);
+	}
 	void BridgeApi::RejectThunk(std::uint64_t token, const char* code,
 		const char* message) noexcept { Get().RejectRequest(token, code, message); }
 
-	void BridgeApi::RespondRequest(std::uint64_t token, const char*, const char* json) noexcept
+	void BridgeApi::RespondRequest(std::uint64_t token, const char* json) noexcept
 	{
 		const auto parsed = json ? Json::Parse(json) : std::nullopt;
 		std::lock_guard lock(_mutex);
@@ -427,7 +429,7 @@ namespace OSFUI::API
 			_inflightRequests.emplace(token,
 				InflightRequest{ token, view, defer, a_name });
 		}
-		Views::Request request;
+		Request request;
 		request.name = a_name.c_str();
 		request.payloadJson = payload.c_str();
 		request.sourceViewId = view.c_str();
@@ -456,7 +458,7 @@ namespace OSFUI::API
 		std::vector<PendingSend> sends;
 		std::vector<PendingReply> replies;
 		bool fireReady = false;
-		Views::ReadyFn ready = nullptr;
+		ReadyFn ready = nullptr;
 		void* readyUser = nullptr;
 		{
 			std::lock_guard lock(_mutex);

@@ -8,7 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "OSFUI_Views.h"
+#include "OSFUI.h"
 
 namespace OSFUI
 {
@@ -20,35 +20,34 @@ namespace OSFUI::API
 	// True for a valid, non-platform endpoint.
 	[[nodiscard]] bool IsUnreservedEndpointName(std::string_view a_name);
 
-	class BridgeApi final : public Views::IViews
+	class BridgeApi final : public IUI
 	{
 	public:
 		[[nodiscard]] static BridgeApi& Get();
 
-		bool          IsBridgeReady();
-		bool          IsReady() override { return IsBridgeReady(); }
-		void          RegisterSend(const char* a_name, Views::SendFn a_handler, void* a_user) override;
+		bool          IsReady() override;
+		void          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) override;
 		void          UnregisterSend(const char* a_name) override;
-		bool          RegisterRelativePointer(const char* a_viewId, Views::RelativePointerFn a_handler, void* a_user) override;
+		bool          RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) override;
 		void          UnregisterRelativePointer(const char* a_viewId) override;
-		bool          RegisterViewOpenPreflight(const char* a_viewId, Views::ViewOpenPreflightFn a_handler, void* a_user) override;
+		bool          RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) override;
 		void          UnregisterViewOpenPreflight(const char* a_viewId) override;
-		bool          RegisterViewLifecycle(const char* a_viewId, Views::ViewLifecycleFn a_handler, void* a_user) override;
+		bool          RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) override;
 		void          UnregisterViewLifecycle(const char* a_viewId) override;
-		void          RegisterRequest(const char* a_name, Views::RequestFn a_handler, void* a_user) override;
+		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
 		void          UnregisterRequest(const char* a_name) override;
 		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
 		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) override;
-		void          SetReadyCallback(Views::ReadyFn a_callback, void* a_user) override;
+		void          SetReadyCallback(ReadyFn a_callback, void* a_user) override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) override;
 		bool          RegisterView(const char* a_viewId) override;
-		Views::InteractionToken BeginInteraction(const char* a_viewId, Views::InteractionFn a_callback, void* a_context) override;
-		bool EndInteraction(Views::InteractionToken a_token) override;
+		InteractionToken BeginInteraction(const char* a_viewId, InteractionFn a_callback, void* a_context) override;
+		bool EndInteraction(InteractionToken a_token) override;
 		struct InteractionRequest
 		{
-			Views::InteractionToken token{ 0 };
+			InteractionToken token{ 0 };
 			std::string view;
-			Views::InteractionFn callback{ nullptr };
+			InteractionFn callback{ nullptr };
 			void* context{ nullptr };
 			std::chrono::steady_clock::time_point requestedAt;
 		};
@@ -87,7 +86,7 @@ namespace OSFUI::API
 
 		// Main-thread relative-pointer dispatch.
 		[[nodiscard]] bool HasRelativePointer(std::string_view a_viewId);
-		bool DispatchRelativePointer(std::string_view a_viewId, Views::RelativePointerPhase a_phase, float a_dx = 0.0f, float a_dy = 0.0f, float a_wheel = 0.0f);
+		bool DispatchRelativePointer(std::string_view a_viewId, RelativePointerPhase a_phase, float a_dx = 0.0f, float a_dy = 0.0f, float a_wheel = 0.0f);
 
 		enum class ViewOpenPreflightResult
 		{
@@ -99,7 +98,7 @@ namespace OSFUI::API
 		[[nodiscard]] ViewOpenPreflightResult RunViewOpenPreflight(std::string_view a_viewId);
 
 		// Menu lifecycle dispatch.
-		bool DispatchViewLifecycle(const std::string& a_viewId, Views::ViewLifecyclePhase a_phase);
+		bool DispatchViewLifecycle(const std::string& a_viewId, ViewLifecyclePhase a_phase);
 
 	private:
 		BridgeApi() = default;
@@ -109,22 +108,22 @@ namespace OSFUI::API
 
 		struct Registration
 		{
-			Views::SendFn fn{ nullptr };
+			SendFn fn{ nullptr };
 			void*     user{ nullptr };
 		};
 		struct RelativePointerRegistration
 		{
-			Views::RelativePointerFn fn{ nullptr };
+			RelativePointerFn fn{ nullptr };
 			void*             user{ nullptr };
 		};
 		struct ViewOpenPreflightRegistration
 		{
-			Views::ViewOpenPreflightFn fn{ nullptr };
+			ViewOpenPreflightFn fn{ nullptr };
 			void*               user{ nullptr };
 		};
 		struct ViewLifecycleRegistration
 		{
-			Views::ViewLifecycleFn fn{ nullptr };
+			ViewLifecycleFn fn{ nullptr };
 			void*           user{ nullptr };
 		};
 		struct PendingSend
@@ -136,7 +135,7 @@ namespace OSFUI::API
 
 		struct RequestRegistration
 		{
-			Views::RequestFn fn{ nullptr };
+			RequestFn fn{ nullptr };
 			void* user{ nullptr };
 		};
 		struct InflightRequest
@@ -162,9 +161,9 @@ namespace OSFUI::API
 			std::string message;
 		};
 
-		static void RespondThunk(std::uint64_t, const char*, const char*) noexcept;
+		static void RespondThunk(std::uint64_t, const char*) noexcept;
 		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
-		void RespondRequest(std::uint64_t, const char*, const char*) noexcept;
+		void RespondRequest(std::uint64_t, const char*) noexcept;
 		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
 		void DropInflightRequest(std::uint64_t) noexcept;
 		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
@@ -193,8 +192,8 @@ namespace OSFUI::API
 		std::uint64_t                                 _nextRequestToken{ 1 };
 		std::vector<PendingSend>                       _pendingSends;
 		std::vector<InteractionRequest>                _pendingInteractions;
-		Views::InteractionToken                        _nextInteractionToken{ 1 };
-		std::vector<ViewPresentationRequest>          _pendingViewPresentationRequests;  // RequestMenu compatibility ops, drained by Runtime
+		InteractionToken                        _nextInteractionToken{ 1 };
+		std::vector<ViewPresentationRequest>          _pendingViewPresentationRequests;  // Drained by Runtime.
 		std::unordered_set<std::string>               _knownViews;         // boot-discovered qualified view ids
 		std::unordered_set<std::string>               _instantiatedViews;  // views with an instantiated document
 		bool                                          _viewCatalogReady{ false };
@@ -203,12 +202,12 @@ namespace OSFUI::API
 		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
 		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          _dirty{ false };            // endpoint set changed since apply
-		Views::ReadyFn                                _readyCb{ nullptr };
+		ReadyFn                                _readyCb{ nullptr };
 		void*                                         _readyUser{ nullptr };
 		std::condition_variable                       _readyInvokeCv;
 		bool                                          _readyInvoking{ false };
 		std::thread::id                               _readyInvokingThread{};
 		bool                                          _readyFired{ false };
-		std::atomic_bool                              _bridgeAvailable{ false };  // IsBridgeReady() compatibility fast path
+		std::atomic_bool                              _bridgeAvailable{ false };
 	};
 }

@@ -56,8 +56,8 @@ if (-not $PapyrusSource -or -not (Test-Path -LiteralPath (Join-Path $PapyrusSour
 New-Item -ItemType Directory -Force -Path $scriptOutput | Out-Null
 Push-Location $sourceRoot
 try {
-    # The three files under tools/papyrus are compiler declarations only. The
-    # installed OSF UI mod supplies their matching PEX files at runtime.
+    # tools/papyrus/OSFUI.psc supplies compiler declarations. The installed
+    # OSF UI mod supplies the matching OSFUI.pex at runtime.
     & $PapyrusCompiler `
         '__OSFUI_SCRIPT_NAME__.psc' `
         "-i=$sourceRoot;$osfuiApis;$PapyrusSource" `

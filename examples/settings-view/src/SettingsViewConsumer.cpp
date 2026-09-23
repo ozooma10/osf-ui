@@ -10,7 +10,7 @@ namespace SettingsViewExample
         if (_attempted) return _initialized;
         _attempted = true;
         if (!_settings.Init() || !_settings.IsReady() || !_views.Init()) return false;
-        // Views::IsReady is intentionally false before the first WebView exists.
+        // IsReady is intentionally false before the first WebView exists.
         if (!_views.RegisterView(kViewId)) return false;
         const auto subscription = _settings.Subscribe(kModId, &OnSettingChanged, this, &_subscription);
         if (subscription != OSFSettings::API::Status::Ok) return false;

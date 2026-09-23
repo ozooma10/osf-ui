@@ -274,7 +274,6 @@
 					{ msg::PointerInput::kType, &App::HandlePointerInput },
 					{ msg::SetHidden::kType, &App::HandleSetHidden },
 					{ msg::SetOrder::kType, &App::HandleSetOrder },
-					// SetInputTarget's kType is the `setActive` compatibility spelling.
 					{ msg::SetInputTarget::kType, &App::HandleSetInputTarget },
 					{ msg::Focus::kType, &App::HandleFocus },
 					{ msg::Mouse::kType, &App::HandleMouse },

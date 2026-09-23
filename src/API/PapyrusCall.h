@@ -51,10 +51,9 @@ namespace OSFUI::PapyrusCall
 		if (!PapyrusNames::IsScriptName(out.script) || !PapyrusNames::IsIdentifier(out.function)) {
 			return detail::Fail("invalid-request", "papyrus.call requires valid 'script' and 'function' names");
 		}
-		// Reject every OSF UI native script so untrusted pages cannot bypass per-view authority.
-		if (StringUtil::EqualsCaseInsensitiveAscii(out.script, API::Papyrus::kPlatformScriptName) ||
-			StringUtil::EqualsCaseInsensitiveAscii(out.script, API::Papyrus::kViewScriptName)) {
-			return detail::Fail("forbidden", "papyrus.call cannot target OSF UI's own scripts — use the public bridge APIs");
+		// Untrusted pages cannot call the native script directly and bypass per-view authority.
+		if (StringUtil::EqualsCaseInsensitiveAscii(out.script, API::Papyrus::kPlatformScriptName)) {
+			return detail::Fail("forbidden", "papyrus.call cannot target OSFUI — use the public bridge APIs");
 		}
 
 		const auto it = a_payload.find("args");

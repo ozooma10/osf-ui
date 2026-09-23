@@ -99,7 +99,7 @@ namespace OSFUI
 		DrainRelativePointerCapture();
 		if (!_lastShownView.empty()) {
 			API::BridgeApi::Get().DispatchViewLifecycle(
-				_lastShownView, API::Views::ViewLifecyclePhase::kFrame);
+				_lastShownView, API::ViewLifecyclePhase::kFrame);
 		}
 	}
 }

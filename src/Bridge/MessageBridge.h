@@ -44,13 +44,10 @@ namespace OSFUI
 		// Register or replace an exact endpoint; send and request names are disjoint.
 		void RegisterSend(std::string a_name, SendHandler a_handler);
 		bool RegisterRequest(std::string a_name, RequestHandler a_handler);
-		// Frozen 1.x command adapter; new endpoints use the strict registries.
-		bool RegisterCommand(std::string a_name, SendHandler a_handler);
 
 		// Missing endpoints are harmless during hot cleanup and resync.
 		void UnregisterSend(std::string_view a_name);
 		void UnregisterRequest(std::string_view a_name);
-		void UnregisterCommand(std::string_view a_name);
 
 		// Optional bounded registry consulted only after exact native endpoints miss.
 		void SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request);
@@ -139,7 +136,6 @@ namespace OSFUI
 		SendFn                                            _send;
 		std::unordered_map<std::string, SendHandler>      _sends;
 		std::unordered_map<std::string, RequestHandler>   _requests;
-		std::unordered_map<std::string, SendHandler>      _commands;
 		FallbackProbe                                      _fallbackProbe;
 		FallbackHandler                                    _fallbackSend;
 		FallbackHandler                                    _fallbackRequest;

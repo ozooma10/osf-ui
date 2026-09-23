@@ -6,9 +6,8 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(packageRoot, '..', '..', '..');
 const outputRoot = resolve(packageRoot, 'package-sdk');
 const files = [
-  ['sdk', 'native', 'OSFUI_Views.h'],
+  ['sdk', 'native', 'OSFUI.h'],
   ['data/Scripts/Source', 'papyrus', 'OSFUI.psc'],
-  ['data/Scripts/Source', 'papyrus', 'OSFUI_View.psc'],
 ];
 
 const repositorySourcesExist = (await Promise.all(files.map(async ([sourceDirectory, , name]) => {

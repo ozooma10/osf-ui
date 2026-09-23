@@ -90,7 +90,7 @@ test('wrong-kind and unknown endpoints fail through the matching protocol channe
 });
 
 test('papyrus.call keeps only the advanced GLOBAL escape hatch', async () => {
-  for (const script of ['OSFUI', 'osfui_settings', 'OsFuI_ViEw']) {
+  for (const script of ['OSFUI', 'osfui', 'OsFuI']) {
     const h = endpointHarness();
     await h.send('papyrus.call', { script, function: 'Unsafe', args: [] });
     assert.equal(h.surfaced[0].code, 'forbidden');

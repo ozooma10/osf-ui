@@ -8,7 +8,7 @@
 #include "Composite/D3D12Compositor.h"
 #include "Dependency/OSFSettingsClient.h"
 #include "Input/GamepadSession.h"
-#include "Input/KeyNames.h"
+#include "Input/ScanCode.h"
 #include "Render/WebView2HostWebRenderer.h"
 #include "Diagnostics/HealthRegistry.h"
 #include "Runtime/DeferredMainThreadWork.h"
@@ -160,7 +160,7 @@ namespace OSFUI
 		void EndRelativePointerCapture(std::string_view a_viewId);
 		void CancelRelativePointerCapture(std::string_view a_viewId = {});
 		void DrainRelativePointerCapture();
-		void FinishRelativePointerCapture(API::Views::RelativePointerPhase a_phase);
+		void FinishRelativePointerCapture(API::RelativePointerPhase a_phase);
 
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode);
 

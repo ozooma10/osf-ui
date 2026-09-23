@@ -45,16 +45,12 @@ namespace
 
 int main()
 {
-	Check(Refused(Call("OSFUI", "SetString"), "forbidden"),
+	Check(Refused(Call("OSFUI", "SetState"), "forbidden"),
 		"OSFUI is refused as a papyrus.call target");
-	Check(Refused(Call("osfui", "Reset"), "forbidden"),
+	Check(Refused(Call("osfui", "Open"), "forbidden"),
 		"the refusal is case-insensitive (Papyrus identifiers are)");
 	Check(Refused(Call("OsFuI", "GetVersion"), "forbidden"),
 		"mixed casing does not slip past the refusal");
-	Check(Parse(Call("OSFUI_Settings", "SetString")).ok,
-		"the removed 1.x settings script is not retained as an OSF UI alias");
-	Check(Refused(Call("osfui_view", "SetState"), "forbidden"),
-		"the view native namespace is reserved case-insensitively");
 	Check(Parse(Call("OSFUIHelper", "Go")).ok,
 		"a script that merely starts with the platform name is fine");
 
