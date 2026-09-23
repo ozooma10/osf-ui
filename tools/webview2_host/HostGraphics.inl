@@ -110,16 +110,6 @@
 					log.Error(std::format("browser-host child HWND creation failed ({})", ::GetLastError()));
 					return false;
 				}
-				s_hostInputApp = this;
-				::SetLastError(ERROR_SUCCESS);
-				hostWindowProc = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
-					hostWindow, GWLP_WNDPROC,
-					reinterpret_cast<LONG_PTR>(&HostInputWndProc)));
-				if (!hostWindowProc && ::GetLastError() != ERROR_SUCCESS) {
-					log.Error(std::format("browser-host child HWND subclass failed ({})", ::GetLastError()));
-					s_hostInputApp = nullptr;
-					return false;
-				}
 				return true;
 			}
 

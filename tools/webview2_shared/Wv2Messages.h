@@ -206,23 +206,6 @@ namespace osfui::wv2::msg
 		};
 	};
 
-	/** Actual host focus, emitted after each request and WebView focus event. */
-	struct FocusState
-	{
-		static constexpr std::string_view kType = "focusState";
-		bool          focused{ false };
-		std::uint64_t epoch{ 0 };
-		std::uint64_t sequence{ 0 };
-		std::string   view;
-
-		static constexpr auto kFields = std::tuple{
-			F("focused", &FocusState::focused),
-			F("epoch", &FocusState::epoch),
-			F("sequence", &FocusState::sequence),
-			F("view", &FocusState::view),
-		};
-	};
-
 	struct Mouse
 	{
 		static constexpr std::string_view kType = "mouse";
@@ -233,6 +216,7 @@ namespace osfui::wv2::msg
 		std::int32_t button{ 0 };
 		bool         down{ false };
 		std::int32_t wheel{ 0 };
+		std::uint32_t modifiers{ 0 }; // Win32 MK_SHIFT/MK_CONTROL, sampled by the game
 
 		static constexpr auto kFields = std::tuple{
 			F("kind", &Mouse::kind),
@@ -241,37 +225,7 @@ namespace osfui::wv2::msg
 			F("button", &Mouse::button),
 			F("down", &Mouse::down),
 			F("wheel", &Mouse::wheel),
-		};
-	};
-
-	// Game -> browser host: enable raw relative motion only for the admitted native owner. This keeps high-rate WM_INPUT traffic dormant for ordinary UI.
-	struct RelativePointerCapture
-	{
-		static constexpr std::string_view kType = "relativePointerCapture";
-		std::string view;
-		bool        active{ false };
-
-		static constexpr auto kFields = std::tuple{
-			F("view", &RelativePointerCapture::view),
-			F("active", &RelativePointerCapture::active),
-		};
-	};
-
-	// Browser host -> game: one message-pump batch of physical raw input.
-	// Wheel remains in Win32 WHEEL_DELTA units; Runtime normalizes it for the ABI.
-	struct RelativePointer
-	{
-		static constexpr std::string_view kType = "relativePointer";
-		std::string  view;
-		std::int32_t dx{ 0 };
-		std::int32_t dy{ 0 };
-		std::int32_t wheel{ 0 };
-
-		static constexpr auto kFields = std::tuple{
-			F("view", &RelativePointer::view),
-			F("dx", &RelativePointer::dx),
-			F("dy", &RelativePointer::dy),
-			F("wheel", &RelativePointer::wheel),
+			F("modifiers", &Mouse::modifiers),
 		};
 	};
 
@@ -287,6 +241,40 @@ namespace osfui::wv2::msg
 		};
 	};
 
+	// Physical keyboard input, distinct from the framework's synthetic page keys.
+	struct Keyboard
+	{
+		static constexpr std::string_view kType = "keyboard";
+		std::uint32_t vk{ 0 }, modifiers{ 0 }, location{ 0 };
+		bool down{ false }, repeat{ false }, system{ false }, keypad{ false };
+		std::string key, code;
+		static constexpr auto kFields = std::tuple{
+			F("vk", &Keyboard::vk), F("modifiers", &Keyboard::modifiers),
+			F("location", &Keyboard::location), F("down", &Keyboard::down),
+			F("repeat", &Keyboard::repeat), F("system", &Keyboard::system),
+			F("keypad", &Keyboard::keypad), F("key", &Keyboard::key), F("code", &Keyboard::code),
+		};
+	};
+
+	struct TextInput
+	{
+		static constexpr std::string_view kType = "textInput";
+		std::string text;
+		// char = translated WM_CHAR; composition/commit/cancel = Windows IME.
+		std::string kind{ "char" };
+		std::uint32_t cursor{ 0 };
+		static constexpr auto kFields = std::tuple{
+			F("text", &TextInput::text), F("kind", &TextInput::kind), F("cursor", &TextInput::cursor),
+		};
+	};
+
+	struct WindowActive
+	{
+		static constexpr std::string_view kType = "windowActive";
+		bool active{ false };
+		static constexpr auto kFields = std::tuple{ F("active", &WindowActive::active) };
+	};
+
 	struct PostWeb
 	{
 		static constexpr std::string_view kType = "postWeb";
@@ -297,16 +285,6 @@ namespace osfui::wv2::msg
 		static constexpr auto kFields = std::tuple{
 			F("view", &PostWeb::view),
 			F("json", &PostWeb::json),
-		};
-	};
-
-	struct AccelState
-	{
-		static constexpr std::string_view kType = "accelState";
-		bool captured{ false };
-
-		static constexpr auto kFields = std::tuple{
-			F("captured", &AccelState::captured),
 		};
 	};
 
@@ -466,18 +444,6 @@ namespace osfui::wv2::msg
 		std::uint32_t id{ 0 };
 
 		static constexpr auto kFields = std::tuple{ F("id", &Cursor::id) };
-	};
-
-	struct Accelerator
-	{
-		static constexpr std::string_view kType = "accelerator";
-		std::uint32_t vk{ 0 };
-		bool          down{ false };
-
-		static constexpr auto kFields = std::tuple{
-			F("vk", &Accelerator::vk),
-			F("down", &Accelerator::down),
-		};
 	};
 
 	struct Log

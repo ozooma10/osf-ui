@@ -13,6 +13,8 @@
 				userData = std::filesystem::path(ToWide(a_msg.userDataDir));
 				devMode = a_msg.devMode;
 				highRefreshCapture = a_msg.highRefreshCapture;
+				windowActive = GameIsForeground();
+				log.InfoFwd("input mode: forwarded CDP; native focus remains in Starfield");
 				defaultHidden = a_msg.hidden;
 				if (userData.empty()) {
 					log.Error("init without userDataDir");
@@ -85,7 +87,6 @@
 				if (pointerInputEnabled == enabled) return;
 				if (!enabled) {
 					RecoverAllPressedMouseButtons("geometry transition");
-					ResetRelativePointerCapture();
 				}
 				pointerInputEnabled = enabled;
 			}
@@ -96,7 +97,6 @@
 				if (!view) return;
 				const auto a_msg = msg::FromJson<msg::SetHidden>(a_raw);
 				if (a_msg.hidden) {
-					if (relativePointerView == view->id) ResetRelativePointerCapture();
 					HideView(*view);
 				} else {
 					view->pendingPresentationEpoch = a_msg.presentationEpoch;
@@ -117,19 +117,11 @@
 				auto* view = ResolveView(a_msg);
 				if (!view) return;
 				if (inputTarget && inputTarget != view) {
-					if (relativePointerView == inputTarget->id) ResetRelativePointerCapture();
 					RecoverPressedMouseButtons(*inputTarget, "input target change");
-					inputTarget->nativePopupOpen = false;
 				}
 				inputTarget = view;
+				ReconcileCdpFocus();
 				log.Info(std::format("input-target view -> '{}'", view->id));
-				if (focusGranted && view->controller && !view->hidden) {
-					RequestInputFocus("input target change");
-				} else {
-					PublishFocusState();
-				}
-				ReconcileInputWidgetSubclass();
-				ApplyMouseCapture();
 			}
 
 			void HandleFocus(const json& a_msg)
@@ -138,44 +130,27 @@
 				if (request.epoch < focusEpoch) {
 					log.Info(std::format("stale focus request ignored (epoch {} < {})",
 						request.epoch, focusEpoch));
-					PublishFocusState();
 					return;
 				}
 				focusEpoch = request.epoch;
 				log.Info(std::format("focus request begin: focused={} epoch={}", request.focused, focusEpoch));
 				if (!request.focused) RecoverAllPressedMouseButtons("focus revoke");
 				focusGranted = request.focused;
+				windowActive = GameIsForeground();
 				if (!request.view.empty()) {
 					if (auto* requestedView = FindView(request.view)) {
 						if (inputTarget && inputTarget != requestedView) {
 							RecoverPressedMouseButtons(*inputTarget, "focus target change");
-							inputTarget->nativePopupOpen = false;
 						}
 						inputTarget = requestedView;
 					}
 				}
-				if (!focusGranted) {
-					ResetRelativePointerCapture();
-					for (auto& view : views) view->nativePopupOpen = false;
-				}
-				SetRawMouseInput(focusGranted);
-				if (focusGranted && inputTarget && inputTarget->controller && !inputTarget->hidden) {
-					RequestInputFocus("focus request");
-				} else {
-					PublishFocusState();
-				}
-				ReconcileInputWidgetSubclass();
-				ApplyMouseCapture();
-				if (!focusGranted) ReleaseInputFocus("focus revoke");
+				ReconcileCdpFocus();
 				ApplyCaptureCadence();
 				log.Info(std::format("focus request complete: focused={} epoch={}", focusGranted, focusEpoch));
 			}
 
 			void HandleMouse(const json& a_msg) { SendMouse(a_msg); }
-			void HandleRelativePointerCapture(const json& a_msg)
-			{
-				SetRelativePointerCapture(msg::FromJson<msg::RelativePointerCapture>(a_msg));
-			}
 
 			void HandleKey(const json& a_raw)
 			{
@@ -215,7 +190,6 @@
 					log.Warn("openDevTools ignored outside devMode");
 					return;
 				}
-				handledKeys.erase(VK_F12);
 				if (auto* view = ResolveView(a_msg); view && view->webView) {
 					const auto hr = view->webView->OpenDevToolsWindow();
 					if (FAILED(hr)) {
@@ -226,18 +200,10 @@
 				}
 			}
 
-			void HandleAccelState(const json& a_msg)
-			{
-				const bool wasCaptured = captured;
-				captured = msg::FromJson<msg::AccelState>(a_msg).captured;
-				if (wasCaptured && !captured) handledKeys.clear();
-			}
-
 			void HandleDestroyView(const json& a_msg)
 			{
 				auto* view = ResolveView(a_msg);
 				if (!view) return;
-				if (relativePointerView == view->id) ResetRelativePointerCapture();
 				log.Info(std::format("destroying view '{}'", view->id));
 				egressWarned.erase(view->id);
 				DestroyOneView(*view);
@@ -252,9 +218,7 @@
 
 			void HandleShutdown(const json&)
 			{
-				log.Info(std::format(
-					"shutdown requested by the game (accelEvents={}, frames={})",
-					accelEvents, frameSerial));
+				log.Info(std::format("shutdown requested by the game (frames={})", frameSerial));
 				quit.store(true);
 			}
 
@@ -272,12 +236,13 @@
 					{ msg::SetInputTarget::kType, &App::HandleSetInputTarget },
 					{ msg::Focus::kType, &App::HandleFocus },
 					{ msg::Mouse::kType, &App::HandleMouse },
-					{ msg::RelativePointerCapture::kType, &App::HandleRelativePointerCapture },
 					{ msg::Key::kType, &App::HandleKey },
+					{ msg::Keyboard::kType, &App::HandleKeyboard },
+					{ msg::TextInput::kType, &App::HandleTextInput },
+					{ msg::WindowActive::kType, &App::HandleWindowActive },
 					{ msg::FrameAck::kType, &App::HandleFrameAck },
 					{ msg::PostWeb::kType, &App::HandlePostWeb },
 					{ msg::OpenDevTools::kType, &App::HandleOpenDevTools },
-					{ msg::AccelState::kType, &App::HandleAccelState },
 					{ msg::DestroyView::kType, &App::HandleDestroyView },
 					{ msg::Shutdown::kType, &App::HandleShutdown },
 				};

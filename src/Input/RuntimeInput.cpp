@@ -9,33 +9,10 @@
 #include "Input/ControlLayer.h"
 #include "Input/FocusMenu.h"
 #include "Input/SimPause.h"
+#include "Wv2Messages.h"
 
 namespace OSFUI
 {
-	namespace
-	{
-		[[nodiscard]] std::uint64_t RelativePointerOwnerToken(std::string_view a_viewId)
-		{
-			std::uint64_t hash = 14695981039346656037ull;
-			for (const auto ch : a_viewId) {
-				hash ^= static_cast<std::uint8_t>(ch);
-				hash *= 1099511628211ull;
-			}
-			return hash == 0 ? 1 : hash;
-		}
-	}
-
-	void Runtime::NotifyGameWindowFocused()
-	{
-		CancelWorldInteraction();
-		if (_relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
-			_relativePointerStop.store(RelativePointerStop::kCancel, std::memory_order_release);
-		}
-		if (IsInputCaptured()) {
-			_nativeFocusRefreshRequested.store(true, std::memory_order_release);
-		}
-	}
-
     namespace
     {
         constexpr std::uint32_t kVkEscape{ 0x1B };
@@ -48,41 +25,41 @@ namespace OSFUI
 		return _initialized && ((_captureInput.load() && m_visible.load()) || _worldInputRenderer.load());
 	}
 
-	bool Runtime::OnGameWindowKey(std::uint32_t a_vkCode, bool a_down)
+	bool Runtime::OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key)
 	{
-		if (_developerMode && a_vkCode == kVkF12) {
-			if (a_down) {
-				_devToolsRequested.store(true);
-			}
+		if (_developerMode && a_key.vk == kVkF12) {
+			if (a_key.down && !a_key.repeat) _devToolsRequested.store(true);
 			return true;
 		}
-
-		const bool captured = IsInputCaptured();
+		if (IsInputCaptured() && a_key.vk == kVkEscape) {
+			if (a_key.down && !a_key.repeat) EnqueuePresentationRequest(ViewPresentationRequest::Back);
+			return true;
+		}
+		if (!IsInputCaptured()) return false;
 		auto* target = _worldInputRenderer.load(std::memory_order_acquire);
 		if (!target) target = _renderer.get();
-		if (a_down) {
-			if (captured && a_vkCode == kVkEscape) {
-				EnqueuePresentationRequest(ViewPresentationRequest::Back);
-			} else if (captured && target) {
-				target->InjectKeyEvent(a_vkCode, true);
-			} else if (Log::DebugEnabled()) {
-				REX::DEBUG("Runtime: OnGameWindowKey down (vk {}) passed to the game", a_vkCode);
-			}
-		} else {
-			if (captured && target) {
-				target->InjectKeyEvent(a_vkCode, false);
-			} else if (Log::DebugEnabled()) {
-				REX::DEBUG("Runtime: OnGameWindowKey up (vk {}) passed to the game", a_vkCode);
-			}
-		}
-		return captured;
+		if (target) target->InjectKeyboard(a_key);
+		return true;
 	}
 
-	bool Runtime::OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down)
+	void Runtime::OnGameWindowText(const osfui::wv2::msg::TextInput& a_text)
 	{
-		const bool frameworkOwned = (_developerMode && a_vkCode == kVkF12) ||
-			(a_vkCode == kVkEscape && IsInputCaptured());
-		return frameworkOwned && OnGameWindowKey(a_vkCode, a_down);
+		if (!IsInputCaptured()) return;
+		auto* target = _worldInputRenderer.load(std::memory_order_acquire);
+		if (!target) target = _renderer.get();
+		if (target) target->InjectText(a_text);
+	}
+
+	void Runtime::OnGameWindowActivation(bool a_active)
+	{
+		if (_renderer) _renderer->SetWindowActive(a_active);
+		if (auto* world = _worldInputRenderer.load(std::memory_order_acquire)) world->SetWindowActive(a_active);
+		if (!a_active) {
+			CancelWorldInteraction();
+			if (_relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
+				_relativePointerStop.store(RelativePointerStop::kCancel, std::memory_order_release);
+			}
+		}
 	}
 
 	void Runtime::OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
@@ -108,11 +85,6 @@ namespace OSFUI
 		if (!_relativePointerActive.load(std::memory_order_acquire)) {
 			return false;
 		}
-		// The out-of-process WebView host owns raw input while it has focus. Keep
-		// this game-window lane only as a fallback when that host source is absent.
-		if (_relativePointerHostInput.load(std::memory_order_acquire)) {
-			return true;
-		}
 		if (a_dx != 0) {
 			_relativePointerDx.fetch_add(static_cast<float>(a_dx), std::memory_order_relaxed);
 		}
@@ -120,32 +92,6 @@ namespace OSFUI
 			_relativePointerDy.fetch_add(static_cast<float>(a_dy), std::memory_order_relaxed);
 		}
 		return true;
-	}
-
-	void Runtime::OnBrowserHostRelativePointer(
-		std::string_view a_viewId, int a_dx, int a_dy, int a_wheel)
-	{
-		if (!_relativePointerActive.load(std::memory_order_acquire) ||
-			_relativePointerOwnerToken.load(std::memory_order_acquire) !=
-				RelativePointerOwnerToken(a_viewId)) {
-			return;
-		}
-		if (!_relativePointerHostInput.exchange(true, std::memory_order_acq_rel)) {
-			// Discard any overlapping game-window fallback accumulated before the
-			// authoritative host source proved live for this capture.
-			_relativePointerDx.store(0.0f, std::memory_order_relaxed);
-			_relativePointerDy.store(0.0f, std::memory_order_relaxed);
-			_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
-		}
-		if (a_dx != 0) {
-			_relativePointerDx.fetch_add(static_cast<float>(a_dx), std::memory_order_relaxed);
-		}
-		if (a_dy != 0) {
-			_relativePointerDy.fetch_add(static_cast<float>(a_dy), std::memory_order_relaxed);
-		}
-		if (a_wheel != 0) {
-			_relativePointerWheel.fetch_add(-static_cast<float>(a_wheel) / 120.0f, std::memory_order_relaxed);
-		}
 	}
 
 	void Runtime::QueueMouseMove()
@@ -175,9 +121,6 @@ namespace OSFUI
 			return;
 		}
 		if (_relativePointerActive.load(std::memory_order_acquire)) {
-			if (_relativePointerHostInput.load(std::memory_order_acquire)) {
-				return;
-			}
 			// Match DOM WheelEvent.deltaY: positive scrolls down/toward the user, opposite Win32's positive WHEEL_DELTA direction.
 			_relativePointerWheel.fetch_add(-static_cast<float>(a_wheelDelta) / 120.0f, std::memory_order_relaxed);
 			return;
@@ -204,17 +147,11 @@ namespace OSFUI
 		_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
 		_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
 		_relativePointerView = a_viewId;
-		_relativePointerOwnerToken.store(RelativePointerOwnerToken(a_viewId), std::memory_order_release);
-		_relativePointerHostInput.store(false, std::memory_order_release);
 		_relativePointerActive.store(true, std::memory_order_release);
 		if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kBegin)) {
 			_relativePointerActive.store(false, std::memory_order_release);
-			_relativePointerOwnerToken.store(0, std::memory_order_release);
 			_relativePointerView.clear();
 			return false;
-		}
-		if (_renderer) {
-			_renderer->SetRelativePointerCapture(_relativePointerView, true);
 		}
 		return true;
 	}
@@ -240,11 +177,6 @@ namespace OSFUI
 			return;
 		}
 		_relativePointerActive.store(false, std::memory_order_release);
-		_relativePointerOwnerToken.store(0, std::memory_order_release);
-		_relativePointerHostInput.store(false, std::memory_order_release);
-		if (_renderer) {
-			_renderer->SetRelativePointerCapture(_relativePointerView, false);
-		}
 		_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
 		const float dx = _relativePointerDx.exchange(0.0f, std::memory_order_acq_rel);
 		const float dy = _relativePointerDy.exchange(0.0f, std::memory_order_acq_rel);
@@ -272,11 +204,6 @@ namespace OSFUI
 		}
 		if (!API::BridgeApi::Get().HasRelativePointer(_relativePointerView)) {
 			_relativePointerActive.store(false, std::memory_order_release);
-			_relativePointerOwnerToken.store(0, std::memory_order_release);
-			_relativePointerHostInput.store(false, std::memory_order_release);
-			if (_renderer) {
-				_renderer->SetRelativePointerCapture(_relativePointerView, false);
-			}
 			_relativePointerView.clear();
 			_relativePointerDx.store(0.0f, std::memory_order_relaxed);
 			_relativePointerDy.store(0.0f, std::memory_order_relaxed);

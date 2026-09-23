@@ -13,68 +13,6 @@
 							}
 						});
 						bridge.postMessage = (json) => chrome.webview.postMessage(String(json));
-						const nativePopupControl = (event) => {
-							const path = typeof event.composedPath === 'function' ?
-								event.composedPath() : [event.target];
-							for (const el of path) {
-								if (el instanceof HTMLSelectElement && !el.disabled) return el;
-								if (!(el instanceof HTMLInputElement) || el.disabled) continue;
-								if (el.list) return el;
-								if (['color', 'date', 'datetime-local', 'month', 'time', 'week']
-									.includes(el.type)) return el;
-							}
-							return null;
-						};
-						const nativePopupMessage = '__osfuiNativePopup:';
-						if (window === window.top) {
-							window.addEventListener('message', (event) => {
-								if (event.data !== nativePopupMessage + '0' &&
-									event.data !== nativePopupMessage + '1') return;
-								if (window.chrome && chrome.webview)
-									chrome.webview.postMessage(event.data);
-							});
-						}
-						let nativePopup = null;
-						const reportNativePopup = (open) => {
-							const message = nativePopupMessage + (open ? '1' : '0');
-							if (window !== window.top) {
-								window.top.postMessage(message, '*');
-							} else if (window.chrome && chrome.webview) {
-								chrome.webview.postMessage(message);
-							}
-						};
-						const closeNativePopup = (event) => {
-							if (!nativePopup) return;
-							if (event && nativePopupControl(event) !== nativePopup) return;
-							nativePopup = null;
-							reportNativePopup(false);
-						};
-						document.addEventListener('pointerdown', (event) => {
-							const control = nativePopupControl(event);
-							if (control) {
-								nativePopup = control;
-								reportNativePopup(true);
-							} else {
-								closeNativePopup();
-							}
-						}, true);
-						document.addEventListener('keydown', (event) => {
-							const control = nativePopupControl(event);
-							if (control && (event.key === 'Enter' || event.key === ' ' ||
-								(event.altKey && event.key === 'ArrowDown'))) {
-								nativePopup = control;
-								reportNativePopup(true);
-							} else if (event.key === 'Escape') {
-								closeNativePopup();
-							}
-						}, true);
-						document.addEventListener('change', closeNativePopup, true);
-						document.addEventListener('input', (event) => {
-							if (nativePopup instanceof HTMLInputElement && nativePopup.list)
-								closeNativePopup(event);
-						}, true);
-						document.addEventListener('blur', closeNativePopup, true);
-
 						const VK_KEYS = {
 							0x08: ['Backspace', 'Backspace'], 0x09: ['Tab', 'Tab'],
 							0x0D: ['Enter', 'Enter'], 0x1B: ['Escape', 'Escape'],

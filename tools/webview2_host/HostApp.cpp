@@ -3,12 +3,12 @@
 
 #include "Core/Version.h"
 #include "Core/Ids.h"
-#include "Input/AbsoluteMouseMapping.h"
 #include "Core/Json.h"
 #include "Views/ViewCache.h"
 #include "Wv2BoundedQueue.h"
 #include "Wv2LocalUri.h"
 #include "Wv2Messages.h"
+#include "Wv2CdpInput.h"
 #include "Wv2MouseButtons.h"
 #include "Wv2Pipe.h"
 #include "Wv2Protocol.h"
@@ -226,14 +226,11 @@ namespace osfui::wv2
 			std::uint32_t         viewportWidth{ 1 }, viewportHeight{ 1 };
 			bool                  devMode{ false };
 			bool                  highRefreshCapture{ false };
+			bool                  windowActive{ true };
 			bool                  defaultHidden{ true };  // init.hidden — a new view's starting state
 
 			HWND bootstrapWindow{ nullptr };
 			HWND hostWindow{ nullptr };
-			WNDPROC hostWindowProc{ nullptr };
-			// A WNDPROC cannot carry state; one App exists per browser-host process.
-			static inline App* s_hostInputApp{ nullptr };
-			bool reparented{ false };
 
 			struct View
 			{
@@ -250,7 +247,6 @@ namespace osfui::wv2
 				bool controllerRequested{ false };
 				bool securityReady{ false };
 				bool hidden{ true };
-				bool nativePopupOpen{ false };
 				bool nonGestureOpenWarned{ false };
 				bool navigationBlockedWarned{ false };
 				bool frameNavigationBlockedWarned{ false };
@@ -270,34 +266,22 @@ namespace osfui::wv2
 				std::optional<std::wstring> pendingNavigate;
 				std::deque<std::string> queuedPostWeb;
 				SyntheticMouseButtons syntheticMouseButtons;
+				std::shared_ptr<CdpInputQueue> cdpInput;
+				CdpPressedKeys cdpKeys;
+				std::optional<bool> cdpFocused;
+				bool cdpComposition{ false };
 			};
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
 			View* inputTarget{ nullptr };  // mouse/focus/synthetic-key target
 			bool  captureStarted{ false };
-			bool          captured{ false };
 			bool          focusGranted{ false };
 			bool          pointerInputEnabled{ true };
 			std::uint64_t focusEpoch{ 0 };
-			std::uint64_t focusStateSequence{ 0 };
-			bool          publishedFocusState{ false };
-			bool          lastPublishedFocused{ false };
-			std::string   lastPublishedFocusView;
-			bool          rawMouseRegistered{ false };
-			std::string   relativePointerView;
-			std::int64_t  relativePointerDx{ 0 };
-			std::int64_t  relativePointerDy{ 0 };
-			std::int64_t  relativePointerWheel{ 0 };
 			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
 			std::uint64_t syntheticMouseRecoveryCount{ 0 };
-			std::uint64_t mouseCaptureRecoveryCount{ 0 };
-			std::unordered_set<UINT> handledKeys;
 			static constexpr std::size_t kMaxEgressWarnsPerView = 32;
 			std::unordered_map<std::string, std::unordered_set<std::string>> egressWarned;
-			std::uint64_t accelEvents{ 0 };  // every AcceleratorKeyPressed callback (diagnostic)
-
-			HWND    inputWidget{ nullptr };
-			WNDPROC inputWidgetProc{ nullptr };
-			static inline App* s_app{ nullptr };
+			std::uint64_t cdpKeyEvents{ 0 }, cdpTextEvents{ 0 };
 
 			ComPtr<ID3D11Device>         device;
 			ComPtr<ID3D11Device5>        device5;
@@ -389,6 +373,7 @@ namespace osfui::wv2
 				::SetEvent(wakeEvent);
 			}
 #include "HostGraphics.inl"
+#include "CdpInput.inl"
 
 			void ReorderVisuals()
 			{
@@ -455,6 +440,7 @@ namespace osfui::wv2
 			{
 				if (a_view.hidden && !a_view.revealPending) return;
 				RecoverPressedMouseButtons(a_view, "view hide");
+				SetCdpFocus(a_view, false);
 				a_view.hidden = true;
 				RefreshCaptureVisibility();
 				a_view.pendingPresentationEpoch = 0;
@@ -474,7 +460,7 @@ namespace osfui::wv2
 						RepublishLatest();
 					}
 					if (focusGranted && inputTarget == &a_view && a_view.controller) {
-						RequestInputFocus("view already visible");
+						ReconcileCdpFocus();
 					}
 					return;
 				}
@@ -482,13 +468,7 @@ namespace osfui::wv2
 				RefreshCaptureVisibility();
 				a_view.hideDeferred = false;
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
-				// WebView2 may restore its last keyboard focus merely by becoming visible.
-				// Until the game has admitted FocusMenu, keep that focus parked outside Chromium.
-				if (!focusGranted && FocusedView()) {
-					ReleaseInputFocus("view show");
-				} else if (focusGranted && inputTarget == &a_view && a_view.controller) {
-					RequestInputFocus("view show");
-				}
+				ReconcileCdpFocus();
 				if (a_view.visual && a_view.visual.IsVisible()) {
 					log.Info(std::format(
 						"view '{}': show — hide was still deferred, never left the screen", a_view.id));
@@ -539,6 +519,7 @@ namespace osfui::wv2
 			{
 				const auto now = ::GetTickCount64();
 				for (auto& view : views) {
+					if (view->cdpInput) view->cdpInput->CheckTimeout();
 					if (view->revealPending && now >= view->revealDeadline) {
 						CompleteReveal(*view, /*a_timedOut=*/true);
 					}
@@ -547,10 +528,8 @@ namespace osfui::wv2
 
 			void DestroyOneView(View& a_view)
 			{
+				SuspendCdpInput(a_view);
 				RecoverPressedMouseButtons(a_view, "view destruction");
-				if (inputWidget && ::IsChild(a_view.window, inputWidget)) {
-					RemoveInputWidgetSubclass();
-				}
 				if (a_view.compositionController) {
 					a_view.compositionController->put_RootVisualTarget(nullptr);
 				}
@@ -664,30 +643,6 @@ namespace osfui::wv2
 				}
 			}
 
-			void EnsureReparented()
-			{
-				if (reparented || !gameTopLevel) return;
-				::SetLastError(ERROR_SUCCESS);
-				const auto oldParent = ::SetParent(hostWindow, gameTopLevel);
-				const auto parentError = ::GetLastError();
-				if (!oldParent && parentError != ERROR_SUCCESS) {
-					log.Error(std::format("cross-process SetParent failed ({})", parentError));
-					return;
-				}
-				const auto style = static_cast<DWORD_PTR>(
-					::GetWindowLongPtrW(hostWindow, GWL_STYLE));
-				::SetWindowLongPtrW(hostWindow, GWL_STYLE,
-					static_cast<LONG_PTR>((style & ~WS_POPUP) | WS_CHILD | WS_VISIBLE));
-				::SetWindowPos(hostWindow, nullptr, 0, 0, 1, 1,
-					SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_FRAMECHANGED);
-				reparented = true;
-				log.InfoFwd("browser-host window reparented beneath the game window (cross-process)");
-				if (bootstrapWindow) {
-					::DestroyWindow(bootstrapWindow);
-					bootstrapWindow = nullptr;
-				}
-			}
-
 			void ReportControllerFailure(View& a_view, HRESULT a_hr,
 				std::string_view a_description)
 			{
@@ -739,7 +694,11 @@ namespace osfui::wv2
 				::CoTaskMemFree(raw);
 				const bool allowed = IsTrustedViewDocumentUri(uri, kViewHost, a_view.modId, a_view.viewName) || (a_frame && IsAllowedBlankFrameUri(uri));
 				if (allowed) {
-					if (!a_frame) RecoverPressedMouseButtons(a_view, "main-frame navigation");
+					if (!a_frame) {
+						RecoverPressedMouseButtons(a_view, "main-frame navigation");
+						a_view.domSeen = false;
+						SuspendCdpInput(a_view);
+					}
 					return S_OK;
 				}
 
@@ -787,7 +746,6 @@ namespace osfui::wv2
 					return S_OK;
 				}
 				a_view.compositionController = a_composition;
-				EnsureReparented();
 
 				if (FAILED(a_view.compositionController.As(&a_view.controller)) ||
 					FAILED(a_view.controller->get_CoreWebView2(&a_view.webView)) || !a_view.webView) {
@@ -866,18 +824,6 @@ namespace osfui::wv2
 				a_view.securityReady = true;
 				InstallEvents(a_view);
 				InstallBridgeShim(a_view);
-				a_view.webView->CallDevToolsProtocolMethod(
-					L"Emulation.setFocusEmulationEnabled", LR"({"enabled":true})",
-					Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-						[this, view = &a_view](HRESULT a_cdpHr, LPCWSTR) -> HRESULT {
-							if (FAILED(a_cdpHr)) {
-								log.Warn(std::format(
-									"view '{}': focus emulation enable failed (0x{:08X}) — "
-									"focus styling will not render without real focus",
-									view->id, static_cast<unsigned>(a_cdpHr)));
-							}
-							return S_OK;
-						}).Get());
 				if (!captureStarted) {
 					if (!StartCapture()) return;
 					captureStarted = true;
@@ -886,10 +832,7 @@ namespace osfui::wv2
 				log.InfoFwd(std::format("view '{}': controller ready ({} view(s) hosted)",
 					a_view.id, views.size()));
 				DrainQueuedViewWork(a_view);
-				if (focusGranted && inputTarget == &a_view && !a_view.hidden) {
-					RequestInputFocus("controller ready");
-				}
-				ReconcileInputWidgetSubclass();
+				ReconcileCdpFocus();
 			}
 
 			void InstallBridgeShim(View& a_view)
@@ -1010,105 +953,14 @@ namespace osfui::wv2
 				return S_OK;
 			}
 
-			[[nodiscard]] View* FocusedView() const
-			{
-				GUITHREADINFO info{};
-				info.cbSize = sizeof(info);
-				if (!::GetGUIThreadInfo(0, &info)) return nullptr;
-				const HWND focused = info.hwndFocus;
-				if (!focused) return nullptr;
-				for (const auto& view : views) {
-					if (view->window && (focused == view->window ||
-						::IsChild(view->window, focused) != FALSE)) {
-						return view.get();
-					}
-				}
-				return nullptr;
-			}
-
 			[[nodiscard]] bool GameIsForeground() const
 			{
 				return gameTopLevel && !::IsIconic(gameTopLevel) && ::GetForegroundWindow() == gameTopLevel;
 			}
 
-			void PublishFocusState(View* a_eventView = nullptr, bool a_gotFocus = false)
-			{
-				auto* actual = FocusedView();
-				// GotFocus is authoritative even if the native child HWND has not entered the
-				// thread focus queue by the time WebView2 invokes the callback.
-				if (!actual && a_gotFocus) actual = a_eventView;
-				const bool focused = actual != nullptr;
-				const std::string view = actual ? actual->id : std::string{};
-				Send(msg::ToJson(msg::FocusState{
-					.focused = focused,
-					.epoch = focusEpoch,
-					.sequence = ++focusStateSequence,
-					.view = view,
-				}));
-				if (!publishedFocusState || focused != lastPublishedFocused ||
-					view != lastPublishedFocusView) {
-					publishedFocusState = true;
-					lastPublishedFocused = focused;
-					lastPublishedFocusView = view;
-					log.Info(std::format("focus-state actual={} view='{}' desired={} epoch={}",
-						focused, view, focusGranted, focusEpoch));
-				}
-			}
-
-			void RequestInputFocus(std::string_view a_reason)
-			{
-				if (!focusGranted || !inputTarget || !inputTarget->controller ||
-					inputTarget->hidden || !GameIsForeground() || FocusedView() == inputTarget) {
-					PublishFocusState();
-					return;
-				}
-				const auto hr = inputTarget->controller->MoveFocus(
-					COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-				if (FAILED(hr)) {
-					log.Warn(std::format(
-						"view '{}': MoveFocus failed during {} (0x{:08X}, epoch={})",
-						inputTarget->id, a_reason, static_cast<unsigned>(hr), focusEpoch));
-				}
-				PublishFocusState();
-			}
-
-			void ReleaseInputFocus(std::string_view a_reason)
-			{
-				RecoverAllPressedMouseButtons(a_reason);
-				if (FocusedView() && hostWindow) {
-					// Move focus onto our non-WebView owner first, then clear this input queue.
-					// This gives Chromium a synchronous LostFocus edge instead of relying solely
-					// on a cross-process SetFocus posted back to Starfield.
-					::SetFocus(hostWindow);
-					::SetFocus(nullptr);
-				}
-				PublishFocusState();
-				if (FocusedView()) {
-					log.Info(std::format(
-						"WebView focus remained after local release during {} (epoch={}); "
-						"Starfield restore remains queued",
-						a_reason, focusEpoch));
-				}
-				QueueGameFocusRestore();
-			}
-
 			void QueueGameFocusRestore()
 			{
-				if (gameTopLevel) {
-					::PostMessageW(gameTopLevel, kRestoreGameFocusMessage,
-						static_cast<WPARAM>(focusEpoch), 0);
-				}
-			}
-
-			static constexpr UINT kReconcileFocusMessage = 0x804B;
-			static constexpr UINT kReconcileMouseCaptureMessage = 0x804C;
-
-			void QueueFocusReconcile()
-			{
-				if (hostWindow) {
-					::PostMessageW(hostWindow, kReconcileFocusMessage,
-						static_cast<WPARAM>(focusEpoch), 0);
-				}
+				if (gameTopLevel) ::PostMessageW(gameTopLevel, kRestoreGameFocusMessage, 0, 0);
 			}
 
 			void InstallEvents(View& a_view)
@@ -1128,58 +980,9 @@ namespace osfui::wv2
 						}).Get(), &token);
 				a_view.controller->add_GotFocus(
 					Callback<ICoreWebView2FocusChangedEventHandler>(
-						[this, view](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
-							PublishFocusState(view, true);
-							if (focusGranted) {
-								ApplyMouseCapture();
-								ReconcileInputWidgetSubclass();
-								if (view != inputTarget) QueueFocusReconcile();
-							} else {
-								// Never re-enter Chromium's focus transition from its own callback.
-								QueueFocusReconcile();
-							}
-							return S_OK;
-						}).Get(), &token);
-				a_view.controller->add_LostFocus(
-					Callback<ICoreWebView2FocusChangedEventHandler>(
-						[this, view](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
-							RecoverPressedMouseButtons(*view, "WebView LostFocus");
-							PublishFocusState();
-							if (focusGranted) QueueFocusReconcile();
-							return S_OK;
-						}).Get(), &token);
-				a_view.controller->add_AcceleratorKeyPressed(
-					Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
-						[this](ICoreWebView2Controller*,
-							ICoreWebView2AcceleratorKeyPressedEventArgs* a_args) -> HRESULT {
-							UINT key = 0;
-							COREWEBVIEW2_KEY_EVENT_KIND kind{};
-							COREWEBVIEW2_PHYSICAL_KEY_STATUS physical{};
-							a_args->get_VirtualKey(&key);
-							a_args->get_KeyEventKind(&kind);
-							a_args->get_PhysicalKeyStatus(&physical);
-							++accelEvents;
-							const bool down =
-								kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
-								kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
-							const bool frameworkOwned =
-								(devMode && key == VK_F12) ||
-								(key == VK_ESCAPE && captured);
-							const bool alreadyHandled = handledKeys.contains(key);
-							const bool duplicateDown = down &&
-								(alreadyHandled || (frameworkOwned && physical.WasKeyDown));
-							bool handled = duplicateDown;
-							if (!handled && frameworkOwned) handled = true;
-							if (!duplicateDown &&
-								(frameworkOwned || (!down && alreadyHandled))) {
-								Send(msg::ToJson(msg::Accelerator{
-									.vk = key, .down = down }));
-							}
-							if (handled) {
-								a_args->put_Handled(TRUE);
-								if (down) handledKeys.insert(key);
-							}
-							if (!down) handledKeys.erase(key);
+						[this](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
+							// Visibility changes can request browser HWND focus unexpectedly.
+							if (GameIsForeground()) QueueGameFocusRestore();
 							return S_OK;
 						}).Get(), &token);
 				a_view.webView->add_WebMessageReceived(
@@ -1256,13 +1059,6 @@ namespace osfui::wv2
 								}
 								return S_OK;
 							}
-							static constexpr std::string_view kNativePopupPrefix = "__osfuiNativePopup:";
-							if (text.starts_with(kNativePopupPrefix)) {
-								view->nativePopupOpen =
-									text.substr(kNativePopupPrefix.size()) == "1";
-								if (inputTarget == view) ApplyMouseCapture();
-								return S_OK;
-							}
 							Send(msg::ToJson(msg::WebMessage{ .view = view->id,
 								.json = std::move(text) }));
 							return S_OK;
@@ -1326,6 +1122,7 @@ namespace osfui::wv2
 						Callback<ICoreWebView2DOMContentLoadedEventHandler>(
 							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs*) -> HRESULT {
 								view->domSeen = true;
+								InitializeCdpInput(*view);
 								DrainQueuedViewWork(*view);
 								return S_OK;
 							}).Get(), &token);
@@ -1345,6 +1142,7 @@ namespace osfui::wv2
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED:
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE:
 								view->domSeen = false;
+								SuspendCdpInput(*view);
 								Send(msg::ToJson(msg::LoadEvent{
 									.view = view->id,
 									.failed = true,
@@ -1510,6 +1308,7 @@ namespace osfui::wv2
 				if (!a_view.webView) return;
 				if (a_view.pendingNavigate) {
 					a_view.domSeen = false;
+					SuspendCdpInput(a_view);
 					a_view.currentUrl = *a_view.pendingNavigate;
 					a_view.pendingNavigate.reset();
 					const auto hr = a_view.webView->Navigate(a_view.currentUrl.c_str());
@@ -1605,100 +1404,6 @@ namespace osfui::wv2
 				}
 			}
 
-			HWND FindInputTargetWidget() const
-			{
-				HWND widget = ::GetFocus();
-				if (inputTarget && inputTarget->window && widget &&
-					(widget == inputTarget->window || ::IsChild(inputTarget->window, widget))) {
-					return widget;
-				}
-				widget = nullptr;
-				if (inputTarget && inputTarget->window) {
-					::EnumChildWindows(inputTarget->window, [](HWND a_hwnd, LPARAM a_param) -> BOOL {
-						wchar_t name[128]{};
-						::GetClassNameW(a_hwnd, name, static_cast<int>(std::size(name)));
-						if (std::wstring_view(name).starts_with(L"Chrome_WidgetWin_")) {
-							*reinterpret_cast<HWND*>(a_param) = a_hwnd;
-							return FALSE;
-						}
-						return TRUE;
-					}, reinterpret_cast<LPARAM>(&widget));
-				}
-				return widget;
-			}
-
-			void ReconcileInputWidgetSubclass()
-			{
-				if (focusGranted) {
-					HWND widget = FindInputTargetWidget();
-					if (!widget || widget == inputWidget) return;
-					RemoveInputWidgetSubclass();  // the input target changed
-					s_app = this;             // before install: the proc may run immediately
-					auto* previous = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
-						widget, GWLP_WNDPROC,
-						reinterpret_cast<LONG_PTR>(&InputWidgetWndProc)));
-					if (!previous) {
-						s_app = nullptr;  // subclass refused; accelerators still work
-						return;
-					}
-					inputWidget = widget;
-					inputWidgetProc = previous;
-				} else {
-					RemoveInputWidgetSubclass();
-				}
-			}
-
-			[[nodiscard]] bool SendFocusedMouseWheel(WPARAM a_wparam)
-			{
-				if (!focusGranted || !inputTarget || !inputTarget->compositionController) {
-					return false;
-				}
-				if (!pointerInputEnabled) return true;
-				if (rawMouseRegistered) return true;
-
-				const auto delta = static_cast<SHORT>(HIWORD(a_wparam));
-				if (delta == 0) return false;
-				const auto mapped = LiveMouseMapping();
-				if (!mapped.inside) return true;
-				const POINT at{
-					static_cast<LONG>(mapped.x), static_cast<LONG>(mapped.y) };
-				inputTarget->compositionController->SendMouseInput(
-					COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
-					static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
-						static_cast<UINT32>(LOWORD(a_wparam))),
-					static_cast<UINT32>(delta), at);
-				return true;
-			}
-
-			void RemoveInputWidgetSubclass()
-			{
-				if (!inputWidget) return;
-				const auto current = reinterpret_cast<WNDPROC>(
-					::GetWindowLongPtrW(inputWidget, GWLP_WNDPROC));
-				if (current == &InputWidgetWndProc && inputWidgetProc) {
-					::SetWindowLongPtrW(inputWidget, GWLP_WNDPROC,
-						reinterpret_cast<LONG_PTR>(inputWidgetProc));
-				}
-				inputWidget = nullptr;
-				inputWidgetProc = nullptr;
-				s_app = nullptr;  // after the restore above, never before
-			}
-
-			static LRESULT CALLBACK InputWidgetWndProc(
-				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
-			{
-				auto* self = s_app;
-				if (self && a_msg == WM_MOUSEWHEEL &&
-					self->SendFocusedMouseWheel(a_wparam)) {
-					return 0;
-				}
-				const auto proc = (self && self->inputWidgetProc)
-					? self->inputWidgetProc
-					: nullptr;
-				return proc ? ::CallWindowProcW(proc, a_hwnd, a_msg, a_wparam, a_lparam)
-							: ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
-			}
-
 			[[nodiscard]] static COREWEBVIEW2_MOUSE_EVENT_KIND MouseButtonUpKind(SyntheticMouseButton a_button) noexcept
 			{
 				switch (a_button) {
@@ -1768,306 +1473,16 @@ namespace osfui::wv2
 				for (auto& view : views) RecoverPressedMouseButtons(*view, a_reason);
 			}
 
-			void ApplyMouseCapture()
-			{
-				const bool captureForPage =
-					focusGranted && GameIsForeground() && inputTarget &&
-					!inputTarget->hidden && !inputTarget->nativePopupOpen;
-				if (captureForPage && hostWindow) {
-					if (::GetCapture() != hostWindow) {
-						::SetCapture(hostWindow);
-					}
-				} else {
-					if (hostWindow && ::GetCapture() == hostWindow) {
-						if (inputTarget) {
-							RecoverPressedMouseButtons(*inputTarget, "mouse capture release");
-						}
-						::ReleaseCapture();
-					}
-				}
-			}
-
-			void SetRawMouseInput(bool a_enabled)
-			{
-				if (a_enabled == rawMouseRegistered || !hostWindow) return;
-				RAWINPUTDEVICE rawDevice{
-					.usUsagePage = 0x01,
-					.usUsage = 0x02,
-					.dwFlags = static_cast<DWORD>(
-						a_enabled ? RIDEV_INPUTSINK : RIDEV_REMOVE),
-					.hwndTarget = a_enabled ? hostWindow : nullptr
-				};
-				if (!::RegisterRawInputDevices(&rawDevice, 1, sizeof(rawDevice))) {
-					log.Warn(std::format("{} browser-host raw mouse input failed ({}) — "
-						"mouse wheel will use the legacy/game fallback",
-						a_enabled ? "registering" : "removing", ::GetLastError()));
-					return;
-				}
-				rawMouseRegistered = a_enabled;
-			}
-
-			[[nodiscard]] OSFUI::AbsoluteMouseMapping LiveMouseMapping() const
-			{
-				POINT point{};
-				RECT  client{};
-				if (gameTopLevel && ::GetCursorPos(&point) &&
-					::ScreenToClient(gameTopLevel, &point) &&
-					::GetClientRect(gameTopLevel, &client) &&
-					client.right > client.left && client.bottom > client.top) {
-					return OSFUI::MapAbsoluteMouseToView(
-						point.x - client.left, point.y - client.top,
-						client.right - client.left, client.bottom - client.top,
-						viewportWidth, viewportHeight);
-				}
-				return {
-					.x = static_cast<float>(capturedMouseX),
-					.y = static_cast<float>(capturedMouseY),
-					.inside = true,
-				};
-			}
-
-			void ResetRelativePointerCapture()
-			{
-				relativePointerView.clear();
-				relativePointerDx = 0;
-				relativePointerDy = 0;
-				relativePointerWheel = 0;
-			}
-
-			void SetRelativePointerCapture(const msg::RelativePointerCapture& a_capture)
-			{
-				ResetRelativePointerCapture();
-				if (!a_capture.active || !pointerInputEnabled || !focusGranted || !inputTarget ||
-					inputTarget->id != a_capture.view || inputTarget->hidden ||
-					!OSFUI::Ids::IsValidQualifiedViewId(a_capture.view)) {
-					return;
-				}
-				relativePointerView = a_capture.view;
-			}
-
-			void AccumulateRawMouse(LPARAM a_lparam)
-			{
-				if (!pointerInputEnabled || !focusGranted || !rawMouseRegistered || !inputTarget ||
-					!inputTarget->compositionController) {
-					return;
-				}
-				UINT size = 0;
-				if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT,
-					nullptr, &size, sizeof(RAWINPUTHEADER)) != 0 ||
-					size == 0 || size > sizeof(RAWINPUT)) {
-					return;
-				}
-				RAWINPUT raw{};
-				if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT,
-					&raw, &size, sizeof(RAWINPUTHEADER)) != size ||
-					raw.header.dwType != RIM_TYPEMOUSE) {
-					return;
-				}
-
-				const auto& mouse = raw.data.mouse;
-				if ((mouse.usButtonFlags & RI_MOUSE_WHEEL) != 0) {
-					const auto delta = static_cast<SHORT>(mouse.usButtonData);
-					if (delta != 0) {
-						const auto mapped = LiveMouseMapping();
-						if (mapped.inside) {
-							inputTarget->compositionController->SendMouseInput(
-								COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
-								COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
-								static_cast<UINT32>(delta),
-								POINT{ static_cast<LONG>(mapped.x), static_cast<LONG>(mapped.y) });
-						}
-						if (!relativePointerView.empty() && inputTarget->id == relativePointerView) {
-							relativePointerWheel += delta;
-						}
-					}
-				}
-
-				if (relativePointerView.empty() || inputTarget->id != relativePointerView ||
-					(mouse.usFlags & MOUSE_MOVE_ABSOLUTE) != 0) {
-					return;
-				}
-				relativePointerDx += mouse.lLastX;
-				relativePointerDy += mouse.lLastY;
-			}
-
-			void FlushRelativePointer()
-			{
-				if (relativePointerView.empty() ||
-					(relativePointerDx == 0 && relativePointerDy == 0 && relativePointerWheel == 0)) {
-					return;
-				}
-				const auto clamp = [](std::int64_t a_value) {
-					return static_cast<std::int32_t>(std::clamp<std::int64_t>(
-						a_value, std::numeric_limits<std::int32_t>::min(),
-						std::numeric_limits<std::int32_t>::max()));
-				};
-				const auto message = msg::RelativePointer{
-					.view = relativePointerView,
-					.dx = clamp(relativePointerDx),
-					.dy = clamp(relativePointerDy),
-					.wheel = clamp(relativePointerWheel),
-				};
-				relativePointerDx = 0;
-				relativePointerDy = 0;
-				relativePointerWheel = 0;
-				Send(msg::ToJson(message));
-			}
-
-			[[nodiscard]] bool SendCapturedMouse(
-				UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
-			{
-				if (!focusGranted || !inputTarget || !inputTarget->compositionController ||
-					!hostWindow || !gameTopLevel) {
-					return false;
-				}
-				if (!pointerInputEnabled) return true;
-				if (a_msg == WM_MOUSEWHEEL && rawMouseRegistered) {
-					return true;
-				}
-
-				POINT point{
-					static_cast<SHORT>(LOWORD(a_lparam)),
-					static_cast<SHORT>(HIWORD(a_lparam))
-				};
-				if (a_msg != WM_MOUSEWHEEL) {
-					::ClientToScreen(hostWindow, &point);
-				}
-				::ScreenToClient(gameTopLevel, &point);
-				RECT client{};
-				if (!::GetClientRect(gameTopLevel, &client) ||
-					client.right <= client.left || client.bottom <= client.top) {
-					return false;
-				}
-				const auto mapped = OSFUI::MapAbsoluteMouseToView(
-					point.x - client.left, point.y - client.top,
-					client.right - client.left, client.bottom - client.top,
-					viewportWidth, viewportHeight);
-				const auto x = static_cast<int>(mapped.x);
-				const auto y = static_cast<int>(mapped.y);
-				capturedMouseX = x;
-				capturedMouseY = y;
-
-				COREWEBVIEW2_MOUSE_EVENT_KIND eventKind{};
-				std::optional<SyntheticMouseButton> button;
-				bool buttonDown = false;
-				switch (a_msg) {
-				case WM_MOUSEMOVE:   eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE; break;
-				case WM_LBUTTONDOWN:
-					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN;
-					button = SyntheticMouseButton::left; buttonDown = true; break;
-				case WM_LBUTTONUP:
-					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
-					button = SyntheticMouseButton::left; break;
-				case WM_RBUTTONDOWN:
-					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN;
-					button = SyntheticMouseButton::right; buttonDown = true; break;
-				case WM_RBUTTONUP:
-					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP;
-					button = SyntheticMouseButton::right; break;
-				case WM_MBUTTONDOWN:
-					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN;
-					button = SyntheticMouseButton::middle; buttonDown = true; break;
-				case WM_MBUTTONUP:
-					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
-					button = SyntheticMouseButton::middle; break;
-				case WM_MOUSEWHEEL:  eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL; break;
-				default: return false;
-				}
-				if (!mapped.inside && (buttonDown || a_msg == WM_MOUSEWHEEL)) {
-					return true;
-				}
-				const auto keys = static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
-					static_cast<UINT32>(LOWORD(a_wparam)));
-				const auto data = a_msg == WM_MOUSEWHEEL ?
-					static_cast<UINT32>(static_cast<SHORT>(HIWORD(a_wparam))) : 0u;
-				const auto hr = inputTarget->compositionController->SendMouseInput(
-					eventKind, keys, data, POINT{ x, y });
-				if (SUCCEEDED(hr) && button) {
-					inputTarget->syntheticMouseButtons.Observe(*button, buttonDown);
-				}
-				return true;
-			}
-
-			static LRESULT CALLBACK HostInputWndProc(
-				HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
-			{
-				auto* self = s_hostInputApp;
-				if (self && a_msg == kReconcileMouseCaptureMessage) {
-					if (static_cast<std::uint64_t>(a_wparam) == self->focusEpoch &&
-						self->focusGranted && self->GameIsForeground() &&
-						self->inputTarget && !self->inputTarget->hidden &&
-						!self->inputTarget->nativePopupOpen) {
-						self->ApplyMouseCapture();
-						const bool rearmed = ::GetCapture() == self->hostWindow;
-						const auto recovery = ++self->mouseCaptureRecoveryCount;
-						self->log.Warn(std::format(
-							"MouseCaptureRecovery #{}: view '{}' unexpectedly lost Win32 "
-							"mouse capture while input remained granted; rearmed={}",
-							recovery, self->inputTarget->id, rearmed));
-					}
-					return 0;
-				}
-				if (self && a_msg == kReconcileFocusMessage) {
-					if (static_cast<std::uint64_t>(a_wparam) == self->focusEpoch) {
-						if (self->focusGranted) self->RequestInputFocus("focus event");
-						else self->ReleaseInputFocus("focus event");
-					}
-					return 0;
-				}
-				if (self && a_msg == WM_CAPTURECHANGED) {
-					const bool unexpected = self->focusGranted && self->GameIsForeground() &&
-						self->inputTarget && !self->inputTarget->hidden &&
-						!self->inputTarget->nativePopupOpen &&
-						reinterpret_cast<HWND>(a_lparam) != self->hostWindow;
-					if (self->inputTarget) {
-						self->RecoverPressedMouseButtons(
-							*self->inputTarget, "Win32 WM_CAPTURECHANGED");
-					}
-					if (unexpected) self->QueueMouseCaptureReconcile();
-				}
-				if (self && a_msg == WM_INPUT) {
-					self->AccumulateRawMouse(a_lparam);
-					// The original proc must still release the raw-input buffer.
-				}
-				if (self && self->focusGranted) {
-					if (a_msg == WM_SETCURSOR) {
-						UINT32 id = 0;
-						if (self->inputTarget && self->inputTarget->compositionController &&
-							SUCCEEDED(self->inputTarget->compositionController->get_SystemCursorId(&id))) {
-							HCURSOR cursor = id == 0 ? nullptr : ::LoadCursorW(
-								nullptr, MAKEINTRESOURCEW(id));
-							if (id != 0 && !cursor) {
-								cursor = ::LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-							}
-							::SetCursor(cursor);
-						}
-						return TRUE;
-					}
-					if (self->SendCapturedMouse(a_msg, a_wparam, a_lparam)) {
-						return 0;
-					}
-				}
-				const auto proc = self ? self->hostWindowProc : nullptr;
-				return proc ? ::CallWindowProcW(proc, a_hwnd, a_msg, a_wparam, a_lparam)
-							: ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
-			}
-
 			void SendMouse(const json& a_msg)
 			{
-				if (!pointerInputEnabled || !inputTarget || !inputTarget->compositionController) return;
+				if (!focusGranted || !windowActive || !GameIsForeground()) return;
+				if (!pointerInputEnabled || !inputTarget || inputTarget->hidden ||
+					!inputTarget->domSeen || !inputTarget->compositionController) return;
 				const auto mouse = msg::FromJson<msg::Mouse>(a_msg);
 				const std::string& kind = mouse.kind;
 				const bool physicalWheel = kind == "physicalWheel";
-				if (physicalWheel && rawMouseRegistered) return;
 				int x = mouse.x;
 				int y = mouse.y;
-				bool inside = true;
-				if (focusGranted && physicalWheel) {
-					const auto mapped = LiveMouseMapping();
-					x = static_cast<int>(mapped.x);
-					y = static_cast<int>(mapped.y);
-					inside = mapped.inside;
-				}
 				if (kind == "move") {
 					capturedMouseX = std::clamp(x, 0, static_cast<int>(viewportWidth) - 1);
 					capturedMouseY = std::clamp(y, 0, static_cast<int>(viewportHeight) - 1);
@@ -2079,7 +1494,6 @@ namespace osfui::wv2
 				if (kind == "move") {
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
 				} else if (kind == "wheel" || physicalWheel) {
-					if (!inside) return;
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL;
 					data = static_cast<UINT32>(mouse.wheel);
 				} else {
@@ -2097,18 +1511,14 @@ namespace osfui::wv2
 						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN : COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
 					}
 				}
+				auto buttons = inputTarget->syntheticMouseButtons;
+				if (trackedButton) buttons.Observe(*trackedButton, buttonDown);
+				const auto virtualKeys = static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
+					static_cast<UINT32>(MouseVirtualKeys(buttons.Pressed())) | (mouse.modifiers & (MK_SHIFT | MK_CONTROL)));
 				const auto hr = inputTarget->compositionController->SendMouseInput(eventKind,
-					COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, data, POINT{ x, y });
+					virtualKeys, data, POINT{ x, y });
 				if (SUCCEEDED(hr) && trackedButton) {
 					inputTarget->syntheticMouseButtons.Observe(*trackedButton, buttonDown);
-				}
-			}
-
-			void QueueMouseCaptureReconcile()
-			{
-				if (hostWindow) {
-					::PostMessageW(hostWindow, kReconcileMouseCaptureMessage,
-						static_cast<WPARAM>(focusEpoch), 0);
 				}
 			}
 
@@ -2130,14 +1540,6 @@ namespace osfui::wv2
 			{
 				focusGranted = false;
 				focusEpoch = 0;
-				focusStateSequence = 0;
-				publishedFocusState = false;
-				lastPublishedFocused = false;
-				lastPublishedFocusView.clear();
-				ResetRelativePointerCapture();
-				SetRawMouseInput(false);
-				ReconcileInputWidgetSubclass();
-				ApplyMouseCapture();
 				captureClosing.store(true);
 				if (framePool) {
 					try { framePool.FrameArrived(frameToken); } catch (...) {}
@@ -2268,7 +1670,6 @@ namespace osfui::wv2
 							::TranslateMessage(&message);
 							::DispatchMessageW(&message);
 						}
-						FlushRelativePointer();
 					}
 				} else {
 					exitCode = 5;
@@ -2299,8 +1700,6 @@ namespace osfui::wv2
 					::DestroyWindow(hostWindow);
 					hostWindow = nullptr;
 				}
-				hostWindowProc = nullptr;
-				s_hostInputApp = nullptr;
 				if (bootstrapWindow) {
 					::DestroyWindow(bootstrapWindow);
 					bootstrapWindow = nullptr;

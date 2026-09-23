@@ -34,7 +34,6 @@
 
 using nlohmann::json;
 
-// Private message used to return unsolicited browser focus to the game window.
 static_assert(OSFUI::OverlayInputHook::kRestoreGameFocusMessage ==
 	osfui::wv2::kRestoreGameFocusMessage);
 
@@ -266,16 +265,13 @@ namespace OSFUI
 	{
 		struct Notify
 		{
-			enum class Kind { Web, Load, Fatal, Console, Ring, Log, Focus, Dead };
+			enum class Kind { Web, Load, Fatal, Console, Ring, Log, Dead };
 			Kind           kind{ Kind::Web };
 			std::string    view;
 			std::string    text, detail;
-			bool           focused{};
 			bool           failed{};
 			int            code{};
 			std::uint32_t  unsignedCode{};
-			std::uint64_t  id{};
-			std::uint64_t  sequence{};
 			SharedRingDesc ring{};
 		};
 
@@ -295,8 +291,6 @@ namespace OSFUI
 		LoadHandler             onLoad;
 		FailureHandler          onFailure;
 		CursorChangeHandler     onCursorChange;
-		NativeAcceleratorHandler onAccelerator;
-		RelativePointerHandler  onRelativePointer;
 		SharedRingHandler       onSharedRing;
 		HealthHandler           onHealth;
 		// Game-thread only (Drain/setters).
@@ -321,10 +315,6 @@ namespace OSFUI
 		std::uint32_t        width{ 1 }, height{ 1 };
 		std::uint32_t        viewportWidth{ 1 }, viewportHeight{ 1 };
 		bool                 pointerInputEnabled{ true };
-		// accelState mirror (SetInputCaptured diffs against this)
-		bool          accCaptured{ false }, accSent{ false };
-		std::string   relativePointerView;
-		bool          relativePointerActive{ false };
 
 		enum class Lifecycle : std::uint8_t
 		{
@@ -352,16 +342,9 @@ namespace OSFUI
 		std::mutex sessionMutex;
 		BrowserHostSession session;
 
-		// Focus requests cross a process boundary. Epochs and actual-state acknowledgements make transitions deterministic; the slow Win32 poll below remains a last-resort safety net.
-		std::atomic_bool focusRequested{ false };  // last SetNativeFocus argument
+		// Focus grants cross a process boundary; epochs reject stale requests.
+		std::atomic_bool focusRequested{ false };
 		std::atomic<std::uint64_t> focusEpoch{ 0 };
-		std::uint64_t focusAckEpoch{ 0 };
-		std::uint64_t focusAckSequence{ 0 };
-		bool          focusActual{ false };
-		std::string   focusActualView;
-		double focusCheckAccum{ 0.0 };
-		double focusMismatchAccum{ 0.0 };
-		bool   focusFixWarned{ false };  // one WARN per strand episode
 
 		std::atomic<std::uint32_t> ringSlotsAnnounced{ 0 };
 		std::uint32_t              ringSlotsReported{ 0 };
@@ -1023,9 +1006,7 @@ namespace OSFUI
 					.height = viewportHeight,
 					.presentationEpoch = presentationEpoch,
 				}));
-				addBootstrap(ToJson(msg::AccelState{ .captured = accCaptured }));
 				addBootstrap(ToJson(msg::PointerInput{ .enabled = pointerInputEnabled }));
-				accSent = true;
 				for (const auto& view : views) {
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
 						.logicalHeight = view.logicalHeight }));
@@ -1040,10 +1021,6 @@ namespace OSFUI
 					.focused = focusRequested.load(),
 					.epoch = focusEpoch.load(),
 					.view = inputTargetId,
-				}));
-				addBootstrap(ToJson(msg::RelativePointerCapture{
-					.view = relativePointerView,
-					.active = relativePointerActive,
 				}));
 			}
 			if (!PublishConnected(std::move(bootstrap))) {
@@ -1122,25 +1099,6 @@ namespace OSFUI
 						onCursorChange(CursorShapeFromSystemCursorId(
 							msg::FromJson<msg::Cursor>(message).id));
 					}
-				} else if (type == msg::Accelerator::kType) {
-					// Invoked off the game thread; the handler must stay cheap.
-					if (onAccelerator) {
-						const auto accel = msg::FromJson<msg::Accelerator>(message);
-						onAccelerator(accel.vk, accel.down);
-					}
-				} else if (type == msg::RelativePointer::kType) {
-					// Invoked off the game thread; Runtime only touches atomic accumulators.
-					if (onRelativePointer) {
-						const auto pointer = msg::FromJson<msg::RelativePointer>(message);
-						onRelativePointer(pointer.view, pointer.dx, pointer.dy, pointer.wheel);
-					}
-				} else if (type == msg::FocusState::kType) {
-					const auto state = msg::FromJson<msg::FocusState>(message);
-					Push(Notify{ .kind = Notify::Kind::Focus,
-						.view = state.view,
-						.focused = state.focused,
-						.id = state.epoch,
-						.sequence = state.sequence });
 				} else if (type == msg::Log::kType) {
 					const auto entry = msg::FromJson<msg::Log>(message);
 					Push(Notify{ .kind = Notify::Kind::Log,
@@ -1361,14 +1319,6 @@ namespace OSFUI
 						REX::INFO("WebView2 browser host: {}", value.text);
 					}
 					break;
-				case Notify::Kind::Focus:
-					if (value.sequence > focusAckSequence) {
-						focusAckSequence = value.sequence;
-						focusAckEpoch = value.id;
-						focusActual = value.focused;
-						focusActualView = std::move(value.view);
-					}
-					break;
 				case Notify::Kind::Dead:
 					if (!deadLogged) {
 						deadLogged = true;
@@ -1544,23 +1494,11 @@ namespace OSFUI
 				announcedGeneration = 0;
 				// Keep ring generations monotonic across browser-host processes.
 			}
-			{
-				std::scoped_lock lock(stateMutex);
-				accSent = false;
-			}
-
 			connected.store(false, std::memory_order_release);
 			dead.store(false, std::memory_order_release);
 			deadLogged = false;
 			focusRequested.store(false);
 			focusEpoch.store(0);
-			focusAckEpoch = 0;
-			focusAckSequence = 0;
-			focusActual = false;
-			focusActualView.clear();
-			focusCheckAccum = 0.0;
-			focusMismatchAccum = 0.0;
-			focusFixWarned = false;
 			ringSlotsAnnounced.store(0);
 			ringSlotsReported = 0;
 			stopRequested.store(false);
@@ -1586,6 +1524,7 @@ namespace OSFUI
 	{
 		// Let the SDK-linked browser host diagnose a missing Evergreen runtime in hello.
 		_impl->config = a_config;
+		REX::INFO("WebView2 input mode: forwarded CDP (Starfield retains native focus)");
 		_impl->viewsRoot = a_config.dataDir / "views";
 		_impl->userData = LocalOsfuiDir() / "WebView2";
 #if defined(OSFUI_TEST_HARNESS)
@@ -1672,9 +1611,6 @@ namespace OSFUI
 		_impl->Send(ToJson(msg::SetInputTarget{ .view = std::string(a_id) }));
 		if (_impl->focusRequested.load()) {
 			const auto epoch = _impl->focusEpoch.fetch_add(1) + 1;
-			_impl->focusCheckAccum = 0.0;
-			_impl->focusMismatchAccum = 0.0;
-			_impl->focusFixWarned = false;
 			_impl->Send(ToJson(msg::Focus{
 				.focused = true, .epoch = epoch, .view = std::string(a_id) }));
 		}
@@ -1722,7 +1658,7 @@ namespace OSFUI
 		_impl->Send(ToJson(msg::PointerInput{ .enabled = a_enabled }));
 	}
 
-	void WebView2HostWebRenderer::Update(double a_deltaSeconds)
+	void WebView2HostWebRenderer::Update(double)
 	{
 		// Start and initialize the browser host while the overlay remains hidden.
 		if (_impl->lifecycle.load(std::memory_order_acquire) ==
@@ -1735,62 +1671,6 @@ namespace OSFUI
 			if (wantsView) _impl->Start();
 		}
 		_impl->DrainNotifications();
-
-		// The host's focus events/acknowledgements are authoritative. Poll Win32 slowly as a safety net for lost OS/WebView events, and only repair a mismatch that persists.
-		const auto browserHostSession = _impl->BrowserHostSessionSnapshot();
-		if (browserHostSession.topLevel && _impl->connected.load(std::memory_order_acquire)) {
-			_impl->focusCheckAccum += a_deltaSeconds;
-			if (_impl->focusCheckAccum >= 0.5) {
-				const double checkElapsed = _impl->focusCheckAccum;
-				_impl->focusCheckAccum = 0.0;
-				GUITHREADINFO info{};
-				info.cbSize = sizeof(info);
-				bool inGameTree = false;
-				bool focusInHost = false;
-				if (::GetGUIThreadInfo(0, &info) && info.hwndFocus) {
-					DWORD focusPid = 0;
-					::GetWindowThreadProcessId(info.hwndFocus, &focusPid);
-					inGameTree = info.hwndFocus == browserHostSession.topLevel || ::IsChild(browserHostSession.topLevel, info.hwndFocus) != FALSE;
-					focusInHost = browserHostSession.pid != 0 && focusPid == browserHostSession.pid;
-				}
-
-				std::string target;
-				{
-					std::scoped_lock lock(_impl->stateMutex);
-					target = _impl->inputTargetId;
-				}
-				const bool requested = _impl->focusRequested.load();
-				const auto epoch = _impl->focusEpoch.load();
-				const bool ackMatches = _impl->focusAckEpoch >= epoch && _impl->focusActual == requested && (!requested || target.empty() || _impl->focusActualView == target);
-				const bool nativeMatches = inGameTree && (focusInHost == requested);
-				const bool healthy = ackMatches && nativeMatches;
-				if (healthy || !inGameTree) {
-					_impl->focusMismatchAccum = 0.0;
-					_impl->focusFixWarned = false;
-				} else {
-					_impl->focusMismatchAccum += checkElapsed;
-					constexpr double kRepairDelaySeconds = 1.0;
-					if (_impl->focusMismatchAccum >= kRepairDelaySeconds) {
-						_impl->focusMismatchAccum = 0.0;
-						if (!_impl->focusFixWarned) {
-							_impl->focusFixWarned = true;
-							REX::WARN("WebView2HostWebRenderer: focus mismatch persisted for {:.1f}s (desired={} target='{}' epoch={}, actual={} view='{}' ackEpoch={}); applying safety repair", 
-								kRepairDelaySeconds, requested, target, epoch, _impl->focusActual, _impl->focusActualView, _impl->focusAckEpoch);
-						}
-						if (requested) {
-							_impl->Send(ToJson(msg::SetInputTarget{ .view = target }));
-							_impl->Send(ToJson(msg::Focus{ .focused = true, .epoch = epoch, .view = target }));
-						} else {
-							::PostMessageW(browserHostSession.topLevel, OverlayInputHook::kRestoreGameFocusMessage, static_cast<WPARAM>(epoch), 0);
-						}
-					}
-				}
-			}
-		} else {
-			_impl->focusCheckAccum = 0.0;
-			_impl->focusMismatchAccum = 0.0;
-			_impl->focusFixWarned = false;
-		}
 
 		// Report truncated ring depth as a game-thread degradation, not total failure.
 		if (const auto announced = _impl->ringSlotsAnnounced.exchange(0, std::memory_order_relaxed);
@@ -1855,28 +1735,6 @@ namespace OSFUI
 	{
 		_impl->onCursorChange = std::move(a_handler);
 	}
-	void WebView2HostWebRenderer::SetNativeAcceleratorHandler(
-		NativeAcceleratorHandler a_handler)
-	{
-		_impl->onAccelerator = std::move(a_handler);
-	}
-	void WebView2HostWebRenderer::SetRelativePointerHandler(RelativePointerHandler a_handler)
-	{
-		_impl->onRelativePointer = std::move(a_handler);
-	}
-	void WebView2HostWebRenderer::SetRelativePointerCapture(
-		std::string_view a_viewId, bool a_active)
-	{
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			_impl->relativePointerView = a_active ? std::string(a_viewId) : std::string{};
-			_impl->relativePointerActive = a_active;
-		}
-		_impl->Send(ToJson(msg::RelativePointerCapture{
-			.view = a_active ? std::string(a_viewId) : std::string{},
-			.active = a_active,
-		}));
-	}
 	void WebView2HostWebRenderer::SetSharedRingHandler(SharedRingHandler a_handler)
 	{
 		_impl->onSharedRing = std::move(a_handler);
@@ -1885,7 +1743,7 @@ namespace OSFUI
 	{
 		_impl->onHealth = std::move(a_handler);
 	}
-	void WebView2HostWebRenderer::SetNativeFocus(bool a_focused)
+	void WebView2HostWebRenderer::SetInputFocus(bool a_focused)
 	{
 		_impl->focusRequested.store(a_focused);
 		const auto epoch = _impl->focusEpoch.fetch_add(1) + 1;
@@ -1894,49 +1752,44 @@ namespace OSFUI
 			std::scoped_lock lock(_impl->stateMutex);
 			target = _impl->inputTargetId;
 		}
-		_impl->focusCheckAccum = 0.0;
-		_impl->focusMismatchAccum = 0.0;
-		_impl->focusFixWarned = false;
 		if (a_focused) {
 			_impl->Start();
 		}
 		_impl->Send(ToJson(msg::Focus{ .focused = a_focused, .epoch = epoch, .view = target }));
-		const auto browserHostSession = _impl->BrowserHostSessionSnapshot();
-		if (!a_focused && browserHostSession.topLevel) {
-			// Restore game focus on the game's own window thread.
-			::PostMessageW(browserHostSession.topLevel, OverlayInputHook::kRestoreGameFocusMessage, static_cast<WPARAM>(epoch), 0);
-		}
-	}
-
-	void WebView2HostWebRenderer::SetInputCaptured(bool a_captured)
-	{
-		bool changed = false;
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			changed = !_impl->accSent || _impl->accCaptured != a_captured;
-			_impl->accCaptured = a_captured;
-			if (changed && _impl->connected.load()) _impl->accSent = true;
-		}
-		if (changed) {
-			_impl->Send(ToJson(msg::AccelState{ .captured = a_captured }));
-		}
 	}
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
 	{
-		// Synthetic page keys cover gamepad navigation and Esc; physical keyboard and IME stay native.
+		// Preserve the framework's page-level gamepad navigation independently of physical input.
 		_impl->Send(ToJson(msg::Key{ .vk = a_vkCode, .down = a_down }));
+	}
+
+	void WebView2HostWebRenderer::InjectKeyboard(const msg::Keyboard& a_key)
+	{
+		_impl->Send(ToJson(a_key));
+	}
+	void WebView2HostWebRenderer::InjectText(const msg::TextInput& a_text)
+	{
+		_impl->Send(ToJson(a_text));
+	}
+	void WebView2HostWebRenderer::SetWindowActive(bool a_active)
+	{
+		_impl->Send(ToJson(msg::WindowActive{ .active = a_active }));
 	}
 
 	void WebView2HostWebRenderer::InjectMouseMove(int a_x, int a_y)
 	{
-		_impl->Send(ToJson(msg::Mouse{ .kind = "move", .x = a_x, .y = a_y }));
+		const auto modifiers = (::GetAsyncKeyState(VK_SHIFT) & 0x8000 ? MK_SHIFT : 0u) |
+			(::GetAsyncKeyState(VK_CONTROL) & 0x8000 ? MK_CONTROL : 0u);
+		_impl->Send(ToJson(msg::Mouse{ .kind = "move", .x = a_x, .y = a_y, .modifiers = modifiers }));
 	}
 	void WebView2HostWebRenderer::InjectMouseButton(
 		int a_x, int a_y, int a_button, bool a_down)
 	{
+		const auto modifiers = (::GetAsyncKeyState(VK_SHIFT) & 0x8000 ? MK_SHIFT : 0u) |
+			(::GetAsyncKeyState(VK_CONTROL) & 0x8000 ? MK_CONTROL : 0u);
 		_impl->Send(ToJson(msg::Mouse{ .kind = "button", .x = a_x, .y = a_y,
-			.button = a_button, .down = a_down }));
+			.button = a_button, .down = a_down, .modifiers = modifiers }));
 	}
 	void WebView2HostWebRenderer::InjectMouseWheel(int a_x, int a_y, int a_wheelDelta)
 	{
@@ -1947,8 +1800,10 @@ namespace OSFUI
 	void WebView2HostWebRenderer::InjectPhysicalMouseWheel(
 		int a_x, int a_y, int a_wheelDelta)
 	{
+		const auto modifiers = (::GetAsyncKeyState(VK_SHIFT) & 0x8000 ? MK_SHIFT : 0u) |
+			(::GetAsyncKeyState(VK_CONTROL) & 0x8000 ? MK_CONTROL : 0u);
 		_impl->Send(ToJson(msg::Mouse{ .kind = "physicalWheel", .x = a_x, .y = a_y,
-			.wheel = a_wheelDelta }));
+			.wheel = a_wheelDelta, .modifiers = modifiers }));
 	}
 
 	void WebView2HostWebRenderer::OpenDevTools(std::string_view a_viewId)

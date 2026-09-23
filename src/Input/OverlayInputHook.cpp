@@ -2,13 +2,16 @@
 
 #include "Core/Log.h"
 #include "Input/HardwareCursor.h"
+#include "Input/BrowserKeyboard.h"
 #include "Runtime/Runtime.h"
+#include "Wv2CdpInput.h"
 
 // Keep <Windows.h> here with NOGDI to avoid wingdi's ERROR macro.
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #define NOMINMAX
 #include <Windows.h>
+#include <imm.h>
 
 namespace OSFUI::OverlayInputHook
 {
@@ -27,6 +30,28 @@ namespace OSFUI::OverlayInputHook
 		// still receive motion on touchpads, virtual mice, and remapped devices.
 		POINT g_lastAbsoluteClient{};
 		bool  g_hasLastAbsoluteClient{ false };
+		bool g_keyboardCaptured{ false };
+		bool g_imeComposing{ false };
+		osfui::wv2::Utf16Input g_textInput;
+
+		std::wstring ImeString(HIMC a_context, DWORD a_kind)
+		{
+			const LONG bytes = ::ImmGetCompositionStringW(a_context, a_kind, nullptr, 0);
+			if (bytes <= 0 || bytes > 65536 || bytes % sizeof(wchar_t) != 0) return {};
+			std::wstring text(static_cast<std::size_t>(bytes) / sizeof(wchar_t), L'\0');
+			if (::ImmGetCompositionStringW(a_context, a_kind, text.data(), bytes) != bytes) return {};
+			return text;
+		}
+
+		void ForwardCharacter(Runtime& a_runtime, char16_t a_character)
+		{
+			// Editing/navigation control characters are handled by rawKeyDown.
+			if (a_character < 0x20 && a_character != u'\r') return;
+			const auto text = g_textInput.Push(a_character);
+			if (!text.empty()) {
+				a_runtime.OnGameWindowText({ .text = BrowserInputUtf8(std::wstring(text.begin(), text.end())) });
+			}
+		}
 
 		struct FindWindowData
 		{
@@ -160,7 +185,20 @@ namespace OSFUI::OverlayInputHook
 			auto& runtime = Runtime::Get();
 
 			// Reconcile the main-thread capture edge on the window thread.
-			const bool wantHwCursor = runtime.IsPointerCaptured();
+			const bool wantHwCursor = runtime.IsPointerCaptured() && ::GetForegroundWindow() == a_hwnd;
+			const bool keyboardCaptured = runtime.IsInputCaptured();
+			if (keyboardCaptured != g_keyboardCaptured) {
+				g_keyboardCaptured = keyboardCaptured;
+				g_textInput.Reset();
+				const bool cancelComposition = !keyboardCaptured && g_imeComposing;
+				g_imeComposing = false;
+				if (cancelComposition) {
+					if (const auto context = ::ImmGetContext(a_hwnd)) {
+						::ImmNotifyIME(context, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+						::ImmReleaseContext(a_hwnd, context);
+					}
+				}
+			}
 			if (wantHwCursor != g_hwCursorActive) {
 				g_hwCursorActive = wantHwCursor;
 				g_hasLastAbsoluteClient = false;
@@ -176,27 +214,25 @@ namespace OSFUI::OverlayInputHook
 				// The capture/cursor edge was already reconciled above.
 				return 0;
 			case kRestoreGameFocusMessage:
-				// A close-edge restore can arrive after a rapid reopen. Never let that stale message steal focus from the newly active input-capturing view.
-				if (!runtime.IsInputCaptured()) {
-					::SetActiveWindow(a_hwnd);
-					::SetFocus(a_hwnd);
-				} else {
-					runtime.NotifyGameWindowFocused();
-				}
+				// Never activate Starfield over another foreground application.
+				if (::GetForegroundWindow() == a_hwnd) ::SetFocus(a_hwnd);
 				return 0;
 			case WM_SETFOCUS:
-				if (runtime.IsInputCaptured()) {
-					runtime.NotifyGameWindowFocused();
-				}
+				runtime.OnGameWindowActivation(true);
+				break;
+			case WM_KILLFOCUS:
+				runtime.OnGameWindowActivation(false);
+				g_textInput.Reset();
+				g_imeComposing = false;
+				HardwareCursor::Deactivate();
+				g_hwCursorActive = false;
 				break;
 			case WM_KEYDOWN:
 			case WM_SYSKEYDOWN:
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
-				const bool repeat = (a_lparam & 0x40000000) != 0;
-				// Route only the initial press so auto-repeat cannot retrigger toggles.
-				const bool consume = repeat ? runtime.IsInputCaptured() :
-					                              runtime.OnGameWindowKey(vk, true);
+				const bool consume = runtime.OnGameWindowKeyboard(
+					BrowserKeyboardEvent(vk, true, a_msg == WM_SYSKEYDOWN, a_lparam));
 				if (consume) {
 					return 0;
 				}
@@ -206,13 +242,20 @@ namespace OSFUI::OverlayInputHook
 			case WM_SYSKEYUP:
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
-				if (runtime.OnGameWindowKey(vk, false)) {
+				const bool consume = runtime.OnGameWindowKeyboard(
+					BrowserKeyboardEvent(vk, false, a_msg == WM_SYSKEYUP, a_lparam));
+				if (consume) {
 					return 0;
 				}
 				break;
 			}
 			case WM_CHAR:
-				// Chromium receives native text and IME; swallow the game's duplicate stream while captured.
+				if (runtime.IsInputCaptured()) {
+					if (!g_imeComposing) ForwardCharacter(runtime, static_cast<char16_t>(a_wparam));
+					return 0;
+				}
+				break;
+			case WM_SYSCHAR:
 				if (runtime.IsInputCaptured()) return 0;
 				break;
 			case WM_UNICHAR:
@@ -223,7 +266,56 @@ namespace OSFUI::OverlayInputHook
 				if (a_wparam == UNICODE_NOCHAR) {
 					return TRUE;  // yes, we accept WM_UNICHAR
 				}
+				if (a_wparam <= 0x10FFFF) {
+					g_textInput.Reset();
+					if (a_wparam >= 0x10000) {
+						const auto scalar = static_cast<std::uint32_t>(a_wparam - 0x10000);
+						ForwardCharacter(runtime, static_cast<char16_t>(0xD800 + (scalar >> 10)));
+						ForwardCharacter(runtime, static_cast<char16_t>(0xDC00 + (scalar & 0x3FF)));
+					} else if (a_wparam < 0xD800 || a_wparam > 0xDFFF) {
+						ForwardCharacter(runtime, static_cast<char16_t>(a_wparam));
+					}
+				}
 				return 0;
+			case WM_IME_SETCONTEXT:
+				if (runtime.IsInputCaptured()) {
+					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam & ~ISC_SHOWUICOMPOSITIONWINDOW);
+				}
+				break;
+			case WM_IME_STARTCOMPOSITION:
+				if (runtime.IsInputCaptured()) {
+					g_imeComposing = true;
+					g_textInput.Reset();
+					return 0;
+				}
+				break;
+			case WM_IME_COMPOSITION:
+				if (runtime.IsInputCaptured()) {
+					if (const auto context = ::ImmGetContext(a_hwnd)) {
+						if (a_lparam & GCS_RESULTSTR) {
+							runtime.OnGameWindowText({ .text = BrowserInputUtf8(ImeString(context, GCS_RESULTSTR)), .kind = "commit" });
+						}
+						if (a_lparam & GCS_COMPSTR) {
+							const auto text = ImeString(context, GCS_COMPSTR);
+							const auto cursor = ::ImmGetCompositionStringW(context, GCS_CURSORPOS, nullptr, 0);
+							runtime.OnGameWindowText({ .text = BrowserInputUtf8(text), .kind = "composition",
+								.cursor = static_cast<std::uint32_t>(std::clamp<LONG>(cursor, 0, static_cast<LONG>(text.size()))) });
+						}
+						::ImmReleaseContext(a_hwnd, context);
+					}
+					return 0; // suppress DefWindowProc's duplicate WM_IME_CHAR commit
+				}
+				break;
+			case WM_IME_ENDCOMPOSITION:
+				if (runtime.IsInputCaptured()) {
+					g_imeComposing = false;
+					runtime.OnGameWindowText({ .text = "", .kind = "cancel" });
+					return 0;
+				}
+				break;
+			case WM_IME_CHAR:
+				if (runtime.IsInputCaptured()) return 0;
+				break;
 			case WM_DEADCHAR:
 				// Block dead-key prefixes from the game while Chromium awaits the composed WM_CHAR.
 				if (runtime.IsInputCaptured()) {
@@ -240,7 +332,7 @@ namespace OSFUI::OverlayInputHook
 			case WM_INPUT:
 				if (runtime.IsInputCaptured()) {
 					// Route to the overlay and use DefWindowProc only to release the raw-input buffer.
-					RouteRawMouse(a_hwnd, a_lparam);
+					if (::GetForegroundWindow() == a_hwnd) RouteRawMouse(a_hwnd, a_lparam);
 					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 				}
 				break;

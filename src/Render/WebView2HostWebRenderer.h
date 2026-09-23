@@ -4,6 +4,8 @@
 #include "Render/SharedTextureTransport.h"
 #include "Views/ViewManifest.h"
 
+namespace osfui::wv2::msg { struct Keyboard; struct TextInput; }
+
 namespace OSFUI
 {
 	struct WebView2HostConfig
@@ -51,14 +53,9 @@ namespace OSFUI
 		using FailureHandler = std::function<void(const FailureEvent& a_event)>;
 		using HealthHandler = std::function<void(const HealthEvent& a_event)>;
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
-		using NativeAcceleratorHandler =
-			std::function<bool(std::uint32_t a_vkCode, bool a_down)>;
-		using RelativePointerHandler = std::function<void(
-			std::string_view a_viewId, std::int32_t a_dx, std::int32_t a_dy,
-			std::int32_t a_wheel)>;
 		using SharedRingHandler = std::function<void(const SharedRingDesc& a_desc)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
-		// Update drains game-thread callbacks; cursor and accelerator callbacks run on the transport thread.
+		// Update drains game-thread callbacks; cursor callbacks run on the transport thread.
 
 		WebView2HostWebRenderer();
 		~WebView2HostWebRenderer();
@@ -78,15 +75,13 @@ namespace OSFUI
 		void SetLoadHandler(LoadHandler a_handler);
 		void SetFailureHandler(FailureHandler a_handler);
 		void SetCursorChangeHandler(CursorChangeHandler a_handler);
-		void SetNativeAcceleratorHandler(NativeAcceleratorHandler a_handler);
-		void SetRelativePointerHandler(RelativePointerHandler a_handler);
-		void SetRelativePointerCapture(std::string_view a_viewId, bool a_active);
-		void SetNativeFocus(bool a_focused);
-		// While captured, the browser host hands Escape back through the accelerator handler.
-		void SetInputCaptured(bool a_captured);
+		void SetInputFocus(bool a_focused);
 		void SetSharedRingHandler(SharedRingHandler a_handler);
 		void SetHealthHandler(HealthHandler a_handler);
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down);
+		void InjectKeyboard(const osfui::wv2::msg::Keyboard& a_key);
+		void InjectText(const osfui::wv2::msg::TextInput& a_text);
+		void SetWindowActive(bool a_active);
 		void InjectMouseMove(int a_x, int a_y);
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down);
 		void InjectMouseWheel(int a_x, int a_y, int a_wheelDelta);

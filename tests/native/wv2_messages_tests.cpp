@@ -38,8 +38,6 @@ int main()
 		Check(msg::ToJson(msg::Shutdown{}).at("type") == "shutdown", "fieldless message stamps type");
 		Check(msg::ToJson(msg::Ready{}).at("type") == "ready", "ready stamps type");
 		Check(msg::SetInputTarget::kType == "setInputTarget", "input target has its own message type");
-		Check(msg::RelativePointerCapture::kType != msg::RelativePointer::kType,
-			"relative-pointer state and motion use distinct directions");
 		Check(msg::PointerInput::kType == "pointerInput",
 			"pointer-transition state has a stable wire spelling");
 		Check(msg::Viewport::kType == "viewport",
@@ -78,22 +76,6 @@ int main()
 			.focused = true, .epoch = 41, .view = "acme.mod/panel" });
 		Check(request.focused && request.epoch == 41 && request.view == "acme.mod/panel",
 			"focus request preserves desired state, epoch and target");
-		const auto state = RoundTrip(msg::FocusState{
-			.focused = true, .epoch = 41, .sequence = 9, .view = "acme.mod/panel" });
-		Check(state.focused && state.epoch == 41 && state.sequence == 9 &&
-			state.view == "acme.mod/panel",
-			"focus acknowledgement preserves actual state ordering");
-	}
-	{
-		const auto capture = RoundTrip(msg::RelativePointerCapture{
-			.view = "acme.mod/panel", .active = true });
-		Check(capture.view == "acme.mod/panel" && capture.active,
-			"relative-pointer capture preserves its admitted view owner");
-		const auto motion = RoundTrip(msg::RelativePointer{
-			.view = "acme.mod/panel", .dx = -17, .dy = 23, .wheel = -120 });
-		Check(motion.view == "acme.mod/panel" && motion.dx == -17 &&
-			motion.dy == 23 && motion.wheel == -120,
-			"signed raw relative-pointer motion survives host IPC");
 	}
 	{
 		Check(!RoundTrip(msg::PointerInput{ .enabled = false }).enabled,

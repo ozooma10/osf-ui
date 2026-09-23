@@ -93,10 +93,6 @@ namespace OSFUI
 		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
 			HardwareCursor::SetShape(a_shape);
 		});
-		_renderer->SetRelativePointerHandler([this](std::string_view a_viewId,
-			std::int32_t a_dx, std::int32_t a_dy, std::int32_t a_wheel) {
-			OnBrowserHostRelativePointer(a_viewId, a_dx, a_dy, a_wheel);
-		});
 	}
 
 	bool Runtime::InitializeCompositor()
@@ -156,13 +152,6 @@ namespace OSFUI
 			++queued;
 		}
 		REX::INFO("Runtime: queued {} manifest-selected HUD view(s) for lazy startup", queued);
-    }
-
-    void Runtime::ConfigureInputRouting()
-    {
-		_renderer->SetNativeAcceleratorHandler([this](std::uint32_t a_vkCode, bool a_down) {
-			return OnNativeAcceleratorKey(a_vkCode, a_down);
-		});
     }
 
     bool Runtime::Initialize()
@@ -226,7 +215,6 @@ namespace OSFUI
 		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (_bridge) _bridge->HandleWebMessage(a_viewId, a_json);
 		});
-		ConfigureInputRouting();
 		if (_drawPathRequested && !UiPass::Install()) {
 			_osfSettings.ReportFailure("startup.draw-path", "webview.draw-path", "Scaleform UI pass hook failed");
 			_webRuntimeInitializing = false;
@@ -773,7 +761,7 @@ namespace OSFUI
 		if (visible && !wasVisible) {
 			_renderer->SetPointerInputEnabled(false);
 		}
-		ReconcileNativeFocus();
+		ReconcileInputFocus();
 		if (!visible) {
 			_renderer->SetPointerInputEnabled(true);
 		}
@@ -831,12 +819,12 @@ namespace OSFUI
 		BroadcastViewsData();
 	}
 
-	void Runtime::ReconcileNativeFocus()
+	void Runtime::ReconcileInputFocus()
 	{
 		if (auto* world = _worldInputRenderer.load(std::memory_order_acquire)) {
-			if (!_worldNativeFocus && FocusMenu::IsRegistered() && FocusMenu::IsOpenInEngine()) {
-				_worldNativeFocus = true;
-				world->SetNativeFocus(true);
+			if (!_worldInputFocus && FocusMenu::IsRegistered() && FocusMenu::IsOpenInEngine()) {
+				_worldInputFocus = true;
+				world->SetInputFocus(true);
 			}
 		}
 		if (!_renderer) {
@@ -844,15 +832,15 @@ namespace OSFUI
 		}
 		const auto active = _presentation.ActiveMenu();
 		const bool wantsCapture = m_visible.load() && _captureInput.load() && active.has_value();
-		// Do not move OS focus away from Starfield until its menu stack has admitted the input-owning sentinel. This keeps engine and native ownership on the same edge.
+		// Grant browser input only after the menu stack admits the input-owning
+		// sentinel. In forwarded mode this grant does not transfer OS focus.
 		const bool focusMenuReady = !wantsCapture || (FocusMenu::IsRegistered() && FocusMenu::IsOpenInEngine());
 		const bool want = wantsCapture && focusMenuReady;
-		const bool refresh = _nativeFocusRefreshRequested.exchange(false) && want;
-		if (want == _nativeFocusGranted && !refresh) {
+		if (want == _inputFocusGranted) {
 			return;
 		}
-		_nativeFocusGranted = want;
-		_renderer->SetNativeFocus(want);
+		_inputFocusGranted = want;
+		_renderer->SetInputFocus(want);
 	}
 
 	bool Runtime::IsVisible() const
@@ -901,7 +889,7 @@ namespace OSFUI
 		_pendingMouseMove.store(kNoPendingMouseMove);
 		_latestFrame.reset();
 		m_viewReveal.Reset();
-		_nativeFocusGranted = false;
+		_inputFocusGranted = false;
 		std::size_t reloaded = 0;
 		for (const auto& manifest : _views.All()) {
 			if (!_presentation.IsInstantiated(manifest.id)) {
@@ -918,7 +906,6 @@ namespace OSFUI
 		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
 		_renderer->Resize(capture.width, capture.height);
 		_renderer->SetViewport(view.width, view.height);
-		_renderer->SetInputCaptured(false);
 		ApplyViewPresentationPolicy();
 		BroadcastViewsData();
 		REX::INFO("Runtime: replayed {} instantiated view(s) to the replacement browser host; overlay left closed", reloaded);

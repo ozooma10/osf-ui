@@ -27,10 +27,9 @@ namespace OSFUI
 		const auto owner = std::move(*_worldInteraction);
 		_worldInteraction.reset();
 		if (auto* renderer = _worldInputRenderer.exchange(nullptr, std::memory_order_acq_rel)) {
-			renderer->SetNativeFocus(false);
-			renderer->SetInputCaptured(false);
+			renderer->SetInputFocus(false);
 		}
-		_worldNativeFocus = false;
+		_worldInputFocus = false;
 		_worldInteractionCancel.store(false, std::memory_order_release);
 		if (_bridge) _bridge->Emit(owner.view, "ui.interaction", nlohmann::json{ { "active", false }, { "reason", a_reason } });
 		(void)m_gamepadSession.End();
@@ -85,7 +84,6 @@ namespace OSFUI
 			_pendingWorldInteraction.reset();
 			_worldInteraction = request;
 			world->renderer->SetInputTargetView(request.view);
-			world->renderer->SetInputCaptured(true);
 			_worldInputRenderer.store(world->renderer.get(), std::memory_order_release);
 			(void)m_gamepadSession.End();
 			m_gamepadSource.Reset();
@@ -170,9 +168,6 @@ namespace OSFUI
 					continue;
 				}
 				world.renderer->SetSharedRingHandler([i](const SharedRingDesc& desc) { WorldTexture::SetSharedRing(i, desc); });
-				world.renderer->SetNativeAcceleratorHandler([this](std::uint32_t vk, bool down) {
-					return OnNativeAcceleratorKey(vk, down);
-				});
 				world.renderer->SetWebMessageHandler([this, i](std::string_view id, std::string_view json) {
 					const auto& instance = _worldViews[i];
 					if (_bridge && !instance.failed && id == instance.manifest.id) {

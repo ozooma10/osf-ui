@@ -57,17 +57,13 @@ namespace OSFUI
 		void CancelWorldInteraction();  // Thread-safe deferred cancellation.
 
 		// Called by the WndProc hook on WM_KEYDOWN/WM_KEYUP (window-message thread):
-		bool OnGameWindowKey(std::uint32_t a_vkCode, bool a_down);
-
-		// Called by the WndProc hook when Starfield regains focus during an active capture.
-		void NotifyGameWindowFocused();
+		bool OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key);
+		void OnGameWindowText(const osfui::wv2::msg::TextInput& a_text);
+		void OnGameWindowActivation(bool a_active);
 
 		void OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
 		// Accumulate one packet for the active relative-pointer owner.
 		bool OnGameWindowMouseRelative(int a_dx, int a_dy);
-		// Browser-host pipe reader thread: accumulate the raw-input owner selected
-		// by the main-thread capture edge. All touched state is atomic.
-		void OnBrowserHostRelativePointer(std::string_view a_viewId, int a_dx, int a_dy, int a_wheel);
 		void OnGameWindowMouseButton(int a_button, bool a_down);
 		void OnGameWindowMouseWheel(int a_wheelDelta);
 
@@ -92,9 +88,7 @@ namespace OSFUI
 		void ApplyWorldInteractionRequests(const std::vector<API::BridgeApi::InteractionRequest>& a_requests);
 		void FinishWorldInteraction(const char* a_reason);
 		bool WantsInputCapture() const { return _presentation.DesiredCapture() || _worldInteraction.has_value(); }
-		void ConfigureInputRouting();
 
-		bool OnNativeAcceleratorKey(std::uint32_t a_vkCode, bool a_down);
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
 		void SubmitFrameIfVisible();
 
@@ -104,8 +98,9 @@ namespace OSFUI
 
 		void ApplyViewPresentationPolicy();
 
-		// Drive real OS focus toward the active-menu input session. HUD-only and closed states keep Starfield focused. Edge-guarded; main thread only.
-		void ReconcileNativeFocus();
+		// Grant input to the active view after FocusMenu is ready. Main thread only;
+		// Windows focus stays in Starfield.
+		void ReconcileInputFocus();
 
 		void QueueMouseMove();
 
@@ -203,7 +198,7 @@ namespace OSFUI
 		std::uint64_t _worldNeutralTick{ 0 };
 		std::atomic<WebView2HostWebRenderer*> _worldInputRenderer{ nullptr };
 		std::atomic_bool _worldInteractionCancel{ false };
-		bool _worldNativeFocus{ false };
+		bool _worldInputFocus{ false };
 		double _worldSnapshotAt{ 0.0 };
 		std::unique_ptr<WebView2HostWebRenderer> _renderer;
 		std::unique_ptr<D3D12Compositor> _compositor;
@@ -240,8 +235,7 @@ namespace OSFUI
 		std::optional<ColdOpenTiming> _coldOpenTiming;
 		std::optional<HiddenPrewarmTiming> _hiddenPrewarmTiming;
 
-		bool _nativeFocusGranted{ false };
-		std::atomic_bool _nativeFocusRefreshRequested{ false };
+		bool _inputFocusGranted{ false };
 
 		ViewRequestQueue m_viewRequests;
 		ViewLoadTracker m_viewLoads;
@@ -272,8 +266,6 @@ namespace OSFUI
 		std::atomic<float>               _relativePointerDy{ 0.0f };
 		std::atomic<float>               _relativePointerWheel{ 0.0f };
 		std::atomic<RelativePointerStop> _relativePointerStop{ RelativePointerStop::kNone };
-		std::atomic<std::uint64_t>        _relativePointerOwnerToken{ 0 };
-		std::atomic_bool                 _relativePointerHostInput{ false };
 		std::string                      _relativePointerView;  // main-thread owner
 
 		std::atomic_bool              _captureInput{ false };

@@ -51,6 +51,21 @@ target("osfui-webview2-host")
     end)
 
 -- Windows-only transport tests stay separate from the portable native suite.
+target("wv2-cdp-smoke")
+    set_kind("binary")
+    set_default(false)
+    set_runtimes("MT")
+    add_files("tests/native/wv2_cdp_smoke.cpp")
+    add_includedirs("src", "tools/webview2_shared")
+    add_packages("nlohmann_json")
+    add_syslinks("ole32", "user32", "version", "shlwapi", "advapi32")
+    on_load(function(target)
+        local sdk = os.getenv("WEBVIEW2_SDK_DIR") or path.join(os.projectdir(), "external", "webview2")
+        target:add("includedirs", path.join(sdk, "build", "native", "include"))
+        target:add("linkdirs", path.join(sdk, "build", "native", "x64"))
+        target:add("links", "WebView2LoaderStatic")
+    end)
+
 target("wv2-pipe-tests")
     set_kind("binary")
     set_default(false)
@@ -76,7 +91,7 @@ target("OSF UI")
     add_packages("nlohmann_json")
 
     add_syslinks(
-        "d3d12", "d3dcompiler", "shell32", "ole32", "xinput", "user32",
+        "d3d12", "d3dcompiler", "shell32", "ole32", "xinput", "user32", "imm32",
         -- out-of-process host client (pipe ACL + Explorer/TaskScheduler broker)
         "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32")
 
