@@ -5,7 +5,7 @@
 
 namespace OSFSettings::API::Launcher
 {
-    inline constexpr std::uint32_t kVersion = 0x00020000;
+    inline constexpr std::uint32_t kVersion = 0x00010000;
     enum class Status : std::uint32_t { Ok, InvalidArgument, AlreadyRegistered, NotFound, InternalError };
     // Runs as Settings leaves the menu stack. Return promptly and queue work on your
     // established UI/runtime lane. The provider owns closing; there is no return session.

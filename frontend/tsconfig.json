@@ -6,8 +6,6 @@
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
 
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -20,23 +18,18 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    // The published SDK declaration file is the single source of truth for the
-    // bridge protocol. src/lib/protocol.ts re-exports from it rather than
-    // restating it, so the frontend and sdk/osfui.d.ts cannot drift apart -
-    // a broken contract becomes a compile error, not a CI grep.
+    // Tests type against the published SDK declaration file, so a broken
+    // contract becomes a compile error, not a CI grep.
     "paths": {
-      "@sdk": ["../sdk/osfui.d.ts"],
-      "@lib/*": ["./src/lib/*"],
-      "@ui/*": ["./src/ui/*"],
-      "@views/*": ["./src/views/*"]
+      "@sdk": ["../sdk/osfui.d.ts"]
     },
     "allowJs": true,
     "checkJs": false,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["vite/client"]
+    "types": ["node"]
   },
-  "include": ["src", "test", "scripts", "vite.config.ts"],
+  "include": ["src", "test", "scripts"],
   "exclude": [
     "node_modules",
     // Frozen public contract, shipped verbatim - described by osfui-global.d.ts,

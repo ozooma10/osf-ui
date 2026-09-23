@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BUILD_VIEWS, OUT, FRONTEND, expectedOutputs, walk } from '../scripts/config.mjs';
+import { OUT, FRONTEND, expectedOutputs, walk } from '../scripts/config.mjs';
 import { verifyOutput } from '../scripts/verify-output.mjs';
 import { composeHelper } from '../scripts/compose-helper.mjs';
 
@@ -34,17 +34,5 @@ describe('build output', () => {
     const a = readFileSync(join(FRONTEND, src));
     const b = readFileSync(join(OUT, out));
     expect(b.equals(a)).toBe(true);
-  });
-
-  describe.each(BUILD_VIEWS)('$mod/$name/index.html', (v) => {
-    const html = () => readFileSync(join(OUT, v.mod, v.name, 'index.html'), 'utf8');
-
-    it('does not use type="module"', () => {
-      expect(html()).not.toMatch(/type\s*=\s*["']module["']/);
-    });
-
-    it('has no crossorigin attribute', () => {
-      expect(html()).not.toMatch(/\bcrossorigin\b/);
-    });
   });
 });
