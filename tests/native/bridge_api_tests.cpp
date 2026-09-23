@@ -50,7 +50,8 @@ int main()
 
     API::Client client;
     CHECK(client.Attach(&api));
-    CHECK(!client.Attach(&api, API::kVersion + 1));
+    CHECK(client.Attach(&api, API::kVersion + 1)); // Minor bumps stay compatible.
+    CHECK(!client.Attach(&api, API::kVersion + 0x00010000u)); // Major bumps detach.
     CHECK(!client && client.Version() == 0);
 
     CHECK(api.RegisterView("acme/panel"));
@@ -70,7 +71,9 @@ int main()
     api.UnregisterRelativePointer("acme/panel");
 
     MessageBridge bridge(Capture);
-    api.RegisterSend("acme.increment", &Send, nullptr);
+    CHECK(api.RegisterSend("acme.increment", &Send, nullptr));
+    CHECK(!api.RegisterSend("acme.increment", &Send, nullptr)); // Duplicate name refused.
+    CHECK(!api.RegisterSend("osfui.reserved", &Send, nullptr));
     api.SetBridgeAvailability(&bridge);
     api.PumpMainThread();
     CHECK(api.IsReady());

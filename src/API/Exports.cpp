@@ -5,7 +5,7 @@ extern "C" __declspec(dllexport) void* OSFUI_RequestAPI(
 	std::uint32_t a_version, std::uint32_t* a_outVersion) noexcept
 {
 	if (a_outVersion) *a_outVersion = 0;
-	if (a_version != OSFUI::API::kVersion) {
+	if (!OSFUI::API::Supports(OSFUI::API::kVersion, a_version)) {
 		REX::WARN("OSFUI_RequestAPI: refused version {:#x}; runtime is {:#x}",
 			a_version, OSFUI::API::kVersion);
 		return nullptr;

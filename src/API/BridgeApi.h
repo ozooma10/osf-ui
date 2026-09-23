@@ -25,20 +25,20 @@ namespace OSFUI::API
 	public:
 		[[nodiscard]] static BridgeApi& Get();
 
-		bool          IsReady() override;
-		void          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) override;
-		bool          RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) override;
-		void          UnregisterRelativePointer(const char* a_viewId) override;
-		bool          RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) override;
-		void          UnregisterViewOpenPreflight(const char* a_viewId) override;
-		bool          RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) override;
-		void          UnregisterViewLifecycle(const char* a_viewId) override;
-		void          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) override;
-		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) override;
-		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) override;
-		void          SetReadyCallback(ReadyFn a_callback, void* a_user) override;
-		bool          RequestMenu(const char* a_viewId, bool a_open) override;
-		bool          RegisterView(const char* a_viewId) override;
+		bool          IsReady() noexcept override;
+		bool          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) noexcept override;
+		bool          RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) noexcept override;
+		void          UnregisterRelativePointer(const char* a_viewId) noexcept override;
+		bool          RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) noexcept override;
+		void          UnregisterViewOpenPreflight(const char* a_viewId) noexcept override;
+		bool          RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) noexcept override;
+		void          UnregisterViewLifecycle(const char* a_viewId) noexcept override;
+		bool          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) noexcept override;
+		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) noexcept override;
+		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) noexcept override;
+		void          SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept override;
+		bool          RequestMenu(const char* a_viewId, bool a_open) noexcept override;
+		bool          RegisterView(const char* a_viewId) noexcept override;
 		struct ViewPresentationRequest
 		{
 			std::string                           view;

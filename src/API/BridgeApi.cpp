@@ -42,46 +42,48 @@ namespace OSFUI::API
 		return *instance;
 	}
 
-	bool BridgeApi::IsReady() { return _bridgeAvailable.load(); }
+	bool BridgeApi::IsReady() noexcept { return _bridgeAvailable.load(); }
 
-	void BridgeApi::RegisterSend(const char* a_name, SendFn a_handler, void* a_user)
+	bool BridgeApi::RegisterSend(const char* a_name, SendFn a_handler, void* a_user) noexcept
 	{
-		if (!a_name || !a_handler) return;
+		if (!a_name || !a_handler) return false;
 		const std::string name(a_name);
 		if (!IsUnreservedEndpointName(name)) {
 			REX::WARN("BridgeApi: refused RegisterSend('{}') — invalid or reserved", name.substr(0, 128));
-			return;
+			return false;
 		}
 		std::lock_guard lock(_mutex);
 		if (_sends.contains(name) || _requests.contains(name)) {
 			REX::WARN("BridgeApi: refused RegisterSend('{}') — endpoint already registered", name);
-			return;
+			return false;
 		}
 		_sends[name] = { a_handler, a_user };
 		_dirty = true;
 		MarkPending(kPendingPump);
+		return true;
 	}
 
-	void BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user)
+	bool BridgeApi::RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) noexcept
 	{
-		if (!a_name || !a_handler) return;
+		if (!a_name || !a_handler) return false;
 		const std::string name(a_name);
 		if (!IsUnreservedEndpointName(name)) {
 			REX::WARN("BridgeApi: refused RegisterRequest('{}') — invalid or reserved", name.substr(0, 128));
-			return;
+			return false;
 		}
 		std::lock_guard lock(_mutex);
 		if (_sends.contains(name) || _requests.contains(name)) {
 			REX::WARN("BridgeApi: refused RegisterRequest('{}') — endpoint already registered", name);
-			return;
+			return false;
 		}
 		_requests[name] = { a_handler, a_user };
 		_dirty = true;
 		MarkPending(kPendingPump);
+		return true;
 	}
 
 	bool BridgeApi::RegisterRelativePointer(const char* a_viewId,
-		RelativePointerFn a_handler, void* a_user)
+		RelativePointerFn a_handler, void* a_user) noexcept
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
@@ -89,7 +91,7 @@ namespace OSFUI::API
 			RelativePointerRegistration{ a_handler, a_user }).second;
 	}
 
-	void BridgeApi::UnregisterRelativePointer(const char* a_viewId)
+	void BridgeApi::UnregisterRelativePointer(const char* a_viewId) noexcept
 	{
 		if (!a_viewId) return;
 		std::lock_guard lock(_mutex);
@@ -118,7 +120,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::RegisterViewOpenPreflight(const char* a_viewId,
-		ViewOpenPreflightFn a_handler, void* a_user)
+		ViewOpenPreflightFn a_handler, void* a_user) noexcept
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
@@ -126,7 +128,7 @@ namespace OSFUI::API
 			ViewOpenPreflightRegistration{ a_handler, a_user }).second;
 	}
 
-	void BridgeApi::UnregisterViewOpenPreflight(const char* a_viewId)
+	void BridgeApi::UnregisterViewOpenPreflight(const char* a_viewId) noexcept
 	{
 		if (!a_viewId) return;
 		std::lock_guard lock(_mutex);
@@ -148,7 +150,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::RegisterViewLifecycle(const char* a_viewId,
-		ViewLifecycleFn a_handler, void* a_user)
+		ViewLifecycleFn a_handler, void* a_user) noexcept
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
@@ -156,7 +158,7 @@ namespace OSFUI::API
 			ViewLifecycleRegistration{ a_handler, a_user }).second;
 	}
 
-	void BridgeApi::UnregisterViewLifecycle(const char* a_viewId)
+	void BridgeApi::UnregisterViewLifecycle(const char* a_viewId) noexcept
 	{
 		if (!a_viewId) return;
 		std::lock_guard lock(_mutex);
@@ -178,7 +180,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::SendToWeb(const char* a_viewId, const char* a_type,
-		const char* a_payloadJson)
+		const char* a_payloadJson) noexcept
 	{
 		if (!a_viewId || !a_type || !a_type[0] || !a_payloadJson ||
 			!Ids::IsValidQualifiedViewId(a_viewId) || !Json::Parse(a_payloadJson)) return false;
@@ -196,7 +198,7 @@ namespace OSFUI::API
 	}
 
 	bool BridgeApi::SetViewState(const char* a_modId, const char* a_key,
-		const char* a_payloadJson)
+		const char* a_payloadJson) noexcept
 	{
 		if (!a_modId || !a_key || !a_key[0] || !a_payloadJson ||
 			!Ids::IsValidModId(a_modId) || std::string_view(a_key).size() > 128) return false;
@@ -209,7 +211,7 @@ namespace OSFUI::API
 		return true;
 	}
 
-	void BridgeApi::SetReadyCallback(ReadyFn a_callback, void* a_user)
+	void BridgeApi::SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept
 	{
 		std::unique_lock lock(_mutex);
 		if (_readyInvoking && _readyInvokingThread != std::this_thread::get_id()) {
@@ -223,7 +225,7 @@ namespace OSFUI::API
 		}
 	}
 
-	bool BridgeApi::RequestMenu(const char* a_viewId, bool a_open)
+	bool BridgeApi::RequestMenu(const char* a_viewId, bool a_open) noexcept
 	{
 		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
@@ -271,7 +273,7 @@ namespace OSFUI::API
 		return out;
 	}
 
-	bool BridgeApi::RegisterView(const char* a_viewId)
+	bool BridgeApi::RegisterView(const char* a_viewId) noexcept
 	{
 		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId) ||
 			!Ids::IsValidModId(Ids::ModOf(a_viewId))) return false;
