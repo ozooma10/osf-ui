@@ -18,12 +18,21 @@ local function sync_data(target)
     local pluginsdir = path.join(installdir, "SFSE", "Plugins")
     local uidata = path.join(pluginsdir, "OSF", "UI")
     local views = path.join(uidata, "views")
+    local sharedkit = path.join(projectdir, "web")
+
+    -- Validate before removing installed views: wildcard copies allow missing sources.
+    for _, name in ipairs({ "osfui.js", "osfui.css", "gamepadnav.js" }) do
+        local source = path.join(sharedkit, name)
+        if not os.isfile(source) then
+            raise("OSF UI shared web asset is missing: " .. source)
+        end
+    end
 
     -- OSF UI owns only OSF/UI and the one osfui schema. Never clean OSF or
     -- OSF/Settings: those paths are shared with the independent dependency.
     os.rm(views)
     os.mkdir(path.join(views, "shared"))
-    os.cp(path.join(projectdir, "frontend", "src", "shared-kit", "*"), path.join(views, "shared"))
+    os.cp(path.join(sharedkit, "*"), path.join(views, "shared"))
 
     copy_if_exists(
         path.join(projectdir, "data", "SFSE", "Plugins", "OSF", "Settings", "schemas", "osfui.json"),
@@ -57,7 +66,7 @@ function deploy(target)
     local projectdir = os.projectdir()
     local files = os.files(path.join(projectdir, "data", "**"))
     table.insert(files, path.join(projectdir, "build", "papyrus", "OSFUI.pex"))
-    table.join2(files, os.files(path.join(projectdir, "frontend", "src", "shared-kit", "**")))
+    table.join2(files, os.files(path.join(projectdir, "web", "**")))
     depend.on_changed(function()
         sync_data(target)
         cprint("${dim}deploying owned OSF/UI paths and osfui schema to %s ..", target:installdir())
