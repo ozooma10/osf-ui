@@ -95,8 +95,7 @@ try {
         'SFSE\Plugins\OSF\UI\views\shared\osfui.css',
         'SFSE\Plugins\OSF\UI\views\shared\gamepadnav.js',
         'SFSE\Plugins\OSF\Settings\schemas\osfui.json',
-        'Scripts\OSFUI.pex',
-        'Scripts\OSFUI_View.pex'
+        'Scripts\OSFUI.pex'
     )
     $missing = $required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $StageData $_)) }
     if ($missing) { Fail ("Missing staged files:`n  " + ($missing -join "`n  ")) }
@@ -106,7 +105,10 @@ try {
         'SFSE\Plugins\OSFSettings.dll',
         'SFSE\Plugins\OSFUISettingsExample.dll',
         'SFSE\Plugins\OSF\UI\views\osfui-example',
-        'Scripts\OSFUI_Settings.pex'
+        'Scripts\OSFUI_Settings.pex',
+        'Scripts\OSFUI_View.pex',
+        'Scripts\Source\OSFUI_Settings.psc',
+        'Scripts\Source\OSFUI_View.psc'
     )
     foreach ($path in $forbidden) {
         if (Test-Path -LiteralPath (Join-Path $StageData $path)) {

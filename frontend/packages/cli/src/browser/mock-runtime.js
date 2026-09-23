@@ -37,7 +37,7 @@ export const PLATFORM_REQUESTS = new Set([
   'ping',
 ]);
 
-const PLATFORM_SCRIPTS = new Set(['osfui', 'osfui_settings', 'osfui_view']);
+const PLATFORM_SCRIPTS = new Set(['osfui']);
 
 function answerPlatformRequest(_name, _payload, _meta, io) {
   io.resolve({});
@@ -106,10 +106,6 @@ export function createEndpointHandler(scenario, meta) {
     return true;
   };
 }
-
-// Kept as a source-compatible import name for mocks written against the first
-// protocol-aware harness; the public context itself is now onEndpoint only.
-export const createScenarioHandler = createEndpointHandler;
 
 function safeStorage() {
   try {

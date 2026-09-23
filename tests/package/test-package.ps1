@@ -12,8 +12,7 @@ $required = @(
     'SFSE\Plugins\OSF\UI\bin\osfui_webview2_host.exe',
     'SFSE\Plugins\OSF\UI\views\shared\osfui.js',
     'SFSE\Plugins\OSF\Settings\schemas\osfui.json',
-    'Scripts\OSFUI.pex',
-    'Scripts\OSFUI_View.pex'
+    'Scripts\OSFUI.pex'
 )
 foreach ($relative in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $relative))) {
@@ -23,7 +22,8 @@ foreach ($relative in $required) {
 
 foreach ($relative in 'SFSE\Plugins\OSFUI', 'SFSE\Plugins\OSFSettings.dll',
         'SFSE\Plugins\OSFUISettingsExample.dll', 'SFSE\Plugins\OSF\UI\views\osfui-example',
-        'Scripts\OSFUI_Settings.pex') {
+        'Scripts\OSFUI_Settings.pex', 'Scripts\OSFUI_View.pex',
+        'Scripts\Source\OSFUI_Settings.psc', 'Scripts\Source\OSFUI_View.psc') {
     if (Test-Path -LiteralPath (Join-Path $root $relative)) {
         throw "OSF UI package contains legacy or sibling-owned path: $relative"
     }

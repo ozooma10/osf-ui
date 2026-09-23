@@ -8,7 +8,7 @@ npm create osfui@latest my-osfui-mod -- --yes --mod-id acme.widgets --view main 
 
 The Papyrus and native presets both generate plain HTML, CSS, and JavaScript beneath
 `mod/Data/SFSE/Plugins/OSF/UI/views/<mod-id>/<view-id>/`. No frontend framework or
-dependency install is added. The matching `OSFUI_View` API declarations are copied
+dependency install is added. The matching `OSFUI` API declarations are copied
 into the generated project.
 
 Settings scaffolding is intentionally not included. Author settings against the
@@ -23,7 +23,6 @@ Options:
 --surface menu
 --integration <papyrus|native>
 --yes
---no-install
 --help
 ```
 

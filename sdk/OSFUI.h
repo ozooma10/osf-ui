@@ -1,4 +1,4 @@
-// OSF UI views service. Header-only; link nothing.
+// OSF UI native API. Header-only; link nothing.
 // Mutations are thread-safe; callbacks run on the game main thread.
 // Callback strings are valid only for the call.
 #pragma once
@@ -8,21 +8,13 @@
 #include "REX/W32/KERNEL32.h"
 
 
-static_assert(sizeof(void*) == 8, "OSFUI_Views requires x64");
+static_assert(sizeof(void*) == 8, "OSFUI requires x64");
 
-namespace OSFUI::API::Views
+namespace OSFUI::API
 {
-	// Packed major.minor service versions.
-	inline constexpr std::uint32_t kVersion = 0x00010001u;
-	inline constexpr std::uint32_t kBaseVersion = 0x00010000u;
-	inline constexpr std::uint32_t kInteractionVersion = 0x00010001u;
-	inline constexpr const char* kRequestExportName = "OSFUI_RequestViews";
-
-	// True when both versions share a major and a_have meets a_need.
-	constexpr bool Supports(std::uint32_t a_have, std::uint32_t a_need) noexcept
-	{
-		return (a_have >> 16) == (a_need >> 16) && (a_have & 0xFFFFu) >= (a_need & 0xFFFFu);
-	}
+	// Packed major.minor API version. This export exposes the complete interface.
+	inline constexpr std::uint32_t kVersion = 0x00010000u;
+	inline constexpr const char* kRequestExportName = "OSFUI_RequestAPI";
 
 	// Receives (name, payloadJson, sourceViewId, user) for a one-way send.
 	using SendFn = void (*)(const char* a_name, const char* a_payloadJson, const char* a_sourceViewId, void* a_user) noexcept;
@@ -32,22 +24,17 @@ namespace OSFUI::API::Views
 	// Copyable deferred reply token. Copies may answer later from any thread.
 	struct Request
 	{
-		using RespondFn = void (*)(std::uint64_t, const char*, const char*) noexcept;
+		using RespondFn = void (*)(std::uint64_t, const char*) noexcept;
 		using RejectFn = void (*)(std::uint64_t, const char*, const char*) noexcept;
 
 		const char* name{ nullptr };          // Registered endpoint; callback lifetime.
 		const char* payloadJson{ nullptr };   // Caller payload; callback lifetime.
 		const char* sourceViewId{ nullptr };  // Sending view; callback lifetime.
 
-		// Resolves the request with an untyped JSON payload.
+		// Resolves the request with a JSON payload.
 		void Respond(const char* a_json) const noexcept
 		{
-			if (_respond) _respond(_token, nullptr, a_json);
-		}
-		// Resolves the request with a typed JSON payload.
-		void Respond(const char* a_type, const char* a_json) const noexcept
-		{
-			if (_respond) _respond(_token, a_type, a_json);
+			if (_respond) _respond(_token, a_json);
 		}
 		// Rejects the request with a stable code and optional message.
 		void Reject(const char* a_code, const char* a_message = "") const noexcept
@@ -94,7 +81,7 @@ namespace OSFUI::API::Views
 	using InteractionFn = void (*)(InteractionToken a_token, const char* a_viewId,
 		InteractionPhase a_phase, const char* a_reason, void* a_context) noexcept;
 
-	struct IViews
+	struct IUI
 	{
 		// True while at least one bridge-enabled document is live.
 		virtual bool IsReady() = 0;
@@ -109,7 +96,7 @@ namespace OSFUI::API::Views
 		// Queues a one-shot event for a view. payload must be valid JSON.
 		virtual bool SendToWeb(const char* a_viewId, const char* a_event, const char* a_payload) = 0;
 		// Stores mod-scoped state and replays it to fresh documents.
-		virtual bool SetViewState(const char* a_viewId, const char* a_key, const char* a_value) = 0;
+		virtual bool SetViewState(const char* a_modId, const char* a_key, const char* a_value) = 0;
 		// Sets the bridge-availability callback; replaces the previous callback.
 		virtual void SetReadyCallback(ReadyFn a_callback, void* a_user) = 0;
 		// Opens or closes a qualified modId/viewName surface.
@@ -128,7 +115,7 @@ namespace OSFUI::API::Views
 		virtual bool RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_callback, void* a_user) = 0;
 		// Removes lifecycle callbacks for a view.
 		virtual void UnregisterViewLifecycle(const char* a_viewId) = 0;
-		// 1.1: queue exclusive keyboard/gamepad ownership of an already loaded world view.
+		// Queue exclusive keyboard/gamepad ownership of an already loaded world view.
 		// Zero means not queued. Otherwise exactly one Started then Ended, or one Rejected.
 		// Admission waits for released input and expires after five seconds.
 		// Escape/Back, focus return, a menu opening, or browser failure ends ownership.
@@ -138,35 +125,35 @@ namespace OSFUI::API::Views
 
 	protected:
 		// OSF UI owns the interface.
-		~IViews() = default;
+		~IUI() = default;
 	};
 
 	using AcquireFn = void* (*)(std::uint32_t, std::uint32_t*) noexcept;
 
 	// Acquires the service; outVersion receives the host version or 0 on failure.
-	inline IViews* RequestInterface(std::uint32_t a_version = kBaseVersion, std::uint32_t* a_outVersion = nullptr) noexcept
+	inline IUI* RequestInterface(std::uint32_t a_version = kVersion, std::uint32_t* a_outVersion = nullptr) noexcept
 	{
 		if (a_outVersion) *a_outVersion = 0;
 		const auto module = REX::W32::GetModuleHandleW(L"OSFUI.dll");
 		if (!module) return nullptr;
 		const auto fn = reinterpret_cast<AcquireFn>(REX::W32::GetProcAddress(module, kRequestExportName));
-		return fn ? static_cast<IViews*>(fn(a_version, a_outVersion)) : nullptr;
+		return fn ? static_cast<IUI*>(fn(a_version, a_outVersion)) : nullptr;
 	}
 
 	class Client
 	{
 	public:
 		// Acquires and caches the service. Call once after SFSE post-load.
-		bool Init(std::uint32_t a_version = kBaseVersion) noexcept
+		bool Init(std::uint32_t a_version = kVersion) noexcept
 		{
 			std::uint32_t actual = 0;
 			auto* api = RequestInterface(a_version, &actual);
 			return Attach(api, actual);
 		}
 		// Attaches a fetched interface or detaches on nullptr/incompatible version.
-		bool Attach(IViews* a_api, std::uint32_t a_version = kVersion) noexcept
+		bool Attach(IUI* a_api, std::uint32_t a_version = kVersion) noexcept
 		{
-			m_api = a_api && Supports(a_version, kBaseVersion) ? a_api : nullptr;
+			m_api = a_api && a_version == kVersion ? a_api : nullptr;
 			m_version = m_api ? a_version : 0;
 			return m_api != nullptr;
 		}
@@ -175,10 +162,8 @@ namespace OSFUI::API::Views
 		[[nodiscard]] explicit operator bool() const noexcept { return m_api != nullptr; }
 		// Returns the host service version, or 0 when detached.
 		[[nodiscard]] std::uint32_t Version() const noexcept { return m_version; }
-		// Tests support for a service version.
-		[[nodiscard]] bool Has(std::uint32_t a_version) const noexcept { return m_api && Supports(m_version, a_version); }
 		// Returns the host-owned interface for advanced use.
-		[[nodiscard]] IViews* Raw() const noexcept { return m_api; }
+		[[nodiscard]] IUI* Raw() const noexcept { return m_api; }
 		// True while at least one bridge-enabled document is live.
 		[[nodiscard]] bool IsReady() const noexcept { return m_api && m_api->IsReady(); }
 
@@ -245,15 +230,15 @@ namespace OSFUI::API::Views
 		}
 		InteractionToken BeginInteraction(const char* a_view, InteractionFn a_callback, void* a_context) const noexcept
 		{
-			return Has(kInteractionVersion) ? m_api->BeginInteraction(a_view, a_callback, a_context) : 0;
+			return m_api ? m_api->BeginInteraction(a_view, a_callback, a_context) : 0;
 		}
 		bool EndInteraction(InteractionToken a_token) const noexcept
 		{
-			return Has(kInteractionVersion) && m_api->EndInteraction(a_token);
+			return m_api && m_api->EndInteraction(a_token);
 		}
 
 	private:
-		IViews* m_api{ nullptr };
+		IUI* m_api{ nullptr };
 		std::uint32_t m_version{ 0 };
 	};
 }

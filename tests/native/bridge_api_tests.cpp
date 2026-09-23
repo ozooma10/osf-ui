@@ -16,7 +16,7 @@ namespace
     }
 
     void Ready(void*) noexcept { ++g_ready; }
-    void Pointer(const char*, OSFUI::API::Views::RelativePointerPhase, float, float, float, void*) noexcept
+    void Pointer(const char*, OSFUI::API::RelativePointerPhase, float, float, float, void*) noexcept
     {
         ++g_pointer;
     }
@@ -48,7 +48,7 @@ int main()
     auto presentation = api.TakeViewPresentationRequests();
     CHECK(presentation.size() == 1 && presentation[0].view == "acme/panel" && presentation[0].open);
 
-    const auto interactionCallback = +[](API::Views::InteractionToken, const char*, API::Views::InteractionPhase, const char*, void*) noexcept {};
+    const auto interactionCallback = +[](API::InteractionToken, const char*, API::InteractionPhase, const char*, void*) noexcept {};
     CHECK(api.BeginInteraction("missing/screen", interactionCallback, nullptr) == 0);
     CHECK(api.BeginInteraction("acme/panel", nullptr, nullptr) == 0);
     CHECK(!api.EndInteraction(0));
@@ -66,11 +66,16 @@ int main()
     CHECK(!api.EndInteraction(token));
     CHECK(api.TakePendingBatch().interactions.size() == 64);
 
-    API::Views::Client older;
-    CHECK(older.Attach(&api, API::Views::kBaseVersion));
-    CHECK(!older.Has(API::Views::kInteractionVersion));
-    CHECK(older.BeginInteraction("acme/panel", interactionCallback, nullptr) == 0);
-    CHECK(!older.EndInteraction(token));
+    API::Client client;
+    CHECK(client.Attach(&api));
+    const auto clientToken = client.BeginInteraction("acme/panel", interactionCallback, nullptr);
+    CHECK(clientToken > token);
+    CHECK(client.EndInteraction(clientToken));
+    CHECK(api.TakePendingBatch().interactions.size() == 2);
+    CHECK(!client.Attach(&api, API::kVersion + 1));
+    CHECK(!client && client.Version() == 0);
+    CHECK(client.BeginInteraction("acme/panel", interactionCallback, nullptr) == 0);
+    CHECK(!client.EndInteraction(token));
 
     CHECK(api.RegisterView("acme/panel"));
     CHECK(!api.RegisterView("osfui/settings"));
@@ -84,7 +89,7 @@ int main()
 
     CHECK(api.RegisterRelativePointer("acme/panel", &Pointer, nullptr));
     CHECK(!api.RegisterRelativePointer("acme/panel", &Pointer, nullptr));
-    CHECK(api.DispatchRelativePointer("acme/panel", API::Views::RelativePointerPhase::kBegin));
+    CHECK(api.DispatchRelativePointer("acme/panel", API::RelativePointerPhase::kBegin));
     CHECK(g_pointer == 1);
     api.UnregisterRelativePointer("acme/panel");
 

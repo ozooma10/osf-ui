@@ -37,8 +37,7 @@ const VALUE_FLAGS = {
   '--surface': 'surface',
   '--integration': 'integration',
 };
-// Kept as a compatibility no-op: baseline starters never install dependencies.
-const BOOLEAN_FLAGS = { '--yes': 'yes', '--no-install': 'noInstall', '--help': 'help' };
+const BOOLEAN_FLAGS = { '--yes': 'yes', '--help': 'help' };
 
 function parse(argv) {
   const result = { _: [] };
@@ -116,12 +115,11 @@ export async function scaffold(options) {
 
   if (options.integration === 'native') {
     await copySdkFiles(root, 'native', 'native/include', [
-      'OSFUI_Views.h',
+      'OSFUI.h',
     ]);
   } else {
     await copySdkFiles(root, 'papyrus', 'tools/papyrus', [
       'OSFUI.psc',
-      'OSFUI_View.psc',
     ]);
   }
   return root;

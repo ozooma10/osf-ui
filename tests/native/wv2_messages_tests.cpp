@@ -37,8 +37,7 @@ int main()
 		Check(msg::ToJson(msg::Init{}).at("type") == "init", "init stamps type");
 		Check(msg::ToJson(msg::Shutdown{}).at("type") == "shutdown", "fieldless message stamps type");
 		Check(msg::ToJson(msg::Ready{}).at("type") == "ready", "ready stamps type");
-		// The compatibility spelling is easy to "fix" by accident.
-		Check(msg::SetInputTarget::kType == "setActive", "setActive wire spelling preserved");
+		Check(msg::SetInputTarget::kType == "setInputTarget", "input target has its own message type");
 		Check(msg::RelativePointerCapture::kType != msg::RelativePointer::kType,
 			"relative-pointer state and motion use distinct directions");
 		Check(msg::PointerInput::kType == "pointerInput",
@@ -99,8 +98,8 @@ int main()
 	{
 		Check(!RoundTrip(msg::PointerInput{ .enabled = false }).enabled,
 			"pointer input suspension survives host IPC");
-		Check(msg::FromJson<msg::PointerInput>(json{ { "type", "pointerInput" } }).enabled,
-			"a bare pointer-input message fails open for compatibility");
+		Check(!msg::FromJson<msg::PointerInput>(json{ { "type", "pointerInput" } }).enabled,
+			"pointer input requires an explicit enable message");
 	}
 	{
 		const auto viewport = RoundTrip(msg::Viewport{

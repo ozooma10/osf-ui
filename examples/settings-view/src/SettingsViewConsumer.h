@@ -2,7 +2,7 @@
 
 #include <mutex>
 #include "OSFSettings.h"
-#include "OSFUI_Views.h"
+#include "OSFUI.h"
 
 namespace SettingsViewExample
 {
@@ -20,7 +20,7 @@ namespace SettingsViewExample
         static void OnSettingChanged(const char*, const char* key, void* user) noexcept;
         static void OnHotkey(const char*, const char*, void* user) noexcept;
         OSFSettings::API::Client _settings;
-        OSFUI::API::Views::Client _views;
+        OSFUI::API::Client _views;
         OSFSettings::API::Subscription _subscription{};
         std::mutex _publishMutex;
         bool _attempted{};

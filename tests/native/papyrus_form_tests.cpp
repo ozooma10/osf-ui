@@ -63,6 +63,10 @@ int main()
 
 	auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
 	API::Papyrus::Install();
+	CHECK(!vm->nativeScripts.empty());
+	for (const auto& [name, scripts] : vm->nativeScripts) {
+		CHECK(scripts == std::vector<std::string>{ "OSFUI" });
+	}
 	CHECK(vm->natives.contains("SetState"));
 	CHECK(vm->natives.contains("SetStateForms"));
 	CHECK(vm->natives.contains("ReplyForms"));

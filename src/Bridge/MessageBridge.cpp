@@ -68,7 +68,7 @@ namespace OSFUI
 
 	void MessageBridge::RegisterSend(std::string a_name, SendHandler a_handler)
 	{
-		if (_requests.contains(a_name) || _commands.contains(a_name)) {
+		if (_requests.contains(a_name)) {
 			REX::WARN("MessageBridge: [content] refused send endpoint '{}' — name already registered", a_name);
 			return;
 		}
@@ -77,22 +77,12 @@ namespace OSFUI
 
 	bool MessageBridge::RegisterRequest(std::string a_name, RequestHandler a_handler)
 	{
-		if (_sends.contains(a_name) || _commands.contains(a_name)) {
+		if (_sends.contains(a_name)) {
 			REX::WARN("MessageBridge: [content] refused request endpoint '{}' — name already registered", a_name);
 			return false;
 		}
 		// BridgeApi owns public first-wins policy; this internal trampoline is replaceable.
 		_requests[std::move(a_name)] = std::move(a_handler);
-		return true;
-	}
-
-	bool MessageBridge::RegisterCommand(std::string a_name, SendHandler a_handler)
-	{
-		if (_sends.contains(a_name) || _requests.contains(a_name)) {
-			REX::WARN("MessageBridge: [content] refused command '{}' — name already registered", a_name);
-			return false;
-		}
-		_commands[std::move(a_name)] = std::move(a_handler);
 		return true;
 	}
 
@@ -104,11 +94,6 @@ namespace OSFUI
 	void MessageBridge::UnregisterRequest(std::string_view a_name)
 	{
 		_requests.erase(std::string(a_name));
-	}
-
-	void MessageBridge::UnregisterCommand(std::string_view a_name)
-	{
-		_commands.erase(std::string(a_name));
 	}
 
 	void MessageBridge::SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request)
@@ -234,10 +219,6 @@ namespace OSFUI
 			it->second(a_payload, *this);
 			return true;
 		}
-		if (const auto it = _commands.find(a_name); it != _commands.end()) {
-			it->second(a_payload, *this);
-			return true;
-		}
 		// Drop and report wrong-kind sends rather than executing the mutation.
 		if (_requests.contains(a_name)) {
 			ReportProtocolFault(_currentSource, "wrong-endpoint-kind",
@@ -290,16 +271,6 @@ namespace OSFUI
 		}
 		bool useFallback = false;
 		if (!handler) {
-			if (const auto command = _commands.find(a_name);
-				command != _commands.end()) {
-				auto payload = a_payload;
-				payload["requestId"] = a_id;
-				command->second(payload, *this);
-				if (!_settled) {
-					Respond(nlohmann::json{ { "ok", true }, { "command", a_name } });
-				}
-				return;
-			}
 			if (_sends.contains(a_name)) {
 				Reject("wrong-endpoint-kind", std::format("'{}' is a send endpoint — use send(), not request()", a_name));
 				return;

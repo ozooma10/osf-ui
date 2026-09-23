@@ -8,6 +8,10 @@ local function copy_if_exists(source, destination)
     end
 end
 
+function build_papyrus()
+    os.execv("pwsh", { "-NoProfile", "-File", path.join(os.projectdir(), "tools", "build-papyrus.ps1") })
+end
+
 local function sync_data(target)
     local projectdir = os.projectdir()
     local installdir = target:installdir()
@@ -25,13 +29,14 @@ local function sync_data(target)
         path.join(projectdir, "data", "SFSE", "Plugins", "OSF", "Settings", "schemas", "osfui.json"),
         path.join(pluginsdir, "OSF", "Settings", "schemas", "osfui.json"))
 
-    for _, file in ipairs({ "OSFUI.pex", "OSFUI_View.pex" }) do
-        copy_if_exists(path.join(projectdir, "data", "Scripts", file),
-            path.join(installdir, "Scripts", file))
-    end
-    for _, file in ipairs({ "OSFUI.psc", "OSFUI_View.psc" }) do
-        copy_if_exists(path.join(projectdir, "data", "Scripts", "Source", file),
-            path.join(installdir, "Scripts", "Source", file))
+    local scripts = path.join(installdir, "Scripts")
+    os.mkdir(path.join(scripts, "Source"))
+    os.cp(path.join(projectdir, "build", "papyrus", "OSFUI.pex"), path.join(scripts, "OSFUI.pex"))
+    os.cp(path.join(projectdir, "data", "Scripts", "Source", "OSFUI.psc"), path.join(scripts, "Source", "OSFUI.psc"))
+    -- Remove only the retired scripts owned by this mod from earlier deployments.
+    for _, name in ipairs({ "OSFUI_View", "OSFUI_Settings" }) do
+        os.rm(path.join(scripts, name .. ".pex"))
+        os.rm(path.join(scripts, "Source", name .. ".psc"))
     end
 end
 
@@ -51,6 +56,7 @@ function deploy(target)
     if not (os.getenv("XSE_SF_MODS_PATH") or os.getenv("XSE_SF_GAME_PATH")) then return end
     local projectdir = os.projectdir()
     local files = os.files(path.join(projectdir, "data", "**"))
+    table.insert(files, path.join(projectdir, "build", "papyrus", "OSFUI.pex"))
     table.join2(files, os.files(path.join(projectdir, "build", "frontend", "views", "**")))
     depend.on_changed(function()
         sync_data(target)

@@ -33,7 +33,7 @@ export function verifyOutput() {
   // Remaining verbatim artifacts must stay byte-identical to their sources.
   const verbatim = [
     ['src/shared-kit/osfui.css', 'shared/osfui.css'],
-    ['src/legacy/padnav.js', 'shared/gamepadnav.js'],
+    ['src/shared-kit/gamepadnav.js', 'shared/gamepadnav.js'],
   ];
   for (const [src, out] of verbatim) {
     const a = join(FRONTEND, src), b = join(OUT, out);

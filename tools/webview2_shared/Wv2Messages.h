@@ -145,7 +145,7 @@ namespace osfui::wv2::msg
 	struct PointerInput
 	{
 		static constexpr std::string_view kType = "pointerInput";
-		bool enabled{ true };
+		bool enabled{ false };
 
 		static constexpr auto kFields = std::tuple{
 			F("enabled", &PointerInput::enabled),
@@ -160,7 +160,7 @@ namespace osfui::wv2::msg
 		static constexpr auto kFields = std::tuple{ F("view", &Name::view) }; \
 	}
 
-	OSFUI_WV2_VIEW_ONLY_MESSAGE(SetInputTarget, "setActive");
+	OSFUI_WV2_VIEW_ONLY_MESSAGE(SetInputTarget, "setInputTarget");
 	OSFUI_WV2_VIEW_ONLY_MESSAGE(OpenDevTools, "openDevTools");
 	OSFUI_WV2_VIEW_ONLY_MESSAGE(DestroyView, "destroyView");
 

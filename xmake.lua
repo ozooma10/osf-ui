@@ -19,11 +19,6 @@ option("test_harness")
     set_description("Include private world-surface test observations")
 option_end()
 
-local function build_frontend_views()
-    import("frontend_views", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
-    frontend_views.build()
-end
-
 -- The mirrored host is self-contained: static CRT and WebView2 loader.
 target("osfui-webview2-host")
     set_kind("binary")
@@ -90,7 +85,14 @@ target("OSF UI")
     add_includedirs("src", "tools/webview2_shared", "sdk", "lib/osf-settings/sdk")
     set_pcxxheader("src/pch.h")
 
-    before_build(build_frontend_views)
+    before_build(function(target)
+        import("frontend_views", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
+        frontend_views.build()
+        if os.getenv("XSE_SF_MODS_PATH") or os.getenv("XSE_SF_GAME_PATH") then
+            import("runtime_payload", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
+            runtime_payload.build_papyrus()
+        end
+    end)
     -- Redeploy data even when the DLL itself did not change.
     after_build(function(target)
         import("runtime_payload", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
@@ -98,7 +100,12 @@ target("OSF UI")
     end)
 
     -- `xmake install` skips before_build, so packaging needs this install hook.
-    before_install(build_frontend_views)
+    before_install(function(target)
+        import("frontend_views", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
+        frontend_views.build()
+        import("runtime_payload", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
+        runtime_payload.build_papyrus()
+    end)
     after_install(function(target)
         import("runtime_payload", { rootdir = path.join(os.projectdir(), "tools", "xmake") })
         runtime_payload.install(target)

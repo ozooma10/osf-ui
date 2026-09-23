@@ -42,6 +42,6 @@
     // Frozen public contract, shipped verbatim - described by osfui-global.d.ts,
     // never compiled.
     "src/shared-kit/osfui.js",
-    "src/legacy/padnav.js"
+    "src/shared-kit/gamepadnav.js"
   ]
 }

@@ -137,7 +137,7 @@ namespace SettingsTest
         REX::W32::test::procLookup = [](void*, const char* name) noexcept -> void* {
             if (std::string_view(name) == "OSFSettings_RequestAPI") return reinterpret_cast<void*>(&RequestSettings);
             if (std::string_view(name) == "OSFSettings_RequestDiagnosticsAPI") return reinterpret_cast<void*>(&RequestDiagnostics);
-            if (std::string_view(name) == "OSFUI_RequestViews") return reinterpret_cast<void*>(viewsAcquire);
+            if (std::string_view(name) == "OSFUI_RequestAPI") return reinterpret_cast<void*>(viewsAcquire);
             return nullptr;
         };
     }

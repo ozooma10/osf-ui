@@ -2,6 +2,16 @@
 #include "SettingsServices.h"
 #include "check.h"
 
+namespace OSFUI::Log
+{
+    void WarnOnce(std::once_flag& flag, std::string_view message)
+    {
+        std::call_once(flag, [&] { REX::test::Log("WARN", std::string(message)); });
+    }
+    bool DebugEnabled() { return true; }
+    void SetDebugLogging(bool) {}
+}
+
 int main()
 {
     using namespace OSFUI;

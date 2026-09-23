@@ -305,7 +305,7 @@ describe('kind:"event" — one-shot happenings', () => {
     const seen: unknown[] = [];
     helper.on('acme.mymod.docked', (p) => seen.push(p));
 
-    // Papyrus OSFUI_View.EmitEvent / the C ABI's SendToWeb land here.
+    // Papyrus OSFUI.EmitEvent / the C ABI's SendToWeb land here.
     deliver(helper, { kind: 'event', name: 'acme.mymod.docked', payload: { args: [1, 'Neon'] } });
     expect(seen).toEqual([{ args: [1, 'Neon'] }]);
   });

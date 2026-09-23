@@ -198,7 +198,7 @@ namespace OSFUI
 			return true;
 		}
 		if (!_relativePointerView.empty()) {
-			FinishRelativePointerCapture(API::Views::RelativePointerPhase::kCancel);
+			FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
 		}
 		_relativePointerDx.store(0.0f, std::memory_order_relaxed);
 		_relativePointerDy.store(0.0f, std::memory_order_relaxed);
@@ -208,7 +208,7 @@ namespace OSFUI
 		_relativePointerOwnerToken.store(RelativePointerOwnerToken(a_viewId), std::memory_order_release);
 		_relativePointerHostInput.store(false, std::memory_order_release);
 		_relativePointerActive.store(true, std::memory_order_release);
-		if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::Views::RelativePointerPhase::kBegin)) {
+		if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kBegin)) {
 			_relativePointerActive.store(false, std::memory_order_release);
 			_relativePointerOwnerToken.store(0, std::memory_order_release);
 			_relativePointerView.clear();
@@ -223,7 +223,7 @@ namespace OSFUI
 	void Runtime::EndRelativePointerCapture(std::string_view a_viewId)
 	{
 		if (!_relativePointerView.empty() && _relativePointerView == a_viewId) {
-			FinishRelativePointerCapture(API::Views::RelativePointerPhase::kEnd);
+			FinishRelativePointerCapture(API::RelativePointerPhase::kEnd);
 		}
 	}
 
@@ -232,10 +232,10 @@ namespace OSFUI
 		if (_relativePointerView.empty() || (!a_viewId.empty() && _relativePointerView != a_viewId)) {
 			return;
 		}
-		FinishRelativePointerCapture(API::Views::RelativePointerPhase::kCancel);
+		FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
 	}
 
-	void Runtime::FinishRelativePointerCapture(API::Views::RelativePointerPhase a_phase)
+	void Runtime::FinishRelativePointerCapture(API::RelativePointerPhase a_phase)
 	{
 		if (_relativePointerView.empty()) {
 			return;
@@ -251,7 +251,7 @@ namespace OSFUI
 		const float dy = _relativePointerDy.exchange(0.0f, std::memory_order_acq_rel);
 		const float wheel = _relativePointerWheel.exchange(0.0f, std::memory_order_acq_rel);
 		if (dx != 0.0f || dy != 0.0f || wheel != 0.0f) {
-			API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::Views::RelativePointerPhase::kUpdate, dx, dy, wheel);
+			API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kUpdate, dx, dy, wheel);
 		}
 		API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, a_phase);
 		_relativePointerView.clear();
@@ -289,7 +289,7 @@ namespace OSFUI
 		const float dy = _relativePointerDy.exchange(0.0f, std::memory_order_acq_rel);
 		const float wheel = _relativePointerWheel.exchange(0.0f, std::memory_order_acq_rel);
 		if (dx != 0.0f || dy != 0.0f || wheel != 0.0f) {
-			if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::Views::RelativePointerPhase::kUpdate, dx, dy, wheel)) {
+			if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kUpdate, dx, dy, wheel)) {
 				_relativePointerActive.store(false, std::memory_order_release);
 				_relativePointerView.clear();
 				return;
@@ -297,9 +297,9 @@ namespace OSFUI
 		}
 		const auto stop = _relativePointerStop.exchange(RelativePointerStop::kNone, std::memory_order_acq_rel);
 		if (stop == RelativePointerStop::kEnd) {
-			FinishRelativePointerCapture(API::Views::RelativePointerPhase::kEnd);
+			FinishRelativePointerCapture(API::RelativePointerPhase::kEnd);
 		} else if (stop == RelativePointerStop::kCancel) {
-			FinishRelativePointerCapture(API::Views::RelativePointerPhase::kCancel);
+			FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
 		}
 	}
 

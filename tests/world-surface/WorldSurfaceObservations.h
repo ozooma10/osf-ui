@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Core/Paths.h"
-#include "OSFUI_Views.h"
+#include "OSFUI.h"
 #include "World/WorldTexture.h"
 
 namespace OSFUI::Testing
@@ -25,7 +25,7 @@ namespace OSFUI::Testing
 			attempted = true;  // World-only fixture: leave presentation untouched.
 			return;
 		}
-		auto* views = API::Views::RequestInterface();
+		auto* views = API::RequestInterface();
 		if (!views) return;
 		attempted = true;
 		// RequestMenu admits only views in the discovered catalog and queues the

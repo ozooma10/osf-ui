@@ -689,29 +689,29 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kPlatformScriptName, "GetVersion", &GetVersion, true, false);
 			a_vm->BindNativeMethod(kPlatformScriptName, "GetVersionString", &GetVersionString, true, false);
 
-			a_vm->BindNativeMethod(kViewScriptName, "RegisterSend", &RegisterSend, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "RegisterSendStatic", &RegisterSendStatic, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "RegisterRequest", &RegisterRequest, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "RegisterRequestStatic", &RegisterRequestStatic, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "Reply", &Reply, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "ReplyBools", &ReplyBools, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "ReplyInts", &ReplyInts, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "ReplyFloats", &ReplyFloats, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "ReplyStrings", &ReplyStrings, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "ReplyForms", &ReplyForms, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "Reject", &Reject, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "SetState", &SetState, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "SetStateBools", &SetStateBools, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "SetStateInts", &SetStateInts, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "SetStateFloats", &SetStateFloats, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "SetStateStrings", &SetStateStrings, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "SetStateForms", &SetStateForms, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "EmitEvent", &EmitEvent, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "Open", &Open, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "Close", &Close, true, false);
-			a_vm->BindNativeMethod(kViewScriptName, "Unregister", &Unregister, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "RegisterSend", &RegisterSend, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "RegisterSendStatic", &RegisterSendStatic, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "RegisterRequest", &RegisterRequest, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "RegisterRequestStatic", &RegisterRequestStatic, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "Reply", &Reply, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "ReplyBools", &ReplyBools, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "ReplyInts", &ReplyInts, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "ReplyFloats", &ReplyFloats, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "ReplyStrings", &ReplyStrings, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "ReplyForms", &ReplyForms, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "Reject", &Reject, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "SetState", &SetState, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "SetStateBools", &SetStateBools, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "SetStateInts", &SetStateInts, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "SetStateFloats", &SetStateFloats, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "SetStateStrings", &SetStateStrings, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "SetStateForms", &SetStateForms, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "EmitEvent", &EmitEvent, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "Open", &Open, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "Close", &Close, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "Unregister", &Unregister, true, false);
 
-			REX::INFO("PapyrusApi: view natives bound on scripts '{}' and '{}'", kPlatformScriptName, kViewScriptName);
+			REX::INFO("PapyrusApi: natives bound on script '{}'", kPlatformScriptName);
 		}
 
 		bool TryBindNatives()

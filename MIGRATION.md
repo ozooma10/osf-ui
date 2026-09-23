@@ -16,8 +16,15 @@ with settings and diagnostics ABI 1.0 alongside it.
 - automatic Settings data in the JavaScript bridge
 - every legacy 1.x bridge/schema alias
 
-Use `OSFUI_RequestViews`, `OSFUI_Views.h`, `OSFUI.psc`, and `OSFUI_View.psc`
-with explicit qualified view IDs. Use the
+Use `OSFUI_RequestAPI`, `OSFUI.h`, and `OSFUI.psc` with explicit qualified view IDs.
+The native interface is `OSFUI::API::IUI`, with `OSFUI::API::Client` as its wrapper.
+All Papyrus functions, including runtime queries and view communication, live on `OSFUI`.
+The former `OSFUI_RequestViews` export, `OSFUI_Views.h`, `OSFUI::API::Views`
+namespace, and `OSFUI_View.psc` have been removed without aliases. Rebuild native
+consumers against the new header and recompile scripts after changing `OSFUI_View`
+calls to `OSFUI`. The new native API is version 1.0 and exposes the complete interface;
+it does not support the old Views API revisions. Request replies take only JSON:
+`request.Respond(json)`. Use the
 [OSF Settings Slim SDK](https://github.com/ozooma10/osf-settings-slim) for native
 settings, diagnostics, hotkey callbacks, and hotkey blocks. Former Settings
 Papyrus APIs, actions, and localization services are outside this release.
@@ -29,7 +36,7 @@ the older extracted Settings service is not compatible. Diagnostic reports use
 `ReleaseHotkeyBlock`. There are no compatibility adapters for the old exports.
 
 A consuming native mod registers a callback hotkey with Slim and calls
-`OSFUI::API::Views::Client::RequestMenu` from that callback. Settings does not need
+`OSFUI::API::Client::RequestMenu` from that callback. Settings does not need
 to know about WebView IDs. See the [complete example](examples/settings-view/README.md).
 
 ## Paths
@@ -60,6 +67,6 @@ as `{"formatVersion":1,"values":{...}}` beneath its independent data subtree.
 ## Explicit forwarding
 
 Web pages receive only state their owning mod publishes with `SetViewState` or
-`OSFUI_View.SetState`. Read settings through OSF Settings and forward the
+`OSFUI.SetState`. Read settings through OSF Settings and forward the
 minimal values needed by the page. This is a deliberate privacy and coupling
 boundary.
