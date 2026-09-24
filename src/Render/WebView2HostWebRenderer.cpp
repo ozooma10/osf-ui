@@ -11,6 +11,7 @@
 
 #include "Composite/EngineD3D12.h"
 #include "Core/Log.h"
+#include "Core/Utf8Path.h"
 #include "Core/Version.h"
 #include "Views/Dev/DevViewFiles.h"
 #include "Views/ViewCache.h"
@@ -175,7 +176,7 @@ namespace OSFUI
 					if (ec) break;
 					continue;
 				}
-				const auto name = it->path().filename().string();
+				const auto name = Utf8Path(it->path().filename());
 				if (name == "views-mirror") {
 					if (anotherHostRunning) continue;
 				} else if (const auto legacyPid = SessionMirrorPid(name, "views-mirror-")) {
@@ -664,7 +665,7 @@ namespace OSFUI
 			const auto sourceSize = std::filesystem::file_size(browserHostExeSource, ec);
 			if (ec) {
 				REX::ERROR("WebView2HostWebRenderer: browser-host executable missing at {} ({})",
-					browserHostExeSource.string(), ec.message());
+					Utf8Path(browserHostExeSource), ec.message());
 				return false;
 			}
 			ec.clear();
@@ -769,11 +770,11 @@ namespace OSFUI
 			if (ec) {
 				REX::ERROR("BrowserHostDiag: browser-host executable mirror is GONE from {} ({}) — an "
 						   "antivirus likely quarantined it; restore/exclude it and retry",
-					browserHostExeMirror.string(), ec.message());
+					Utf8Path(browserHostExeMirror), ec.message());
 			} else if (HasMarkOfTheWeb(browserHostExeMirror)) {
 				REX::ERROR("BrowserHostDiag: browser-host executable mirror still carries Mark-of-the-Web — "
 						   "SmartScreen has likely blocked the launch silently; unblock {} "
-						   "(file Properties -> Unblock)", browserHostExeMirror.string());
+						   "(file Properties -> Unblock)", Utf8Path(browserHostExeMirror));
 			} else {
 				REX::INFO("BrowserHostDiag: browser-host executable mirror present ({} bytes, no Mark-of-the-Web)",
 					exeSize);
@@ -793,18 +794,18 @@ namespace OSFUI
 			if (ec) {
 				REX::ERROR("BrowserHostDiag: browser-host log {} does not exist — the browser-host process never "
 						   "started (SmartScreen/antivirus block, or the exe failed to run)",
-					browserHostLog.string());
+					Utf8Path(browserHostLog));
 				return;
 			}
 			if (logTime < a_launchTime) {
 				REX::ERROR("BrowserHostDiag: browser-host log {} is STALE (predates this launch) — the "
 						   "browser-host process never started this session (SmartScreen/antivirus "
-						   "block, or the exe failed to run)", browserHostLog.string());
+						   "block, or the exe failed to run)", Utf8Path(browserHostLog));
 				return;
 			}
 			const auto tail = ReadLogTail(browserHostLog, 20);
 			REX::INFO("BrowserHostDiag: browser-host log tail ({} line(s) from {}):",
-				tail.size(), browserHostLog.string());
+					tail.size(), Utf8Path(browserHostLog));
 			for (const auto& line : tail) {
 				REX::INFO("BrowserHostDiag: | {}", line);
 			}
@@ -871,7 +872,7 @@ namespace OSFUI
 
 			if (!pipe.WaitForClient(20000)) {
 				REX::ERROR("WebView2HostWebRenderer: browser host never connected: {} "
-						   "(browser-host log: {})", pipe.LastErrorText(), browserHostLog.string());
+						   "(browser-host log: {})", pipe.LastErrorText(), Utf8Path(browserHostLog));
 				LogBrowserHostStartFailureDiagnostics(launchTime);
 				SignalDead("browser host did not connect");
 				return;
@@ -921,7 +922,7 @@ namespace OSFUI
 				greeting.pid != *peerPid) {
 				REX::ERROR("WebView2HostWebRenderer: rejected browser-host hello "
 						   "(protocol={}, claimed pid={}, kernel pid={}, browser-host log: {})",
-					greeting.protocolVersion, greeting.pid, *peerPid, browserHostLog.string());
+					greeting.protocolVersion, greeting.pid, *peerPid, Utf8Path(browserHostLog));
 				SignalDead("browser-host identity or protocol mismatch");
 				return;
 			}
@@ -1211,7 +1212,7 @@ namespace OSFUI
 						deadLogged = true;
 						REX::ERROR("WebView2HostWebRenderer: browser-host connection lost — the "
 								   "overlay is closing before bounded browser-host recovery begins "
-								   "(browser-host log: {})", browserHostLog.string());
+								   "(browser-host log: {})", Utf8Path(browserHostLog));
 						if (onFailure) {
 							onFailure(FailureEvent{
 								.stage = "host-connection",
@@ -1400,7 +1401,7 @@ namespace OSFUI
 		if (!std::filesystem::exists(_impl->browserHostExeSource, ec)) {
 			REX::ERROR("WebView2HostWebRenderer: {} is missing — the out-of-process "
 					   "browser host was not packaged with this install",
-				_impl->browserHostExeSource.string());
+				Utf8Path(_impl->browserHostExeSource));
 			return false;
 		}
 		return true;

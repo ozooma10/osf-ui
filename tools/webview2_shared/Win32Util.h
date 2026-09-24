@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -16,6 +17,25 @@
 
 namespace osfui::win32
 {
+	// A null module selects the process executable. Never return a truncated path.
+	[[nodiscard]] inline std::filesystem::path ModulePath(HMODULE a_module = nullptr)
+	{
+		std::wstring path(512, L'\0');
+		for (;;) {
+			const auto length = ::GetModuleFileNameW(a_module, path.data(), static_cast<DWORD>(path.size()));
+			if (length == 0) return {};
+			if (length < path.size()) {
+				path.resize(length);
+				return std::filesystem::path(path);
+			}
+			if (path.size() >= 32768) {
+				::SetLastError(ERROR_INSUFFICIENT_BUFFER);
+				return {};
+			}
+			path.resize(path.size() * 2);
+		}
+	}
+
 	[[nodiscard]] inline std::wstring ToWide(std::string_view a_text)
 	{
 		if (a_text.empty()) return {};

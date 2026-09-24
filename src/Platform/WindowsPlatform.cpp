@@ -6,7 +6,7 @@
 #define NOMINMAX
 #include <Windows.h>
 
-#include "REX/FModule.h"
+#include "Core/Utf8Path.h"
 
 #include "Win32Util.h"
 
@@ -26,8 +26,7 @@ namespace OSFUI::Platform
 			!module) {
 			return {};
 		}
-		const REX::FModule owner{ reinterpret_cast<REX::W32::HMODULE>(module) };
-		return std::filesystem::path(owner.GetFileName()).filename().string();
+		return Utf8Path(osfui::win32::ModulePath(module).filename());
 	}
 
 }

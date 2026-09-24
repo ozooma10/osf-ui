@@ -6,7 +6,7 @@
 
 namespace OSFUI::Ids
 {
-	// Mod ids are opaque, bounded Windows filename and URL path components.
+	// Mod ids use bounded, URL-unreserved ASCII Windows filename components.
 
 	inline constexpr std::size_t kMaxModIdLen = 64;
 	inline constexpr std::size_t kMaxViewNameLen = 64;
@@ -53,8 +53,8 @@ namespace OSFUI::Ids
 			return false;
 		}
 		for (const unsigned char c : a_id) {
-			if (c < 0x20 || c == '<' || c == '>' || c == ':' || c == '"' || c == '/' ||
-				c == '\\' || c == '|' || c == '?' || c == '*' || c == '#' || c == '%') {
+			if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+				(c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~')) {
 				return false;
 			}
 		}

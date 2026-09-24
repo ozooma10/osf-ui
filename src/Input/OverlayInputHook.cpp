@@ -22,7 +22,6 @@ namespace OSFUI::OverlayInputHook
 		WNDPROC g_gameProc{ nullptr };
 		HWND    g_hwnd{ nullptr };
 		std::atomic_bool g_chainCycleLogged{ false };
-		thread_local bool g_forwardingOriginal{ false };
 
 		// Window-thread cursor state observes capture edges published by the main thread.
 		bool g_hwCursorActive{ false };
@@ -179,10 +178,6 @@ namespace OSFUI::OverlayInputHook
 
 		LRESULT CALLBACK WndProc(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 		{
-			if (g_forwardingOriginal) {
-				return ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
-			}
-
 			auto& runtime = Runtime::Get();
 
 			// Reconcile the main-thread capture edge on the window thread.
@@ -358,10 +353,9 @@ namespace OSFUI::OverlayInputHook
 				return ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
 			}
 
-			g_forwardingOriginal = true;
-			const auto result = ::CallWindowProcW(g_originalProc, a_hwnd, a_msg, a_wparam, a_lparam);
-			g_forwardingOriginal = false;
-			return result;
+			// Forwarding can synchronously deliver different messages (for example,
+			// WM_ACTIVATE -> WM_SETFOCUS); they must traverse our normal handler too.
+			return ::CallWindowProcW(g_originalProc, a_hwnd, a_msg, a_wparam, a_lparam);
 		}
 	}
 

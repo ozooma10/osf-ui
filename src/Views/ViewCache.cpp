@@ -390,7 +390,7 @@ namespace OSFUI::ViewCache
 				if (ec) ++result.failed;
 				continue;
 			}
-			const auto name = it->path().filename().string();
+			const auto name = Utf8Path(it->path().filename());
 			if (!name.starts_with(kGenerationPrefix) && !name.starts_with(kStagingPrefix)) {
 				continue;
 			}

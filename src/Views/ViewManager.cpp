@@ -1,6 +1,7 @@
 #include "Views/ViewManager.h"
 
 #include "Core/Ids.h"
+#include "Core/Utf8Path.h"
 
 #include <algorithm>
 
@@ -12,7 +13,7 @@ namespace OSFUI
 
 		std::error_code ec;
 		if (!std::filesystem::is_directory(a_viewsDir, ec)) {
-			REX::WARN("ViewManager: views dir {} does not exist; no views available", a_viewsDir.string());
+			REX::WARN("ViewManager: views dir {} does not exist; no views available", Utf8Path(a_viewsDir));
 			return;
 		}
 
@@ -26,16 +27,16 @@ namespace OSFUI
 			if (!modEntry.is_directory(entryEc)) {
 				continue;
 			}
-			const auto modId = modEntry.path().filename().string();
+			const auto modId = Utf8Path(modEntry.path().filename());
+			if (!Ids::IsAcceptedModId(modId)) {
+				REX::ERROR("ViewManager: skipping {} — mod folder name must use URL-safe ASCII characters (A-Z, a-z, 0-9, '.', '_', '~', '-') and cannot be a reserved name",
+					Utf8Path(modEntry.path()));
+				continue;
+			}
 			if (std::filesystem::exists(modEntry.path() / "manifest.json", entryEc)) {
 				REX::ERROR("ViewManager: {} uses the pre-1.0 flat layout — views live in "
 						   "views/<modId>/<view>/manifest.json now; skipping",
-					modEntry.path().string());
-				continue;
-			}
-			if (!Ids::IsAcceptedModId(modId)) {
-				REX::ERROR("ViewManager: skipping {} — mod folder name is not a safe opaque mod id",
-					modEntry.path().string());
+					Utf8Path(modEntry.path()));
 				continue;
 			}
 			std::error_code viewEc;
@@ -60,7 +61,7 @@ namespace OSFUI
 		}
 		// Sort qualified ids so creation, catalogs, and equal-order z ties are deterministic.
 		std::ranges::sort(_views, {}, &ViewManifest::id);
-		REX::INFO("ViewManager: {} view(s) discovered under {}", _views.size(), a_viewsDir.string());
+		REX::INFO("ViewManager: {} view(s) discovered under {}", _views.size(), Utf8Path(a_viewsDir));
 	}
 
 	const ViewManifest* ViewManager::Find(std::string_view a_id) const

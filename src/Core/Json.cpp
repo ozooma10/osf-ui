@@ -1,4 +1,5 @@
 #include "Core/Json.h"
+#include "Core/Utf8Path.h"
 
 #include <algorithm>
 #include <fstream>
@@ -15,7 +16,7 @@ namespace OSFUI::Json
 			if (a_outError) {
 				*a_outError = "cannot open file";
 			} else {
-				REX::WARN("Json: cannot open {}", a_path.string());
+				REX::WARN("Json: cannot open {}", Utf8Path(a_path));
 			}
 			return std::nullopt;
 		}
@@ -34,7 +35,7 @@ namespace OSFUI::Json
 			if (a_outError) {
 				*a_outError = std::string(what);
 			} else {
-				REX::ERROR("Json: failed to parse {} — {}", a_path.string(), what);
+				REX::ERROR("Json: failed to parse {} — {}", Utf8Path(a_path), what);
 			}
 			return std::nullopt;
 		}

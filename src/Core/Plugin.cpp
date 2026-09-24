@@ -63,20 +63,26 @@ namespace OSFUI::Plugin
 			if (!a_msg) {
 				return;
 			}
-			switch (a_msg->type) {
-				case SFSE::MessagingInterface::kPostPostLoad:
-					REX::INFO("Plugin: SFSE message kPostPostLoad");
-					Runtime::Get().OnPostPostLoad();
-					Runtime::Get().InstallOverlayDrawPath();
-					break;
-				case SFSE::MessagingInterface::kPostDataLoad:
-					REX::INFO("Plugin: SFSE message kPostDataLoad");
-					Runtime::Get().OnDataLoaded();
-					break;
-				case SFSE::MessagingInterface::kPostPostDataLoad:
-					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-					Runtime::Get().OnPostDataLoaded();
-					break;
+			try {
+				switch (a_msg->type) {
+					case SFSE::MessagingInterface::kPostPostLoad:
+						REX::INFO("Plugin: SFSE message kPostPostLoad");
+						Runtime::Get().OnPostPostLoad();
+						Runtime::Get().InstallOverlayDrawPath();
+						break;
+					case SFSE::MessagingInterface::kPostDataLoad:
+						REX::INFO("Plugin: SFSE message kPostDataLoad");
+						Runtime::Get().OnDataLoaded();
+						break;
+					case SFSE::MessagingInterface::kPostPostDataLoad:
+						REX::INFO("Plugin: SFSE message kPostPostDataLoad");
+						Runtime::Get().OnPostDataLoaded();
+						break;
+				}
+			} catch (const std::exception& e) {
+				REX::ERROR("Plugin: SFSE message {} threw '{}'", a_msg->type, e.what());
+			} catch (...) {
+				REX::ERROR("Plugin: SFSE message {} threw an unknown exception", a_msg->type);
 			}
 		}
 	}

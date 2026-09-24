@@ -1101,16 +1101,23 @@ namespace osfui::wv2
 						}).Get(), &token);
 				a_view.webView->add_NavigationCompleted(
 					Callback<ICoreWebView2NavigationCompletedEventHandler>(
-						[this, view](ICoreWebView2*,
+						[this, view](ICoreWebView2* a_sender,
 							ICoreWebView2NavigationCompletedEventArgs* a_args) -> HRESULT {
 							BOOL success = FALSE;
 							COREWEBVIEW2_WEB_ERROR_STATUS status{};
 							a_args->get_IsSuccess(&success);
 							a_args->get_WebErrorStatus(&status);
+							// Origin-guard cancellations and superseded navigations are not
+							// page failures and must not consume the plugin's recovery budget.
+							if (status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) return S_OK;
+							LPWSTR raw = nullptr;
+							std::string source;
+							if (SUCCEEDED(a_sender->get_Source(&raw)) && raw) source = ToUtf8(raw);
+							::CoTaskMemFree(raw);
 							Send(msg::ToJson(msg::LoadEvent{
 								.view = view->id,
 								.failed = success != TRUE,
-								.url = ToUtf8(view->currentUrl),
+								.url = std::move(source),
 								.description = success ? "" : "WebView2 navigation failed",
 								.code = static_cast<std::int32_t>(status) }));
 							return S_OK;
@@ -1727,12 +1734,11 @@ namespace osfui::wv2
 				::CloseHandle(token);
 			}
 		}
-		wchar_t exePath[MAX_PATH]{};
-		::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+		const auto exePath = osfui::win32::ModulePath();
 		app.log.Info(std::format(
 			"osfui_webview2_host starting (pid {}, game pid {}, pipe '{}', elevated={}, exe '{}')",
 			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName),
-			elevated ? "yes" : "no", ToUtf8(exePath)));
+			elevated ? "yes" : "no", ToUtf8(exePath.native())));
 
 		// Production permits exactly one browser host per game process.
 		const auto mutexName =
