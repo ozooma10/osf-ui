@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World stock board</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+  body { background: #07121c; color: #e9f3fa; font: 600 3vw/1.15 Arial, sans-serif; }
+  main { height: 100%; padding: 3%; border: 1vw solid var(--accent, #48e0bf); display: grid; grid-template-rows: 20% 35% 30% 15%; }
+  /* Only the vanilla test mesh samples the upper half of the texture. */
+  body.fixture main { height: 48%; padding-left: 9%; padding-right: 5%; }
+  header, footer { display: flex; justify-content: space-between; align-items: center; gap: 2%; }
+  #symbol { color: var(--accent); font-size: 6vw; }
+  #price { font-size: 10vw; font-variant-numeric: tabular-nums; }
+  #company { font-size: 2.8vw; }
+  svg { width: 100%; height: 100%; }
+  polyline { fill: none; stroke: var(--accent); stroke-width: 3; }
+  footer { font-size: 2.3vw; color: #aec4d6; }
+  #error { color: #ff8e8e; }
+</style>
+<main>
+  <header><span id="symbol">BOARD</span><span id="company">Waiting for configuration</span></header>
+  <div><span id="price">—</span> <small>CR</small></div>
+  <svg viewBox="0 0 400 100" preserveAspectRatio="none" aria-label="Recent prices"><polyline id="chart" points=""/></svg>
+  <footer><span id="source">WAITING</span><span id="sequence">UPDATE 0</span><span id="bridge">BRIDGE PENDING</span></footer>
+  <div id="error" role="alert"></div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let config;
+  let sequence = 0;
+  const prices = [];
+  function update(payload) {
+    if (!config || payload.symbol !== config.symbol || !Number.isFinite(payload.price) || payload.price < 0) return;
+    $('price').textContent = payload.price.toFixed(2);
+    $('sequence').textContent = `UPDATE ${++sequence}`;
+    prices.push(payload.price);
+    if (prices.length > 40) prices.shift();
+    const low = Math.min(...prices) - 1, high = Math.max(...prices) + 1;
+    $('chart').setAttribute('points', prices.map((p, i) => `${i * 400 / 39},${90 - (p - low) / (high - low) * 80}`).join(' '));
+  }
+  const bridge = window.osfui;
+  let greeted = false;
+  function greet() {
+    if (config && bridge && !greeted) {
+      greeted = true;
+      bridge.postMessage(JSON.stringify({ kind: 'send', name: 'osfui.hello', payload: {} }));
+    }
+  }
+  if (bridge) bridge.onMessage = (json) => {
+    try {
+      const message = JSON.parse(json);
+      if (message.kind === 'ready') $('bridge').textContent = 'BRIDGE READY';
+      if (message.kind === 'event' && message.name === 'stock.update') update(message.payload);
+    } catch { $('error').textContent = 'Invalid board message'; }
+  };
+  fetch('board.json').then((response) => {
+    if (!response.ok) throw new Error('Board configuration unavailable');
+    return response.json();
+  }).then((board) => {
+    config = board;
+    $('symbol').textContent = board.symbol;
+    $('company').textContent = board.title;
+    document.documentElement.style.setProperty('--accent', board.color);
+    document.body.classList.toggle('fixture', board.fixture === true);
+    $('source').textContent = board.demo === true ? 'SIMULATED MARKET' : board.fixture === true ? 'SIMULATED MOD FEED' : 'MOD MARKET FEED';
+    update({ symbol: board.symbol, price: board.price });
+    greet();
+    if (board.demo === true) setInterval(() => {
+      update({ symbol: board.symbol, price: board.price + Math.sin(sequence * .7) * 4 + Math.cos(sequence * .19) * 2 });
+    }, Math.max(100, board.interval || 1000));
+  }).catch((error) => { $('error').textContent = error.message; });
+</script>
+</html>

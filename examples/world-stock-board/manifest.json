@@ -1,0 +1,9 @@
+{
+  "manifestVersion": 1,
+  "title": "Nova Galactic stock board",
+  "kind": "world",
+  "entry": "index.html",
+  "width": 1280,
+  "height": 720,
+  "texture": "textures/osfui/feeds/4a91d21c04f0196a03d8ccc5340f435e/1f62d2c1ab76b0fe5bacc7dceebac365.dds"
+}

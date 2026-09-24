@@ -32,4 +32,6 @@ tests/native/vc140.pdb
 # `examples` would also swallow any nested examples/ directory.
 /examples/*
 !/examples/settings-view/
+!/examples/world-stock-board/
+__pycache__/
 *.pex

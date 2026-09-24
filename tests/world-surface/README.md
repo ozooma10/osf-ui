@@ -5,10 +5,44 @@ save, native observations, real Windows input, WGC captures, and retained report
 It does not modify the harness source. Run with PowerShell 7 from the OSF UI root.
 See [recorded validation](VALIDATION.md) for the successful runs and defects found.
 
+## Multiple independent displays
+
+`-Screens 2`, `3`, or `4` generates a grid of vanilla display meshes with separate
+private materials, byte-identical black 64x64 placeholders, and stock-board views
+from two mod namespaces. Materials use generated `textures/osfui/feeds/...`
+bindings; palette assets remain under `textures/OSFUIWorldTest`. No mode overrides
+Lodge textures. The names/prices are fictional. The test DLL sends a
+different `stock.update` event to each view through the public Views service.
+
+```powershell
+pwsh -NoProfile -File tests/world-surface/Invoke-WorldSurfaceTest.ps1 -Mode Baseline -Screens 4 -AimAtScreen -TestModName 'OSF Testing - World Boards'
+pwsh -NoProfile -File tests/world-surface/Invoke-WorldSurfaceTest.ps1 -Mode Live -Screens 4 -AimAtScreen -RestartBrowser -Overlay -TestModName 'OSF Testing - World Boards' -RuntimeMod '<worktree>/build/isolated-mods/OSF UI'
+```
+
+Build worktree payloads with process-local `XSE_SF_MODS_PATH` pointing to
+`<worktree>/build/isolated-mods` and `XSE_SF_GAME_PATH` unset. Pin XMake to that
+worktree (`-P .` from its root), configure `--test_harness=y`, and build as above.
+Set `WEBVIEW2_SDK_DIR` to an unpacked SDK if the worktree lacks `external/webview2`.
+Use a distinct `-TestModName` for a worktree: the runner refuses to overwrite a
+test mod owned by another checkout. No main-checkout source or ordinary deployment
+is changed. Retained sessions remember their screen count and test-mod identity.
+
+The multi-screen assertions require every material to bind, every GPU stream to
+advance with stable descriptors, and one verified helper per display. Restart
+checks require the other helpers to keep their process identities, ring
+generations, and advancing frames; the optional overlay must survive too. Inspect
+the captures for four different symbols/prices and their changing update counts:
+GPU counters alone cannot prove that the correct page is visible on each mesh.
+Baseline captures should show four black screen faces and a normal world.
+Multi-screen camera framing uses the pinned third-person view from `(-5.7, 1.0)`
+so the player does not obscure the boards. Single-screen framing stays unchanged.
+
+## Single-screen fixture
+
 The fixture places a vanilla DisplayScreen5 in QASmoke, the cell used by the
-current pinned harness save. It temporarily overrides the known-good Lodge
-color/emissive texture paths **only in the private test mod**. These assets must
-not be included in a production package. See [fixture provenance](fixtures/README.md).
+current pinned harness save, with a private material and generated texture asset.
+The preserved plugin is rewritten by `world_boards.py` even for one screen.
+See [original fixture provenance](fixtures/README.md).
 
 First establish that the fixture renders without the OSF UI DLL:
 
@@ -18,7 +52,7 @@ pwsh -NoProfile -File tests/world-surface/Invoke-WorldSurfaceTest.ps1 -Action Ca
 pwsh -NoProfile -File tests/world-surface/Invoke-WorldSurfaceTest.ps1 -Action Stop
 ```
 
-Inspect `baseline-screen.png`: the screen should show the checkerboard and the
+Inspect `baseline-screen.png`: the screen face should be black and the
 surrounding world should remain visible. `-AimAtScreen` uses bounded console
 input to place the disposable player at `(-4.8, 4.2)` south of the screen and
 angles `(0, 0)`, then pitches the saved third-person camera downward through
@@ -95,3 +129,44 @@ After testing, restore the normal build configuration and deployment:
 xmake f -P . --test_harness=n -y
 xmake build -P . -j1 "OSF UI"
 ```
+
+## Exact asset identity and lifetime
+
+The fixture's four feeds are `osfui-world-test/screen`,
+`osfui-world-test/screen-2`, `z-world-test/screen`, and `z-world-test/screen-2`.
+All placeholders have identical format, dimensions, and pixels; only their
+SHA-256-derived asset paths differ. All browser outputs are 1000x1000.
+
+After a successful four-screen `Run -KeepGame`, execute:
+
+```powershell
+pwsh -NoProfile -File tests/world-surface/Invoke-TextureLifetimeProbe.ps1 -Action Cycle -Cycles 3
+pwsh -NoProfile -File tests/world-surface/Invoke-WorldSurfaceTest.ps1 -Action Stop
+```
+
+Each cycle requests eviction while all materials still own their resources,
+asserts the outputs remain resident, leaves QASmoke and purges its cell buffers,
+waits for zero output residency, returns, and requires new output generations
+with the same exact feed IDs. Engine leases, copy/initialization fences and the
+post-ownership DIRECT fence must all retire before any allocation is released.
+`texture-lifetime-cycles.json` preserves the before/held/empty/reloaded snapshots.
+Console commands use only the owned disposable game and refocus before each
+operation. The runner intentionally leaves an interrupted session owned for
+inspection and `-Action Stop`; never stop an unrelated game.
+
+Run allocation pressure on a fresh game:
+
+```powershell
+pwsh -NoProfile -File tests/world-surface/Invoke-WorldSurfaceTest.ps1 -Mode Live -Screens 4 -AimAtScreen -BudgetPressure -TestModName 'OSF Testing - World Boards' -RuntimeMod '<worktree>/build/isolated-mods/OSF UI'
+```
+
+The compile-gated fixture lowers the output budget to 8 MiB. It requires two
+admitted feeds and two explicit allocation deferrals, and verifies deferred
+feeds own no replacement descriptors. Inspect the PNG: two correct feeds and
+two black faces, with no other feed substituted. Shipping builds ignore this
+private budget-control file. The eviction request file is staged before launch
+so MO2's virtual filesystem can see later updates.
+
+This is the texture integration milestone. The fixture still uses dedicated
+browsers and continuous updates; it does not prove shared snapshot workers,
+idle browser release, job/session isolation, or the future cached-feed API.

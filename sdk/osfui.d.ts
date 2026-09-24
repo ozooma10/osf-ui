@@ -105,8 +105,8 @@ export interface ViewManifestV1 {
   height?: number;
   transparent?: boolean;
   kind?: "menu" | "hud" | "world";
-  /** Required for world: square BGRA8 placeholder size, 256..4096, not a power of two. */
-  placeholderSize?: number;
+  /** Required for world: generated namespaced DDS asset path, derived from the qualified view ID. */
+  texture?: string;
   capturesInput?: boolean;
   pausesGame?: boolean;
   openOnStart?: boolean;

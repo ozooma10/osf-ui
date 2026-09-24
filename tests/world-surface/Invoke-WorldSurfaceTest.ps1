@@ -11,6 +11,9 @@ param(
     [switch]$AimAtScreen,
     [switch]$RestartBrowser,
     [switch]$Overlay,
+    [switch]$BudgetPressure,
+    [ValidateRange(1, 4)][int]$Screens = 1,
+    [ValidatePattern('^OSF Testing - [A-Za-z0-9 -]+$')][string]$TestModName = 'OSF Testing - World Surface',
     [string]$CaptureName = 'inspection'
 )
 
@@ -23,7 +26,6 @@ $TranslationRegistration = $false
 . (Join-Path $HarnessRoot 'scripts\Common.ps1')
 . (Join-Path $HarnessRoot 'scripts\Environment.ps1')
 . (Join-Path $HarnessRoot 'scripts\Reports.ps1')
-$testModName = 'OSF Testing - World Surface'
 $testMod = Join-Path $script:ModRoot $testModName
 $ownerFile = Join-Path $script:StateRoot 'world-surface-owner.json'
 $pluginName = 'OSFUIWorldSurfaceTest.esp'
@@ -63,7 +65,7 @@ function Save-WorldTestProfile {
     }
     $record = @{
         source = $fixtureSource; profileRoot = $script:ProfileRoot; backup = $backup
-        files = $files; existing = $existing; run = $script:Run; mode = $Mode
+        files = $files; existing = $existing; run = $script:Run; mode = $Mode; screens = $Screens; testModName = $TestModName; budgetPressure = [bool]$BudgetPressure
     }
     Write-JsonFile $ownerFile $record
     return $record
@@ -114,12 +116,15 @@ function Stage-WorldTest {
         }
         Copy-Tree $RuntimeMod $safeMod
     }
-    & $Python (Join-Path $fixtureSource 'make-fixture.py') --out $safeMod
+    & $Python (Join-Path $fixtureSource 'make-fixture.py') --out $safeMod --screens $Screens
+    [IO.File]::WriteAllText((Join-Path $testMod 'SFSE\Plugins\OSF\UI\views\osfui-world-test\output-budget-mib.txt'), $(if ($BudgetPressure) { '8' } else { '256' }))
     if ($LASTEXITCODE) { throw '[blocked] World-screen fixture generation failed.' }
     $viewDir = Join-Path $safeMod 'SFSE\Plugins\OSF\UI\views\osfui-world-test\screen'
     [IO.Directory]::CreateDirectory($viewDir) | Out-Null
-    foreach ($name in @('manifest.json', 'index.html')) {
-        Copy-Item -LiteralPath (Join-Path $fixtureSource $name) -Destination $viewDir -Force
+    if ($Screens -eq 1) {
+        foreach ($name in @('manifest.json', 'index.html')) {
+            Copy-Item -LiteralPath (Join-Path $fixtureSource $name) -Destination $viewDir -Force
+        }
     }
     if ($Overlay) {
         Copy-Tree (Join-Path $fixtureSource 'overlay') (Join-Path $safeMod 'SFSE\Plugins\OSF\UI\views\osfui-world-test\overlay')
@@ -135,7 +140,7 @@ function Stage-WorldTest {
     }
     $lines = @(Get-Content -LiteralPath $profileFile | Where-Object { $_ -and $_.TrimStart('+', '-') -notin $enable } | ForEach-Object {
         $name = $_.TrimStart('+', '-')
-        if ($name -in $disable) { '-' + $name } else { $_ }
+        if ($name -in $disable -or $name -like 'OSF Testing - World*') { '-' + $name } else { $_ }
     })
     [IO.File]::WriteAllLines($profileFile, @($enable | ForEach-Object { '+' + $_ }) + $lines, [Text.UTF8Encoding]::new($false))
     foreach ($name in @('plugins.txt', 'loadorder.txt')) {
@@ -155,18 +160,24 @@ function Stage-WorldTest {
         Copy-Item -LiteralPath (Join-Path $fixtureSource $name) -Destination $script:Run.path -Force
     }
     if ($Overlay) { Copy-Tree (Join-Path $fixtureSource 'overlay') (Join-Path $script:Run.path 'overlay') }
+    if ($Screens -gt 1) {
+        Copy-Item -LiteralPath (Join-Path $fixtureSource 'world_boards.py') -Destination $script:Run.path
+        Copy-Tree (Join-Path $safeMod 'SFSE\Plugins\OSF\UI\views') (Join-Path $script:Run.path 'views')
+    }
     Add-Evidence 'fixture' 'Private QASmoke screen fixture staged' @{
-        mode = $Mode; view = $viewId; mod = $safeMod; plugin = $pluginName; overlay = [bool]$Overlay; restartBrowser = [bool]$RestartBrowser
+        mode = $Mode; view = $viewId; mod = $safeMod; plugin = $pluginName; overlay = [bool]$Overlay; restartBrowser = [bool]$RestartBrowser; screens = $Screens
         cellFormId = '0x002BE3A9'; referenceLocalFormId = '0x81D'; runtimeSource = $RuntimeMod
     }
 }
 
 function Read-WorldSnapshot {
+    param([switch]$All)
     $path = Join-Path $script:Run.logs 'OSF UI.log'
     if (-not (Test-Path -LiteralPath $path)) { return $null }
     $matches = @(Get-Content -LiteralPath $path -Tail 300 | Select-String -Pattern 'WorldSurface snapshot (\[.*\])')
     if (-not $matches.Count) { return $null }
     $records = $matches[-1].Matches[0].Groups[1].Value | ConvertFrom-Json -AsHashtable
+    if ($All) { return @($records | Where-Object { $_.id -eq $viewId -or $_.id -match '^(osfui-world-test|z-world-test)/screen(-2)?$' }) }
     return @($records | Where-Object id -eq $viewId) | Select-Object -First 1
 }
 
@@ -202,6 +213,7 @@ function Get-WorldTestHelpers {
 }
 
 function Invoke-WorldBrowserRestart {
+    $beforeAll = @(Read-WorldSnapshot -All)
     $before = Read-WorldSnapshot
     if (-not $before -or $before.ringGeneration -eq 0) { throw '[blocked] No live browser ring before the restart test.' }
     $helpers = @(Get-WorldTestHelpers)
@@ -230,6 +242,16 @@ function Invoke-WorldBrowserRestart {
         param($snapshot) $snapshot -and $snapshot.ringGeneration -eq $recovered.ringGeneration -and $snapshot.completedFrames -ge ($recovered.completedFrames + 15) -and $snapshot.lastCompletedFrame -gt $recovered.lastCompletedFrame
     } 20
     Assert-Test (-not $continued.gpuFailed -and $continued.ringOpenFailures -eq 0 -and $continued.boundDescriptors -eq $before.boundDescriptors) 'Browser restart preserves material bindings and resumes healthy GPU copies' @{ before = $before; recovered = $continued; helper = $replacement }
+    foreach ($peer in @($beforeAll | Where-Object id -ne $viewId)) {
+        $after = Wait-Observed ('uninterrupted frames on ' + $peer.id) { @(Read-WorldSnapshot -All | Where-Object id -eq $peer.id) | Select-Object -First 1 } {
+            param($snapshot) $snapshot -and $snapshot.completedFrames -gt ($peer.completedFrames + 15)
+        } 20
+        Assert-Test ($after.ringGeneration -eq $peer.ringGeneration -and $after.boundDescriptors -eq $peer.boundDescriptors -and $after.producerDisconnects -eq $peer.producerDisconnects -and -not $after.gpuFailed) ('Restart leaves the independent texture healthy: ' + $peer.id) @{ before = $peer; after = $after }
+    }
+    $afterHelpers = @(Get-WorldTestHelpers)
+    foreach ($peer in @($helpers | Where-Object { $_.instance -match '^world-[1-3]$' })) {
+        Assert-Test (@($afterHelpers | Where-Object { $_.pid -eq $peer.pid -and $_.processStartFileTime -eq $peer.processStartFileTime }).Count -eq 1) ('Independent browser survives: ' + $peer.instance) $peer
+    }
     if ($Overlay) {
         $originalOverlay = @($helpers | Where-Object instance -ceq '')
         $afterHelpers = @(Get-WorldTestHelpers)
@@ -246,7 +268,10 @@ function Aim-WorldTestCamera {
     # Only bounded scan-code events to the already claimed foreground game.
     # The pinned save's third-person camera faces north. The screen faces south,
     # so place the player south of it while retaining that initial camera yaw.
-    foreach ($command in @('player.setpos x -4.8', 'player.setpos y 4.2', 'player.setangle x 0', 'player.setangle z 0')) {
+    $cameraX = if ($Screens -gt 1) { -5.7 } else { -4.8 }
+    $cameraY = if ($Screens -gt 1) { 1.0 } else { 4.2 }
+    foreach ($command in @("player.setpos x $cameraX", "player.setpos y $cameraY", 'player.setangle x 0', 'player.setangle z 0')) {
+        $null = Invoke-Input 'focus'
         Send-Key 192 40
         $null = Wait-Observed 'console opened for camera positioning' { Get-GameState } {
             param($state) 'Console' -in $state.menus -or 'ConsoleMenu' -in $state.menus
@@ -264,14 +289,38 @@ function Aim-WorldTestCamera {
     $null = Wait-Observed 'fresh gameplay after camera commands' { Get-GameState } {
         param($state) -not $state.snapshotStale -and 'Console' -notin $state.menus -and 'ConsoleMenu' -notin $state.menus
     } 10
-    $null = Invoke-Input 'move' @('--dx', '0', '--dy', '180')
+    $pitch = if ($Screens -gt 1) { '60' } else { '180' }
+    $null = Invoke-Input 'move' @('--dx', '0', '--dy', $pitch)
     $tick = (Get-GameState).tickCount
     $positioned = Wait-Observed 'camera framing reaches rendered gameplay' { Get-GameState } {
         param($state) -not $state.snapshotStale -and $state.tickCount -gt ($tick + 3)
     } 10
-    Assert-Test ([Math]::Abs($positioned.position.x + 4.8) -lt 0.05 -and [Math]::Abs($positioned.position.y - 4.2) -lt 0.05) 'Native player position confirms the screen-camera fixture' $positioned.position
+    Assert-Test ([Math]::Abs($positioned.position.x - $cameraX) -lt 0.05 -and [Math]::Abs($positioned.position.y - $cameraY) -lt 0.05) 'Native player position confirms the screen-camera fixture' $positioned.position
     $script:worldOwner.cameraAimed = $true
     Write-JsonFile $ownerFile $script:worldOwner
+}
+
+function Invoke-MultipleWorldAssertions {
+    $first = @(Wait-Observed 'all independent textures bound and copying' { @(Read-WorldSnapshot -All) } {
+        param($records) @($records).Count -eq $Screens -and @($records | Where-Object { $_.boundDescriptors -eq 0 -or $_.completedFrames -lt 3 -or $_.lastCompletedFrame -eq 0 }).Count -eq 0
+    } 45)
+    $second = @(Wait-Observed 'every independent texture continues updating' { @(Read-WorldSnapshot -All) } {
+        param($records)
+        if (@($records).Count -ne $Screens) { return $false }
+        foreach ($before in $first) {
+            $after = @($records | Where-Object id -eq $before.id) | Select-Object -First 1
+            if (-not $after -or $after.completedFrames -lt ($before.completedFrames + 15) -or $after.lastCompletedFrame -le $before.lastCompletedFrame) { return $false }
+        }
+        return $true
+    } 25)
+    Assert-Test (@($second.texture | Sort-Object -Unique).Count -eq $Screens) 'Each world feed binds its generated asset independently of dimensions' $second
+    foreach ($before in $first) {
+        $after = @($second | Where-Object id -eq $before.id)[0]
+        Assert-Test ($after.boundDescriptors -eq $before.boundDescriptors -and -not $after.gpuFailed -and $after.ringOpenFailures -eq 0) ('Independent GPU copies remain healthy: ' + $after.id) @{ before = $before; after = $after }
+    }
+    $helpers = @(Get-WorldTestHelpers | Where-Object { $_.instance -match '^world-[0-3]$' })
+    Assert-Test ($helpers.Count -eq $Screens -and @($helpers.instance | Sort-Object -Unique).Count -eq $Screens) 'Each independent display has its own verified browser process' $helpers
+    $null = Save-Capture 'multiple-world-boards'
 }
 
 function Invoke-WorldAssertions {
@@ -284,12 +333,28 @@ function Invoke-WorldAssertions {
         Add-Evidence 'visual-review' 'Baseline fixture screenshot requires inspection' @{ expected = 'Visible checkerboard on the screen; ordinary world remains visible.' }
         return
     }
+    if ($BudgetPressure) {
+        if ($Screens -ne 4) { throw 'BudgetPressure requires four private screens.' }
+        $records = @(Wait-Observed 'budget admits two outputs and defers two' { @(Read-WorldSnapshot -All) } {
+            param($s) $s.Count -eq 4 -and @($s | Where-Object engineOwners -gt 0).Count -eq 2 -and @($s | Where-Object allocationDeferrals -gt 0).Count -eq 2
+        } 45)
+        $resident = ($records | Measure-Object residentBytes -Sum).Sum
+        Assert-Test ($resident -le 8MB) 'Output allocation stays within the forced 8 MiB budget' $records
+        Assert-Test (@($records | Where-Object { $_.allocationDeferrals -gt 0 -and ($_.engineOwners -ne 0 -or $_.boundDescriptors -ne 0) }).Count -eq 0) 'Budget-deferred assets retain their own placeholders without redirecting another feed' $records
+        $null = Save-Capture 'named-assets-budget-pressure'
+        return
+    }
     $first = Wait-Observed 'world texture binding and first GPU copies' { Read-WorldSnapshot } {
         param($snapshot) $snapshot -and $snapshot.boundDescriptors -gt 0 -and $snapshot.completedFrames -gt 2 -and $snapshot.lastCompletedFrame -gt 0
     } 45
+    if ($Screens -gt 1) {
+        Invoke-MultipleWorldAssertions
+        $first = Read-WorldSnapshot
+    }
     $null = Save-Capture 'live-screen-a'
+    $requiredFrames = if ($Screens -gt 1) { 10 } else { 30 }
     $second = Wait-Observed 'world texture continues receiving distinct browser frames' { Read-WorldSnapshot } {
-        param($snapshot) $snapshot -and $snapshot.completedFrames -ge ($first.completedFrames + 30) -and $snapshot.lastCompletedFrame -gt $first.lastCompletedFrame
+        param($snapshot) $snapshot -and $snapshot.completedFrames -ge ($first.completedFrames + $requiredFrames) -and $snapshot.lastCompletedFrame -gt $first.lastCompletedFrame
     } 20
     $null = Save-Capture 'live-screen-b'
     Assert-Test ($second.boundDescriptors -eq $first.boundDescriptors) 'Bound material descriptors remain stable while browser frames advance' @{ first = $first; second = $second }
@@ -327,9 +392,12 @@ try {
     $script:worldOwner = Read-JsonFile $ownerFile
     if ($Action -in @('Status', 'Capture', 'Stop')) {
         if (-not $script:worldOwner) { throw '[blocked] No retained world-surface test session.' }
+        if ($script:worldOwner.source -ne $fixtureSource) { throw '[blocked] Another checkout owns this world-surface session.' }
+        if ($script:worldOwner.ContainsKey('screens')) { $Screens = $script:worldOwner.screens }
+        if ($script:worldOwner.ContainsKey('testModName')) { $TestModName = $script:worldOwner.testModName; $testMod = Join-Path $script:ModRoot $TestModName }
         $script:Run = $script:worldOwner.run
         if ($Action -eq 'Status') {
-            @{ game = Get-GameState; world = Read-WorldSnapshot } | ConvertTo-Json -Depth 20
+            @{ game = Get-GameState; world = @(Read-WorldSnapshot -All) } | ConvertTo-Json -Depth 20
             $preserveSession = $true
         } elseif ($Action -eq 'Capture') {
             if ($AimAtScreen) { Aim-WorldTestCamera }

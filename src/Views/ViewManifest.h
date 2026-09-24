@@ -34,8 +34,8 @@ namespace OSFUI
 		std::filesystem::path rootDir;  // directory containing the manifest
 
 		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud" | "world"
-		// World-only: square BGRA8 material placeholder dimensions, before replacement.
-		std::uint32_t placeholderSize{ 0 };
+		// World-only: generated asset path owned by this qualified feed ID.
+		std::string texture;
 
 		// Menu-only: while this is the active menu, route input into the page.
 		bool capturesInput{ true };

@@ -111,7 +111,7 @@ The fresh-game evidence above used the instrumented DLL. The final normal DLL
 was rebuilt with the same rendering/recovery source and test instrumentation
 disabled; its build and deployment checks are separate from that runtime proof.
 
-## Scope of proof
+## Scope of the original single-screen proof
 
 This verifies one 1000x1000 world view on the preserved vanilla donor material,
 with one simultaneous HUD, on this workstation. It does not establish four-view
@@ -120,3 +120,68 @@ screen UVs, distance/cell suspension, or arbitrary authored material graphs.
 The test-only Lodge texture overrides remain outside the production payload.
 See [authoring requirements](../../docs/world-surfaces.md) and the
 [repeatable test procedure](README.md).
+
+## Four independent stock boards, 2026-09-21
+
+Work was isolated on `osf/world-multiple-textures` at
+`C:\Users\skunko\.codex\worktrees\world-multiple-textures\OSF UI`, based on
+`f48c3bd`. Builds deployed into the worktree's `build/isolated-mods/OSF UI`,
+and the runner copied those binaries to `OSF Testing - World Boards`.
+The main checkout and ordinary MO2 runtime deployment were not edited.
+
+The new fixture uses four vanilla DisplayScreen5 references with four original
+material resource graphs and private textures. Placeholder dimensions are
+1000, 1001, 1002, and 1003; all four browsers render at 1000x1000. The page comes
+from `examples/world-stock-board` and receives different fictional prices via
+the public native `SendToWeb(viewId, "stock.update", json)` API each second.
+
+Artifacts under `C:\Modding\Starfield\OSF Test Harness\artifacts`:
+
+- `20260921-223203-912-WorldSurface-Baseline`: asset-only pass with OSF UI absent;
+  four differently tinted emissive screens and the surrounding world render.
+- `20260921-223351-841-WorldSurface-Live`: 26 assertions passed, including all
+  four bindings, progressing GPU copies, focus return, overlay coexistence,
+  and one browser's forced termination/recovery.
+- `20260921-223606-325-WorldSurface-Live`: 26 assertions passed again after
+  increasing page padding to keep symbols clear of the vanilla screen border.
+- `20260921-223842-570-WorldSurface-Live`: final 26-assertion pass with the
+  camera shifted clear of the player. Inspected `multiple-world-boards.png`
+  and `live-screen-browser-recovered.png`: NOVA, DEIM, STRO, and RYUJ all show
+  distinct native prices/charts and `BRIDGE READY`. Only NOVA's update counter
+  and chart restart after its browser is stopped; the others keep advancing.
+
+The four world helpers have separate verified process identities. After
+`world-0` terminates, only its browser/ring restarts; the other three process
+identities, material descriptor counts, and ring generations remain unchanged,
+their frames continue advancing, and the ordinary overlay remains alive.
+Every run restored the private profile and stopped its owned game. Final cleanup
+verified all seven profile backup hashes, no Starfield process, and no retained
+world-surface ownership marker.
+
+Instrumented DLL SHA256:
+`925B8CBD0B9E4F8FB4EE64F140765BB46F73D62F17B4E102BF4788EF7BBC147A`.
+Helper SHA256:
+`26431140CA5A4B54F8A5C151B2FFBD74EBE32A2DB25A4A6BCA7837CDF1884986`.
+Each run also retains hashes for its complete fixture and payload.
+
+Build and host checks: MSVC releasedbg succeeded; all 30 native suites and all
+22 CLI tests passed. The native policy tests cover cross-mod binding collisions
+on both sides and disabled developer fixtures. The CLI tests cover four distinct
+bindings at the same render resolution, duplicate sizes, and a fifth view.
+
+This extends the earlier single-screen evidence to four concurrent, low-update
+stock boards with independent native data and recovery. It does not establish
+four simultaneous high-frame-rate games or 4K displays, nor remove the global
+four-view cap, signature-based binding, or process-lifetime residency limit.
+Production mod authors still own their meshes, materials, placement, and feed.
+
+## Named texture identity and lifetime, 2026-09-21
+
+This supersedes the dimension-signature and process-lifetime limitations of the
+historical runs above. The worktree build passed two-namespace binding with
+byte-identical placeholders, three engine unload/reload cycles, explicit DIRECT
+retirement fences, output-budget deferral, and Starcade's Pong/animation regression.
+See the [trace, artifact IDs, hashes and limits](../../docs/world-texture-identity.md)
+and [repeatable commands](README.md#exact-asset-identity-and-lifetime).
+The shared cached-worker runtime remains pending; this milestone proves the
+asset identity and GPU lifetime foundation.

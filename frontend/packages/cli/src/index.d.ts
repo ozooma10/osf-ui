@@ -19,8 +19,7 @@ export interface ViewConfig {
   kind?: ViewKind;
   width?: number;
   height?: number;
-  /** Required for world views: square BGRA8 placeholder size, 256..4096, not a power of two. */
-  placeholderSize?: number;
+  // Texture assets are generated from modId/view id by osfui build.
   transparent?: boolean;
   capturesInput?: boolean;
   pausesGame?: boolean;

@@ -5,6 +5,7 @@
 #include "Core/Log.h"
 #include "Core/Ids.h"
 #include "Core/Json.h"
+#include "World/WorldAssets.h"
 
 namespace OSFUI
 {
@@ -25,7 +26,7 @@ namespace OSFUI
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry",
-					"width", "height", "transparent", "kind", "placeholderSize",
+					"width", "height", "transparent", "kind", "texture",
 					"capturesInput", "pausesGame", "openOnStart", "order" },
 				"ViewManifest: [content] " + a_path.string(), /*a_warn=*/false);
 		}
@@ -77,7 +78,7 @@ namespace OSFUI
 
 		if (manifest.kind == ViewKind::World) {
 			// Validate the authored integers before narrowing/clamping. A wrapped
-			// value must never select an unrelated engine texture signature.
+			// value must never overflow output allocation.
 			const auto readSize = [&](std::string_view a_key, std::uint32_t a_default,
 				std::uint32_t a_minimum) -> std::optional<std::uint32_t> {
 				const auto it = json->find(a_key);
@@ -94,15 +95,14 @@ namespace OSFUI
 			};
 			const auto width = readSize("width", kDefaultViewWidth, 1);
 			const auto height = readSize("height", kDefaultViewHeight, 1);
-			const auto placeholder = readSize("placeholderSize", 0, 256);
-			if (!width || !height || !placeholder ||
-				(*placeholder & (*placeholder - 1)) == 0) {
-				REX::ERROR("ViewManifest: [content] world '{}' requires width/height in 1..4096 and a non-power-of-two placeholderSize in 256..4096", manifest.id);
+			const auto texture = Json::Get(*json, "texture", "");
+			if (!width || !height || !WorldAssets::IsGeneratedPath(texture) || json->contains("placeholderSize")) {
+				REX::ERROR("ViewManifest: [content] world '{}' requires width/height in 1..4096 and a generated texture binding; rebuild old placeholderSize packages", manifest.id);
 				return std::nullopt;
 			}
 			manifest.width = *width;
 			manifest.height = *height;
-			manifest.placeholderSize = *placeholder;
+			manifest.texture = texture;
 			manifest.transparent = false;
 			manifest.openOnStart = false;
 			manifest.order = 0;

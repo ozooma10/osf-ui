@@ -4,6 +4,7 @@ import { loadConfigFromFile, normalizePath } from 'vite';
 
 import { CONFIG_FILES, MAX_MOD_ID_LENGTH, VIEW_ID_PATTERN, isAcceptedModId } from './constants.mjs';
 import { exists } from './fsutil.mjs';
+import { worldTexturePath } from './world-texture.mjs';
 
 const MOCK_CANDIDATES = ['osfui.mock.ts', 'osfui.mock.mts', 'osfui.mock.js', 'osfui.mock.mjs'];
 
@@ -106,9 +107,8 @@ export async function loadProject(cwd, command = 'serve') {
       throw new Error(`view "${authored.id}" kind must be "menu", "hud", or "world".`);
     }
     if (kind === 'world') {
-      const size = authored.placeholderSize;
-      if (!Number.isInteger(size) || size < 256 || size > 4096 || (size & (size - 1)) === 0) {
-        throw new Error(`world view "${authored.id}" requires a non-power-of-two placeholderSize in 256..4096.`);
+      if ('placeholderSize' in authored || 'texture' in authored) {
+        throw new Error(`world view "${authored.id}" uses a generated texture binding; remove placeholderSize/texture and rebuild its material reference.`);
       }
       for (const key of ['width', 'height']) {
         if (authored[key] !== undefined &&
@@ -128,6 +128,7 @@ export async function loadProject(cwd, command = 'serve') {
       entry,
       entryPath,
       kind,
+      ...(kind === 'world' ? { texture: worldTexturePath(`${raw.modId}/${authored.id}`) } : {}),
       width: dimension(authored.width, 1600),
       height: dimension(authored.height, 900),
       transparent: kind !== 'world' && authored.transparent !== false,
@@ -168,7 +169,7 @@ export function manifestFor(view) {
     kind: view.kind,
     width: view.width,
     height: view.height,
-    ...(view.kind === 'world' ? { placeholderSize: view.placeholderSize } : {}),
+    ...(view.kind === 'world' ? { texture: view.texture } : {}),
     transparent: view.transparent,
     capturesInput: view.capturesInput,
     pausesGame: view.pausesGame,

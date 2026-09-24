@@ -6,9 +6,9 @@
   "entry": "index.html",
   "width": 1000,
   "height": 1000,
-  "placeholderSize": 1000,
   "transparent": false,
   "capturesInput": false,
   "pausesGame": false,
-  "openOnStart": true
+  "openOnStart": false,
+  "texture": "textures/osfui/feeds/a3d1b84fd4a07359f1694df4fb1d7d93/57812ff2f463990b90f02be4da0d0ba9.dds"
 }

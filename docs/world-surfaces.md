@@ -1,64 +1,58 @@
-# Web views on world materials
+# Named world material feeds
 
-A `kind: "world"` view displays an opaque browser image through a material on
-3D geometry. It starts passive and does not open a fullscreen menu or pause the
-game. A native consumer can explicitly acquire keyboard/controller interaction.
-Direct pointer interaction with a screen's UV coordinates is not implemented.
+World-view definitions remain the authoring entry point. Declare `kind: "world"`,
+a view name, and output `width`/`height` (1..4096, default 1600x900). `osfui build`
+generates a normal one-mip BGRA8 DDS and a `texture` field in the packaged
+manifest. Reference that path in the object's material, including its emissive
+slot when needed. The material and mesh belong to the consumer mod.
 
-Place the page and manifest in the ordinary view discovery directory:
-`Data/SFSE/Plugins/OSF/UI/views/<mod-id>/<view-name>/`.
+For qualified feed ID `market/prices`, the binding path is
+`textures/osfui/feeds/<first 32 SHA-256 hex digits>/<last 32 digits>.dds`.
+The hash input is the exact qualified ID in UTF-8. Dimensions, registration
+order, browser instances, and physical object identities are absent from it.
+Every generated placeholder is the same opaque-black 64x64 image. Multiple
+objects using one path share one output. Different feeds have independent paths.
 
-```json
-{
-  "manifestVersion": 1,
-  "title": "Ship display",
-  "kind": "world",
-  "entry": "index.html",
-  "width": 1600,
-  "height": 900,
-  "placeholderSize": 1000
-}
-```
+Old `placeholderSize` definitions are rejected. Rebuild them and update their
+material references. Native configuration validates the generated path against
+the qualified feed ID. Duplicate feed IDs (including case-only aliases), asset paths, or engine asset keys are
+errors. There is no four-feed limit in authoring or the texture registry.
 
-`width` and `height` are the browser resolution, each an integer in 1..4096.
-They default to 1600x900. `placeholderSize` is required and identifies the exact
-square texture dimensions used by the material. It must be 256..4096 and not a
-power of two. Use a distinct placeholder size for each independently rendered
-view; the runtime admits at most four world views and rejects duplicate
-signatures. References using the same placeholder share the same browser image.
+The verified integration currently supports Starfield 1.16.244.0. The engine's
+TextureDB creation record carries the asset key through the synchronous renderer
+resource/SRV creation call. Only that exact asset can select a feed. The call
+site and original target are checked before installation; an unsupported or
+already modified site disables world binding. There is no size/pixel fallback.
 
-`transparent`, `capturesInput`, `pausesGame`, `openOnStart`, and `order` do not
-control world presentation. The runtime forces the view opaque and passive and
-starts its dedicated browser only after a matching material texture is seen.
-`debugOnly` retains the normal restart-latched developer-mode requirement.
+At SRV creation, the engine resource receives an ownership lease for the output.
+The lease neither retains the original resource nor rewrites a live descriptor.
+When the engine destroys its original texture resource, it releases that lease.
+Every OSF GPU submission separately retains its source ring and output until
+its completion fence passes. After the last engine owner disappears, a separate
+fence is queued after prior DIRECT submissions and must complete before eviction.
+Resource addresses and descriptor slot indices
+can therefore be recycled without transferring feed identity.
 
-The texture must load as a plain sampled 2D BGRA8 typeless resource, one mip,
-one array slice, one sample, and no render-target, depth, or UAV capability.
-These checks prevent an engine render target from matching a world surface.
-The binding uses this signature rather than a texture filename or reference
-FormID. Avoid giving any unrelated texture the same signature.
+Outputs allocate on material discovery, within a default **256 MiB** budget
+charged using `GetResourceAllocationInfo`. Pressure evicts only outputs with no
+engine owners and no in-flight initialization/copy commands. If none are safe,
+allocation is deferred with diagnostics and that material keeps its placeholder.
+At this milestone a deferred binding retries on asset reload. Initialization
+and browser transport have separate, temporary resource costs; the output
+budget is not a cap on total game or browser memory.
 
-At SRV creation, OSF UI redirects the matching material to a stable texture it
-owns. Completed WebView shared-ring frames are copied there on the engine's
-DIRECT queue; producer slots are acknowledged through GPU fence completion.
-The browser's sRGB bytes are sampled through an sRGB view. A browser restart
-retains the last completed image while a replacement ring is opened.
-Ordering is established on that DIRECT queue; material sampling from a separate
-asynchronous compute queue has not been validated.
+The first completed implementation stage is exact identity and resource
+lifetime. The current world runtime still starts a dedicated browser for a bound
+feed and keeps it resident; it is not yet the shared snapshot scheduler. The
+remaining cached-feed work is recorded in [the implementation plan](named-world-feeds-plan.md): immutable
+feed state, render-ready/job/session acknowledgement, shared snapshot worker,
+per-feed InPrivate profiles, idle browser release, and cached/live transitions.
+No session-only image-cache or 64-feed/one-worker acceptance is claimed yet.
 
-Host/page failure starts at most three automatic restart attempts with bounded
-response deadlines. During recovery, native `SendToWeb` events queue until the replacement
-document greets the bridge, and old deferred requests are discarded. Exhausted
-recovery requires a game restart. There is currently no distance-based suspension
-or per-reference lifecycle: a browser that has started remains resident for the
-game process.
-
-The physical object, UV mapping, material, and texture paths remain the mod's
-responsibility. A useful screen material has readable emission, high roughness,
-a flat normal, and full 0..1 UVs on a surface matching the browser aspect ratio.
-New Starfield material resource graphs need independent asset-only validation:
-historical copied or edited `.mat` files broke ordinary world rendering even
-with the plugin disabled.
+World displays are opaque and passive. They do not open a menu or pause the
+game. Fullscreen overlay compositing remains independent. GPU writes are ordered
+on the engine DIRECT queue, as validated with ordinary screen materials;
+material sampling from an independent asynchronous compute queue is not proven.
 
 ## Keyboard and controller interaction
 
@@ -96,8 +90,7 @@ particular reference or provide a cabinet asset. The current Starcade prototype
 uses an isolated test hotkey and the preserved QASmoke fixture; it is excluded
 from Starcade's ordinary deployment.
 
-The repository includes a reproducible
-[isolated runtime scenario](../tests/world-surface/README.md), using a preserved
-vanilla DisplayScreen5 and material swap in QASmoke. Its test-only Lodge texture
-overrides are excluded from the production payload. They establish a controlled
-rendering fixture; they are not a standalone screen asset for release.
+The [isolated runtime fixture](../tests/world-surface/README.md) uses private
+material graphs and generated textures on vanilla DisplayScreen5 geometry.
+It does not override vanilla textures. See [identity/lifetime evidence](world-texture-identity.md)
+for the traced engine sequence and runtime acceptance results.

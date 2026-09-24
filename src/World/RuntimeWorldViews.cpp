@@ -1,12 +1,13 @@
 #include "Runtime/Runtime.h"
 
 #include "Core/Paths.h"
-#include "World/WorldTexture.h"
-#include "Input/OverlayInputHook.h"
 #include "Input/MenuEventSink.h"
+#include "Input/OverlayInputHook.h"
 #include "Platform/WindowsPlatform.h"
+#include "World/WorldTexture.h"
+#include "World/WorldViewPolicy.h"
 #if defined(OSFUI_TEST_HARNESS)
-#include "WorldSurfaceObservations.h"
+#	include "WorldSurfaceObservations.h"
 #endif
 
 namespace OSFUI
@@ -23,7 +24,8 @@ namespace OSFUI
 			_pendingWorldInteraction.reset();
 			request.callback(request.token, request.view.c_str(), API::Views::InteractionPhase::kRejected, a_reason, request.context);
 		}
-		if (!_worldInteraction) return;
+		if (!_worldInteraction)
+			return;
 		const auto owner = std::move(*_worldInteraction);
 		_worldInteraction.reset();
 		if (auto* renderer = _worldInputRenderer.exchange(nullptr, std::memory_order_acq_rel)) {
@@ -32,7 +34,8 @@ namespace OSFUI
 		}
 		_worldNativeFocus = false;
 		_worldInteractionCancel.store(false, std::memory_order_release);
-		if (_bridge) _bridge->Emit(owner.view, "ui.interaction", nlohmann::json{ { "active", false }, { "reason", a_reason } });
+		if (_bridge)
+			_bridge->Emit(owner.view, "ui.interaction", nlohmann::json{ { "active", false }, { "reason", a_reason } });
 		(void)m_gamepadSession.End();
 		m_gamepadSource.Reset();
 		OverlayInputHook::RequestStateRefresh();
@@ -42,11 +45,13 @@ namespace OSFUI
 
 	void Runtime::ApplyWorldInteractionRequests(const std::vector<API::BridgeApi::InteractionRequest>& a_requests)
 	{
-		if (_worldInteractionCancel.exchange(false)) FinishWorldInteraction("focus-or-menu");
+		if (_worldInteractionCancel.exchange(false))
+			FinishWorldInteraction("focus-or-menu");
 		for (const auto& request : a_requests) {
 			if (!request.callback) {
 				if ((_worldInteraction && _worldInteraction->token == request.token) ||
-					(_pendingWorldInteraction && _pendingWorldInteraction->token == request.token)) FinishWorldInteraction("requested");
+					(_pendingWorldInteraction && _pendingWorldInteraction->token == request.token))
+					FinishWorldInteraction("requested");
 				continue;
 			}
 			if (_worldInteraction || _pendingWorldInteraction) {
@@ -62,10 +67,10 @@ namespace OSFUI
 			const auto stats = WorldTexture::Snapshot();
 			const auto surface = std::ranges::find_if(stats, [&](const auto& view) { return view.id == request.view; });
 			const bool available = std::chrono::steady_clock::now() - request.requestedAt < std::chrono::seconds(5) &&
-				!_worldInteraction && !_presentation.ActiveMenu() && !_pendingViewOpen && Platform::GameIsForeground() &&
-				!MenuEventSink::ConsoleOpen() && world != _worldViews.end() && world->renderer && !world->failed &&
-				m_viewLoads.GetState(request.view) == ViewLoadState::Finished &&
-				surface != stats.end() && surface->lastCompletedFrame != 0 && !surface->gpuFailed && EnsureCaptureIntegration();
+			                       !_worldInteraction && !_presentation.ActiveMenu() && !_pendingViewOpen && Platform::GameIsForeground() &&
+			                       !MenuEventSink::ConsoleOpen() && world != _worldViews.end() && world->renderer && !world->failed &&
+			                       m_viewLoads.GetState(request.view) == ViewLoadState::Finished &&
+			                       surface != stats.end() && surface->lastCompletedFrame != 0 && !surface->gpuFailed && EnsureCaptureIntegration();
 			if (!available) {
 				FinishWorldInteraction("unavailable");
 				return;
@@ -76,8 +81,10 @@ namespace OSFUI
 				_worldNeutralTick = 0;
 				return;
 			}
-			if (!_worldNeutralTick) _worldNeutralTick = _mainTickSerial;
-			if (_mainTickSerial - _worldNeutralTick < 2) return;
+			if (!_worldNeutralTick)
+				_worldNeutralTick = _mainTickSerial;
+			if (_mainTickSerial - _worldNeutralTick < 2)
+				return;
 			if (!_osfSettings.AcquireInputSuppression()) {
 				FinishWorldInteraction("input-unavailable");
 				return;
@@ -90,7 +97,8 @@ namespace OSFUI
 			(void)m_gamepadSession.End();
 			m_gamepadSource.Reset();
 			OverlayInputHook::RequestStateRefresh();
-			if (_bridge) _bridge->Emit(request.view, "ui.interaction", nlohmann::json{ { "active", true } });
+			if (_bridge)
+				_bridge->Emit(request.view, "ui.interaction", nlohmann::json{ { "active", true } });
 			REX::INFO("WorldInteraction: '{}' started", request.view);
 			request.callback(request.token, request.view.c_str(), API::Views::InteractionPhase::kStarted, "requested", request.context);
 		}
@@ -100,19 +108,30 @@ namespace OSFUI
 	{
 		std::vector<WorldTexture::SurfaceDesc> surfaces;
 		for (const auto& manifest : _views.All()) {
-			if (manifest.kind != ViewKind::World || (manifest.debugOnly && !_developerMode)) continue;
-			if (surfaces.size() == WorldTexture::kMaxSurfaces ||
-				std::ranges::any_of(surfaces, [&](const auto& surface) {
-					return surface.placeholderSize == manifest.placeholderSize;
-				})) {
-				REX::ERROR("WorldSurface: '{}' has a duplicate placeholder size or exceeds the surface limit", manifest.id);
+			if (!IsEligibleWorldView(manifest, _developerMode))
+				continue;
+			if (const auto* conflict = FindWorldBindingConflict(manifest, _views.All(), _developerMode)) {
+				const auto message = std::format("World views '{}' and '{}' claim the same feed or texture asset {}",
+					manifest.id, conflict->id, manifest.texture);
+				REX::ERROR("WorldSurface: {}", message);
+				_osfSettings.ReportFailure("world." + manifest.id, "world.binding-conflict", message);
 				continue;
 			}
-			surfaces.push_back({ manifest.id, manifest.placeholderSize, manifest.width, manifest.height });
+			surfaces.push_back({ manifest.id, manifest.texture, manifest.width, manifest.height });
 			_worldViews.push_back({ .manifest = manifest });
 		}
-		if (surfaces.empty()) return;
-		if (!WorldTexture::Configure(surfaces)) {
+		if (surfaces.empty())
+			return;
+		auto outputBudget = WorldTexture::kDefaultBudgetBytes;
+#if defined(OSFUI_TEST_HARNESS)
+		// Only the private, compile-gated fixture can lower the budget for a
+		// real allocation-pressure test; shipping builds do not read this file.
+		std::ifstream budgetFile(Paths::ViewsDir() / "osfui-world-test" / "output-budget-mib.txt");
+		std::uint64_t budgetMiB = 0;
+		if (budgetFile >> budgetMiB && budgetMiB >= 1 && budgetMiB <= 256)
+			outputBudget = budgetMiB * 1024 * 1024;
+#endif
+		if (!WorldTexture::Configure(surfaces, outputBudget)) {
 			_worldViews.clear();
 			return;
 		}
@@ -139,10 +158,12 @@ namespace OSFUI
 
 	void Runtime::TickWorldViews(double a_deltaSeconds)
 	{
-		if (_worldViews.empty() || !WorldTexture::Install()) return;
+		if (_worldViews.empty() || !WorldTexture::Install())
+			return;
 		const auto stats = WorldTexture::Snapshot();
 		const auto detachFailedView = [this](WorldView& instance) {
-			if (_worldInteraction && _worldInteraction->view == instance.manifest.id) FinishWorldInteraction("browser-failed");
+			if (_worldInteraction && _worldInteraction->view == instance.manifest.id)
+				FinishWorldInteraction("browser-failed");
 			instance.failed = true;
 			m_viewLoads.FinishLoad(instance.manifest.id, true);
 			API::BridgeApi::Get().SetViewInstantiated(instance.manifest.id, false);
@@ -152,18 +173,14 @@ namespace OSFUI
 		};
 		bool active = false;
 		for (std::size_t i = 0; i < _worldViews.size(); ++i) {
-			auto& world = _worldViews[i];
+			auto&       world = _worldViews[i];
 			const auto& manifest = world.manifest;
 			if (stats[i].gpuFailed && _worldInteraction && _worldInteraction->view == manifest.id) {
 				FinishWorldInteraction("render-failed");
 			}
 			if (!world.renderer && !world.failed && stats[i].boundDescriptors != 0) {
 				world.renderer = std::make_unique<WebView2HostWebRenderer>();
-				if (!world.renderer->Initialize({
-					.width = manifest.width, .height = manifest.height,
-					.devMode = _developerMode, .highRefreshCapture = false,
-					.dataDir = Paths::DataDir(), .instanceName = std::format("world-{}", i)
-				})) {
+				if (!world.renderer->Initialize({ .width = manifest.width, .height = manifest.height, .devMode = _developerMode, .highRefreshCapture = false, .dataDir = Paths::DataDir(), .instanceName = std::format("world-{}", i) })) {
 					world.failed = true;
 					world.renderer.reset();
 					_osfSettings.ReportFailure("world." + manifest.id, "world.host-init", "World view browser initialization failed");
@@ -183,7 +200,8 @@ namespace OSFUI
 					auto& instance = _worldViews[i];
 					// Once a host/document fails, only the explicit restart below
 					// admits new events; a queued old success must not revive its gate.
-					if (instance.failed || event.viewId != instance.manifest.id) return;
+					if (instance.failed || event.viewId != instance.manifest.id)
+						return;
 					m_viewLoads.FinishLoad(instance.manifest.id, event.failed);
 					if (event.failed) {
 						detachFailedView(instance);
@@ -203,7 +221,8 @@ namespace OSFUI
 				});
 				world.renderer->SetFailureHandler([this, i, detachFailedView](const WebView2HostWebRenderer::FailureEvent& event) {
 					auto& instance = _worldViews[i];
-					if (instance.failed) return;
+					if (instance.failed)
+						return;
 					detachFailedView(instance);
 					instance.recovery.OnRetryableFailure(_uptime);
 					_osfSettings.ReportFailure("world." + instance.manifest.id, "world.host-failed",
@@ -220,7 +239,8 @@ namespace OSFUI
 				BroadcastViewsData();
 				REX::INFO("WorldSurface: '{}' starting dedicated {}x{} browser", manifest.id, manifest.width, manifest.height);
 			}
-			if (!world.renderer) continue;
+			if (!world.renderer)
+				continue;
 			active = true;
 			if (world.recovery.ExpireResponseWait(_uptime)) {
 				detachFailedView(world);
@@ -240,10 +260,12 @@ namespace OSFUI
 					world.renderer->SetViewHidden(manifest.id, false);
 					world.renderer->SetPointerInputEnabled(false);
 					BroadcastViewsData();
-				} else world.recovery.OnAttemptSetupFailed(_uptime);
+				} else
+					world.recovery.OnAttemptSetupFailed(_uptime);
 			}
 			world.renderer->Update(a_deltaSeconds);
-			if (const auto frame = world.renderer->TakeLatestFrame()) WorldTexture::Submit(i, *frame);
+			if (const auto frame = world.renderer->TakeLatestFrame())
+				WorldTexture::Submit(i, *frame);
 		}
 		_worldViewsActive.store(active, std::memory_order_release);
 #if defined(OSFUI_TEST_HARNESS)

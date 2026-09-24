@@ -72,38 +72,32 @@ int main()
 	Write(path, R"({ "manifestVersion": 1, "kind": "future" })");
 	assert(!OSFUI::ViewManifest::Load(path));
 
-	// World screens have their own opaque/passive presentation policy.
-	Write(path, R"({
-		"manifestVersion": 1, "kind": "world", "placeholderSize": 1000,
-		"width": 1600, "height": 900, "transparent": true,
-		"capturesInput": true, "pausesGame": true, "openOnStart": true, "order": 12
-	})");
-	manifest = OSFUI::ViewManifest::Load(path);
-	assert(manifest && manifest->kind == OSFUI::ViewKind::World);
-	assert(manifest->placeholderSize == 1000 && manifest->width == 1600 && manifest->height == 900);
-	assert(!manifest->transparent && !manifest->menuInputEligible && !manifest->capturesInput);
-	assert(!manifest->pausesGame && !manifest->openOnStart && manifest->order == 0);
-
-	Write(path, R"({ "manifestVersion": 1, "kind": "world" })");
-	assert(!OSFUI::ViewManifest::Load(path));
-	for (const auto size : { "null", "true", "\"1000\"", "1000.5", "-1", "0", "255", "256", "512", "1024", "2048", "4096", "4097", "4294968296", "18446744073709551615" }) {
-		Write(path, std::string(R"({"manifestVersion":1,"kind":"world","placeholderSize":)") + size + "}");
-		assert(!OSFUI::ViewManifest::Load(path));
-	}
-	for (const auto key : { "width", "height" }) {
-		for (const auto size : { "null", "false", "\"900\"", "1.5", "-1", "0", "4097", "4294968196", "18446744073709551615" }) {
-			Write(path, std::string(R"({"manifestVersion":1,"kind":"world","placeholderSize":1000,")") + key + "\":" + size + "}");
-			assert(!OSFUI::ViewManifest::Load(path));
-		}
-	}
-	for (const auto size : { "257", "1000", "4095" }) {
-		Write(path, std::string(R"({"manifestVersion":1,"kind":"world","width":1,"height":4096,"placeholderSize":)") + size + "}");
-		manifest = OSFUI::ViewManifest::Load(path);
-		assert(manifest && manifest->width == 1 && manifest->height == 4096);
-	}
-	Write(path, R"({"manifestVersion":1,"kind":"world","placeholderSize":1000})");
-	manifest = OSFUI::ViewManifest::Load(path);
-	assert(manifest && manifest->width == 1600 && manifest->height == 900);
+	// World feeds require an owned, generated asset path and opaque presentation.
+    const std::string texture = "textures/osfui/feeds/0123456789abcdef0123456789abcdef/0123456789abcdef0123456789abcdef.dds";
+    const auto world = std::string(R"({"manifestVersion":1,"kind":"world","texture":")") + texture + R"(")";
+    Write(path, world + R"(,"width":1600,"height":900,"transparent":true,"capturesInput":true,"pausesGame":true,"openOnStart":true,"order":12})");
+    manifest = OSFUI::ViewManifest::Load(path);
+    assert(manifest && manifest->kind == OSFUI::ViewKind::World);
+    assert(manifest->texture == texture && manifest->width == 1600 && manifest->height == 900);
+    assert(!manifest->transparent && !manifest->menuInputEligible && !manifest->capturesInput);
+    assert(!manifest->pausesGame && !manifest->openOnStart && manifest->order == 0);
+    Write(path, R"({"manifestVersion":1,"kind":"world"})");
+    assert(!OSFUI::ViewManifest::Load(path));
+    Write(path, world + R"(,"placeholderSize":1000})");
+    assert(!OSFUI::ViewManifest::Load(path));
+    for (const auto key : {"width","height"}) {
+        for (const auto size : {"null","false","1.5","-1","0","4097","4294968196","18446744073709551615"}) {
+            Write(path, world + ",\"" + key + "\":" + size + "}");
+            assert(!OSFUI::ViewManifest::Load(path));
+        }
+    }
+    Write(path, world + R"(,"width":1,"height":4096})");
+    manifest = OSFUI::ViewManifest::Load(path);
+    assert(manifest && manifest->width == 1 && manifest->height == 4096);
+    for (const auto bad : {"textures/vanilla.dds","../foreign.dds","textures/osfui/feeds/other.dds"}) {
+        Write(path, std::string(R"({"manifestVersion":1,"kind":"world","texture":")") + bad + R"("})");
+        assert(!OSFUI::ViewManifest::Load(path));
+    }
 
 	std::filesystem::remove_all(root);
 	std::cout << "view_manifest_tests: ok\n";

@@ -1,11 +1,12 @@
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import { build as viteBuild, mergeConfig } from 'vite';
 
 import { BUILD_MARKER, CLI_VERSION } from './constants.mjs';
 import { exists } from './fsutil.mjs';
 import { manifestFor } from './config.mjs';
+import { worldPlaceholder } from './world-texture.mjs';
 import { sharedAssetPath } from './shared-assets.mjs';
 
 function sharedKitPlugin() {
@@ -78,6 +79,11 @@ export async function buildProject(project, { quiet = false } = {}) {
   for (const view of project.views) {
     const output = resolve(project.outputViewsRoot, project.modId, view.id);
     await mkdir(output, { recursive: true });
+    if (view.kind === 'world') {
+      const texture = resolve(project.outDir, 'Data', view.texture);
+      await mkdir(dirname(texture), { recursive: true });
+      await writeFile(texture, worldPlaceholder());
+    }
     await writeFile(resolve(output, 'manifest.json'), `${JSON.stringify(manifestFor(view), null, 2)}\n`);
   }
   return project.outDir;

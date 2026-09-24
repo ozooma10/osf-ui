@@ -81,7 +81,7 @@ target("OSF UI")
     add_packages("nlohmann_json")
 
     add_syslinks(
-        "d3d12", "d3dcompiler", "shell32", "ole32", "xinput", "user32",
+        "d3d12", "d3dcompiler", "shell32", "ole32", "xinput", "user32", "bcrypt",
         -- out-of-process host client (pipe ACL + Explorer/TaskScheduler broker)
         "oleaut32", "uuid", "comsuppw", "taskschd", "advapi32")
 

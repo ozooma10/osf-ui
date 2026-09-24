@@ -4,32 +4,56 @@
   "title": "OSF UI 2.0 View Manifest",
   "description": "Web-view metadata for Data/SFSE/Plugins/OSF/UI/views/<mod-id>/<view-name>/manifest.json. Identity is derived from the folders. Unknown properties are ignored for forward compatibility.",
   "type": "object",
-  "required": ["manifestVersion"],
+  "required": [
+    "manifestVersion"
+  ],
   "additionalProperties": true,
   "properties": {
-    "$schema": { "type": "string" },
-    "manifestVersion": { "const": 1 },
+    "$schema": {
+      "type": "string"
+    },
+    "manifestVersion": {
+      "const": 1
+    },
     "mod": {
       "type": "string",
       "description": "Optional authoring consistency hint; identity is always derived from the containing folder."
     },
-    "title": { "type": "string" },
-    "description": { "type": "string" },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
     "entry": {
       "type": "string",
       "default": "index.html",
       "description": "Relative entry HTML path. Absolute paths and '..' components are rejected."
     },
-    "width": { "type": "integer", "minimum": 1, "maximum": 16384, "default": 1600 },
-    "height": { "type": "integer", "minimum": 1, "maximum": 16384, "default": 900 },
-    "transparent": { "type": "boolean", "default": true },
-    "kind": { "type": "string", "enum": ["menu", "hud", "world"], "default": "menu" },
-    "placeholderSize": {
+    "width": {
       "type": "integer",
-      "minimum": 256,
-      "maximum": 4096,
-      "not": { "enum": [256, 512, 1024, 2048, 4096] },
-      "description": "Required for world views. Exact width and height of the square, single-mip BGRA8 material placeholder. World views are opaque, passive, and start when their material is discovered; transparency, input, pause, openOnStart, and order are ignored."
+      "minimum": 1,
+      "maximum": 16384,
+      "default": 1600
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16384,
+      "default": 900
+    },
+    "transparent": {
+      "type": "boolean",
+      "default": true
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "menu",
+        "hud",
+        "world"
+      ],
+      "default": "menu"
     },
     "capturesInput": {
       "type": "boolean",
@@ -55,16 +79,43 @@
       "type": "boolean",
       "default": false,
       "description": "A debug-only HUD autostarts only when osfui.developerMode is enabled in OSF Settings."
+    },
+    "texture": {
+      "type": "string",
+      "pattern": "^textures/osfui/feeds/[0-9a-f]{32}/[0-9a-f]{32}\\.dds$",
+      "description": "Generated from qualified feed identity by osfui build; reference this asset in the material."
     }
   },
-  "allOf": [{
-    "if": { "properties": { "kind": { "const": "world" } }, "required": ["kind"] },
-    "then": {
-      "required": ["placeholderSize"],
-      "properties": {
-        "width": { "maximum": 4096 },
-        "height": { "maximum": 4096 }
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "world"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "texture"
+        ],
+        "properties": {
+          "width": {
+            "maximum": 4096
+          },
+          "height": {
+            "maximum": 4096
+          }
+        },
+        "not": {
+          "required": [
+            "placeholderSize"
+          ]
+        }
       }
     }
-  }]
+  ]
 }

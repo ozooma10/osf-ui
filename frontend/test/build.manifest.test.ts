@@ -22,15 +22,17 @@ describe('built-in view catalog', () => {
     expect(validate({ manifestVersion: 2, kind: 'hud' })).toBe(false);
   });
 
-  it('requires a precise world texture signature and bounded browser dimensions', () => {
-    expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize: 1000 })).toBe(true);
-    expect(validate({ manifestVersion: 1, kind: 'world' })).toBe(false);
-    for (const placeholderSize of [null, '1000', 1000.5, -1, 255, 256, 512, 1024, 2048, 4096, 4097]) {
-      expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize })).toBe(false);
+  it('requires a generated world texture binding and bounded dimensions', () => {
+    const texture = `textures/osfui/feeds/${'0'.repeat(32)}/${'1'.repeat(32)}.dds`;
+    expect(validate({manifestVersion:1,kind:'world',texture})).toBe(true);
+    expect(validate({manifestVersion:1,kind:'world'})).toBe(false);
+    expect(validate({manifestVersion:1,kind:'world',texture,placeholderSize:1000})).toBe(false);
+    for (const bad of [null,1000,'textures/vanilla.dds','../other.dds']) {
+      expect(validate({manifestVersion:1,kind:'world',texture:bad})).toBe(false);
     }
-    expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize: 1000, width: 4096, height: 1 })).toBe(true);
-    expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize: 1000, width: 4097 })).toBe(false);
-    expect(validate({ manifestVersion: 1, kind: 'world', placeholderSize: 1000, height: 0 })).toBe(false);
+    expect(validate({manifestVersion:1,kind:'world',texture,width:4096,height:1})).toBe(true);
+    expect(validate({manifestVersion:1,kind:'world',texture,width:4097})).toBe(false);
+    expect(validate({manifestVersion:1,kind:'world',texture,height:0})).toBe(false);
   });
 });
 
