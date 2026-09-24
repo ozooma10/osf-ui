@@ -1304,7 +1304,8 @@ namespace osfui::wv2
 
 			void DrainQueuedViewWork(View& a_view)
 			{
-				if (!a_view.webView) return;
+				// The controller arrives before the async network guard completes and FinishControllerSetup installs the event handlers and bridge shim.
+				if (!a_view.webView || !a_view.securityReady) return;
 				if (a_view.pendingNavigate) {
 					a_view.domSeen = false;
 					SuspendCdpInput(a_view);
