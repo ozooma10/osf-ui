@@ -72,6 +72,7 @@ SUITES=(
 "wv2_mouse_buttons_tests wv2_mouse_buttons_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
 "view_presentation_controller_tests view_presentation_controller_tests.cpp ../../src/Views/ViewPresentationController.cpp"
+"view_open_coordinator_tests view_open_coordinator_tests.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewPresentationController.cpp"
 "view_request_queue_tests view_request_queue_tests.cpp ../../src/Views/ViewRequestQueue.cpp"
 "wndproc_chain_tests wndproc_chain_tests.cpp"
 "papyrus_call_tests papyrus_call_tests.cpp"

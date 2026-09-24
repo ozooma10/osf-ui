@@ -8,7 +8,6 @@
 #include "Core/Log.h"
 #include "Input/ControlLayer.h"
 #include "Input/FocusMenu.h"
-#include "Input/SimPause.h"
 #include "Wv2Messages.h"
 
 namespace OSFUI
@@ -233,7 +232,7 @@ namespace OSFUI
 		if (_osfSettings.AcquireInputSuppression()) return true;
 		_osfSettings.ReportFailure("input.hotkey-block", "input.hotkey-block",
 			"The WebView cannot capture input because OSF hotkeys could not be blocked");
-		CancelPendingOpen();
+		_viewOpens.SuspendMenus();
 		_presentation.CloseActiveMenu();
 		return false;
 	}
@@ -276,11 +275,6 @@ namespace OSFUI
 		} else {
 			FocusMenu::Close();
 		}
-	}
-
-	void Runtime::ReconcileSimPause()
-	{
-		SimPause::Apply(_presentation.DesiredPause());
 	}
 
 	void Runtime::RouteGamepadInput(double a_deltaSeconds)

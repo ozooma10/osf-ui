@@ -6,6 +6,7 @@
 #include "Input/KeyOwnership.h"
 #include "Win32Util.h"
 #include "Runtime/Runtime.h"
+#include "Wv2Messages.h"
 #include "Wv2CdpInput.h"
 
 // Keep <Windows.h> here with NOGDI to avoid wingdi's ERROR macro.

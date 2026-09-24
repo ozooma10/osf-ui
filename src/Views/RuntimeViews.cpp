@@ -33,27 +33,13 @@ namespace OSFUI
 		}
 
 		m_viewRecovery.Clear(id);
-		m_viewLoads.BeginLoad(id);
-		m_viewInputGrants.ResetPage(id);
-		_renderer->CreateOrNavigateView(a_manifest);
-		const auto capture = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
-		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
-		if (capture.width && capture.height) {
-			_renderer->Resize(capture.width, capture.height);
-		}
-		if (view.width && view.height) {
-			_renderer->SetViewport(view.width, view.height);
-		}
+		NavigateView(a_manifest);
 		_presentation.AddInstantiated({ id, a_manifest.kind, a_manifest.capturesInput, a_manifest.pausesGame, a_manifest.order });
-		API::BridgeApi::Get().SetViewInstantiated(id, true);
-		if (_coldOpenTiming && _coldOpenTiming->viewId == id) {
-			_coldOpenTiming->instantiatedAt = ViewTimingClock::now();
-		}
+		_viewOpens.OnInstantiated(id);
 
 		REX::INFO("Runtime: view '{}' instantiated {} ({}, capturesInput={}, pausesGame={})", id, a_reason, a_manifest.kind == ViewKind::Hud ? "hud" : "menu", a_manifest.capturesInput, a_manifest.pausesGame);
 		if (_bridge) {
 			API::BridgeApi::Get().SetBridgeAvailability(_bridge.get());
-			_bridge->OnViewCreated(id);
 		}
 		return true;
 	}
@@ -73,10 +59,8 @@ namespace OSFUI
 			REX::INFO("Runtime: replacement browser host responded on attempt {}; menus remain closed; requested HUDs resume after loading", attempts);
 		}
 		m_viewLoads.FinishLoad(id, a_failed);
+		_viewOpens.OnLoad(id, a_failed);
 		if (!a_failed) {
-			if (_coldOpenTiming && _coldOpenTiming->viewId == id) {
-				_coldOpenTiming->loadedAt = ViewTimingClock::now();
-			}
 			if (m_viewRecovery.Clear(id)) {
 				REX::INFO("Runtime: view '{}' recovered ({})", a_viewId, a_url);
 			} else {
@@ -86,13 +70,6 @@ namespace OSFUI
 			_osfSettings.ClearFailure("view.load-failed:" + id);
 			BroadcastViewsData();  // loadState loading -> loaded
 			return;
-		}
-
-		CancelColdOpenTiming(id);
-		// A failed menu load cancels the user's pending open; a later recovery must
-		// not surface the menu long after that request. HUD intent survives retries.
-		if (const auto* manifest = _views.Find(id); manifest && manifest->kind == ViewKind::Menu) {
-			CancelPendingOpen(id);
 		}
 		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]", a_viewId, a_url, a_description, a_errorCode);
 
@@ -112,20 +89,17 @@ namespace OSFUI
 		BroadcastViewsData();  // loadState loading -> failed
 	}
 
-	void Runtime::ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest)
+	void Runtime::NavigateView(const ViewManifest& a_manifest)
 	{
-		CancelRelativePointerCapture(a_id);
-		m_viewLoads.BeginLoad(a_id);
-		m_viewInputGrants.ResetPage(a_id);
+		const auto& id = a_manifest.id;
+		CancelRelativePointerCapture(id);
+		m_viewLoads.BeginLoad(id);
+		m_viewInputGrants.ResetPage(id);
 		_renderer->CreateOrNavigateView(a_manifest);
-		if (_bridge) {
-			_bridge->OnViewCreated(a_id);
-			API::BridgeApi::Get().SetViewInstantiated(a_id, true);
-		}
-		const auto capture = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
-		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
-		_renderer->Resize(capture.width, capture.height);
-		_renderer->SetViewport(view.width, view.height);
+		if (_bridge) _bridge->OnViewCreated(id);
+		API::BridgeApi::Get().SetViewInstantiated(id, true);
+		// Geometry is renderer-wide, retained across restart and replayed in its
+		// connection snapshot. Navigation does not need to resend unchanged sizes.
 	}
 
 	void Runtime::DriveRecovery()
@@ -142,14 +116,14 @@ namespace OSFUI
 
 			const auto attempt = m_viewRecovery.BeginAttempt(id);
 			REX::INFO("Runtime: crash-recovery reloading view '{}' (attempt {} of {})", id, attempt, ViewRecoveryTracker::kMaxAttempts);
-			ReloadViewInPlace(id, *manifest);
+			NavigateView(*manifest);
 		}
 	}
 
 	void Runtime::TearDownFailedView(const std::string& a_id)
 	{
 		m_viewRecovery.Clear(a_id);
-		CancelPendingOpen(a_id);
+		_viewOpens.Cancel(a_id);
 		if (_renderer) {
 			_renderer->DestroyView(a_id);
 		}
@@ -204,7 +178,7 @@ namespace OSFUI
 		for (const auto& completed : _devViewReload->DrainCompleted()) {
 			const auto* manifest = _views.Find(completed.id);
 			if (!manifest || !_presentation.IsInstantiated(completed.id)) continue;
-			ReloadViewInPlace(completed.id, *manifest);
+			NavigateView(*manifest);
 			anyReloaded = true;
 			REX::INFO("Runtime: dev reloaded loose view '{}'", completed.id);
 		}

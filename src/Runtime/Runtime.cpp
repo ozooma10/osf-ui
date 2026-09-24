@@ -284,10 +284,10 @@ namespace OSFUI
 			switch (std::get<ViewPresentationRequest>(operation)) {
 			case ViewPresentationRequest::Back: {
 				const auto active = _presentation.ActiveMenu();
-				if (_pendingViewOpen) {
-					CancelPendingOpen();
+				if (_viewOpens.PendingMenu()) {
+					_viewOpens.CancelMenu();
 				} else if (active) {
-					CancelColdOpenTiming(*active);
+					_viewOpens.CancelTiming(*active);
 					if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
 						BeginViewOpen(*target, "for native back navigation");
 					} else if (m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
@@ -303,9 +303,7 @@ namespace OSFUI
 				break;
 			}
 			case ViewPresentationRequest::CloseAll:
-				CancelPendingOpen();
-				_coldOpenTiming.reset();
-				_viewOpenPreflightBarriers.clear();
+				_viewOpens.Clear();
 				_presentation.CloseAll();
 				break;
 			}
@@ -314,8 +312,7 @@ namespace OSFUI
 			if (r.open) {
 				BeginViewOpen(r.view, "on demand", r.requestedAt);
 			} else {
-				CancelPendingOpen(r.view);
-				CancelColdOpenTiming(r.view);
+				_viewOpens.Cancel(r.view);
 				_presentation.Close(r.view);
 			}
 		}
@@ -345,17 +342,11 @@ namespace OSFUI
 		}
 	}
 
-	bool Runtime::OverlayCanDraw() const
-	{
-		return UiPass::DrawEnabled();
-	}
-
 	bool Runtime::BeginViewOpen(std::string_view a_id, std::string_view a_reason,
-		std::optional<ViewTimingClock::time_point> a_requestedAt)
+		std::optional<ViewOpenCoordinator::Clock::time_point> a_requestedAt)
 	{
 		const auto* manifest = _views.Find(a_id);
 		if (!manifest) {
-			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — no discovered view has that id", a_id);
 			_osfSettings.ReportFailure("view." + std::string(a_id), "view.not-found",
 				"The requested OSF UI view is not installed", { { "view", a_id } });
@@ -364,20 +355,17 @@ namespace OSFUI
 		a_id = manifest->id;
 		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return false;
 		if (!EnsureWebRuntime()) {
-			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — lazy WebView runtime initialization failed", a_id);
 			return false;
 		}
 		// Require both installation and the lazy render-worker self-test before allowing input capture.
-		if (!OverlayCanDraw()) {
-			CancelColdOpenTiming(a_id);
+		if (!UiPass::DrawEnabled()) {
 			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable", a_id);
 			_osfSettings.ReportFailure("view." + std::string(a_id), "view.draw-path-unavailable",
 				"The view cannot open because the UI draw path is unavailable", { { "view", a_id } });
 			return false;
 		}
 		if (_rendererFailed) {
-			CancelColdOpenTiming(a_id);
 			if (_browserHostRecovery.RequestManualRetry(_uptime)) {
 				REX::INFO("Runtime: open of '{}' requested a fresh browser-host recovery cycle; the overlay remains closed until the replacement reaches its reveal gate", a_id);
 			} else if (_browserHostRecovery.PhaseValue() ==
@@ -392,15 +380,13 @@ namespace OSFUI
 			return false;
 		}
 		if (_presentation.IsOpen(a_id) ||
-			(_pendingViewOpen && *_pendingViewOpen == a_id) ||
-			_viewOpenPreflightBarriers.contains(std::string(a_id))) return false;
+			_viewOpens.Contains(a_id)) return false;
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
 		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
 			EnsureCaptureIntegration();
 		}
 		if (requiresCaptureIntegration && _captureIntegrationInitialized &&
 			!_captureIntegrationAvailable) {
-			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
 			_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable",
 				"The view requires web input, but input integration is unavailable", { { "view", a_id } });
@@ -409,7 +395,6 @@ namespace OSFUI
 
 		const auto preflight = API::BridgeApi::Get().RunViewOpenPreflight(a_id);
 		if (preflight == API::BridgeApi::ViewOpenPreflightResult::kDenied) {
-			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: native view-open preflight denied '{}'; current presentation retained", a_id);
 			return false;
 		}
@@ -420,178 +405,51 @@ namespace OSFUI
 
 		if (manifest->kind == ViewKind::Menu &&
 			m_viewLoads.GetState(a_id) != ViewLoadState::Finished) {
-			BeginColdOpenTiming(a_id, a_requestedAt);
+			_viewOpens.BeginTiming(a_id, _presentation.IsInstantiated(a_id), a_requestedAt);
 		}
 		if (!_presentation.IsInstantiated(a_id) && !InstantiateView(*manifest, a_reason)) {
-			CancelColdOpenTiming(a_id);
+			_viewOpens.CancelTiming(a_id);
 			return false;
 		}
 
-		if (requiresStateBarrier) {
-			_viewOpenPreflightBarriers.emplace(std::string(a_id), _mainTickSerial + 1);
-		}
 		if (manifest->kind == ViewKind::Hud) {
-			// The reveal budget starts only after the document loads, including cold host startup.
-			_viewOpenPreflightBarriers.try_emplace(std::string(a_id), _mainTickSerial + (requiresStateBarrier ? 1 : 0));
+			_viewOpens.QueueHud(a_id, _mainTickSerial + (requiresStateBarrier ? 1 : 0));
 			return true;
 		}
-
-		const bool waitingForCaptureIntegration = requiresCaptureIntegration && !_captureIntegrationAvailable;
-		const auto loadState = m_viewLoads.GetState(a_id);
-		if (!requiresStateBarrier && !waitingForCaptureIntegration && loadState == ViewLoadState::Finished) {
-			CancelPendingOpen();
+		if (_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id), requiresStateBarrier, _mainTickSerial, a_requestedAt)) {
 			return _presentation.Open(a_id);
 		}
-
-		CancelPendingOpen();
-		if (!_coldOpenTiming || _coldOpenTiming->viewId != a_id) {
-			BeginColdOpenTiming(a_id, a_requestedAt.value_or(ViewTimingClock::now()));
-		}
-		_pendingViewOpen = std::string(a_id);
-		if (requiresStateBarrier) {
-			REX::DEBUG("Runtime: holding open of '{}' for its native retained-state barrier", a_id);
-		} else if (waitingForCaptureIntegration) {
-			REX::DEBUG("Runtime: holding open of '{}' until required input integration initializes", a_id);
-		} else {
-			REX::DEBUG("Runtime: holding first open of '{}' until its main-frame load succeeds", a_id);
-		}
+		REX::DEBUG("Runtime: holding open of '{}' until its load, input integration and retained-state barrier are ready", a_id);
 		return true;
 	}
 
-	bool Runtime::CancelPendingOpen()
+	ViewOpenCoordinator::Readiness Runtime::ViewOpenReadiness(std::string_view a_id) const
 	{
-		if (!_pendingViewOpen) {
-			return false;
+		using Readiness = ViewOpenCoordinator::Readiness;
+		const auto* manifest = _views.Find(a_id);
+		if (!manifest || !_presentation.IsInstantiated(a_id)) return Readiness::Missing;
+		if (manifest->kind == ViewKind::Menu && manifest->capturesInput) {
+			if (!_captureIntegrationInitialized) return Readiness::WaitingForInput;
+			if (!_captureIntegrationAvailable) return Readiness::InputUnavailable;
 		}
-		const auto target = std::move(*_pendingViewOpen);
-		_pendingViewOpen.reset();
-		_viewOpenPreflightBarriers.erase(target);
-		CancelColdOpenTiming(target);
-		REX::DEBUG("Runtime: cancelled pending open of '{}'", target);
-		return true;
-	}
-
-	bool Runtime::CancelPendingOpen(std::string_view a_id)
-	{
-		if (_pendingViewOpen && *_pendingViewOpen == a_id) {
-			return CancelPendingOpen();
-		}
-		if (_viewOpenPreflightBarriers.erase(std::string(a_id)) > 0) {
-			REX::DEBUG("Runtime: cancelled pending open of '{}'", a_id);
-			return true;
-		}
-		return false;
-	}
-
-	void Runtime::BeginColdOpenTiming(std::string_view a_viewId,
-		std::optional<ViewTimingClock::time_point> a_requestedAt)
-	{
-		if (_coldOpenTiming && _coldOpenTiming->viewId == a_viewId) {
-			return;  // Preserve the earliest request while the same cold open is pending.
-		}
-		const auto now = ViewTimingClock::now();
-		auto requestedAt = now;
-		if (a_requestedAt) {
-			if (*a_requestedAt != ViewTimingClock::time_point{} && *a_requestedAt <= now) {
-				requestedAt = *a_requestedAt;
-			}
-		}
-		_coldOpenTiming = ColdOpenTiming{
-			.viewId = std::string(a_viewId),
-			.requestedAt = requestedAt,
-		};
-		if (_presentation.IsInstantiated(a_viewId)) {
-			_coldOpenTiming->instantiatedAt = now;
-		}
-	}
-
-	void Runtime::CancelColdOpenTiming(std::string_view a_viewId)
-	{
-		if (_coldOpenTiming && _coldOpenTiming->viewId == a_viewId) {
-			_coldOpenTiming.reset();
-		}
-	}
-
-	void Runtime::FinishColdOpenTiming(std::string_view a_viewId)
-	{
-		if (!_coldOpenTiming || _coldOpenTiming->viewId != a_viewId ||
-			!_coldOpenTiming->instantiatedAt || !_coldOpenTiming->loadedAt) {
-			return;
-		}
-
-		const auto timing = std::move(*_coldOpenTiming);
-		_coldOpenTiming.reset();
-		const auto revealedAt = ViewTimingClock::now();
-		const auto milliseconds = [](ViewTimingClock::time_point a_begin, ViewTimingClock::time_point a_end) {
-			return std::chrono::duration_cast<std::chrono::milliseconds>(a_end - a_begin).count();
-		};
-		REX::INFO("Runtime: cold-open timing '{}': {} ms total (request->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)",
-			timing.viewId, milliseconds(timing.requestedAt, revealedAt), milliseconds(timing.requestedAt, *timing.instantiatedAt), milliseconds(*timing.instantiatedAt, *timing.loadedAt), milliseconds(*timing.loadedAt, revealedAt));
+		return m_viewLoads.GetState(a_id) == ViewLoadState::Finished ? Readiness::Ready : Readiness::Loading;
 	}
 
 	void Runtime::DrivePendingOpen()
 	{
-		bool policyChanged = false;
-		for (auto it = _viewOpenPreflightBarriers.begin(); it != _viewOpenPreflightBarriers.end();) {
-			if (it->second > _mainTickSerial) {
-				++it;
-				continue;
-			}
-			const auto* manifest = _views.Find(it->first);
-			if (!manifest || !_presentation.IsInstantiated(it->first)) {
-				REX::WARN("Runtime: cancelling deferred open of '{}' because the view is no longer available", it->first);
-				it = _viewOpenPreflightBarriers.erase(it);
-				continue;
-			}
-			if (manifest->kind == ViewKind::Menu || m_viewLoads.GetState(it->first) != ViewLoadState::Finished || _rendererFailed) {
-				++it;
-				continue;
-			}
-			policyChanged = _presentation.Open(it->first) || policyChanged;
-			REX::DEBUG("Runtime: retained-state barrier completed; opening HUD '{}'", it->first);
-			it = _viewOpenPreflightBarriers.erase(it);
+		const bool menusAllowed = _menuEventsAvailable && !MenuEventSink::TransitionOpen();
+		if (!_rendererFailed && menusAllowed && !_captureIntegrationInitialized && _viewOpens.PendingMenu()) {
+			const auto* manifest = _views.Find(*_viewOpens.PendingMenu());
+			if (manifest && manifest->capturesInput) EnsureCaptureIntegration();
 		}
-		if (policyChanged) {
-			ApplyViewPresentationPolicy();
+		const auto ready = _viewOpens.TakeReady(_mainTickSerial, !_rendererFailed, menusAllowed,
+			[this](std::string_view a_id) { return ViewOpenReadiness(a_id); });
+		bool changed = false;
+		for (const auto& id : ready) {
+			changed = _presentation.Open(id) || changed;
+			REX::DEBUG("Runtime: open prerequisites completed; opening '{}'", id);
 		}
-		if (!_pendingViewOpen) {
-			return;
-		}
-		if (_rendererFailed || !_menuEventsAvailable || MenuEventSink::TransitionOpen()) return;
-		const auto target = *_pendingViewOpen;
-		const auto* manifest = _views.Find(target);
-		if (!manifest || !_presentation.IsInstantiated(target)) {
-			REX::WARN("Runtime: cancelling pending open of '{}' because the view is no longer available", target);
-			CancelPendingOpen();
-			return;
-		}
-		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
-		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
-			EnsureCaptureIntegration();
-		}
-		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
-			return;
-		}
-		if (requiresCaptureIntegration && !_captureIntegrationAvailable) {
-			REX::WARN("Runtime: cancelling pending open of '{}' because required input integration failed to initialize", target);
-			CancelPendingOpen();
-			return;
-		}
-		if (const auto barrier = _viewOpenPreflightBarriers.find(target);
-			barrier != _viewOpenPreflightBarriers.end() && barrier->second > _mainTickSerial) {
-			return;
-		}
-
-		if (m_viewLoads.GetState(target) != ViewLoadState::Finished) {
-			return;
-		}
-
-		_presentation.Open(target);
-		_pendingViewOpen.reset();
-		const bool completedStateBarrier = _viewOpenPreflightBarriers.erase(target) > 0;
-		REX::DEBUG("Runtime: {} completed; opening '{}'",
-			completedStateBarrier ? "retained-state barrier and main-frame load" : "main-frame load", target);
-		ApplyViewPresentationPolicy();
+		if (changed) ApplyViewPresentationPolicy();
 	}
 
 	void Runtime::DrainViewRegistrations(std::vector<std::string> a_ids)
@@ -630,14 +488,15 @@ namespace OSFUI
 			return;
 		}
 		
-		if (!OverlayCanDraw() && _presentation.ActiveMenu()) {
+		if (!UiPass::DrawEnabled() && _presentation.ActiveMenu()) {
 			REX::WARN("Runtime: closing a requested menu because the Scaleform UI draw path is unavailable");
+			_viewOpens.SuspendMenus();
 			_presentation.CloseActiveMenu();
 		}
 
 		if (_presentation.DesiredCapture() && !_captureIntegrationAvailable) {
 			REX::WARN("Runtime: closing a requested menu because required input integration is unavailable");
-			CancelPendingOpen();
+			_viewOpens.SuspendMenus();
 			_presentation.CloseActiveMenu();
 		}
 
@@ -800,20 +659,12 @@ namespace OSFUI
 			}
 			if (manifest.kind == ViewKind::Hud && _presentation.IsOpen(manifest.id)) {
 				_presentation.Close(manifest.id);
-				_viewOpenPreflightBarriers.try_emplace(manifest.id, _mainTickSerial);
+				_viewOpens.QueueHud(manifest.id, _mainTickSerial);
 			}
-			m_viewLoads.BeginLoad(manifest.id);
-			m_viewInputGrants.ResetPage(manifest.id);
-			_renderer->CreateOrNavigateView(manifest);
-			_bridge->OnViewCreated(manifest.id);
-			API::BridgeApi::Get().SetViewInstantiated(manifest.id, true);
+			NavigateView(manifest);
 			++reloaded;
 		}
 
-		const auto capture = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
-		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
-		_renderer->Resize(capture.width, capture.height);
-		_renderer->SetViewport(view.width, view.height);
 		ApplyViewPresentationPolicy();
 		BroadcastViewsData();
 		REX::INFO("Runtime: replayed {} instantiated view(s) to the replacement browser host; menus stay closed and requested HUDs await load", reloaded);
@@ -845,14 +696,14 @@ namespace OSFUI
 		}
 		m_viewRecovery.ClearAll();
 
-		CancelPendingOpen();
+		_viewOpens.SuspendMenus();
 		_presentation.CloseActiveMenu();
 		_presentation.SetSuspended(true);
 		ApplyViewPresentationPolicy();
 
 		ReconcileFocusMenu();
 		ReconcileControlLayer();
-		ReconcileSimPause();
+		SimPause::Apply(_presentation.DesiredPause());
 		FreeCursor::Apply(false);
 	}
 
@@ -946,7 +797,10 @@ namespace OSFUI
 		if (decision.frameChanged && frame) {
 			if (observation && observation->outputSizeKnown && observation->matchesExpectedSize) {
 				if (const auto active = _presentation.ActiveMenu()) {
-					FinishColdOpenTiming(*active);
+					if (const auto timing = _viewOpens.FinishTiming(*active)) {
+						REX::INFO("Runtime: cold-open timing '{}': {} ms total (request->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)",
+							timing->view, timing->totalMs, timing->instantiateMs, timing->loadMs, timing->presentMs);
+					}
 				}
 			}
 		}
@@ -963,7 +817,6 @@ namespace OSFUI
 
 		const auto active = _presentation.ActiveMenu().value_or("<none>");
 		REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s - closing it and releasing input/pause state", active, decision.heldSeconds);
-		_coldOpenTiming.reset();
 		OnRendererFailure({ .stage = "host-connection", .description = "overlay reveal timed out" });
 	}
 

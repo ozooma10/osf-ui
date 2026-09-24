@@ -2,7 +2,6 @@
 
 #include "Core/Log.h"
 #include "RE/C/ChargenMenu.h"
-#include "Runtime/Runtime.h"
 
 namespace OSFUI
 {

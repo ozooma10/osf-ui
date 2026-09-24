@@ -2,6 +2,7 @@
 
 #include "API/PapyrusApi.h"
 #include "Input/FreeCursor.h"
+#include "Input/SimPause.h"
 #include "Input/MenuEventSink.h"
 #include "Input/UiLayoutGuard.h"
 #include "Input/OverlayInputHook.h"
@@ -16,7 +17,7 @@ namespace OSFUI
 			_menuEventsAvailable = UiLayoutGuard::VerifyUiLayout() && MenuEventSink::Install();
 		}
 		DriveBrowserHostRecovery();
-		if (MenuEventSink::TransitionOpen()) CancelPendingOpen();
+		if (MenuEventSink::TransitionOpen()) _viewOpens.SuspendMenus();
 		if (_presentation.SetSuspended(!_menuEventsAvailable || MenuEventSink::TransitionOpen() || _rendererFailed)) {
 			ApplyViewPresentationPolicy();
 		}
@@ -57,7 +58,7 @@ namespace OSFUI
 		ReconcileFocusMenu();
 		ReconcileInputFocus();
 		ReconcileControlLayer();
-		ReconcileSimPause();
+		SimPause::Apply(_presentation.DesiredPause());
 		FreeCursor::Apply(_presentation.DesiredCapture());
 		RouteGamepadInput(a_deltaSeconds);
 	}

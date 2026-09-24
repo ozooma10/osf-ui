@@ -194,7 +194,7 @@ namespace OSFUI
 	{
 		a_bridge.RegisterSend("close", [this](const nlohmann::json&, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
-			if (CancelPendingOpen(source)) {
+			if (_viewOpens.Cancel(source)) {
 				return;
 			}
 			if (_presentation.Close(source)) {
@@ -205,7 +205,7 @@ namespace OSFUI
 			const std::string src(a_b.CurrentSource());
 			const bool visible = Json::Get(a_p, "visible", false);
 			if (!visible) {
-				CancelPendingOpen(src);
+				_viewOpens.Cancel(src);
 			}
 			const bool changed = visible ? BeginViewOpen(src) : _presentation.Close(src);
 			if (changed) {
@@ -241,7 +241,7 @@ namespace OSFUI
 				id = manifest->id;
 			}
 			bool cancelled = false;
-			cancelled = CancelPendingOpen(id);
+			cancelled = _viewOpens.Cancel(id);
 			if (_presentation.Close(id)) {
 				ApplyViewPresentationPolicy();
 			} else if (!cancelled && !_presentation.IsInstantiated(id)) {
@@ -266,7 +266,7 @@ namespace OSFUI
 			const bool hidden = Json::Get(a_p, "hidden", false);
 			bool changed = false;
 			if (hidden) {
-				CancelPendingOpen(id);
+				_viewOpens.Cancel(id);
 				changed = _presentation.Close(id);
 			} else {
 				changed = BeginViewOpen(id);

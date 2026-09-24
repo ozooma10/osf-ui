@@ -1,7 +1,7 @@
 #pragma once
 
-#include <unordered_map>  // not in pch.h
-#include <unordered_set>  // not in pch.h
+#include <unordered_map>
+#include <unordered_set>
 
 #include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
@@ -17,6 +17,7 @@
 #include "Input/ViewInputGrants.h"
 #include "Views/ViewManager.h"
 #include "Views/ViewLoadTracker.h"
+#include "Views/ViewOpenCoordinator.h"
 #include "Views/ViewRecoveryTracker.h"
 #include "Views/ViewRevealGate.h"
 #include "Views/ViewRequestQueue.h"
@@ -45,7 +46,7 @@ namespace OSFUI
 		// it beside presentation work so every native callback stays on the game main thread.
 		void EnqueueRelativePointerCapture(std::string a_viewId, bool a_active);
 
-		//true when overlay owns input. pused to decide whether to consume game input and route into web view.
+		// Published capture state, safe to query from the window-message thread.
 		bool IsInputCaptured() const;
 
 		// Called by the WndProc hook on WM_KEYDOWN/WM_KEYUP (window-message thread):
@@ -93,20 +94,14 @@ namespace OSFUI
 
 		bool BeginViewOpen(std::string_view a_id, std::string_view a_reason = "on demand",
 			std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);
-		bool CancelPendingOpen();
-		bool CancelPendingOpen(std::string_view a_id);
 		void DrivePendingOpen();
-		void BeginColdOpenTiming(std::string_view a_viewId, std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);
-		void CancelColdOpenTiming(std::string_view a_viewId);
-		void FinishColdOpenTiming(std::string_view a_viewId);
+		ViewOpenCoordinator::Readiness ViewOpenReadiness(std::string_view a_id) const;
 
 		void DrainViewRegistrations(std::vector<std::string> a_ids);
 
 		// open/close engine focus menu to match active menu capture policy.
 		bool ReconcileInputSuppression();
 		void ReconcileFocusMenu();
-
-		void ReconcileSimPause();
 
 		//Poll XInput and deliver events to active document (`ui.gamepad` events)
 		void RouteGamepadInput(double a_deltaSeconds);
@@ -129,7 +124,7 @@ namespace OSFUI
 
 		void OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode);
 
-		void ReloadViewInPlace(const std::string& a_id, const ViewManifest& a_manifest);
+		void NavigateView(const ViewManifest& a_manifest);
 
 		void DriveRecovery();
 
@@ -156,42 +151,40 @@ namespace OSFUI
 		void OnViewGreeted(std::string_view a_viewId);
 		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
+		// Ownership: ordinary mutable fields below belong to the main-thread tick.
+		// Startup initializes paths/catalog/settings before input hooks are installed;
+		// _initialized, _developerMode and the renderer pointer then stay stable.
+		// Renderer load/failure callbacks run when its queues drain on that tick.
 		ViewManager                   _views;
 		std::unique_ptr<WebView2HostWebRenderer> _renderer;
 		std::unique_ptr<D3D12Compositor> _compositor;
 		std::unique_ptr<MessageBridge>          _bridge;
 		OSFSettingsClient                       _osfSettings;
 
+		// SFSE lifecycle producer -> main-thread consumer; DevTools is WndProc -> main.
 		std::atomic_bool                        _dataLoadedInitPending{ false };
 		std::atomic_bool              _devToolsRequested{ false };
 
+		// Main owns the worker; its synchronized interface owns cross-thread jobs.
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;
 
 		ViewPresentationController    _presentation;
 
-		std::optional<std::string> _pendingViewOpen;
+		ViewOpenCoordinator _viewOpens;
 		std::uint64_t _mainTickSerial{ 0 };
-		std::unordered_map<std::string, std::uint64_t> _viewOpenPreflightBarriers;
 		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;
-
-		using ViewTimingClock = std::chrono::steady_clock;
-		struct ColdOpenTiming
-		{
-			std::string                              viewId;
-			ViewTimingClock::time_point                requestedAt;
-			std::optional<ViewTimingClock::time_point> instantiatedAt;
-			std::optional<ViewTimingClock::time_point> loadedAt;
-		};
-		std::optional<ColdOpenTiming> _coldOpenTiming;
 
 		bool _inputFocusGranted{ false };
 		bool _menuEventsAttempted{ false };
 		bool _menuEventsAvailable{ false };
 
+		// Mutex-protected producer queue; only the main thread takes/applies batches.
 		ViewRequestQueue m_viewRequests;
 		ViewLoadTracker m_viewLoads;
 		ViewInputGrants m_viewInputGrants;
 
+		// WndProc produces cursor samples; main publishes geometry and also centers
+		// the cursor on reveal. Both threads access only these atomic snapshots.
 		std::atomic<float>         _cursorX{ 0.0f };
 		std::atomic<float>         _cursorY{ 0.0f };
 		std::atomic_bool           _cursorInsideView{ true };
@@ -204,7 +197,7 @@ namespace OSFUI
 		bool                       _fixedScaleformGeometry{ false };  // main thread
 		
 		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
-		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove };
+		std::atomic<std::uint64_t>     _pendingMouseMove{ kNoPendingMouseMove }; // WndProc/main -> main drain
 
 		enum class RelativePointerStop : std::uint32_t
 		{
@@ -212,6 +205,8 @@ namespace OSFUI
 			kEnd = 1,
 			kCancel = 2,
 		};
+		// Main owns the session; WndProc adds deltas and requests stops atomically.
+		// Only main reads/writes the view id and invokes native pointer callbacks.
 		std::atomic_bool                 _relativePointerActive{ false };
 		std::atomic<float>               _relativePointerDx{ 0.0f };
 		std::atomic<float>               _relativePointerDy{ 0.0f };
@@ -219,16 +214,14 @@ namespace OSFUI
 		std::atomic<RelativePointerStop> _relativePointerStop{ RelativePointerStop::kNone };
 		std::string                      _relativePointerView;  // main-thread owner
 
-		std::atomic_bool              _captureInput{ false };
+		std::atomic_bool              _captureInput{ false }; // main -> WndProc
 		bool                          _captureIntegrationInitialized{ false };
 		bool                          _captureIntegrationAvailable{ false };
-		std::atomic_bool              _postDataLoadedReady{ false };
+		std::atomic_bool              _postDataLoadedReady{ false }; // SFSE -> main
 		bool                          _webRuntimeInitializing{ false };
 		bool                          _webRuntimeReady{ false };
 
-		bool OverlayCanDraw() const;
-
-		std::atomic_bool              m_visible{ false };
+		std::atomic_bool              m_visible{ false }; // main -> WndProc/frame-event producer
 		bool                          _rendererFailed{ false };  // opens fail closed while recovery is incomplete
 		bool                          _rendererFailureLatched{ false };  // first failure per helper wins
 		BrowserHostRecovery           _browserHostRecovery;

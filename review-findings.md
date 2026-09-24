@@ -245,6 +245,16 @@ Validation: `xmake build 'OSF UI'` compiled the plugin and host and deployed to 
    ~40 `_renderer/_bridge/_compositor` null checks, four atomics for one UiPass install state, and triple function-pointer indirection in the compositor are all dead weight.
    Construct renderer/compositor/bridge once at kPostPostLoad (host spawn + GPU setup stay lazy). Use `ComPtr` instead of ~20 `SafeRelease` sites.
 
+### Maintainability #2 assessment and changes (2026-09-24)
+
+Implemented the focused Runtime refactor: `ViewOpenCoordinator` now owns the pending menu, deferred HUD opens, native preflight tick barriers, and cold-open timing. Runtime retains startup/preflight side effects and applies the coordinator's ready views through `ViewPresentationController`. Closing, teardown, failed loads, game transitions, and host failure use coordinator cancellation operations; suspended HUD intent survives recovery. Timing also clears when a menu is cancelled after it has left the pending queue, so it cannot carry into a later open.
+
+Initial creation, view reload, and host recovery now share `NavigateView`; redundant resize/viewport calls were removed because the renderer retains geometry and replays it in its connection snapshot. The single-implementation virtual input interface and the trivial `OverlayCanDraw`/`ReconcileSimPause` wrappers were removed. MenuEventSink's unused Runtime include remains removed. Runtime field comments document main-thread ownership, startup-latched state, synchronized queues, and WndProc/main-thread atomic handoffs. The additional relative-pointer and browser-host class splits remain deferred.
+
+The new `view_open_coordinator_tests` exercise real coordinator/presentation behavior: cold and warm opens, preflight barriers, input readiness, replacement/back cancellation, failed loads, HUD recovery/suspension, close-all, teardown, and deterministic timing. They are available through `xmake test 'osfui-view-open-tests/*'` and the native shell runner. Unrelated lifecycle source-text checks remain separate.
+
+Validation: focused coordinator tests and `xmake build 'OSF UI'` passed. The plugin deployed to the configured MO2 mod; DLL, host EXE, and PEX hashes matched their build outputs. No fresh game run was performed.
+
 ## Dead code / leftovers (original review list; cleanup status below)
 
 - `InstallOverlayDrawPath` / `_drawPathRequested` (Runtime.cpp:231-239) — never installs anything.
