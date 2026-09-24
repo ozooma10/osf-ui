@@ -496,7 +496,11 @@ namespace OSFUI
 
 			decltype(outbound)::Item item;
 			while (outbound.WaitPop(item)) {
-				if (!pipe.WriteMessage(item.value)) {
+				const auto result = pipe.WriteMessage(item.value);
+				if (result == osfui::wv2::Pipe::WriteResult::InvalidPayload) {
+					REX::WARN("WebView2HostWebRenderer: dropped oversized outbound message");
+				}
+				if (result == osfui::wv2::Pipe::WriteResult::Disconnected) {
 					{
 						std::scoped_lock lock(writtenMutex);
 						writerFailed = true;
@@ -860,7 +864,7 @@ namespace OSFUI
 			}
 			const auto launchTime = std::filesystem::file_time_type::clock::now();
 			const auto launch = osfui::wv2::LaunchDetached(
-				browserHostExeMirror.native(), args, /*a_preferBroker=*/usvfs);
+				browserHostExeMirror.native(), args, /*a_preferBroker=*/usvfs, &stopRequested);
 			if (!launch.ok) {
 				REX::ERROR("WebView2HostWebRenderer: browser-host launch failed [{}]", launch.detail);
 				SignalDead("browser-host launch failed");
@@ -963,7 +967,6 @@ namespace OSFUI
 					.userDataDir = ToUtf8(userData.native()),
 					.devMode = config.devMode,
 					.highRefreshCapture = config.highRefreshCapture,
-					.hidden = allHidden,
 					.adapterLuidLow = adapterLuidLow,
 					.adapterLuidHigh = adapterLuidHigh,
 				}));
@@ -1271,9 +1274,10 @@ namespace OSFUI
 
 		void Stop(bool a_force = false)
 		{
-			const auto prior = lifecycle.exchange(
-				Lifecycle::Stopping, std::memory_order_acq_rel);
-			if (prior == Lifecycle::Stopped) return;
+			auto prior = lifecycle.load(std::memory_order_acquire);
+			do {
+				if (prior == Lifecycle::Stopped || prior == Lifecycle::Stopping) return;
+			} while (!lifecycle.compare_exchange_weak(prior, Lifecycle::Stopping, std::memory_order_acq_rel));
 
 			stopRequested.store(true, std::memory_order_release);
 			const bool shutdownWritten = RequestShutdown();

@@ -50,6 +50,7 @@ namespace OSFUI::API::Papyrus
 	};
 
 	// A local name is resolved against a_sourceModId first; otherwise the bounded registry is matched against each exact "modId.name" qualified endpoint.
+	void DropViewRequest(std::string_view a_deferToken);
 	[[nodiscard]] ViewEndpoint ResolveViewEndpoint(std::string_view a_sourceModId, std::string_view a_name);
 
 	bool OnViewSend(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId);

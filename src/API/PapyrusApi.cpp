@@ -502,7 +502,7 @@ namespace OSFUI::API::Papyrus
 					std::string_view(a_modId.c_str() ? a_modId.c_str() : "").substr(0, 64));
 				return kErrInvalidModId;
 			}
-			const std::string name(a_name.c_str() ? a_name.c_str() : "");
+			const auto name = StringUtil::ToLowerAscii(a_name.c_str() ? a_name.c_str() : "");
 			if (!IsUnreservedEndpointName(name) || modId->size() + 1 + name.size() > 128) {
 				REX::WARN("PapyrusApi: [content] {}('{}', '{}') refused — reserved, malformed, or too-long endpoint name",
 					a_native, *modId, std::string_view(name).substr(0, 64));
@@ -537,7 +537,10 @@ namespace OSFUI::API::Papyrus
 				REX::WARN("PapyrusApi: [content] {}('{}') refused — endpoint already registered by another script", a_native, qualified);
 				return kErrConflict;
 			}
-			return AddEntry(a_kind, a_receiver, a_script, a_callback, *modId, name);
+			if (!BridgeApi::Get().ClaimPapyrusEndpoint(qualified)) return kErrConflict;
+			const auto result = AddEntry(a_kind, a_receiver, a_script, a_callback, *modId, name);
+			if (result != kRegistered) BridgeApi::Get().ReleasePapyrusEndpoint(qualified);
+			return result;
 		}
 
 		std::int32_t RegisterSend(PapVM&, std::uint32_t, std::monostate, RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId, RE::BSFixedString a_name)
@@ -589,7 +592,7 @@ namespace OSFUI::API::Papyrus
 				REX::WARN("PapyrusApi: pending view-event queue full; dropping {}.{}", *mod, a_name.c_str());
 				return false;
 			}
-			State().events.push_back(QueuedEvent{ std::move(*mod), a_name.c_str(), std::move(*args) });
+			State().events.push_back(QueuedEvent{ std::move(*mod), StringUtil::ToLowerAscii(a_name.c_str()), std::move(*args) });
 			MarkPending();
 			return true;
 		}
@@ -735,6 +738,7 @@ namespace OSFUI::API::Papyrus
 			std::lock_guard l{ State().lock };
 			const std::size_t dropped = State().entries.size();
 			for (auto& e : State().entries) {
+				BridgeApi::Get().ReleasePapyrusEndpoint(e.modId + "." + e.key);
 				std::construct_at(std::addressof(e.receiver));  // overwrite ptr = null, skip Release
 			}
 			State().entries.clear();
@@ -803,6 +807,12 @@ namespace OSFUI::API::Papyrus
 			RE::BSFixedString(std::string(a_function).c_str()),
 			MakeStaticCallArgs(a_args), noCallback, 0) ?
 			StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
+	}
+
+	void DropViewRequest(std::string_view a_deferToken)
+	{
+		std::lock_guard l{ State().lock };
+		std::erase_if(State().viewRequests, [&](const auto& item) { return item.second.deferToken == a_deferToken; });
 	}
 
 	ViewEndpoint ResolveViewEndpoint(std::string_view a_sourceModId, std::string_view a_name)

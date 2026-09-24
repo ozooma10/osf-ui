@@ -227,7 +227,6 @@ namespace osfui::wv2
 			bool                  devMode{ false };
 			bool                  highRefreshCapture{ false };
 			bool                  windowActive{ true };
-			bool                  defaultHidden{ true };  // init.hidden — a new view's starting state
 
 			HWND bootstrapWindow{ nullptr };
 			HWND hostWindow{ nullptr };
@@ -247,7 +246,7 @@ namespace osfui::wv2
 				bool controllerRequested{ false };
 				bool securityReady{ false };
 				bool hidden{ true };
-				bool nonGestureOpenWarned{ false };
+				bool newWindowBlockedWarned{ false };
 				bool navigationBlockedWarned{ false };
 				bool frameNavigationBlockedWarned{ false };
 				std::uint64_t pageMessageWindowStarted{ 0 };
@@ -320,13 +319,25 @@ namespace osfui::wv2
 			std::atomic<std::uint64_t> presentationEpoch{ 0 };
 			std::array<std::atomic<std::uint64_t>, kRingSlots> ackedSerials{};
 			std::uint64_t consumeLagDrops{ 0 };
+			ComPtr<ID3D11Texture2D> pendingCapture; // one owned latest-wins copy, ringMutex
+			std::uint64_t pendingCaptureEpoch{ 0 };
 
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
 
 			bool Send(const json& a_msg)
 			{
-				if (pipe.WriteMessage(Json::Dump(a_msg))) return true;
+				if (Json::Get(a_msg, "type", "") == msg::Console::kType &&
+					Json::Get(a_msg, "json", "").size() > 1024u * 1024u) {
+					log.Warn("dropping console message larger than 1 MiB");
+					return false;
+				}
+				const auto result = pipe.WriteMessage(Json::Dump(a_msg));
+				if (result == Pipe::WriteResult::Written) return true;
+				if (result == Pipe::WriteResult::InvalidPayload) {
+					log.Warn("dropping oversized outbound message");
+					return false;
+				}
 				pipeDead.store(true, std::memory_order_release);
 				if (wakeEvent) ::SetEvent(wakeEvent);
 				return false;
@@ -550,19 +561,35 @@ namespace osfui::wv2
 				}
 			}
 
+			void FailHost(std::string_view a_stage, HRESULT a_hr, std::string_view a_description, std::string_view a_view = {})
+			{
+				if (!rendererFatal) {
+					rendererFatal = true;
+					log.Error(std::format("{}: {} (0x{:08X})", a_stage, a_description, static_cast<unsigned>(a_hr)));
+					Send(msg::ToJson(msg::Fatal{ .stage = std::string(a_stage), .view = std::string(a_view),
+						.description = std::string(a_description), .code = static_cast<std::uint32_t>(a_hr) }));
+				}
+				byeReason = std::string(a_stage);
+				quit.store(true);
+				if (wakeEvent) ::SetEvent(wakeEvent);
+			}
+
 			bool BeginEnvironment()
 			{
 				if (environmentRequested) return true;
 				environmentRequested = true;
 				std::error_code ec;
 				std::filesystem::create_directories(userData, ec);
+				if (ec) {
+					FailHost("environment", HRESULT_FROM_WIN32(ec.value()), "could not create WebView2 user data directory");
+					return false;
+				}
 				const auto callback =
 					Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
 						[this](HRESULT a_hr, ICoreWebView2Environment* a_environment) -> HRESULT {
 							if (quit.load()) return S_OK;
 							if (FAILED(a_hr) || !a_environment) {
-								log.Error(std::format("environment callback failed (0x{:08X})",
-									static_cast<unsigned>(a_hr)));
+								FailHost("environment", FAILED(a_hr) ? a_hr : E_POINTER, "WebView2 environment callback failed");
 								if (a_hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
 									PromptInstallWebView2Runtime(log);
 								}
@@ -576,20 +603,23 @@ namespace osfui::wv2
 						});
 				auto environmentOptions = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
 				if (!environmentOptions) {
-					log.Error("could not allocate WebView2 environment options");
+					FailHost("environment-options", E_OUTOFMEMORY, "could not allocate WebView2 environment options");
 					environmentRequested = false;
 					return false;
 				}
 				constexpr wchar_t kCaptureBrowserArguments[] =
 					L"--disable-backgrounding-occluded-windows --disable-renderer-backgrounding "
 					L"--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor,"
-					L"WindowsScrollingPersonality,PercentBasedScrolling";
+					L"WindowsScrollingPersonality,PercentBasedScrolling "
+					// Virtual-host files are served before networking; every real transport
+					// (including WebSocket and child frames) is forced into a dead proxy.
+					L"--proxy-server=http://osfui-egress.invalid:9 --proxy-bypass-list=\"<-loopback>\" "
+					L"--host-resolver-rules=\"MAP * ~NOTFOUND\" --disable-quic "
+					L"--force-webrtc-ip-handling-policy=disable_non_proxied_udp";
 				const auto optionsHr = environmentOptions->put_AdditionalBrowserArguments(
 					kCaptureBrowserArguments);
 				if (FAILED(optionsHr)) {
-					log.Error(std::format(
-						"WebView2 capture browser arguments rejected (0x{:08X})",
-						static_cast<unsigned>(optionsHr)));
+					FailHost("environment-options", optionsHr, "WebView2 browser arguments rejected");
 					environmentRequested = false;
 					return false;
 				}
@@ -598,8 +628,7 @@ namespace osfui::wv2
 				const auto hr = ::CreateCoreWebView2EnvironmentWithOptions(
 					nullptr, userData.c_str(), environmentOptions.Get(), callback.Get());
 				if (FAILED(hr)) {
-					log.Error(std::format("CreateCoreWebView2EnvironmentWithOptions failed (0x{:08X})",
-						static_cast<unsigned>(hr)));
+					FailHost("environment", hr, "CreateCoreWebView2EnvironmentWithOptions failed");
 					if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
 						PromptInstallWebView2Runtime(log);
 					}
@@ -614,7 +643,7 @@ namespace osfui::wv2
 				if (a_view.controllerRequested || !environment || !a_view.window) return;
 				ComPtr<ICoreWebView2Environment3> environment3;
 				if (FAILED(environment.As(&environment3))) {
-					log.Error("composition controller API unavailable");
+					FailHost("composition-controller", E_NOINTERFACE, "composition controller API unavailable", a_view.id);
 					return;
 				}
 				a_view.controllerRequested = true;
@@ -636,8 +665,7 @@ namespace osfui::wv2
 							return S_OK;
 						}).Get());
 				if (FAILED(hr)) {
-					log.Error(std::format("view '{}': CreateCompositionController failed (0x{:08X})",
-						a_view.id, static_cast<unsigned>(hr)));
+					FailHost("composition-controller", hr, "CreateCompositionController failed", a_view.id);
 					a_view.controllerRequested = false;
 				}
 			}
@@ -645,17 +673,7 @@ namespace osfui::wv2
 			void ReportControllerFailure(View& a_view, HRESULT a_hr,
 				std::string_view a_description)
 			{
-				if (rendererFatal) return;
-				rendererFatal = true;
-				const auto code = static_cast<unsigned>(a_hr);
-				log.Error(std::format("view '{}': {} (0x{:08X})",
-					a_view.id, a_description, code));
-				Send(msg::ToJson(msg::Fatal{
-					.stage = "composition-controller",
-					.view = a_view.id,
-					.description = std::string(a_description),
-					.code = code,
-				}));
+				FailHost("composition-controller", a_hr, a_description, a_view.id);
 				PromptRepairWebView2Runtime(log, a_hr);
 			}
 
@@ -779,8 +797,7 @@ namespace osfui::wv2
 				const auto target = a_view.visual.as<::IUnknown>();
 				auto result = a_view.compositionController->put_RootVisualTarget(target.get());
 				if (FAILED(result)) {
-					log.Error(std::format("view '{}': put_RootVisualTarget failed (0x{:08X})",
-						a_view.id, static_cast<unsigned>(result)));
+					FailHost("composition-target", result, "put_RootVisualTarget failed", a_view.id);
 					return S_OK;
 				}
 				ComPtr<ICoreWebView2_3> webView3;
@@ -839,13 +856,11 @@ namespace osfui::wv2
 				const auto hr = AddDocumentScript(a_view, EmbeddedScript::BridgeShim,
 					[this](const HRESULT a_scriptHr) {
 						if (FAILED(a_scriptHr)) {
-							log.Error(std::format("bridge shim install failed (0x{:08X})",
-								static_cast<unsigned>(a_scriptHr)));
+							FailHost("bridge-shim", a_scriptHr, "bridge shim installation failed");
 						}
 					});
 				if (FAILED(hr)) {
-					log.Error(std::format("bridge shim registration failed (0x{:08X})",
-						static_cast<unsigned>(hr)));
+					FailHost("bridge-shim", hr, "bridge shim registration failed");
 				}
 			}
 
@@ -1067,35 +1082,9 @@ namespace osfui::wv2
 						[this, view](ICoreWebView2*,
 							ICoreWebView2NewWindowRequestedEventArgs* a_args) -> HRESULT {
 							a_args->put_Handled(TRUE);
-							BOOL userInitiated = FALSE;
-							if (FAILED(a_args->get_IsUserInitiated(&userInitiated)) ||
-								!userInitiated) {
-								if (!view->nonGestureOpenWarned) {
-									view->nonGestureOpenWarned = true;
-									log.Warn(std::format(
-										"view '{}': blocked scripted window.open (no user "
-										"gesture); further attempts for this view are silent",
-										view->id));
-								}
-								return S_OK;
-							}
-							LPWSTR raw = nullptr;
-							if (FAILED(a_args->get_Uri(&raw)) || !raw) return S_OK;
-							std::wstring uri(raw);
-							::CoTaskMemFree(raw);
-							if (!uri.starts_with(L"https://") && !uri.starts_with(L"http://")) {
-								log.Warn(std::format("view '{}': blocked non-http new-window: {}",
-									view->id, ToUtf8(uri)));
-								return S_OK;
-							}
-							const auto rc = reinterpret_cast<INT_PTR>(::ShellExecuteW(
-								nullptr, L"open", uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
-							if (rc <= 32) {
-								log.Error(std::format("view '{}': browser open failed ({}): {}",
-									view->id, rc, ToUtf8(uri)));
-							} else {
-								log.InfoFwd(std::format("view '{}': opened in default browser: {}",
-									view->id, ToUtf8(uri)));
+							if (!view->newWindowBlockedWarned) {
+								view->newWindowBlockedWarned = true;
+								log.Warn(std::format("view '{}': blocked external new-window request", view->id));
 							}
 							return S_OK;
 						}).Get(), &token);
@@ -1276,8 +1265,7 @@ namespace osfui::wv2
 					captureSession.StartCapture();
 					return true;
 				} catch (const winrt::hresult_error& a_error) {
-					log.Error(std::format("capture setup failed: {} (0x{:08X})",
-						ToUtf8(a_error.message()), static_cast<unsigned>(a_error.code())));
+					FailHost("capture-setup", a_error.code(), ToUtf8(a_error.message()));
 					return false;
 				}
 			}

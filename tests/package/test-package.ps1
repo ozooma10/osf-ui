@@ -37,14 +37,14 @@ if ($unexpected) {
     throw 'OSF UI package owns Settings files other than schemas/osfui.json'
 }
 
-# Guard the synchronizer itself: it may replace OSF/UI/views but must never
+# Guard the synchronizer itself: it may replace OSF/UI/views/shared but must never
 # delete the shared OSF parent or any OSF Settings directory.
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $sync = Get-Content -LiteralPath (Join-Path $repo 'tools\xmake\runtime_payload.lua') -Raw
-if ($sync -match 'os\.rm\(\s*(?:uidata|pluginsdir|settings)\s*\)') {
+if ($sync -match 'os\.rm\(\s*(?:views|uidata|pluginsdir|settings)\s*\)') {
     throw 'runtime_payload.lua can delete a shared or sibling-owned directory'
 }
-if ($sync -notmatch 'os\.rm\(views\)') {
+if ($sync -notmatch 'os\.rm\(path\.join\(views, "shared"\)\)') {
     throw 'runtime_payload.lua must synchronize only OSF UI-owned views'
 }
 

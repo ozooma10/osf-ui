@@ -254,7 +254,7 @@ namespace OSFUI
 			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
 			return false;
 		}
-		const bool menuEventsInstalled = MenuEventSink::Install();
+		const bool menuEventsInstalled = _menuEventsAvailable;
 		const bool focusMenuRegistered = FocusMenu::Register();
 		const bool inputInstalled = OverlayInputHook::Install();
 		_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
@@ -374,11 +374,6 @@ namespace OSFUI
 	bool Runtime::BeginViewOpen(std::string_view a_id, std::string_view a_reason,
 		std::optional<ViewTimingClock::time_point> a_requestedAt)
 	{
-		if (_presentation.IsOpen(a_id) ||
-			(_pendingViewOpen && *_pendingViewOpen == a_id) ||
-			_viewOpenPreflightBarriers.contains(std::string(a_id))) {
-			return false;
-		}
 		const auto* manifest = _views.Find(a_id);
 		if (!manifest) {
 			CancelColdOpenTiming(a_id);
@@ -387,6 +382,8 @@ namespace OSFUI
 				"The requested OSF UI view is not installed", { { "view", a_id } });
 			return false;
 		}
+		a_id = manifest->id;
+		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return false;
 		if (!EnsureWebRuntime()) {
 			CancelColdOpenTiming(a_id);
 			REX::WARN("Runtime: cannot open '{}' — lazy WebView runtime initialization failed", a_id);
@@ -415,6 +412,9 @@ namespace OSFUI
 			}
 			return false;
 		}
+		if (_presentation.IsOpen(a_id) ||
+			(_pendingViewOpen && *_pendingViewOpen == a_id) ||
+			_viewOpenPreflightBarriers.contains(std::string(a_id))) return false;
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
 		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
 			EnsureCaptureIntegration();
@@ -452,7 +452,9 @@ namespace OSFUI
 			_viewOpenPreflightBarriers.emplace(std::string(a_id), _mainTickSerial + 1);
 		}
 		if (manifest->kind == ViewKind::Hud) {
-			return requiresStateBarrier || _presentation.Open(a_id);
+			// The reveal budget starts only after the document loads, including cold host startup.
+			_viewOpenPreflightBarriers.try_emplace(std::string(a_id), _mainTickSerial + (requiresStateBarrier ? 1 : 0));
+			return true;
 		}
 
 		const bool waitingForCaptureIntegration = requiresCaptureIntegration && !_captureIntegrationAvailable;
@@ -562,7 +564,7 @@ namespace OSFUI
 				it = _viewOpenPreflightBarriers.erase(it);
 				continue;
 			}
-			if (manifest->kind == ViewKind::Menu) {
+			if (manifest->kind == ViewKind::Menu || m_viewLoads.GetState(it->first) != ViewLoadState::Finished || _rendererFailed) {
 				++it;
 				continue;
 			}
@@ -576,6 +578,7 @@ namespace OSFUI
 		if (!_pendingViewOpen) {
 			return;
 		}
+		if (_rendererFailed || !_menuEventsAvailable || MenuEventSink::TransitionOpen()) return;
 		const auto target = *_pendingViewOpen;
 		const auto* manifest = _views.Find(target);
 		if (!manifest || !_presentation.IsInstantiated(target)) {
@@ -629,7 +632,7 @@ namespace OSFUI
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (ids are qualified '<modId>/<view>'; is the view folder installed?)", id, id);
 				continue;
 			}
-			if (m->openOnStart) {
+			if (HudAutoStartEligible(*m)) {
 				catalogChanged = BeginViewOpen(id, "via plugin RegisterView openOnStart") || catalogChanged;
 			} else {
 				// Discovery catalogues the view; registration validates intent without creating the page.
@@ -778,6 +781,7 @@ namespace OSFUI
 
 	void Runtime::DriveBrowserHostRecovery()
 	{
+		_browserHostRecovery.ObserveHealth(_uptime);
 		if (_browserHostRecovery.ExpireResponseWait(_uptime)) {
 			REX::ERROR("Runtime: replacement browser host produced no load response in {:.0f}s", BrowserHostRecovery::kResponseTimeoutSeconds);
 			if (_browserHostRecovery.PhaseValue() ==
@@ -822,10 +826,15 @@ namespace OSFUI
 			if (!_presentation.IsInstantiated(manifest.id)) {
 				continue;
 			}
+			if (manifest.kind == ViewKind::Hud && _presentation.IsOpen(manifest.id)) {
+				_presentation.Close(manifest.id);
+				_viewOpenPreflightBarriers.try_emplace(manifest.id, _mainTickSerial);
+			}
 			m_viewLoads.BeginLoad(manifest.id);
 			m_viewInputGrants.ResetPage(manifest.id);
 			_renderer->CreateOrNavigateView(manifest);
 			_bridge->OnViewCreated(manifest.id);
+			API::BridgeApi::Get().SetViewInstantiated(manifest.id, true);
 			++reloaded;
 		}
 
@@ -835,7 +844,7 @@ namespace OSFUI
 		_renderer->SetViewport(view.width, view.height);
 		ApplyViewPresentationPolicy();
 		BroadcastViewsData();
-		REX::INFO("Runtime: replayed {} instantiated view(s) to the replacement browser host; overlay left closed", reloaded);
+		REX::INFO("Runtime: replayed {} instantiated view(s) to the replacement browser host; menus stay closed and requested HUDs await load", reloaded);
 	}
 
 	void Runtime::OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event)
@@ -843,6 +852,7 @@ namespace OSFUI
 		if (_rendererFailureLatched) {
 			return;
 		}
+		API::BridgeApi::Get().SetBridgeAvailability(nullptr);
 		_rendererFailureLatched = true;
 		_rendererFailed = true;
 		_osfSettings.ReportFailure("runtime.renderer", "webview.renderer-failed",
@@ -864,8 +874,8 @@ namespace OSFUI
 		m_viewRecovery.ClearAll();
 
 		CancelPendingOpen();
-		_viewOpenPreflightBarriers.clear();
-		_presentation.CloseAll();
+		_presentation.CloseActiveMenu();
+		_presentation.SetSuspended(true);
 		ApplyViewPresentationPolicy();
 
 		ReconcileFocusMenu();
@@ -982,15 +992,7 @@ namespace OSFUI
 		const auto active = _presentation.ActiveMenu().value_or("<none>");
 		REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s - closing it and releasing input/pause state", active, decision.heldSeconds);
 		_coldOpenTiming.reset();
-		CancelPendingOpen();
-		_viewOpenPreflightBarriers.clear();
-		_presentation.CloseAll();
-		ApplyViewPresentationPolicy();
-
-		ReconcileFocusMenu();
-		ReconcileControlLayer();
-		ReconcileSimPause();
-		FreeCursor::Apply(false);
+		OnRendererFailure({ .stage = "host-connection", .description = "overlay reveal timed out" });
 	}
 
 }

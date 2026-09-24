@@ -81,14 +81,22 @@ namespace OSFUI
 		_hudShown.clear();
 	}
 
+	bool ViewPresentationController::SetSuspended(bool a_suspended)
+	{
+		if (_suspended == a_suspended) return false;
+		_suspended = a_suspended;
+		if (_suspended) _activeMenu.reset();
+		return true;
+	}
+
 	bool ViewPresentationController::DesiredVisible() const
 	{
-		return !_hudShown.empty() || _activeMenu.has_value();
+		return !_suspended && (!_hudShown.empty() || _activeMenu.has_value());
 	}
 
 	bool ViewPresentationController::DesiredCapture() const
 	{
-		if (!_activeMenu) {
+		if (_suspended || !_activeMenu) {
 			return false;
 		}
 		const auto* view = FindInstantiated(*_activeMenu);
@@ -97,7 +105,7 @@ namespace OSFUI
 
 	bool ViewPresentationController::DesiredPause() const
 	{
-		if (!_activeMenu) {
+		if (_suspended || !_activeMenu) {
 			return false;
 		}
 		const auto* view = FindInstantiated(*_activeMenu);
@@ -106,7 +114,7 @@ namespace OSFUI
 
 	std::optional<std::string> ViewPresentationController::ActiveMenu() const
 	{
-		return _activeMenu;
+		return _suspended ? std::nullopt : _activeMenu;
 	}
 
 	std::vector<ViewPresentationController::Layer> ViewPresentationController::DesiredLayers() const
@@ -126,6 +134,7 @@ namespace OSFUI
 				layer.hidden = true;
 				layer.z = 1000;  // menu band; hidden, so exact value is immaterial
 			}
+			layer.hidden = layer.hidden || _suspended;
 			layers.push_back(std::move(layer));
 		}
 		return layers;

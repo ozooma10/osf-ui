@@ -1,3 +1,5 @@
+#include <cassert>
+#include "Input/KeyOwnership.h"
 #include "Input/OverlayInputHook.h"
 
 #include <cassert>
@@ -5,6 +7,15 @@
 
 int main()
 {
+	OSFUI::KeyOwnership keys;
+	assert(!keys.Consume(0x57, true, false));  // game receives W down
+	assert(!keys.Consume(0x57, false, true));  // game still receives W up during capture
+	assert(keys.Consume(0x1B, true, true));    // overlay closes on Escape down
+	assert(keys.Consume(0x1B, true, false));   // held repeat stays with overlay after close
+	assert(keys.Consume(0x1B, false, false));  // release cannot leak into PauseMenu
+	assert(!keys.Consume(0x1B, true, false));  // next complete press belongs to game
+	keys.Reset();
+
 	using OSFUI::OverlayInputHook::detail::OriginalMovedAboveUs;
 
 	constexpr std::uintptr_t game = 0x1000;

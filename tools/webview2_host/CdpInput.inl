@@ -21,10 +21,11 @@
 					},
 					[this, id = a_view.id] {
 						log.Error("CDP input failed, timed out, or exceeded its queue limit for view '" + id + "'");
-						Send(msg::ToJson(msg::Fatal{ .stage = "cdp-input", .view = id,
-							.description = "CDP input failed; see input prototype documentation for diagnostics" }));
-						quit.store(true);
-						if (wakeEvent) ::SetEvent(wakeEvent);
+						if (auto* view = FindView(id)) {
+							view->domSeen = false;
+							Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = true,
+								.url = ToUtf8(view->currentUrl), .description = "CDP input failed or timed out" }));
+						}
 					});
 				SetCdpFocus(a_view, focusGranted && windowActive && inputTarget == &a_view && !a_view.hidden);
 			}

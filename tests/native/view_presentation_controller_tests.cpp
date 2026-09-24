@@ -139,5 +139,23 @@ int main()
 		assert(controller.IsOpen("a/menu"));  // replacement does not close it
 	}
 
+	{
+		ViewPresentationController controller;
+		controller.AddInstantiated(Hud("a/hud"));
+		controller.AddInstantiated(Menu("a/menu"));
+		assert(controller.Open("a/hud"));
+		assert(controller.Open("a/menu"));
+		assert(controller.SetSuspended(true));
+		assert(controller.IsOpen("a/hud"));
+		assert(!controller.DesiredVisible() && !controller.DesiredCapture() && !controller.DesiredPause());
+		for (const auto& layer : controller.DesiredLayers()) assert(layer.hidden);
+		assert(controller.SetSuspended(false));
+		assert(controller.DesiredVisible() && !controller.ActiveMenu());
+		controller.SetSuspended(true);
+		controller.CloseAll();
+		controller.SetSuspended(false);
+		assert(!controller.DesiredVisible()); // explicit close survives suspension
+	}
+
 	std::cout << "view presentation controller tests passed\n";
 }

@@ -39,7 +39,7 @@ namespace OSFUI
 		// Menus pause by default through SimPause; HUDs force this false.
 		bool pausesGame{ true };
 
-		// Menu: open at load. HUD: show at load.
+		// HUD-only autostart; debug HUDs require developer mode. Ignored for menus.
 		bool openOnStart{ false };
 
 		// HUD-only order is clamped to 0..999 within the framework-owned band.

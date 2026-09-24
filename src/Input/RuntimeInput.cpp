@@ -234,8 +234,7 @@ namespace OSFUI
 		_osfSettings.ReportFailure("input.hotkey-block", "input.hotkey-block",
 			"The WebView cannot capture input because OSF hotkeys could not be blocked");
 		CancelPendingOpen();
-		_viewOpenPreflightBarriers.clear();
-		_presentation.CloseAll();
+		_presentation.CloseActiveMenu();
 		return false;
 	}
 

@@ -291,8 +291,8 @@ namespace OSFUI
 			}
 		});
 		a_bridge.SetEndpointFallback(
-			[](std::string_view a_sourceViewId, std::string_view a_name) {
-				const auto endpoint = API::Papyrus::ResolveViewEndpoint(Ids::ModOf(a_sourceViewId), a_name);
+			[](std::string_view, std::string_view a_name) {
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint({}, a_name);
 				switch (endpoint.kind) {
 				case API::Papyrus::ViewEndpointKind::kSend:
 					return MessageBridge::FallbackEndpointKind::kSend;
@@ -304,7 +304,7 @@ namespace OSFUI
 			},
 			[](std::string_view a_name, const nlohmann::json& a_payload, MessageBridge& a_b) {
 				const std::string source(a_b.CurrentSource());
-				const auto endpoint = API::Papyrus::ResolveViewEndpoint(Ids::ModOf(source), a_name);
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint({}, a_name);
 				std::string error;
 				auto args = ParsePapyrusArgs(a_payload, error);
 				if (!args) {
@@ -317,7 +317,7 @@ namespace OSFUI
 			},
 			[](std::string_view a_name, const nlohmann::json& a_payload, MessageBridge& a_b) {
 				const std::string source(a_b.CurrentSource());
-				const auto endpoint = API::Papyrus::ResolveViewEndpoint(Ids::ModOf(source), a_name);
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint({}, a_name);
 				std::string error;
 				auto args = ParsePapyrusArgs(a_payload, error);
 				if (!args) {
@@ -328,7 +328,9 @@ namespace OSFUI
 					a_b.Reject("papyrus-unavailable", "Papyrus request endpoint is no longer available");
 					return;
 				}
-				const auto token = a_b.Defer();
+				auto dropToken = std::make_shared<std::string>();
+				const auto token = a_b.Defer([dropToken] { API::Papyrus::DropViewRequest(*dropToken); });
+				*dropToken = token;
 				if (!API::Papyrus::OnViewRequest(endpoint.modId, endpoint.name, *args, source, token)) {
 					a_b.RejectTo(token, "papyrus-unavailable", "Papyrus request endpoint is no longer available");
 				}

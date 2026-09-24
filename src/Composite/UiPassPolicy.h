@@ -87,20 +87,20 @@ namespace OSFUI::UiPass::detail
 		{
 			m_trackingHeaps = true;
 			m_handoffsLeft = 0;
-			m_barrierCallsAfterFirst = -1;
+			m_barrierCalls = 0;
 		}
 
 		void End()
 		{
 			if (m_trackingHeaps) {
 				m_handoffsLeft = 2;
-				m_barrierCallsAfterFirst = -1;
+				m_barrierCalls = 0;
 			}
 		}
 
 		void OnBarrierCall()
 		{
-			if (m_handoffsLeft > 0 && m_barrierCallsAfterFirst >= 0 && ++m_barrierCallsAfterFirst > 4) {
+			if (m_handoffsLeft > 0 && ++m_barrierCalls > 4) {
 				Cancel();
 			}
 		}
@@ -112,9 +112,7 @@ namespace OSFUI::UiPass::detail
 				return false;
 			}
 			m_handoffsLeft--;
-			if (m_barrierCallsAfterFirst < 0) {
-				m_barrierCallsAfterFirst = 0;
-			}
+			// Both the first candidate and the second must fit inside this bounded window.
 			if (m_handoffsLeft == 0) {
 				m_trackingHeaps = false;
 			}
@@ -125,7 +123,7 @@ namespace OSFUI::UiPass::detail
 		{
 			m_trackingHeaps = false;
 			m_handoffsLeft = 0;
-			m_barrierCallsAfterFirst = -1;
+			m_barrierCalls = 0;
 		}
 
 		[[nodiscard]] bool TrackingHeaps() const { return m_trackingHeaps; }
@@ -134,7 +132,7 @@ namespace OSFUI::UiPass::detail
 	private:
 		bool m_trackingHeaps{ false };
 		int  m_handoffsLeft{ 0 };
-		int  m_barrierCallsAfterFirst{ -1 };
+		int  m_barrierCalls{ 0 };
 	};
 
 	struct TargetDecision

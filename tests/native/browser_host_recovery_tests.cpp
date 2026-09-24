@@ -36,7 +36,7 @@ int main()
 	assert(recovery.Attempts() == 3);
 	recovery.OnRetryableFailure(145.0);
 	assert(recovery.PhaseValue() == Phase::Exhausted);
-	assert(recovery.CanAcceptResponse());
+	assert(!recovery.CanAcceptResponse());
 
 	assert(recovery.RequestManualRetry(200.0));
 	assert(recovery.BeginDueAttempt(200.0));
@@ -45,6 +45,24 @@ int main()
 	assert(recovery.PhaseValue() == Phase::Idle);
 	assert(recovery.Attempts() == 0);
 	assert(!recovery.CanAcceptResponse());
+
+	// Brief load/crash loops retain the budget; only a stable minute resets it.
+	for (unsigned attempt = 1; attempt <= BrowserHostRecovery::kMaxAttempts; ++attempt) {
+		recovery.OnRetryableFailure(300.0 + attempt * 100);
+		assert(recovery.BeginDueAttempt(320.0 + attempt * 100));
+		recovery.OnResponse(321.0 + attempt * 100);
+		recovery.ObserveHealth(322.0 + attempt * 100);
+		assert(recovery.Attempts() == attempt);
+	}
+	recovery.OnRetryableFailure(700.0);
+	assert(recovery.PhaseValue() == Phase::Exhausted);
+	assert(recovery.RequestManualRetry(800.0));
+	assert(recovery.BeginDueAttempt(800.0));
+	recovery.OnResponse(801.0);
+	recovery.ObserveHealth(860.9);
+	assert(recovery.Attempts() == 1);
+	recovery.ObserveHealth(861.0);
+	assert(recovery.Attempts() == 0 && recovery.PhaseValue() == Phase::Idle);
 
 	// Non-retryable renderer/security failures cannot be overridden by an open.
 	recovery.Disable();

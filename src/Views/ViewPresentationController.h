@@ -30,6 +30,7 @@ namespace OSFUI
 		bool Open(std::string_view a_id);
 		bool Close(std::string_view a_id);
 		bool CloseActiveMenu();                       // HUDs untouched
+		bool SetSuspended(bool a_suspended);          // retain HUD intent, close menus
 		void CloseAll();                              // close the menu and every shown HUD
 
 		// Derived desired state — read on the main thread after any change.
@@ -55,5 +56,6 @@ namespace OSFUI
 		std::unordered_map<std::string, InstantiatedView> _instantiated;
 		std::optional<std::string>                        _activeMenu;
 		std::unordered_set<std::string>                   _hudShown;
+		bool _suspended{ false };
 	};
 }

@@ -15,9 +15,8 @@
 				highRefreshCapture = a_msg.highRefreshCapture;
 				windowActive = GameIsForeground();
 				log.InfoFwd("input mode: forwarded CDP; native focus remains in Starfield");
-				defaultHidden = a_msg.hidden;
 				if (userData.empty()) {
-					log.Error("init without userDataDir");
+					FailHost("init", E_INVALIDARG, "init without userDataDir");
 					return;
 				}
 				const auto leasePath = viewsRoot / OSFUI::ViewCache::kUseLock;
@@ -47,7 +46,7 @@
 					return;
 				}
 				rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
-				log.Info(std::format("init: views='{}' {}x{} hidden={} highRefreshCapture={} topLevel=0x{:X}", ToUtf8(viewsRoot.native()), width, height, defaultHidden, highRefreshCapture, reinterpret_cast<std::uintptr_t>(gameTopLevel)));
+				log.Info(std::format("init: views='{}' {}x{} highRefreshCapture={} topLevel=0x{:X}", ToUtf8(viewsRoot.native()), width, height, highRefreshCapture, reinterpret_cast<std::uintptr_t>(gameTopLevel)));
 				BeginEnvironment();
 			}
 
@@ -174,6 +173,7 @@
 				auto current = completed.load();
 				while (ack.serial > current &&
 					!completed.compare_exchange_weak(current, ack.serial)) {}
+				RetryPendingCapture();
 				RepublishLatest(true);
 			}
 

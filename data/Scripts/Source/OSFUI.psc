@@ -59,7 +59,7 @@ string Function GetVersionString() Global Native
 ;   -1    akReceiver is None, or asScript is empty
 ;   -2    asModId is not a valid OSF mod id
 ;   -3    asName is reserved or malformed, or "<asModId>.<asName>" exceeds 128 characters
-;   -4    the endpoint belongs to another script, or is already registered with the other kind (send vs request)
+;   -4    the endpoint belongs to a native plugin or another script, or has the other kind (send vs request)
 ;   -5    registration table full
 ;
 
@@ -69,6 +69,7 @@ string Function GetVersionString() Global Native
 ; Use RegisterSend for a one-way command when JavaScript does not need a result.
 ;
 ; A view owned by asModId uses the short local name; other views use the fully-qualified "<asModId>.<asName>" address.
+; The owning namespace wins over global endpoints, across native and Papyrus handlers.
 ;
 ; JavaScript
 ;   osfui.send("equip", 2)
@@ -162,6 +163,7 @@ bool Function SetStateForms(string asModId, string asKey, Form[] akForms) Global
 ;   osfui.on(asName, handler)
 ;
 ; The handler receives { args: [...] }. Events are delivered at most once and never retained or replayed. Use SetState for reload-safe data.
+; Event names emitted to JavaScript are ASCII lowercase, independent of Papyrus string interning.
 bool Function EmitEvent(string asModId, string asName, Var[] akArgs = None) Global Native
 
 

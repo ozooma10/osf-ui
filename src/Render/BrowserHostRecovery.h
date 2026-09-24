@@ -14,6 +14,7 @@ namespace OSFUI
 			Idle,
 			Waiting,
 			AwaitingResponse,
+			Healthy,
 			Exhausted,
 			Disabled,
 		};
@@ -27,6 +28,19 @@ namespace OSFUI
 			_attempts = 0;
 			_retryAt = 0.0;
 			_responseDeadline = 0.0;
+		}
+
+		// A load proves responsiveness, not stability. Keep the retry budget until the host stays healthy.
+		void OnResponse(double a_now)
+		{
+			if (!CanAcceptResponse()) return;
+			_phase = Phase::Healthy;
+			_healthyUntil = a_now + 60.0;
+		}
+
+		void ObserveHealth(double a_now)
+		{
+			if (_phase == Phase::Healthy && a_now >= _healthyUntil) Reset();
 		}
 
 		void Disable()
@@ -86,9 +100,7 @@ namespace OSFUI
 
 		[[nodiscard]] bool CanAcceptResponse() const
 		{
-			return _phase == Phase::Waiting ||
-			       _phase == Phase::AwaitingResponse ||
-			       _phase == Phase::Exhausted;
+			return _phase == Phase::AwaitingResponse;
 		}
 
 		[[nodiscard]] Phase PhaseValue() const { return _phase; }
@@ -115,5 +127,6 @@ namespace OSFUI
 		std::uint32_t _attempts{ 0 };
 		double        _retryAt{ 0.0 };
 		double        _responseDeadline{ 0.0 };
+		double        _healthyUntil{ 0.0 };
 	};
 }

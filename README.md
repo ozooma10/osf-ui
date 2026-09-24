@@ -22,6 +22,8 @@ A web view framework for Starfield.
 Requires SFSE, Address Library, OSF Settings, and the Edge WebView2 Evergreen Runtime. OSF UI starts the WebView2 helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
 
 
+- HUD autostart waits for page load. Loading and main-menu transitions suspend requested HUDs; they resume afterward and after successful browser recovery. Explicit close requests remain closed.
+- Views load bundled local files only. Browser networking and page-requested external windows are blocked.
 - Pages receive only state their owning mod publishes with `SetViewState` / `OSFUI.SetState`.
 - A menu view joins the OSF Settings **Launcher** tab with `"launcher": { "modId": "mymod", "modTitle": "My Mod" }` in its manifest. Omit it for private views; Debug-only views appear only in developer mode.
 
@@ -42,7 +44,7 @@ xmake build
 pwsh tools/package.ps1
 ```
 
-Writes `dist/OSF-UI-<version>.zip` with its checksum. The archive owns `OSF/UI` and `osfui.json` only; it never removes the shared `OSF` parent or the OSF Settings subtree.
+Writes `dist/OSF-UI-<version>.zip` with its checksum. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
 
 ## License
 

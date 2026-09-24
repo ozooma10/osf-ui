@@ -9,6 +9,8 @@ namespace OSFUI
 	MenuEventSink    MenuEventSink::s_instance;
 	std::atomic_bool MenuEventSink::s_consoleOpen{ false };
 	std::atomic_bool MenuEventSink::s_chargenOpen{ false };
+	std::atomic_bool MenuEventSink::s_loadingOpen{ false };
+	std::atomic_bool MenuEventSink::s_mainMenuOpen{ false };
 
 	bool MenuEventSink::Install()
 	{
@@ -18,6 +20,8 @@ namespace OSFUI
 			return false;
 		}
 		ui->RegisterSink<RE::MenuOpenCloseEvent>(&s_instance);
+		s_loadingOpen.store(ui->IsMenuOpen(RE::BSFixedString{ "LoadingMenu" }));
+		s_mainMenuOpen.store(ui->IsMenuOpen(RE::BSFixedString{ "MainMenu" }));
 		const bool chargenOpen = ui->IsMenuOpen(RE::BSFixedString{ RE::ChargenMenu::MENU_NAME });
 		s_chargenOpen.store(chargenOpen, std::memory_order_release);
 		REX::INFO("MenuEventSink: registered for MenuOpenCloseEvent (ChargenMenu {})",
@@ -45,15 +49,15 @@ namespace OSFUI
 			}
 		}
 
-		if (a_event.opening) {
-			// Force-hide on system transitions to release input before game state becomes invalid.
-			if ((name == "LoadingMenu" || name == "MainMenu") && Runtime::Get().IsVisible()) {
-				REX::DEBUG("MenuEventSink: '{}' opened -> closing all OSF UI views", name);
-				Runtime::Get().EnqueuePresentationRequest(ViewPresentationRequest::CloseAll);
-			}
-		}
+		if (name == "LoadingMenu") s_loadingOpen.store(a_event.opening, std::memory_order_release);
+		if (name == "MainMenu") s_mainMenuOpen.store(a_event.opening, std::memory_order_release);
 
 		return RE::BSEventNotifyControl::kContinue;
+	}
+
+	bool MenuEventSink::TransitionOpen()
+	{
+		return s_loadingOpen.load(std::memory_order_acquire) || s_mainMenuOpen.load(std::memory_order_acquire);
 	}
 
 	bool MenuEventSink::ConsoleOpen()

@@ -99,7 +99,9 @@ int main()
 	CHECK(ConnectPair(server, client));
 	CHECK(server.ClientProcessId() == ::GetCurrentProcessId());
 	CHECK(client.ServerProcessId() == ::GetCurrentProcessId());
-	CHECK(server.WriteMessage("round-trip"));
+	CHECK(server.WriteMessage(std::string(osfui::wv2::kMaxMessageBytes + 1, 'x')) == Pipe::WriteResult::InvalidPayload);
+	CHECK(server.WriteMessage("") == Pipe::WriteResult::InvalidPayload);
+	CHECK(server.WriteMessage("round-trip") == Pipe::WriteResult::Written);
 	std::string payload;
 	CHECK(client.ReadMessage(payload));
 	CHECK(payload == "round-trip");
@@ -135,11 +137,11 @@ int main()
 	bool queuedWrote = true;
 	std::thread writer([&] {
 		wrote = server.WriteMessage(
-			std::string(osfui::wv2::kMaxMessageBytes, 'x'));
+			std::string(osfui::wv2::kMaxMessageBytes, 'x')) == Pipe::WriteResult::Written;
 	});
 	std::this_thread::sleep_for(25ms);
 	std::thread queuedWriter([&] {
-		queuedWrote = server.WriteMessage("queued");
+		queuedWrote = server.WriteMessage("queued") == Pipe::WriteResult::Written;
 	});
 	std::this_thread::sleep_for(25ms);
 	CHECK(CloseWithin(server, 2s));
@@ -151,7 +153,7 @@ int main()
 
 	// The same Pipe objects can begin a clean recovery session after Close.
 	CHECK(ConnectPair(server, client));
-	CHECK(client.WriteMessage("reopened"));
+	CHECK(client.WriteMessage("reopened") == Pipe::WriteResult::Written);
 	payload.clear();
 	CHECK(server.ReadMessage(payload));
 	CHECK(payload == "reopened");

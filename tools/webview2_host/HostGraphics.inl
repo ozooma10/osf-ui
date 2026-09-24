@@ -253,14 +253,48 @@
 				std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
 				std::scoped_lock lock(ringMutex);
-				PublishFrameLocked(a_source, a_width, a_height, a_presentationEpoch);
+				pendingCaptureEpoch = 0; // a newer capture supersedes any queued pixels
+				if (PublishFrameLocked(a_source, a_width, a_height, a_presentationEpoch)) return;
+				if (captureClosing.load()) return;
+				// WGC's pool will recycle a_source. Keep one private copy so the final
+				// frame of a short animation can be retried when a slot is acknowledged.
+				D3D11_TEXTURE2D_DESC desc{};
+				if (pendingCapture) pendingCapture->GetDesc(&desc);
+				if (desc.Width != a_width || desc.Height != a_height) pendingCapture.Reset();
+				if (!pendingCapture) {
+					a_source->GetDesc(&desc);
+					desc.MiscFlags = 0;
+					if (FAILED(device->CreateTexture2D(&desc, nullptr, &pendingCapture))) return;
+				}
+				context->CopyResource(pendingCapture.Get(), a_source);
+				pendingCaptureEpoch = a_presentationEpoch;
+			}
+
+			void RetryPendingCapture()
+			{
+				std::scoped_lock lock(ringMutex);
+				if (!pendingCapture || !pendingCaptureEpoch) return;
+				if (pendingCaptureEpoch != presentationEpoch.load(std::memory_order_acquire) ||
+					!captureHasVisibleView.load(std::memory_order_acquire)) {
+					pendingCaptureEpoch = 0;
+					return;
+				}
+				D3D11_TEXTURE2D_DESC desc{};
+				pendingCapture->GetDesc(&desc);
+				if (desc.Width != width || desc.Height != height) {
+					pendingCaptureEpoch = 0; // a resize superseded these pixels
+					return;
+				}
+				if (PublishFrameLocked(pendingCapture.Get(), desc.Width, desc.Height, pendingCaptureEpoch)) {
+					pendingCaptureEpoch = 0;
+				}
 			}
 
 			// ringMutex held. Acknowledgement means the consumer has stopped using the slot and every GPU read has completed. Current stays reserved.
-			void PublishFrameLocked(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_presentationEpoch)
+			bool PublishFrameLocked(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
-				if (captureClosing.load()) return;
-				if (!EnsureRing(a_width, a_height)) return;
+				if (captureClosing.load()) return false;
+				if (!EnsureRing(a_width, a_height)) return false;
 
 				auto writableSlot = kRingSlots;
 				for (std::uint32_t offset = 0; offset < kRingSlots; ++offset) {
@@ -274,9 +308,9 @@
 				if (writableSlot == kRingSlots) {
 					++consumeLagDrops;
 					if (consumeLagDrops == 1 || consumeLagDrops % 300 == 0) {
-						log.Info(std::format("capture backpressure (all {} slots reserved, {} drops); captured frame dropped", kRingSlots, consumeLagDrops));
+						log.Info(std::format("capture backpressure (all {} slots reserved, {} deferrals); retaining latest capture", kRingSlots, consumeLagDrops));
 					}
-					return;
+					return false;
 				}
 				auto& slot = ring[writableSlot];
 
@@ -285,12 +319,12 @@
 						ComPtr<IDXGIKeyedMutex> mutex;
 						if (SUCCEEDED(slot.texture.As(&mutex))) {
 							if (mutex->AcquireSync(0, 50) != S_OK) {
-								return;  // contended/abandoned; drop this frame
+								return false;  // contended/abandoned; drop this frame
 							}
 							context->CopyResource(slot.texture.Get(), a_source);
 							mutex->ReleaseSync(0);
 						} else {
-							return;  // keyed-mutex QI unexpectedly failed; drop rather than publish an uncopied slot
+							return false;  // keyed-mutex QI unexpectedly failed; drop rather than publish an uncopied slot
 						}
 					} else {
 						context->CopyResource(slot.texture.Get(), a_source);
@@ -310,6 +344,7 @@
 				if (serial == 1) {
 					log.InfoFwd(std::format("first frame published ({}x{})", a_width, a_height));
 				}
+				return true;
 			}
 
 			bool PromotePresentation(View& a_view)
@@ -380,10 +415,9 @@
 				const auto slash = a_id.find('/');
 				owned->modId = ToWide(a_id.substr(0, slash));
 				owned->viewName = ToWide(a_id.substr(slash + 1));
-				owned->hidden = defaultHidden;
 				owned->window = ::CreateWindowExW(0, L"STATIC", L"OSFUI WebView2 View", WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, hostWindow, nullptr, ::GetModuleHandleW(nullptr), nullptr);
 				if (!owned->window) {
-					log.Error(std::format("view '{}': child HWND creation failed ({})", a_id, ::GetLastError()));
+					FailHost("view-window", HRESULT_FROM_WIN32(::GetLastError()), "child HWND creation failed", a_id);
 				}
 				views.push_back(std::move(owned));
 				auto& view = *views.back();

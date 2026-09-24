@@ -409,13 +409,13 @@ namespace osfui::wv2
 			reinterpret_cast<std::uint8_t*>(a_payload.data()), length, deadline);
 	}
 
-	bool Pipe::WriteMessage(const std::string& a_payload)
+	Pipe::WriteResult Pipe::WriteMessage(const std::string& a_payload)
 	{
 		if (a_payload.empty() || a_payload.size() > kMaxMessageBytes) {
 			SetError("payload size", static_cast<DWORD>(a_payload.size()));
-			return false;
+			return WriteResult::InvalidPayload;
 		}
-		if (!BeginCall(CallKind::Write)) return false;
+		if (!BeginCall(CallKind::Write)) return WriteResult::Disconnected;
 		CallGuard call(*this, CallKind::Write);
 
 		const auto length = static_cast<std::uint32_t>(a_payload.size());
@@ -435,7 +435,7 @@ namespace osfui::wv2
 			DWORD error = ERROR_SUCCESS;
 			{
 				std::scoped_lock stateLock(_stateMutex);
-				if (_closing || _pipe == INVALID_HANDLE_VALUE) return false;
+				if (_closing || _pipe == INVALID_HANDLE_VALUE) return WriteResult::Disconnected;
 				pipe = _pipe;
 				ov.hEvent = _writeEvent;
 				::ResetEvent(_writeEvent);
@@ -446,21 +446,21 @@ namespace osfui::wv2
 			}
 			if (error != ERROR_SUCCESS && error != ERROR_IO_PENDING) {
 				if (!IsClosing()) SetError("WriteFile", error);
-				return false;
+				return WriteResult::Disconnected;
 			}
 			if (error == ERROR_IO_PENDING &&
 				!::GetOverlappedResult(pipe, &ov, &wrote, TRUE)) {
 				const auto resultError = ::GetLastError();
 				if (!IsClosing()) SetError("WriteFile overlapped", resultError);
-				return false;
+				return WriteResult::Disconnected;
 			}
 			if (wrote == 0) {
 				if (!IsClosing()) SetError("WriteFile", ERROR_WRITE_FAULT);
-				return false;
+				return WriteResult::Disconnected;
 			}
 			done += wrote;
 		}
-		return true;
+		return WriteResult::Written;
 	}
 
 	void Pipe::CloseLocked()

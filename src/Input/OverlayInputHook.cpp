@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Input/HardwareCursor.h"
 #include "Input/BrowserKeyboard.h"
+#include "Input/KeyOwnership.h"
 #include "Win32Util.h"
 #include "Runtime/Runtime.h"
 #include "Wv2CdpInput.h"
@@ -31,6 +32,8 @@ namespace OSFUI::OverlayInputHook
 		POINT g_lastAbsoluteClient{};
 		bool  g_hasLastAbsoluteClient{ false };
 		bool g_keyboardCaptured{ false };
+		KeyOwnership g_keyOwnership;
+		KeyOwnership g_rawKeyOwnership;
 		bool g_imeComposing{ false };
 		osfui::wv2::Utf16Input g_textInput;
 
@@ -217,6 +220,8 @@ namespace OSFUI::OverlayInputHook
 				runtime.OnGameWindowActivation(true);
 				break;
 			case WM_KILLFOCUS:
+				g_keyOwnership.Reset();
+				g_rawKeyOwnership.Reset();
 				runtime.OnGameWindowActivation(false);
 				g_textInput.Reset();
 				g_imeComposing = false;
@@ -229,7 +234,7 @@ namespace OSFUI::OverlayInputHook
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
 				const bool consume = runtime.OnGameWindowKeyboard(
 					BrowserKeyboardEvent(vk, true, a_msg == WM_SYSKEYDOWN, a_lparam));
-				if (consume) {
+				if (g_keyOwnership.Consume(vk, true, consume)) {
 					return 0;
 				}
 				break;
@@ -240,7 +245,7 @@ namespace OSFUI::OverlayInputHook
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
 				const bool consume = runtime.OnGameWindowKeyboard(
 					BrowserKeyboardEvent(vk, false, a_msg == WM_SYSKEYUP, a_lparam));
-				if (consume) {
+				if (g_keyOwnership.Consume(vk, false, consume)) {
 					return 0;
 				}
 				break;
@@ -325,13 +330,24 @@ namespace OSFUI::OverlayInputHook
 					return TRUE;
 				}
 				break;
-			case WM_INPUT:
+			case WM_INPUT: {
+				RAWINPUT raw{};
+				UINT size = sizeof(raw);
+				if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT, &raw, &size,
+					sizeof(RAWINPUTHEADER)) == size && raw.header.dwType == RIM_TYPEKEYBOARD) {
+					if (g_rawKeyOwnership.Consume(raw.data.keyboard.VKey,
+						(raw.data.keyboard.Flags & RI_KEY_BREAK) == 0, runtime.IsInputCaptured())) {
+						return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
+					}
+					break; // forward releases whose down reached the game before capture
+				}
 				if (runtime.IsInputCaptured()) {
 					// Route to the overlay and use DefWindowProc only to release the raw-input buffer.
 					if (::GetForegroundWindow() == a_hwnd) RouteRawMouse(a_hwnd, a_lparam);
 					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 				}
 				break;
+			}
 			default:
 				if (IsLegacyMouseMessage(a_msg) && runtime.IsInputCaptured()) {
 					// Block legacy duplicates because WM_INPUT is authoritative.
@@ -371,6 +387,13 @@ namespace OSFUI::OverlayInputHook
 			return false;
 		}
 
+		// Keys already held when the hook is installed belong to the game.
+		for (std::uint32_t vk = 1; vk < 256; ++vk) {
+			if (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) {
+				g_keyOwnership.Consume(vk, true, false);
+				g_rawKeyOwnership.Consume(vk, true, false);
+			}
+		}
 		g_originalProc = reinterpret_cast<WNDPROC>(
 			::SetWindowLongPtrW(g_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WndProc)));
 		// Call the stable class procedure so later subclass chains cannot recurse through ours.

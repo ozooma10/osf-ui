@@ -63,13 +63,14 @@ namespace OSFUI
 		const std::string id(a_viewId);
 		// A navigation creates a fresh document; no pointer ownership crosses that boundary.
 		CancelRelativePointerCapture(id);
-		if (_rendererFailed && _browserHostRecovery.CanAcceptResponse()) {
+		if (!a_failed && _rendererFailed && _browserHostRecovery.CanAcceptResponse()) {
 			const auto attempts = _browserHostRecovery.Attempts();
-			_browserHostRecovery.Reset();
+			_browserHostRecovery.OnResponse(_uptime);
+			API::BridgeApi::Get().SetBridgeAvailability(_bridge.get());
 			_rendererFailed = false;
 			_rendererFailureLatched = false;
 			_osfSettings.ClearFailure("runtime.renderer");
-			REX::INFO("Runtime: replacement browser host responded on attempt {}; the overlay remains closed until the player opens it", attempts);
+			REX::INFO("Runtime: replacement browser host responded on attempt {}; menus remain closed; requested HUDs resume after loading", attempts);
 		}
 		m_viewLoads.FinishLoad(id, a_failed);
 		if (!a_failed) {
@@ -114,6 +115,7 @@ namespace OSFUI
 		_renderer->CreateOrNavigateView(a_manifest);
 		if (_bridge) {
 			_bridge->OnViewCreated(a_id);
+			API::BridgeApi::Get().SetViewInstantiated(a_id, true);
 		}
 		const auto capture = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
 		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));

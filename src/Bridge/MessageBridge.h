@@ -45,7 +45,7 @@ namespace OSFUI
 		void RegisterSend(std::string a_name, SendHandler a_handler);
 		bool RegisterRequest(std::string a_name, RequestHandler a_handler);
 
-		// Optional bounded registry consulted only after exact native endpoints miss.
+		// Probe exact candidates supplied by the shared owner-first resolver.
 		void SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request);
 
 		// Reject malformed or non-whitelisted page input without making it fatal.
@@ -118,6 +118,13 @@ namespace OSFUI
 		[[nodiscard]] static std::string EncodeError(std::string_view a_requestId, std::string_view a_code, std::string_view a_message);
 
 		void HandleHello(std::string_view a_viewId);
+		struct ResolvedEndpoint
+		{
+			std::string name;
+			FallbackEndpointKind kind{ FallbackEndpointKind::kNone };
+			bool fallback{ false };
+		};
+		[[nodiscard]] ResolvedEndpoint ResolveEndpoint(const std::string& a_name) const;
 		[[nodiscard]] bool DispatchSend(const std::string& a_name, const nlohmann::json& a_payload);
 		void DispatchRequest(const std::string& a_name, const std::string& a_id, const nlohmann::json& a_payload);
 		void SendReady(std::string_view a_viewId);

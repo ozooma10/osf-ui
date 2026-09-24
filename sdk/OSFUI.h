@@ -80,12 +80,14 @@ namespace OSFUI::API
 		virtual bool IsReady() noexcept = 0;
 
 		// Endpoint names are exact and unique across sends and requests; reserved prefixes such as "osfui." are refused.
-		// Register once at load. false for a null, invalid, reserved, or already registered name.
+		// Register once at load. false for a null, invalid, reserved, or already registered name (including Papyrus).
+		// Local page names resolve in the owning mod namespace before global names, across both registries.
 		virtual bool RegisterSend(const char* name, SendFn callback, void* context) noexcept = 0;
 		virtual bool RegisterRequest(const char* name, RequestFn callback, void* context) noexcept = 0;
 
 		// Queues a transient event for a view; the page receives it through on(event). payloadJson must be valid JSON.
-		// false for an invalid view ID, empty event, or invalid JSON. Oldest queued events per view are dropped under pressure.
+		// false for an invalid view ID, event longer than 128 bytes, empty event, invalid JSON, or payload over 1 MiB.
+		// Oldest queued events per view are dropped under pressure.
 		virtual bool SendToWeb(const char* viewId, const char* event, const char* payloadJson) noexcept = 0;
 		// Stores mod-scoped retained state and replays it to fresh documents. valueJson must be valid JSON.
 		// false for an invalid mod ID, empty or overlong key, invalid JSON, or a full pending queue.

@@ -28,9 +28,9 @@ local function sync_data(target)
         end
     end
 
-    -- OSF UI owns only OSF/UI and the one osfui schema. Never clean OSF or
-    -- OSF/Settings: those paths are shared with the independent dependency.
-    os.rm(views)
+    -- views is shared with consumer mods in direct-to-game installs.
+    -- Replace only the web kit owned by OSF UI.
+    os.rm(path.join(views, "shared"))
     os.mkdir(path.join(views, "shared"))
     os.cp(path.join(sharedkit, "*"), path.join(views, "shared"))
 

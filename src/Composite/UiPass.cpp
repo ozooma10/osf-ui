@@ -59,7 +59,7 @@ namespace OSFUI::UiPass
 			detail::CommandListHookState::Uninitialized
 		};
 		// The lazy hook self-test can disable drawing after Install() succeeds.
-		std::atomic<bool> g_drawEnabled{ false };
+
 		detail::FrameGenerationTargetPolicy g_fgTargetPolicy;
 		std::atomic_bool g_fgLayerOnlyLogged{ false };
 
@@ -160,7 +160,6 @@ namespace OSFUI::UiPass
 
 		void MarkDrawHooksFailed()
 		{
-			g_drawEnabled.store(false, std::memory_order_release);
 			g_hookInstallState.store(
 				detail::CommandListHookState::Failed, std::memory_order_release);
 		}
@@ -271,7 +270,7 @@ namespace OSFUI::UiPass
 		{
 			if (!detail::CanRecordOverlay(
 					g_hookInstallState.load(std::memory_order_acquire)) ||
-				!g_drawEnabled.load(std::memory_order_acquire) ||
+				!g_installOk.load(std::memory_order_acquire) ||
 				!a_list || !a_buffer) {
 				return;
 			}
@@ -468,7 +467,6 @@ namespace OSFUI::UiPass
 		const bool ok =
 			origBegin != 0 && origEnd != 0 && origComposite != 0;
 		g_installOk.store(ok, std::memory_order_release);
-		g_drawEnabled.store(ok, std::memory_order_release);
 		if (!ok) {
 			// Install all three entrypoints atomically so their thread-local protocol stays coherent.
 			RestoreExecuteSlot("ScaleformBegin",
@@ -496,7 +494,8 @@ namespace OSFUI::UiPass
 
 	bool DrawEnabled()
 	{
-		return g_drawEnabled.load(std::memory_order_acquire);
+		return g_installOk.load(std::memory_order_acquire) &&
+			g_hookInstallState.load(std::memory_order_acquire) != detail::CommandListHookState::Failed;
 	}
 
 	bool UsesScaleformEnd()

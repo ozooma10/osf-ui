@@ -55,7 +55,6 @@ int main()
 			.userDataDir = "C:/users/data",
 			.devMode = true,
 			.highRefreshCapture = true,
-			.hidden = false,
 			.adapterLuidLow = 4242,
 			.adapterLuidHigh = 7,
 		};
@@ -63,7 +62,7 @@ int main()
 		Check(got.topLevelHwnd == sent.topLevelHwnd, "u64 handle survives (above 2^53)");
 		Check(got.viewsPath == sent.viewsPath, "string survives");
 		Check(got.width == 2560 && got.height == 1440, "u32 survives");
-		Check(got.devMode && got.highRefreshCapture && !got.hidden, "bools survive independently");
+		Check(got.devMode && got.highRefreshCapture, "bools survive independently");
 		Check(got.adapterLuidHigh == 7, "adapter luid survives");
 	}
 	{
@@ -140,7 +139,7 @@ int main()
 		const auto got = msg::FromJson<msg::Init>(json{ { "type", "init" } });
 		Check(got.width == 1 && got.height == 1, "init dimensions default to 1, never 0");
 		Check(!got.highRefreshCapture, "init high-refresh capture defaults off");
-		Check(got.hidden, "init.hidden defaults true");
+		Check(!msg::ToJson(got).contains("hidden"), "init has no inherited view visibility");
 	}
 	{
 		const auto got = msg::FromJson<msg::Fatal>(json{ { "type", "fatal" } });

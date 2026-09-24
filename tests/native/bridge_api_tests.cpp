@@ -116,6 +116,66 @@ int main()
     CHECK(g_sent[1]["name"] == "acme.during-recovery");
     CHECK(g_sent[1]["payload"]["value"] == 7);
 
+
+    CHECK(g_ready == 2); // readiness fires again after recreation
+    CHECK(api.RegisterRelativePointer("ACME/PANEL", &Pointer, nullptr));
+    CHECK(!api.RegisterRelativePointer("Acme/panel", &Pointer, nullptr));
+    CHECK(api.DispatchRelativePointer("acme/panel", API::RelativePointerPhase::kBegin));
+    api.UnregisterRelativePointer("AcMe/PaNeL");
+    CHECK(!api.HasRelativePointer("acme/panel"));
+    g_sent.clear();
+    CHECK(api.SendToWeb("ACME/PANEL", "mixed-case", "{}"));
+    api.PumpMainThread();
+    CHECK(g_sent.size() == 1 && g_sent.back()["name"] == "mixed-case");
+    CHECK(api.ClaimPapyrusEndpoint("acme.refresh"));
+    CHECK(!api.RegisterSend("Acme.Refresh", &Send, nullptr));
+    CHECK(!api.ClaimPapyrusEndpoint("ACME.INCREMENT"));
+    api.ReleasePapyrusEndpoint("acme.refresh");
+    CHECK(api.RegisterSend("acme.refresh", &Send, nullptr));
+
+    // A late reply to an old q1 must not settle the new document's q1.
+    std::string oldToken, newToken;
+    unsigned dropped = 0;
+    bridge.RegisterRequest("deferred", [&](const auto&, MessageBridge& source) {
+        const auto token = source.Defer([&] { ++dropped; });
+        if (oldToken.empty()) oldToken = token;
+        else newToken = token;
+    });
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"deferred","id":"q1","payload":{}})");
+    bridge.OnViewCreated("acme/panel");
+    CHECK(dropped == 1);
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"deferred","id":"q1","payload":{}})");
+    g_sent.clear();
+    bridge.RespondTo(oldToken, {{ "old", true }});
+    CHECK(g_sent.empty());
+    bridge.RespondTo(newToken, {{ "new", true }});
+    CHECK(g_sent.size() == 1 && g_sent.back()["payload"]["new"] == true);
+
+    // Owner-qualified fallback beats a global native endpoint, including kind checks.
+    unsigned ownSend = 0, globalSend = 0;
+    bridge.RegisterSend("refresh", [&](const auto&, auto&) { ++globalSend; });
+    bridge.SetEndpointFallback(
+        [](std::string_view, std::string_view name) {
+            if (name == "acme.refresh") return MessageBridge::FallbackEndpointKind::kSend;
+            if (name == "acme.fetch") return MessageBridge::FallbackEndpointKind::kRequest;
+            return MessageBridge::FallbackEndpointKind::kNone;
+        },
+        [&](std::string_view name, const auto&, auto&) { CHECK(name == "acme.refresh"); ++ownSend; },
+        [](std::string_view name, const auto&, MessageBridge& source) { CHECK(name == "acme.fetch"); source.Respond({}); });
+    // This isolated bridge has no native acme.refresh: BridgeApi has not pumped it yet.
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"send","name":"refresh","payload":{}})");
+    CHECK(ownSend == 1 && globalSend == 0);
+    bridge.RegisterSend("fetch", [&](const auto&, auto&) { ++globalSend; });
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"send","name":"fetch","payload":{}})");
+    CHECK(globalSend == 0);
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"fetch","id":"q2","payload":{}})");
+    CHECK(g_sent.back()["kind"] == "reply" && g_sent.back()["id"] == "q2");
+
+    api.SetViewInstantiated("acme/panel", true); // dev reload with the same bridge/view ID
+    api.PumpMainThread();
+    CHECK(g_ready == 3);
+    api.PumpMainThread();
+    CHECK(g_ready == 3);
     api.SetReadyCallback(nullptr, nullptr);
     api.SetBridgeAvailability(nullptr);
     api.PumpMainThread();

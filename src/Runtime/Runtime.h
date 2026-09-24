@@ -195,6 +195,8 @@ namespace OSFUI
 		std::optional<ColdOpenTiming> _coldOpenTiming;
 
 		bool _inputFocusGranted{ false };
+		bool _menuEventsAttempted{ false };
+		bool _menuEventsAvailable{ false };
 
 		ViewRequestQueue m_viewRequests;
 		ViewLoadTracker m_viewLoads;

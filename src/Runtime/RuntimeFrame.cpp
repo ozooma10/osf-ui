@@ -2,6 +2,8 @@
 
 #include "API/PapyrusApi.h"
 #include "Input/FreeCursor.h"
+#include "Input/MenuEventSink.h"
+#include "Input/UiLayoutGuard.h"
 #include "Input/OverlayInputHook.h"
 
 namespace OSFUI
@@ -9,7 +11,15 @@ namespace OSFUI
 	void Runtime::ProcessLifecycleWork()
 	{
 		if (_dataLoadedInit.Take()) InitializeDataLoadedState();
+		if (_postDataLoadedReady && !_menuEventsAttempted) {
+			_menuEventsAttempted = true;
+			_menuEventsAvailable = UiLayoutGuard::VerifyUiLayout() && MenuEventSink::Install();
+		}
 		DriveBrowserHostRecovery();
+		if (MenuEventSink::TransitionOpen()) CancelPendingOpen();
+		if (_presentation.SetSuspended(!_menuEventsAvailable || MenuEventSink::TransitionOpen() || _rendererFailed)) {
+			ApplyViewPresentationPolicy();
+		}
 	}
 
 	void Runtime::ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus,

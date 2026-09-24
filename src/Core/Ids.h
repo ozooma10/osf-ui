@@ -95,7 +95,7 @@ namespace OSFUI::Ids
 		if (slash == std::string_view::npos || a_id.find('/', slash + 1) != std::string_view::npos) {
 			return false;
 		}
-		return IsAcceptedModId(a_id.substr(0, slash)) && IsValidViewName(a_id.substr(slash + 1));
+		return IsAcceptedModId(a_id.substr(0, slash)) && IsValidViewName(StringUtil::ToLowerAscii(a_id.substr(slash + 1)));
 	}
 
 	// Returned views alias a_id and must not outlive it.

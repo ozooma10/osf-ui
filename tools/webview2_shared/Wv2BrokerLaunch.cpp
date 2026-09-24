@@ -243,11 +243,10 @@ namespace osfui::wv2
 		}
 	}
 
-	LaunchResult LaunchDetached(const std::wstring& a_exe, const std::wstring& a_args,
-		bool a_preferBroker)
+	LaunchResult RunLaunchBroker(const std::wstring& a_exe, const std::wstring& a_args)
 	{
 		LaunchResult result;
-		if (a_preferBroker) {
+		{
 			const bool elevated = osfui::win32::IsProcessElevated();
 			if (elevated) {
 				result.detail += "caller elevated, task-scheduler(highest) first; ";
@@ -281,4 +280,47 @@ namespace osfui::wv2
 		}
 		return result;
 	}
+	LaunchResult LaunchDetached(const std::wstring& a_exe, const std::wstring& a_args,
+		bool a_preferBroker, const std::atomic_bool* a_cancel)
+	{
+		LaunchResult result;
+		if (!a_preferBroker) {
+			result.ok = DirectCreateProcess(a_exe, a_args, result.detail);
+			if (result.ok) result.method = LaunchMethod::kDirect;
+			return result;
+		}
+		std::wstring command = L"\"" + a_exe + L"\" --launch-broker " + a_args;
+		STARTUPINFOW startup{ sizeof(startup) };
+		startup.dwFlags = STARTF_USESHOWWINDOW;
+		startup.wShowWindow = SW_HIDE;
+		PROCESS_INFORMATION process{};
+		if (!::CreateProcessW(a_exe.c_str(), command.data(), nullptr, nullptr, FALSE,
+			CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &startup, &process)) {
+			result.detail = "launcher CreateProcess=" + std::to_string(::GetLastError());
+			return result;
+		}
+		::CloseHandle(process.hThread);
+		const auto deadline = ::GetTickCount64() + 10000;
+		for (;;) {
+			const auto wait = ::WaitForSingleObject(process.hProcess, 50);
+			if (wait == WAIT_OBJECT_0) {
+				DWORD code = 0;
+				::GetExitCodeProcess(process.hProcess, &code);
+				result.ok = code >= static_cast<DWORD>(LaunchMethod::kExplorer) && code <= static_cast<DWORD>(LaunchMethod::kDirect);
+				if (result.ok) result.method = static_cast<LaunchMethod>(code);
+				else result.detail = "broker process failed (exit " + std::to_string(code) + ")";
+				break;
+			}
+			if (wait == WAIT_FAILED || (a_cancel && a_cancel->load(std::memory_order_acquire)) ||
+				::GetTickCount64() >= deadline) {
+				// Only this process handle is terminated; never Explorer or the game.
+				::TerminateProcess(process.hProcess, 10);
+				result.detail = "broker launch cancelled or exceeded its 10s deadline";
+				break;
+			}
+		}
+		::CloseHandle(process.hProcess);
+		return result;
+	}
+
 }

@@ -73,6 +73,12 @@ int main()
 	Check(!postTarget.supported,
 		"an unproven foreign composite owner falls back to ScaleformEnd");
 
+	ScaleformHandoffWindow noCandidate;
+	noCandidate.Begin();
+	noCandidate.End();
+	for (int i = 0; i < 5; ++i) noCandidate.OnBarrierCall();
+	Check(!noCandidate.HandoffArmed(), "a search with no candidate expires before unrelated scene barriers");
+
 	ScaleformHandoffWindow handoff;
 	Check(!handoff.TrackingHeaps() && !handoff.HandoffArmed(),
 		"heap tracking starts outside the Scaleform composite pass");

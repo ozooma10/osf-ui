@@ -198,6 +198,20 @@ namespace OSFUI
 		DispatchRequest(name, id, payload);
 	}
 
+	MessageBridge::ResolvedEndpoint MessageBridge::ResolveEndpoint(const std::string& a_name) const
+	{
+		for (const auto& candidate : { OwnerQualifiedEndpoint(_currentSource, a_name), a_name }) {
+			if (candidate.empty()) continue;
+			if (_sends.contains(candidate)) return { candidate, FallbackEndpointKind::kSend, false };
+			if (_requests.contains(candidate)) return { candidate, FallbackEndpointKind::kRequest, false };
+			if (_fallbackProbe) {
+				const auto kind = _fallbackProbe(_currentSource, candidate);
+				if (kind != FallbackEndpointKind::kNone) return { candidate, kind, true };
+			}
+		}
+		return {};
+	}
+
 	bool MessageBridge::DispatchSend(const std::string& a_name, const nlohmann::json& a_payload)
 	{
 		if (a_name == "osfui.hello") {
@@ -205,43 +219,18 @@ namespace OSFUI
 			NoteTracedReply("ready+state");
 			return true;
 		}
-		if (const auto it = _sends.find(a_name); it != _sends.end()) {
-			it->second(a_payload, *this);
-			return true;
-		}
-		// Drop and report wrong-kind sends rather than executing the mutation.
-		if (_requests.contains(a_name)) {
-			ReportProtocolFault(_currentSource, "wrong-endpoint-kind",
-				std::format("'{}' is a request endpoint — use request(), not send()", a_name),
-				{ { "name", a_name } });
+		const auto endpoint = ResolveEndpoint(a_name);
+		if (endpoint.kind == FallbackEndpointKind::kRequest) {
+			ReportProtocolFault(_currentSource, "wrong-endpoint-kind", "use request() for this endpoint", { { "name", a_name } });
 			NoteTracedReply("wrong-endpoint-kind");
 			return false;
 		}
-		const auto ownerName = OwnerQualifiedEndpoint(_currentSource, a_name);
-		if (!ownerName.empty()) {
-			if (const auto it = _sends.find(ownerName); it != _sends.end()) {
-				it->second(a_payload, *this);
-				return true;
-			}
-			if (_requests.contains(ownerName)) {
-				ReportProtocolFault(_currentSource, "wrong-endpoint-kind", std::format("'{}' is a request endpoint — use request(), not send()", a_name), { { "name", a_name }, { "resolvedName", ownerName } });
-				NoteTracedReply("wrong-endpoint-kind");
-				return false;
-			}
+		if (endpoint.kind == FallbackEndpointKind::kSend) {
+			if (endpoint.fallback) {
+				if (_fallbackSend) _fallbackSend(endpoint.name, a_payload, *this);
+			} else _sends.at(endpoint.name)(a_payload, *this);
+			return true;
 		}
-		if (_fallbackProbe) {
-			const auto kind = _fallbackProbe(_currentSource, a_name);
-			if (kind == FallbackEndpointKind::kRequest) {
-				ReportProtocolFault(_currentSource, "wrong-endpoint-kind", std::format("'{}' is a request endpoint — use request(), not send()", a_name), { { "name", a_name } });
-				NoteTracedReply("wrong-endpoint-kind");
-				return false;
-			}
-			if (kind == FallbackEndpointKind::kSend && _fallbackSend) {
-				_fallbackSend(a_name, a_payload, *this);
-				return true;
-			}
-		}
-		// Deduplicate log warnings while still reporting every fault to the page.
 		constexpr std::size_t kMaxWarnedEndpoints = 512;
 		if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints && _warnedUnknownEndpoints.insert(a_name).second) {
 			REX::WARN("MessageBridge: [content] dropped send to unknown endpoint '{}' (further drops of this endpoint are not logged)", a_name);
@@ -254,69 +243,32 @@ namespace OSFUI
 	void MessageBridge::DispatchRequest(const std::string& a_name, const std::string& a_id, const nlohmann::json& a_payload)
 	{
 		_currentRequestId = a_id;
-
-		const RequestHandler* handler = nullptr;
-		if (const auto exact = _requests.find(a_name); exact != _requests.end()) {
-			handler = std::addressof(exact->second);
+		const auto endpoint = ResolveEndpoint(a_name);
+		if (endpoint.kind == FallbackEndpointKind::kSend) {
+			Reject("wrong-endpoint-kind", "use send() for this endpoint");
+			return;
 		}
-		bool useFallback = false;
-		if (!handler) {
-			if (_sends.contains(a_name)) {
-				Reject("wrong-endpoint-kind", std::format("'{}' is a send endpoint — use send(), not request()", a_name));
-				return;
+		if (endpoint.kind == FallbackEndpointKind::kNone) {
+			constexpr std::size_t kMaxWarnedEndpoints = 512;
+			if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
+				_warnedUnknownEndpoints.insert(a_name).second) {
+				REX::WARN("MessageBridge: [content] rejected request to unknown endpoint '{}' (further rejections of this endpoint are not logged)", a_name);
 			}
-
-			const auto ownerName = OwnerQualifiedEndpoint(_currentSource, a_name);
-			if (!ownerName.empty()) {
-				if (const auto owner = _requests.find(ownerName); owner != _requests.end()) {
-					handler = std::addressof(owner->second);
-				} else if (_sends.contains(ownerName)) {
-					Reject("wrong-endpoint-kind", std::format("'{}' is a send endpoint — use send(), not request()", a_name));
-					return;
-				}
-			}
-
-			if (!handler && _fallbackProbe) {
-				const auto kind = _fallbackProbe(_currentSource, a_name);
-				if (kind == FallbackEndpointKind::kSend) {
-					Reject("wrong-endpoint-kind", std::format("'{}' is a send endpoint — use send(), not request()", a_name));
-					return;
-				}
-				useFallback = kind == FallbackEndpointKind::kRequest && static_cast<bool>(_fallbackRequest);
-			}
-			if (handler || useFallback) {
-				// The shared request-capacity check below applies to fallback handlers too.
-			} else {
-				constexpr std::size_t kMaxWarnedEndpoints = 512;
-				if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
-					_warnedUnknownEndpoints.insert(a_name).second) {
-					REX::WARN("MessageBridge: [content] rejected request to unknown endpoint '{}' (further rejections of this endpoint are not logged)", a_name);
-				}
-				Reject("unknown-endpoint", "no such endpoint");
-				return;
-			}
+			Reject("unknown-endpoint", "no such endpoint");
+			return;
 		}
-
-		// Refuse saturated views before invoking the endpoint handler.
-		std::size_t owned = 0;
-		for (const auto& [_, req] : _pending) {
-			if (req.view == _currentSource) {
-				++owned;
-			}
-		}
+		const auto owned = std::ranges::count_if(_pending, [&](const auto& item) {
+			return item.second.view == _currentSource;
+		});
 		if (owned >= kMaxPendingRequestsPerView) {
 			REX::WARN("MessageBridge: [content] view '{}' has {} requests in flight — refusing '{}'", _currentSource, owned, a_name);
 			Reject("request-capacity", "too many requests are already in flight for this view");
 			return;
 		}
-
-		if (useFallback) {
-			_fallbackRequest(a_name, a_payload, *this);
-		} else {
-			(*handler)(a_payload, *this);
-		}
+		if (endpoint.fallback) {
+			if (_fallbackRequest) _fallbackRequest(endpoint.name, a_payload, *this);
+		} else _requests.at(endpoint.name)(a_payload, *this);
 		if (!_settled) {
-			// An endpoint returning without settlement is a platform bug, not a silent hang.
 			REX::ERROR("MessageBridge: request endpoint '{}' returned without settling", a_name);
 			Reject("internal", "the endpoint did not answer");
 		}
@@ -552,6 +504,7 @@ namespace OSFUI
 
 	void MessageBridge::OnViewCreated(std::string_view a_viewId)
 	{
+		OnViewDestroyed(a_viewId);  // retire the previous document and all its deferred tokens
 		// Arm a closed gate so events wait for the new document's hello.
 		auto& gate = _gates[std::string(a_viewId)];
 		gate.greeted = false;

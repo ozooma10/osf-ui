@@ -53,7 +53,7 @@ namespace OSFUI::API
 			return false;
 		}
 		std::lock_guard lock(_mutex);
-		if (_sends.contains(name) || _requests.contains(name)) {
+		if (_sends.contains(name) || _requests.contains(name) || _papyrusEndpoints.contains(StringUtil::ToLowerAscii(name))) {
 			REX::WARN("BridgeApi: refused RegisterSend('{}') — endpoint already registered", name);
 			return false;
 		}
@@ -72,7 +72,7 @@ namespace OSFUI::API
 			return false;
 		}
 		std::lock_guard lock(_mutex);
-		if (_sends.contains(name) || _requests.contains(name)) {
+		if (_sends.contains(name) || _requests.contains(name) || _papyrusEndpoints.contains(StringUtil::ToLowerAscii(name))) {
 			REX::WARN("BridgeApi: refused RegisterRequest('{}') — endpoint already registered", name);
 			return false;
 		}
@@ -87,7 +87,7 @@ namespace OSFUI::API
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
-		return _relativePointers.emplace(std::string(a_viewId),
+		return _relativePointers.emplace(StringUtil::ToLowerAscii(a_viewId),
 			RelativePointerRegistration{ a_handler, a_user }).second;
 	}
 
@@ -95,13 +95,13 @@ namespace OSFUI::API
 	{
 		if (!a_viewId) return;
 		std::lock_guard lock(_mutex);
-		_relativePointers.erase(a_viewId);
+		_relativePointers.erase(StringUtil::ToLowerAscii(a_viewId));
 	}
 
 	bool BridgeApi::HasRelativePointer(std::string_view a_viewId)
 	{
 		std::lock_guard lock(_mutex);
-		return _relativePointers.contains(std::string(a_viewId));
+		return _relativePointers.contains(StringUtil::ToLowerAscii(a_viewId));
 	}
 
 	bool BridgeApi::DispatchRelativePointer(std::string_view a_viewId,
@@ -110,7 +110,7 @@ namespace OSFUI::API
 		RelativePointerRegistration registration;
 		{
 			std::lock_guard lock(_mutex);
-			const auto found = _relativePointers.find(std::string(a_viewId));
+			const auto found = _relativePointers.find(StringUtil::ToLowerAscii(a_viewId));
 			if (found == _relativePointers.end()) return false;
 			registration = found->second;
 		}
@@ -124,7 +124,7 @@ namespace OSFUI::API
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
-		return _viewOpenPreflights.emplace(std::string(a_viewId),
+		return _viewOpenPreflights.emplace(StringUtil::ToLowerAscii(a_viewId),
 			ViewOpenPreflightRegistration{ a_handler, a_user }).second;
 	}
 
@@ -132,7 +132,7 @@ namespace OSFUI::API
 	{
 		if (!a_viewId) return;
 		std::lock_guard lock(_mutex);
-		_viewOpenPreflights.erase(a_viewId);
+		_viewOpenPreflights.erase(StringUtil::ToLowerAscii(a_viewId));
 	}
 
 	BridgeApi::ViewOpenPreflightResult BridgeApi::RunViewOpenPreflight(std::string_view a_viewId)
@@ -140,7 +140,7 @@ namespace OSFUI::API
 		ViewOpenPreflightRegistration registration;
 		{
 			std::lock_guard lock(_mutex);
-			const auto found = _viewOpenPreflights.find(std::string(a_viewId));
+			const auto found = _viewOpenPreflights.find(StringUtil::ToLowerAscii(a_viewId));
 			if (found == _viewOpenPreflights.end()) return ViewOpenPreflightResult::kNoHandler;
 			registration = found->second;
 		}
@@ -154,7 +154,7 @@ namespace OSFUI::API
 	{
 		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(_mutex);
-		return _viewLifecycles.emplace(std::string(a_viewId),
+		return _viewLifecycles.emplace(StringUtil::ToLowerAscii(a_viewId),
 			ViewLifecycleRegistration{ a_handler, a_user }).second;
 	}
 
@@ -162,7 +162,7 @@ namespace OSFUI::API
 	{
 		if (!a_viewId) return;
 		std::lock_guard lock(_mutex);
-		_viewLifecycles.erase(a_viewId);
+		_viewLifecycles.erase(StringUtil::ToLowerAscii(a_viewId));
 	}
 
 	bool BridgeApi::DispatchViewLifecycle(const std::string& a_viewId,
@@ -171,7 +171,7 @@ namespace OSFUI::API
 		ViewLifecycleRegistration registration;
 		{
 			std::lock_guard lock(_mutex);
-			const auto found = _viewLifecycles.find(a_viewId);
+			const auto found = _viewLifecycles.find(StringUtil::ToLowerAscii(a_viewId));
 			if (found == _viewLifecycles.end()) return false;
 			registration = found->second;
 		}
@@ -183,13 +183,14 @@ namespace OSFUI::API
 		const char* a_payloadJson) noexcept
 	{
 		if (!a_viewId || !a_type || !a_type[0] || !a_payloadJson ||
-			!Ids::IsValidQualifiedViewId(a_viewId) || !Json::Parse(a_payloadJson)) return false;
+			!Ids::IsValidQualifiedViewId(a_viewId) || std::string_view(a_type).size() > 128 ||
+			std::string_view(a_payloadJson).size() > 1024u * 1024u || !Json::Parse(a_payloadJson)) return false;
 		std::lock_guard lock(_mutex);
 		std::size_t count = 0;
-		for (const auto& send : _pendingSends) count += send.view == a_viewId;
+		for (const auto& send : _pendingSends) count += Ids::EqualsCaseInsensitiveAscii(send.view, a_viewId);
 		if (count >= kMaxPendingSendsPerView) {
 			const auto oldest = std::ranges::find_if(_pendingSends,
-				[&](const PendingSend& send) { return send.view == a_viewId; });
+				[&](const PendingSend& send) { return Ids::EqualsCaseInsensitiveAscii(send.view, a_viewId); });
 			_pendingSends.erase(oldest);
 		}
 		_pendingSends.push_back({ a_viewId, a_type, a_payloadJson });
@@ -217,12 +218,11 @@ namespace OSFUI::API
 		if (_readyInvoking && _readyInvokingThread != std::this_thread::get_id()) {
 			_readyInvokeCv.wait(lock, [this] { return !_readyInvoking; });
 		}
+		++_readyRevision;
 		_readyCb = a_callback;
 		_readyUser = a_user;
-		if (_bridgeAvailable.load()) {
-			_readyFired = false;
-			MarkPending(kPendingPump);
-		}
+		_readyFired = false;
+		MarkPending(kPendingPump);
 	}
 
 	bool BridgeApi::RequestMenu(const char* a_viewId, bool a_open) noexcept
@@ -253,7 +253,11 @@ namespace OSFUI::API
 		std::lock_guard lock(_mutex);
 		const auto* known = FindIdCaseInsensitive(_knownViews, a_viewId);
 		const std::string id = known ? *known : std::string(a_viewId);
-		if (a_instantiated) _instantiatedViews.emplace(id);
+		if (a_instantiated) {
+			_instantiatedViews.emplace(id);
+			_readyFired = false; // includes replacing a document under an existing view ID
+			++_readyRevision;
+		}
 		else {
 			if (const auto* found = FindIdCaseInsensitive(_instantiatedViews, id))
 				_instantiatedViews.erase(*found);
@@ -392,10 +396,30 @@ namespace OSFUI::API
 		a_registration.fn(request, a_registration.user);
 	}
 
+	bool BridgeApi::ClaimPapyrusEndpoint(std::string_view a_name)
+	{
+		std::lock_guard lock(_mutex);
+		const auto conflicts = [&](const auto& item) { return Ids::EqualsCaseInsensitiveAscii(item.first, a_name); };
+		if (std::ranges::any_of(_sends, conflicts) || std::ranges::any_of(_requests, conflicts)) return false;
+		return _papyrusEndpoints.emplace(StringUtil::ToLowerAscii(a_name)).second;
+	}
+
+	void BridgeApi::ReleasePapyrusEndpoint(std::string_view a_name)
+	{
+		std::lock_guard lock(_mutex);
+		_papyrusEndpoints.erase(StringUtil::ToLowerAscii(a_name));
+	}
+
 	void BridgeApi::SetBridgeAvailability(MessageBridge* a_bridge)
 	{
 		std::lock_guard lock(_mutex);
+		if (_bridge != a_bridge) {
+			_readyFired = false;
+			++_readyRevision;
+		}
+		if (!a_bridge) _appliedBridge = nullptr;
 		_bridge = a_bridge;
+		_bridgeAvailable.store(a_bridge != nullptr, std::memory_order_release);
 		if (!a_bridge) _inflightRequests.clear();
 		MarkPending(kPendingPump);
 	}
@@ -410,6 +434,7 @@ namespace OSFUI::API
 		std::vector<PendingSend> sends;
 		std::vector<PendingReply> replies;
 		bool fireReady = false;
+		std::uint64_t readyRevision = 0;
 		ReadyFn ready = nullptr;
 		void* readyUser = nullptr;
 		{
@@ -424,16 +449,18 @@ namespace OSFUI::API
 					_dirty = false;
 				}
 				for (auto it = _pendingSends.begin(); it != _pendingSends.end();) {
-					if (_instantiatedViews.contains(it->view)) {
+					if (const auto* canonical = FindIdCaseInsensitive(_instantiatedViews, it->view)) {
+						it->view = *canonical;
 						sends.push_back(std::move(*it));
 						it = _pendingSends.erase(it);
-					} else if (_viewCatalogReady && !_knownViews.contains(it->view)) {
+					} else if (_viewCatalogReady && !FindIdCaseInsensitive(_knownViews, it->view)) {
 						it = _pendingSends.erase(it);
 					} else ++it;
 				}
 				if (!_readyFired) {
 					_readyFired = true;
 					fireReady = true;
+					readyRevision = _readyRevision;
 					ready = _readyCb;
 					readyUser = _readyUser;
 				}
@@ -468,11 +495,10 @@ namespace OSFUI::API
 				else bridge->RespondJsonTo(reply.deferToken, reply.payloadJson);
 			}
 		}
-		_bridgeAvailable.store(bridge != nullptr);
 		bool invokeReady = false;
 		if (fireReady && ready) {
 			std::lock_guard lock(_mutex);
-			if (_readyCb == ready && _readyUser == readyUser) {
+			if (_readyRevision == readyRevision && _readyCb == ready && _readyUser == readyUser) {
 				_readyInvoking = true;
 				_readyInvokingThread = std::this_thread::get_id();
 				invokeReady = true;

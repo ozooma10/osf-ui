@@ -68,6 +68,8 @@ namespace OSFUI::API
 
 		std::vector<std::string> TakeViewRegistrations();
 
+		bool ClaimPapyrusEndpoint(std::string_view a_name);
+		void ReleasePapyrusEndpoint(std::string_view a_name);
 		void SetBridgeAvailability(MessageBridge* a_bridge);
 		void PumpMainThread();
 
@@ -165,6 +167,7 @@ namespace OSFUI::API
 		{
 			_pending.fetch_or(a_bits, std::memory_order_release);
 		}
+		std::unordered_set<std::string> _papyrusEndpoints;
 		std::mutex                                    _mutex;
 		std::atomic<std::uint32_t>                    _pending{ 0 };
 		std::unordered_map<std::string, Registration>        _sends;             // strict RegisterSend set
@@ -190,6 +193,7 @@ namespace OSFUI::API
 		bool                                          _readyInvoking{ false };
 		std::thread::id                               _readyInvokingThread{};
 		bool                                          _readyFired{ false };
+		std::uint64_t _readyRevision{ 0 };
 		std::atomic_bool                              _bridgeAvailable{ false };
 	};
 }

@@ -37,8 +37,9 @@ namespace osfui::wv2
 
 		bool ReadMessage(std::string& a_payload, std::uint32_t a_timeoutMs = INFINITE);
 
-		// Framed write (thread-safe). Returns false on error.
-		bool WriteMessage(const std::string& a_payload);
+		// Framed write (thread-safe). Invalid payloads leave the transport usable.
+		enum class WriteResult { Written, InvalidPayload, Disconnected };
+		WriteResult WriteMessage(const std::string& a_payload);
 
 		void Close();
 
