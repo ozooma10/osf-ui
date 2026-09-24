@@ -8,6 +8,7 @@ namespace osfui::wv2::msg { struct Keyboard; struct TextInput; }
 
 namespace OSFUI
 {
+	class SharedFrameConsumer;
 	struct WebView2HostConfig
 	{
 		std::uint32_t width{ kDefaultViewWidth };
@@ -50,7 +51,6 @@ namespace OSFUI
 		using FailureHandler = std::function<void(const FailureEvent& a_event)>;
 		using HealthHandler = std::function<void(const HealthEvent& a_event)>;
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
-		using SharedRingHandler = std::function<void(const SharedRingDesc& a_desc)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
 		// Update drains game-thread callbacks; cursor callbacks run on the transport thread.
 
@@ -66,14 +66,13 @@ namespace OSFUI
 		void SetViewport(std::uint32_t a_width, std::uint32_t a_height);
 		void SetPointerInputEnabled(bool a_enabled);
 		void Update(double a_deltaSeconds);
-		std::optional<FrameBufferView> TakeLatestFrame();
+		std::shared_ptr<SharedFrameConsumer> Frames() const;
 		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json);
 		void SetWebMessageHandler(WebMessageHandler a_handler);
 		void SetLoadHandler(LoadHandler a_handler);
 		void SetFailureHandler(FailureHandler a_handler);
 		void SetCursorChangeHandler(CursorChangeHandler a_handler);
 		void SetInputFocus(bool a_focused);
-		void SetSharedRingHandler(SharedRingHandler a_handler);
 		void SetHealthHandler(HealthHandler a_handler);
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down);
 		void InjectKeyboard(const osfui::wv2::msg::Keyboard& a_key);

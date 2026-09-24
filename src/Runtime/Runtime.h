@@ -72,12 +72,11 @@ namespace OSFUI
 		bool InitializeRenderer();
 		void WireRendererLifecycleCallbacks();
 		bool InitializeCompositor();
-		void WireRenderPipeline();
 		void InitializeBridge();
 		void InitializeStartupViews();
 
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
-		void SubmitFrameIfVisible();
+		void UpdateViewReveal();
 
 		void RegisterPlatformEndpoints(MessageBridge& a_bridge);
 
@@ -247,7 +246,6 @@ namespace OSFUI
 		bool                          _highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
 
 		ViewRevealGate                 m_viewReveal;
-		std::optional<FrameBufferView> _latestFrame;
 
 		std::string                   _lastShownView;
 

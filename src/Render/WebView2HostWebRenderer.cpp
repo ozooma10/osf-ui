@@ -1,4 +1,5 @@
 #include "Render/WebView2HostWebRenderer.h"
+#include "Render/SharedFrameConsumer.h"
 
 #include <atomic>
 #include <deque>
@@ -256,14 +257,13 @@ namespace OSFUI
 	{
 		struct Notify
 		{
-			enum class Kind { Web, Load, Fatal, Console, Ring, Log, Dead };
+			enum class Kind { Web, Load, Fatal, Console, Log, Dead };
 			Kind           kind{ Kind::Web };
 			std::string    view;
 			std::string    text, detail;
 			bool           failed{};
 			int            code{};
 			std::uint32_t  unsignedCode{};
-			SharedRingDesc ring{};
 		};
 
 		WebView2HostConfig    config;
@@ -282,7 +282,6 @@ namespace OSFUI
 		LoadHandler             onLoad;
 		FailureHandler          onFailure;
 		CursorChangeHandler     onCursorChange;
-		SharedRingHandler       onSharedRing;
 		HealthHandler           onHealth;
 		// Game-thread only (Drain/setters).
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
@@ -300,7 +299,7 @@ namespace OSFUI
 		std::mutex           stateMutex;
 		std::vector<ViewRec> views;
 		std::string          inputTargetId;
-		bool                 allHidden{ true };  // no visible view => frames are not taken
+		bool                 allHidden{ true };  // no visible view => incoming frames are released
 		// Each hidden-to-visible presentation requires a post-reveal frame.
 		std::uint64_t        presentationEpoch{ 0 };
 		std::uint32_t        width{ 1 }, height{ 1 };
@@ -360,20 +359,7 @@ namespace OSFUI
 		std::size_t droppedConsoleCount{ 0 };
 		std::size_t droppedLogCount{ 0 };
 
-		// Latest shared-ring frame (reader thread writes, game thread reads).
-		std::mutex    frameMutex;
-		bool          haveFrame{ false };
-		std::uint32_t frameSlot{ 0 };
-		std::uint64_t frameSerial{ 0 };
-		std::uint32_t frameWidth{ 0 }, frameHeight{ 0 };
-		std::uint64_t sharedRingGeneration{ 0 };
-		std::uint64_t submittedRingGeneration{ 0 };
-		std::uint64_t submittedSerial{ 0 };
-		std::uint32_t ringWidth{ 0 }, ringHeight{ 0 };
-		std::uint32_t ringSlotCount{ 0 };
-		std::uint64_t ringGeneration{ 0 };       // reader-side counter
-		std::uint64_t announcedGeneration{ 0 };  // dispatched to the compositor
-
+		std::shared_ptr<SharedFrameConsumer> frames{ std::make_shared<SharedFrameConsumer>() };
 
 		void Push(Notify a_value)
 		{
@@ -1097,42 +1083,28 @@ namespace OSFUI
 			static_assert(osfui::wv2::kRingSlots <= SharedRingDesc::kMaxSlots);
 			SharedRingDesc desc{};
 			const auto& slots = a_msg.slots;
-			const auto& consumeFences = a_msg.consumeFences;
 			const auto closeHandleValue = [](std::uint64_t a_value) {
 				if (a_value != 0) {
 					::CloseHandle(reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(a_value)));
 				}
 			};
-			bool malformed = slots.empty() || slots.size() != consumeFences.size() ||
+			bool malformed = slots.empty() || slots.size() > SharedRingDesc::kMaxSlots ||
 				a_msg.produceFence == 0;
 			for (std::size_t i = 0; !malformed && i < slots.size(); ++i) {
-				malformed = slots[i] == 0 || consumeFences[i] == 0;
+				malformed = slots[i] == 0;
 			}
 			if (malformed) {
 				for (const auto handle : slots) closeHandleValue(handle);
-				for (const auto handle : consumeFences) closeHandleValue(handle);
 				closeHandleValue(a_msg.produceFence);
-				SignalDead("browser host announced an incomplete shared texture ring");
+				SignalDead("browser host announced an invalid shared texture ring");
 				return;
 			}
-			for (std::size_t i = 0; i < SharedRingDesc::kMaxSlots && i < slots.size(); ++i) {
+			for (std::size_t i = 0; i < slots.size(); ++i) {
 				desc.slotHandles[i] = reinterpret_cast<void*>(
 					static_cast<std::uintptr_t>(slots[i]));
-				desc.consumeFences[i] = reinterpret_cast<void*>(
-					static_cast<std::uintptr_t>(consumeFences[i]));
 				++desc.slotCount;
 			}
-			for (std::size_t i = SharedRingDesc::kMaxSlots; i < slots.size(); ++i) {
-				// Close duplicated handles when a mismatched host exceeds ring capacity.
-				closeHandleValue(slots[i]);
-				closeHandleValue(consumeFences[i]);
-			}
-			if (slots.size() > SharedRingDesc::kMaxSlots) {
-				REX::WARN("WebView2HostWebRenderer: browser host announced {} ring slots, "
-						  "capacity is {} — excess slots ignored",
-					slots.size(), SharedRingDesc::kMaxSlots);
-			}
-			// Publish the edge from Update() on the game thread, not this reader thread.
+			// Health notifications are drained on the tick thread.
 			ringSlotsAnnounced.store(static_cast<std::uint32_t>(slots.size()),
 				std::memory_order_relaxed);
 			desc.produceFence = reinterpret_cast<void*>(
@@ -1141,61 +1113,13 @@ namespace OSFUI
 			desc.height = a_msg.height;
 			desc.adapterLuidLow = a_msg.adapterLuidLow;
 			desc.adapterLuidHigh = a_msg.adapterLuidHigh;
-			{
-				std::scoped_lock lock(frameMutex);
-				desc.generation = ++ringGeneration;
-				ringWidth = desc.width;
-				ringHeight = desc.height;
-				ringSlotCount = desc.slotCount;
-				haveFrame = false;  // prior slots are invalid now
-			}
-			Push(Notify{ .kind = Notify::Kind::Ring, .ring = desc });
+			frames->AnnounceRing(desc);
 		}
 
 		void OnFrameMessage(const msg::Frame& a_msg)
 		{
-			const auto slot = a_msg.slot;
-			const auto serial = a_msg.serial;
-			const auto presentation = a_msg.presentationEpoch;
-			const auto w = a_msg.width;
-			const auto h = a_msg.height;
-			std::uint32_t ackSlot = 0;
-			std::uint64_t ackSerial = 0;
-			bool ackNew = false;
-			bool invalidSlot = false;
-			{
-				std::scoped_lock lock(frameMutex, stateMutex);
-				if (slot >= ringSlotCount) {
-					invalidSlot = true;
-				} else if (w != ringWidth || h != ringHeight) {
-					ackNew = true;  // stale ring — release the slot immediately
-				} else if (allHidden || presentation != presentationEpoch) {
-					// Reject pre-reveal frames and invalidate cached closed-state pixels.
-					haveFrame = false;
-					ackNew = true;
-				} else {
-					if (haveFrame && (sharedRingGeneration != submittedRingGeneration || frameSerial != submittedSerial)) {
-						// Acknowledge superseded frames that never reached the compositor.
-						ackSlot = frameSlot;
-						ackSerial = frameSerial;
-					}
-					frameSlot = slot;
-					frameSerial = serial;
-					frameWidth = w;
-					frameHeight = h;
-					sharedRingGeneration = ringGeneration;
-					haveFrame = true;
-				}
-			}
-			if (invalidSlot) {
-				SignalDead(std::format("browser host published frame for invalid ring slot {}", slot));
-				return;
-			}
-			if (ackSerial) {
-				pipe.WriteMessage(Json::Dump(ToJson(msg::FrameAck{ .slot = ackSlot, .serial = ackSerial })));
-			}
-			if (ackNew) {
-				pipe.WriteMessage(Json::Dump(ToJson(msg::FrameAck{ .slot = slot, .serial = serial })));
+			if (frames->Publish(a_msg.slot, a_msg.serial, a_msg.width, a_msg.height, a_msg.presentationEpoch) == SharedFrameState::PublishResult::Invalid) {
+				SignalDead("browser host published an invalid or still-owned ring slot");
 			}
 		}
 
@@ -1272,21 +1196,6 @@ namespace OSFUI
 					break;
 				case Notify::Kind::Console:
 					DeliverConsole(value.view, value.text);
-					break;
-				case Notify::Kind::Ring:
-					announcedGeneration = value.ring.generation;
-					if (onSharedRing) {
-						onSharedRing(value.ring);
-					} else {
-						// Nobody adopts the handles; close them or they leak.
-						for (auto* handle : value.ring.slotHandles) {
-							if (handle) ::CloseHandle(handle);
-						}
-						if (value.ring.produceFence) ::CloseHandle(value.ring.produceFence);
-						for (auto* handle : value.ring.consumeFences) {
-							if (handle) ::CloseHandle(handle);
-						}
-					}
 					break;
 				case Notify::Kind::Log:
 					if (value.code >= 2) {
@@ -1378,6 +1287,7 @@ namespace OSFUI
 			pipe.Close();
 			if (worker.joinable()) worker.join();
 			if (writer.joinable()) writer.join();
+			frames->Disconnect();
 			connected.store(false, std::memory_order_release);
 			{
 				std::scoped_lock lock(writerGateMutex);
@@ -1441,37 +1351,12 @@ namespace OSFUI
 
 			{
 				std::scoped_lock lock(notifyMutex);
-				for (auto& value : notifications) {
-					if (value.kind != Notify::Kind::Ring) {
-						continue;
-					}
-					for (auto*& handle : value.ring.slotHandles) {
-						if (handle) ::CloseHandle(handle);
-					}
-					if (value.ring.produceFence) ::CloseHandle(value.ring.produceFence);
-					for (auto* handle : value.ring.consumeFences) {
-						if (handle) ::CloseHandle(handle);
-					}
-				}
 				notifications.clear();
 				pendingWebCount = pendingConsoleCount = pendingLogCount = 0;
 				droppedWebCount = droppedConsoleCount = droppedLogCount = 0;
 			}
 
-			{
-				std::scoped_lock lock(frameMutex);
-				haveFrame = false;
-				frameSlot = 0;
-				frameSerial = 0;
-				frameWidth = frameHeight = 0;
-				sharedRingGeneration = 0;
-				submittedRingGeneration = 0;
-				submittedSerial = 0;
-				ringWidth = ringHeight = 0;
-				ringSlotCount = 0;
-				announcedGeneration = 0;
-				// Keep ring generations monotonic across browser-host processes.
-			}
+			frames->Disconnect();
 			connected.store(false, std::memory_order_release);
 			dead.store(false, std::memory_order_release);
 			deadLogged = false;
@@ -1597,12 +1482,12 @@ namespace OSFUI
 		if (!a_width || !a_height) return;
 		std::uint64_t presentation = 0;
 		{
-			std::scoped_lock lock(_impl->frameMutex, _impl->stateMutex);
+			std::scoped_lock lock(_impl->stateMutex);
 			if (_impl->viewportWidth == a_width && _impl->viewportHeight == a_height) return;
 			_impl->viewportWidth = a_width;
 			_impl->viewportHeight = a_height;
 			presentation = ++_impl->presentationEpoch;
-			_impl->haveFrame = false;
+			_impl->frames->SetPresentation(_impl->presentationEpoch, !_impl->allHidden);
 		}
 		_impl->Send(ToJson(msg::Viewport{
 			.width = a_width,
@@ -1634,6 +1519,11 @@ namespace OSFUI
 			if (wantsView) _impl->Start();
 		}
 		_impl->DrainNotifications();
+		// Tick-thread drain also runs while hidden. The consumer releases unused frames immediately and recorded frames only after their final GPU read.
+		const auto released = _impl->frames->TakeReleases();
+		for (std::uint32_t slot = 0; slot < released.size(); ++slot) {
+			if (released[slot]) _impl->Send(ToJson(msg::FrameAck{ .slot = slot, .serial = released[slot] }));
+		}
 
 		// Report truncated ring depth as a game-thread degradation, not total failure.
 		if (const auto announced = _impl->ringSlotsAnnounced.exchange(0, std::memory_order_relaxed);
@@ -1648,26 +1538,9 @@ namespace OSFUI
 		}
 	}
 
-	std::optional<FrameBufferView> WebView2HostWebRenderer::TakeLatestFrame()
+	std::shared_ptr<SharedFrameConsumer> WebView2HostWebRenderer::Frames() const
 	{
-		std::scoped_lock lock(_impl->frameMutex);
-		if (!_impl->haveFrame ||
-			_impl->sharedRingGeneration != _impl->announcedGeneration) {
-			// Wait until Update announces the frame's ring to the compositor.
-			return std::nullopt;
-		}
-		if (_impl->submittedRingGeneration == _impl->sharedRingGeneration && _impl->submittedSerial == _impl->frameSerial) {
-			return std::nullopt;
-		}
-		_impl->submittedRingGeneration = _impl->sharedRingGeneration;
-		_impl->submittedSerial = _impl->frameSerial;
-		return FrameBufferView{
-			.width = _impl->frameWidth,
-			.height = _impl->frameHeight,
-			.ringGeneration = _impl->sharedRingGeneration,
-			.frameIndex = _impl->frameSerial,
-			.sharedSlot = _impl->frameSlot,
-		};
+		return _impl->frames;
 	}
 
 	void WebView2HostWebRenderer::SendMessageToWeb(
@@ -1697,10 +1570,6 @@ namespace OSFUI
 	void WebView2HostWebRenderer::SetCursorChangeHandler(CursorChangeHandler a_handler)
 	{
 		_impl->onCursorChange = std::move(a_handler);
-	}
-	void WebView2HostWebRenderer::SetSharedRingHandler(SharedRingHandler a_handler)
-	{
-		_impl->onSharedRing = std::move(a_handler);
 	}
 	void WebView2HostWebRenderer::SetHealthHandler(HealthHandler a_handler)
 	{
@@ -1792,7 +1661,7 @@ namespace OSFUI
 	{
 		std::uint64_t presentation = 0;
 		{
-			std::scoped_lock lock(_impl->frameMutex, _impl->stateMutex);
+			std::scoped_lock lock(_impl->stateMutex);
 			auto* view = _impl->FindView(a_viewId);
 			if (!view) return;
 			if (view->hidden == a_hidden) return;
@@ -1802,9 +1671,9 @@ namespace OSFUI
 			if (wasHidden && !a_hidden) {
 				// Every newly shown view is a new presentation, including menu-to-menu switches where another view kept the overlay visible.
 				++_impl->presentationEpoch;
-				_impl->haveFrame = false;
+				_impl->frames->SetPresentation(_impl->presentationEpoch, !_impl->allHidden);
 			} else if (_impl->allHidden) {
-				_impl->haveFrame = false;
+				_impl->frames->SetPresentation(_impl->presentationEpoch, !_impl->allHidden);
 			}
 			presentation = _impl->presentationEpoch;
 		}
@@ -1836,6 +1705,9 @@ namespace OSFUI
 				_impl->inputTargetId = _impl->views.empty() ? std::string{} : _impl->views.front().id;
 			}
 			_impl->RecomputeAllHidden();
+			if (_impl->allHidden) {
+				_impl->frames->SetPresentation(_impl->presentationEpoch, !_impl->allHidden);
+			}
 		}
 		// Game-thread map; no lock.
 		_impl->consoleHandlers.erase(std::string(a_viewId));

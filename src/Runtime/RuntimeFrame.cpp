@@ -71,9 +71,12 @@ namespace OSFUI
 			_renderer->InjectMouseMove(static_cast<int>(packed >> 32),
 				static_cast<int>(packed & 0xFFFF'FFFFull));
 		}
+		if (_compositor) {
+			_compositor->Update(); // retire reads and adopt rings even while hidden
+		}
 		_renderer->Update(a_deltaSeconds);
 		DrivePendingOpen();
-		SubmitFrameIfVisible();
+		UpdateViewReveal();
 	}
 
 	void Runtime::Tick(double a_deltaSeconds)

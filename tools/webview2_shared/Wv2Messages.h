@@ -343,7 +343,6 @@ namespace osfui::wv2::msg
 		std::uint32_t              height{ 0 };
 		std::vector<std::uint64_t> slots;
 		std::uint64_t              produceFence{ 0 };
-		std::vector<std::uint64_t> consumeFences;
 		bool                       keyedMutex{ false };
 		std::uint32_t              adapterLuidLow{ 0 };
 		std::uint32_t              adapterLuidHigh{ 0 };
@@ -353,7 +352,6 @@ namespace osfui::wv2::msg
 			F("height", &Textures::height),
 			F("slots", &Textures::slots),
 			F("produceFence", &Textures::produceFence),
-			F("consumeFences", &Textures::consumeFences),
 			F("keyedMutex", &Textures::keyedMutex),
 			F("adapterLuidLow", &Textures::adapterLuidLow),
 			F("adapterLuidHigh", &Textures::adapterLuidHigh),

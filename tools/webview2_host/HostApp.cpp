@@ -313,10 +313,9 @@ namespace osfui::wv2
 			std::uint32_t ringWrite{ 0 };
 			bool          ringKeyedMutex{ false };
 			ComPtr<ID3D11Fence> produceFence;
-			std::array<ComPtr<ID3D11Fence>, kRingSlots> consumeFences{};
 			std::uint64_t              frameSerial{ 0 };
 			std::uint32_t              lastSlot{ 0 };
-			std::uint64_t              lastPublishedPresentationEpoch{ 0 };
+			std::uint64_t              republishEpoch{ 0 }; // ringMutex
 			std::mutex                 captureEpochMutex;
 			std::atomic<std::uint64_t> presentationEpoch{ 0 };
 			std::array<std::atomic<std::uint64_t>, kRingSlots> ackedSerials{};
@@ -1689,9 +1688,6 @@ namespace osfui::wv2
 				compositor = nullptr;
 				captureDevice = nullptr;
 				produceFence.Reset();
-				for (auto& fence : consumeFences) {
-					fence.Reset();
-				}
 				context4.Reset();
 				context.Reset();
 				device5.Reset();

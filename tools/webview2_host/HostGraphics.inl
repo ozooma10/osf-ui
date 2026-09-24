@@ -125,10 +125,10 @@
 				}
 				ringWidth = ringHeight = 0;
 				ringWrite = 0;
-				lastPublishedPresentationEpoch = 0;
+				republishEpoch = 0;
 			}
 
-			bool EnsureFences()
+			bool EnsureProduceFence()
 			{
 				if (!produceFence) {
 					const auto hr = device5->CreateFence(0, D3D11_FENCE_FLAG_SHARED,
@@ -136,16 +136,6 @@
 					if (FAILED(hr)) {
 						log.Error(std::format("CreateFence(produce) failed (0x{:08X})",
 							static_cast<unsigned>(hr)));
-						return false;
-					}
-				}
-				for (std::uint32_t slot = 0; slot < kRingSlots; ++slot) {
-					if (consumeFences[slot]) continue;
-					const auto hr = device5->CreateFence(0, D3D11_FENCE_FLAG_SHARED,
-						IID_PPV_ARGS(&consumeFences[slot]));
-					if (FAILED(hr)) {
-						log.Error(std::format("CreateFence(consume slot {}) failed (0x{:08X})",
-							slot, static_cast<unsigned>(hr)));
 						return false;
 					}
 				}
@@ -170,7 +160,7 @@
 					return true;
 				}
 				ReleaseRing();
-				if (!EnsureFences()) return false;
+				if (!EnsureProduceFence()) return false;
 
 				D3D11_TEXTURE2D_DESC desc{};
 				desc.Width = a_width;
@@ -243,30 +233,11 @@
 					ReleaseRing();
 					return false;
 				}
-				std::vector<std::uint64_t> consumeRemotes;
-				consumeRemotes.reserve(kRingSlots);
-				for (std::uint32_t slot = 0; slot < kRingSlots; ++slot) {
-					HANDLE consumeLocal = nullptr;
-					if (FAILED(consumeFences[slot]->CreateSharedHandle(nullptr, GENERIC_ALL,
-							nullptr, &consumeLocal))) {
-						log.Error(std::format("consume fence CreateSharedHandle failed for slot {}", slot));
-						ReleaseRing();
-						return false;
-					}
-					const auto consumeRemote = DuplicateToGame(consumeLocal);
-					::CloseHandle(consumeLocal);
-					if (!consumeRemote) {
-						ReleaseRing();
-						return false;
-					}
-					consumeRemotes.push_back(reinterpret_cast<std::uint64_t>(consumeRemote));
-				}
 				Send(msg::ToJson(msg::Textures{
 					.width = a_width,
 					.height = a_height,
 					.slots = std::move(slots),
 					.produceFence = reinterpret_cast<std::uint64_t>(produceRemote),
-					.consumeFences = std::move(consumeRemotes),
 					.keyedMutex = ringKeyedMutex,
 					.adapterLuidLow = graphicsAdapterLuid.LowPart,
 					.adapterLuidHigh = static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart),
@@ -282,24 +253,20 @@
 				std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
 				std::scoped_lock lock(ringMutex);
+				PublishFrameLocked(a_source, a_width, a_height, a_presentationEpoch);
+			}
+
+			// ringMutex held. Acknowledgement means the consumer has stopped using the slot and every GPU read has completed. Current stays reserved.
+			void PublishFrameLocked(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_presentationEpoch)
+			{
 				if (captureClosing.load()) return;
-				const auto consumed = [this](std::uint32_t a_slot) {
-					const auto fenceValue = consumeFences[a_slot] ?
-						consumeFences[a_slot]->GetCompletedValue() : 0;
-					return (std::max)(fenceValue, ackedSerials[a_slot].load());
-				};
-				const bool ringNeedsRebuild = !ring[0].texture || ringWidth != a_width || ringHeight != a_height;
-				const bool newPresentation = frameSerial != 0 && a_presentationEpoch != lastPublishedPresentationEpoch;
-				//resize or new presentation may use another free slot: the prior presentation can be hidden before its last frame is consumed, and must not block the reveal.
-				if (!ringNeedsRebuild && !newPresentation && frameSerial != 0 &&
-					consumed(lastSlot) < ring[lastSlot].lastSerial) return;
 				if (!EnsureRing(a_width, a_height)) return;
 
 				auto writableSlot = kRingSlots;
 				for (std::uint32_t offset = 0; offset < kRingSlots; ++offset) {
 					const auto candidate = (ringWrite + offset) % kRingSlots;
 					if (ring[candidate].lastSerial == 0 ||
-						consumed(candidate) >= ring[candidate].lastSerial) {
+						ackedSerials[candidate].load() >= ring[candidate].lastSerial) {
 						writableSlot = candidate;
 						break;
 					}
@@ -307,32 +274,34 @@
 				if (writableSlot == kRingSlots) {
 					++consumeLagDrops;
 					if (consumeLagDrops == 1 || consumeLagDrops % 300 == 0) {
-						log.Warn(std::format("consume lagging (all {} slots busy, {} drops); captured frame dropped", kRingSlots, consumeLagDrops));
+						log.Info(std::format("capture backpressure (all {} slots reserved, {} drops); captured frame dropped", kRingSlots, consumeLagDrops));
 					}
 					return;
 				}
 				auto& slot = ring[writableSlot];
 
-				if (ringKeyedMutex) {
-					ComPtr<IDXGIKeyedMutex> mutex;
-					if (SUCCEEDED(slot.texture.As(&mutex))) {
-						if (mutex->AcquireSync(0, 50) != S_OK) {
-							return;  // contended/abandoned; drop this frame
+				if (slot.texture.Get() != a_source) {
+					if (ringKeyedMutex) {
+						ComPtr<IDXGIKeyedMutex> mutex;
+						if (SUCCEEDED(slot.texture.As(&mutex))) {
+							if (mutex->AcquireSync(0, 50) != S_OK) {
+								return;  // contended/abandoned; drop this frame
+							}
+							context->CopyResource(slot.texture.Get(), a_source);
+							mutex->ReleaseSync(0);
+						} else {
+							return;  // keyed-mutex QI unexpectedly failed; drop rather than publish an uncopied slot
 						}
-						context->CopyResource(slot.texture.Get(), a_source);
-						mutex->ReleaseSync(0);
 					} else {
-						return;  // keyed-mutex QI unexpectedly failed; drop rather than publish an uncopied slot
+						context->CopyResource(slot.texture.Get(), a_source);
 					}
-				} else {
-					context->CopyResource(slot.texture.Get(), a_source);
 				}
 
 				const auto serial = ++frameSerial;
 				slot.lastSerial = serial;
 				lastSlot = writableSlot;
 				ringWrite = (writableSlot + 1) % kRingSlots;
-				lastPublishedPresentationEpoch = a_presentationEpoch;
+				republishEpoch = 0;
 				context4->Signal(produceFence.Get(), serial);
 				context->Flush();
 				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
@@ -374,26 +343,18 @@
 				return PromotePresentation(a_view);
 			}
 
-			void RepublishLatest()
+			void RepublishLatest(bool a_onlyIfPending = false)
 			{
 				std::scoped_lock lock(ringMutex);
-				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) {
+				const auto epoch = presentationEpoch.load(std::memory_order_relaxed);
+				if (a_onlyIfPending && (!republishEpoch || republishEpoch != epoch)) {
+					republishEpoch = 0;
 					return;
 				}
-				const auto fenceValue = consumeFences[lastSlot] ?
-					consumeFences[lastSlot]->GetCompletedValue() : 0;
-				if ((std::max)(fenceValue, ackedSerials[lastSlot].load()) <
-					ring[lastSlot].lastSerial) {
-					return;
-				}
-				const auto serial = ++frameSerial;
-				ring[lastSlot].lastSerial = serial;
-				lastPublishedPresentationEpoch = presentationEpoch.load(std::memory_order_relaxed);
-				context4->Signal(produceFence.Get(), serial);
-				context->Flush();
-				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
-					.width = ringWidth, .height = ringHeight,
-					.presentationEpoch = lastPublishedPresentationEpoch }));
+				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) return;
+				republishEpoch = epoch;
+				// Copying from a held slot is read-only. If the source itself is free, publication can reuse its pixels without a self-copy.
+				PublishFrameLocked(ring[lastSlot].texture.Get(), ringWidth, ringHeight, epoch);
 			}
 
 			View* FindView(std::string_view a_id)

@@ -174,6 +174,7 @@
 				auto current = completed.load();
 				while (ack.serial > current &&
 					!completed.compare_exchange_weak(current, ack.serial)) {}
+				RepublishLatest(true);
 			}
 
 			void HandlePostWeb(const json& a_msg)

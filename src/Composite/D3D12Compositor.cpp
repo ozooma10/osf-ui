@@ -3,6 +3,7 @@
 #include "Composite/EngineD3D12.h"
 #include "Composite/UiTargetFormat.h"
 #include "Core/Log.h"
+#include "Render/SharedFrameConsumer.h"
 #include "REL/Utility.h"
 
 #include "Composite/D3D12Prologue.h" 
@@ -87,11 +88,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				bool failed{ false };
 			};
 
-			ID3D12Fence* idleFence{ nullptr };
-			HANDLE idleFenceEvent{ nullptr };
-			std::uint64_t nextIdleFenceValue{ 1 };
-			bool idleFailureLogged{ false };
-
 			ID3D12RootSignature* rootSignature{ nullptr };
 			OverlayPipeline pipelines[2]{
 				{ DXGI_FORMAT_R8G8B8A8_UNORM },
@@ -105,17 +101,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 			bool Create(ID3D12Device* a_device)
 			{
-				if (FAILED(a_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence),
-						reinterpret_cast<void**>(&idleFence)))) {
-					REX::ERROR("D3D12Compositor: CreateFence failed");
-					return false;
-				}
-				idleFenceEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-				if (!idleFenceEvent) {
-					REX::ERROR("D3D12Compositor: CreateEvent failed");
-					return false;
-				}
-
 				D3D12_DESCRIPTOR_RANGE range{};
 				range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 				range.NumDescriptors = 1;
@@ -191,30 +176,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return true;
 			}
 
-			bool WaitForGpuIdle(ID3D12CommandQueue* a_queue)
-			{
-				if (!idleFence || !idleFenceEvent || !a_queue) {
-					return true;
-				}
-				const auto value = nextIdleFenceValue++;
-				HRESULT hr = a_queue->Signal(idleFence, value);
-				if (SUCCEEDED(hr) && idleFence->GetCompletedValue() < value) {
-					hr = idleFence->SetEventOnCompletion(value, idleFenceEvent);
-					if (SUCCEEDED(hr) && ::WaitForSingleObject(idleFenceEvent, 2000) == WAIT_OBJECT_0) {
-						return idleFence->GetCompletedValue() >= value;
-					}
-				} else if (SUCCEEDED(hr)) {
-					return true;
-				}
-				if (!idleFailureLogged) {
-					idleFailureLogged = true;
-					REX::ERROR("D3D12Compositor: GPU idle wait failed or timed out (hr=0x{:08X}); "
-						       "ring retirement is deferred",
-						static_cast<std::uint32_t>(hr));
-				}
-				return false;
-			}
-
 			ID3D12PipelineState* EnsurePipeline(ID3D12Device* a_device, DXGI_FORMAT a_rtvFormat)
 			{
 				auto* cached = std::ranges::find_if(pipelines,
@@ -275,292 +236,35 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				SafeRelease(rtvHeap);
 				SafeRelease(vsBlob);
 				SafeRelease(psBlob);
-				SafeRelease(idleFence);
-				if (idleFenceEvent) {
-					::CloseHandle(idleFenceEvent);
-					idleFenceEvent = nullptr;
-				}
+
 			}
 		};
 
-		struct SharedRingState
+		struct SharedRingResources
 		{
-			struct Frame
-			{
-				bool ready{ false };
-				std::uint64_t generation{ 0 };
-				std::uint32_t slot{ 0 };
-				std::uint64_t serial{ 0 };
-			};
-
 			std::mutex drawMutex;
-			// Pending announcements are published and adopted on the game thread.
-			SharedRingDesc pending{};
-			bool pendingDirty{ false };
-			// Open and retired GPU objects are guarded by drawMutex.
 			ID3D12Resource* slots[SharedRingDesc::kMaxSlots]{};
-			std::uint32_t slotCount{ 0 };
 			ID3D12Fence* produceFence{ nullptr };
-			ID3D12Fence* consumeFences[SharedRingDesc::kMaxSlots]{};
-			ID3D12Resource* retiredSlots[SharedRingDesc::kMaxSlots]{};
-			ID3D12Fence* retiredProduceFence{ nullptr };
-			ID3D12Fence* retiredConsumeFences[SharedRingDesc::kMaxSlots]{};
+			std::uint32_t slotCount{ 0 };
 			std::uint64_t activeGeneration{ 0 };
-			std::uint32_t readySlot{ 0 };
-			std::uint64_t readySerial{ 0 };
-
-			std::mutex frameMutex;
-			std::uint64_t lastSubmittedGeneration{ 0 };
-			std::uint64_t lastSubmittedIndex{ 0 };
-			bool frameReady{ false };
-			std::uint64_t frameGeneration{ 0 };
-			std::uint32_t frameSlot{ 0 };
-			std::uint64_t frameSerial{ 0 };
-
-			static void CloseHandles(SharedRingDesc& a_desc)
-			{
-				for (auto*& handle : a_desc.slotHandles) {
-					if (handle) {
-						::CloseHandle(handle);
-						handle = nullptr;
-					}
-				}
-				if (a_desc.produceFence) {
-					::CloseHandle(a_desc.produceFence);
-					a_desc.produceFence = nullptr;
-				}
-				for (auto*& handle : a_desc.consumeFences) {
-					if (handle) {
-						::CloseHandle(handle);
-						handle = nullptr;
-					}
-				}
-			}
-
-			void SetPending(const SharedRingDesc& a_desc)
-			{
-				if (pendingDirty) {
-					CloseHandles(pending);
-				}
-				pending = a_desc;
-				pendingDirty = true;
-			}
-
-			SharedRingDesc TakePending()
-			{
-				auto result = pending;
-				pending = {};
-				pendingDirty = false;
-				return result;
-			}
-
-			void DeferPending(SharedRingDesc& a_desc)
-			{
-				pending = a_desc;
-				a_desc = {};
-				pendingDirty = true;
-			}
-
-			void ClosePending()
-			{
-				if (pendingDirty) {
-					CloseHandles(pending);
-					pendingDirty = false;
-				}
-			}
-
-			void Retire()
-			{
-				// Keep the previous generation alive for already-recorded engine lists.
-				for (auto*& slot : retiredSlots) {
-					SafeRelease(slot);
-				}
-				SafeRelease(retiredProduceFence);
-				for (auto*& fence : retiredConsumeFences) {
-					SafeRelease(fence);
-				}
-				for (std::size_t i = 0; i < SharedRingDesc::kMaxSlots; ++i) {
-					retiredSlots[i] = slots[i];
-					slots[i] = nullptr;
-					retiredConsumeFences[i] = consumeFences[i];
-					consumeFences[i] = nullptr;
-				}
-				retiredProduceFence = produceFence;
-				produceFence = nullptr;
-				slotCount = 0;
-				activeGeneration = 0;
-				readySlot = 0;
-				readySerial = 0;
-			}
 
 			void Release()
 			{
-				for (auto*& slot : retiredSlots) {
-					SafeRelease(slot);
-				}
-				SafeRelease(retiredProduceFence);
-				for (auto*& fence : retiredConsumeFences) {
-					SafeRelease(fence);
-				}
 				for (auto*& slot : slots) {
 					SafeRelease(slot);
 				}
-				slotCount = 0;
 				SafeRelease(produceFence);
-				for (auto*& fence : consumeFences) {
-					SafeRelease(fence);
-				}
-			}
-
-			Frame SnapshotFrame()
-			{
-				std::scoped_lock lock(frameMutex);
-				return { frameReady, frameGeneration, frameSlot, frameSerial };
-			}
-
-			void CacheFrame(const FrameBufferView& a_frame)
-			{
-				if (a_frame.ringGeneration == lastSubmittedGeneration && a_frame.frameIndex == lastSubmittedIndex) {
-					return;
-				}
-				lastSubmittedGeneration = a_frame.ringGeneration;
-				lastSubmittedIndex = a_frame.frameIndex;
-				std::scoped_lock lock(frameMutex);
-				frameReady = true;
-				frameGeneration = a_frame.ringGeneration;
-				frameSlot = a_frame.sharedSlot;
-				frameSerial = a_frame.frameIndex;
+				slotCount = 0;
+				activeGeneration = 0;
 			}
 		};
 
-		class ConsumeTracker final
-		{
-		public:
-			ConsumeTracker()
-			{
-				pending.reserve(kReservedEntries);
-			}
-
-			[[nodiscard]] bool Track(ID3D12GraphicsCommandList* a_list, ID3D12Fence* a_fence, std::uint64_t a_serial)
-			{
-				if (!a_list || !a_fence || a_serial == 0) {
-					return false;
-				}
-				std::scoped_lock lock(mutex);
-				// One command list can sample multiple ring slots before it is submitted.
-				// Keep each slot's fence until that submission signals every recorded read.
-				const auto it = std::find_if(pending.begin(), pending.end(), [a_list, a_fence](const PendingConsume& a_pending) {
-					return a_pending.list == a_list && a_pending.fence == a_fence;
-				});
-				if (it != pending.end()) {
-					auto& tracked = *it;
-					tracked.serial = (std::max)(tracked.serial, a_serial);
-					return true;
-				}
-				try {
-					pending.push_back({
-						.list = a_list,
-						.fence = a_fence,
-						.serial = a_serial,
-					});
-				} catch (...) {
-					if (!allocationFailureLogged.exchange(true, std::memory_order_relaxed)) {
-						REX::ERROR("D3D12Compositor: consume tracker growth failed; skipping this overlay draw");
-					}
-					return false;
-				}
-				a_fence->AddRef();
-				pendingCount.store(pending.size(), std::memory_order_release);
-				return true;
-			}
-
-			[[nodiscard]] bool HasPending() const
-			{
-				return pendingCount.load(std::memory_order_acquire) != 0;
-			}
-
-			void Release()
-			{
-				std::scoped_lock lock(mutex);
-				for (auto& tracked : pending) {
-					SafeRelease(tracked.fence);
-				}
-				pending.clear();
-				pendingCount.store(0, std::memory_order_release);
-			}
-
-			void OnCommandListsExecuted(ID3D12CommandQueue* a_queue, UINT a_count,
-				ID3D12CommandList* const* a_lists)
-			{
-				if (!a_queue || !a_lists ||
-					pendingCount.load(std::memory_order_acquire) == 0) {
-					return;
-				}
-
-				const auto wasExecuted = [a_count, a_lists](const PendingConsume& a_pending) {
-					for (UINT i = 0; i < a_count; ++i) {
-						if (a_pending.list == a_lists[i]) {
-							return true;
-						}
-					}
-					return false;
-				};
-
-				// Keep completion processing allocation-free. Each pass handles every executed entry for one fence, so arbitrary tracker growth is safe while the normal one-fence path remains a single queue signal.
-				std::scoped_lock lock(mutex);
-				while (true) {
-					const auto first = std::find_if(pending.begin(), pending.end(), wasExecuted);
-					if (first == pending.end()) {
-						break;
-					}
-					auto* fence = first->fence;
-					std::uint64_t serial = 0;
-					for (const auto& tracked : pending) {
-						if (tracked.fence == fence && wasExecuted(tracked)) {
-							serial = (std::max)(serial, tracked.serial);
-						}
-					}
-
-					const auto hr = a_queue->Signal(fence, serial);
-					if (FAILED(hr) && !signalFailureLogged.exchange(true, std::memory_order_relaxed)) {
-						REX::ERROR("D3D12Compositor: queue-ordered consume-fence signal failed (hr=0x{:08X}); the browser host will drop frames instead of reusing a busy slot", static_cast<std::uint32_t>(hr));
-					}
-
-					for (std::size_t i = 0; i < pending.size();) {
-						if (pending[i].fence != fence || !wasExecuted(pending[i])) {
-							++i;
-							continue;
-						}
-						SafeRelease(pending[i].fence);
-						pending[i] = pending.back();
-						pending.pop_back();
-					}
-				}
-				pendingCount.store(pending.size(), std::memory_order_release);
-			}
-
-		private:
-			static constexpr std::size_t kReservedEntries = 16;
-
-			struct PendingConsume
-			{
-				ID3D12CommandList* list{ nullptr };
-				ID3D12Fence*       fence{ nullptr };
-				std::uint64_t      serial{ 0 };
-			};
-
-			mutable std::mutex mutex;
-			std::vector<PendingConsume> pending;
-			std::atomic_size_t pendingCount{ 0 };
-			std::atomic_bool signalFailureLogged{ false };
-			std::atomic_bool allocationFailureLogged{ false };
-		};
 	}
 
 	struct D3D12Compositor::Impl
 	{
 		EngineD3D12   engine{};
-		std::atomic_bool visible{ false };
+		std::shared_ptr<SharedFrameConsumer> frames;
 
 		OutputSizeObservation outputSize;
 
@@ -568,30 +272,94 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool setupOk{ false };
 
 		DrawResources draw;
-		SharedRingState sharedRing;
-		ConsumeTracker consumes;
+		SharedRingResources sharedRing;
+		// A separate timeline per actual submission queue. Fence values from different queues cannot be treated as one ordered completion stream.
+		struct QueueTimeline
+		{
+			ID3D12CommandQueue* queue;
+			ID3D12Fence* fence;
+			std::uint64_t nextValue{ 1 };
+		};
+		std::mutex timelineMutex;
+		std::vector<QueueTimeline> timelines;
+		bool completionFailureLogged{ false }; // timelineMutex
+
 
 		std::atomic_bool overlayDrawLogged{ false };
-		bool noSharedFrameLogged{ false };  // SharedRingState::drawMutex
 
 		~Impl()
 		{
 			g_queueExecutedFn.store(nullptr, std::memory_order_release);
 			g_overlayDrawFn.store(nullptr, std::memory_order_release);
 			g_overlay.store(nullptr, std::memory_order_release);
-			const bool gpuIdle = draw.WaitForGpuIdle(engine.directQueue);
-			const bool hasUnsubmittedDraws = consumes.HasPending();
-			if (gpuIdle && !hasUnsubmittedDraws) {
-				sharedRing.Release();
-			} else {
-				REX::ERROR("D3D12Compositor: retaining GPU objects during shutdown because recorded overlay work could not be proven idle");
+			PollCompletions();
+			if (frames->HasReads()) {
+				REX::ERROR("D3D12Compositor: retaining GPU resources because overlay reads have not completed");
+				return;
 			}
-			consumes.Release();
-			sharedRing.ClosePending();
-			if (gpuIdle && !hasUnsubmittedDraws) {
-				draw.Release();
-				SafeRelease(engine.directQueue);
-				SafeRelease(engine.device);
+			sharedRing.Release();
+			draw.Release();
+			for (auto& timeline : timelines) {
+				SafeRelease(timeline.fence);
+				SafeRelease(timeline.queue);
+			}
+			SafeRelease(engine.directQueue);
+			SafeRelease(engine.device);
+		}
+
+		void PollCompletions()
+		{
+			std::scoped_lock lock(timelineMutex);
+			PollCompletionsLocked();
+		}
+
+		void PollCompletionsLocked()
+		{
+			for (const auto& timeline : timelines) {
+				frames->Completed(reinterpret_cast<std::uintptr_t>(timeline.queue), timeline.fence->GetCompletedValue());
+			}
+		}
+
+		void OnExecuted(ID3D12CommandQueue* a_queue, UINT a_count, ID3D12CommandList* const* a_lists)
+		{
+			if (!a_queue || !a_lists || !frames->HasRecorded()) return;
+			std::scoped_lock lock(timelineMutex);
+			// Also retire completed reads while the tick thread is stalled.
+			PollCompletionsLocked();
+			bool hasReads = false;
+			for (UINT i = 0; i < a_count && !hasReads; ++i) {
+				const auto list = reinterpret_cast<std::uintptr_t>(a_lists[i]);
+				hasReads = frames->HasRecorded({ &list, 1 });
+			}
+			if (!hasReads) return;
+			auto timeline = std::ranges::find_if(timelines, [a_queue](const QueueTimeline& a_value) { return a_value.queue == a_queue; });
+			HRESULT hr = S_OK;
+			if (timeline == timelines.end()) {
+				ID3D12Fence* fence = nullptr;
+				hr = engine.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+				if (SUCCEEDED(hr)) {
+					try {
+						timelines.push_back({ a_queue, fence });
+						a_queue->AddRef();
+						timeline = std::prev(timelines.end());
+					} catch (...) {
+						SafeRelease(fence);
+						hr = E_OUTOFMEMORY;
+					}
+				}
+			}
+			std::uint64_t value = 0;
+			if (SUCCEEDED(hr)) {
+				value = timeline->nextValue++;
+				hr = a_queue->Signal(timeline->fence, value);
+			}
+			if (FAILED(hr) && !completionFailureLogged) {
+				completionFailureLogged = true;
+				REX::ERROR("D3D12Compositor: GPU completion signal failed (hr=0x{:08X}); affected slots remain reserved", static_cast<std::uint32_t>(hr));
+			}
+			for (UINT i = 0; i < a_count; ++i) {
+				const auto list = reinterpret_cast<std::uintptr_t>(a_lists[i]);
+				frames->Submitted({ &list, 1 }, SUCCEEDED(hr) ? reinterpret_cast<std::uintptr_t>(a_queue) : 0, value);
 			}
 		}
 
@@ -602,7 +370,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		{
 			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
 			if (self) {
-				self->consumes.OnCommandListsExecuted(a_queue, a_count, a_lists);
+				self->OnExecuted(a_queue, a_count, a_lists);
 			}
 		}
 
@@ -630,27 +398,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		// Submit/tick thread: adopt the latest announced ring. Returns true when a usable ring is open.
-		[[nodiscard]] bool EnsureSharedRing()
+		// Tick thread. The draw lock prevents another record while SRVs are replaced. Old ring resources stay alive until every recorded read has actually completed, including lists submitted after the announcement.
+		void EnsureSharedRing()
 		{
-			if (!sharedRing.pendingDirty) {
-				std::scoped_lock ring(sharedRing.drawMutex);
-				return sharedRing.slots[0] != nullptr;
-			}
-			auto pending = sharedRing.TakePending();
-			// Hold the draw lock across the pending-list check and queue drain. That closes the window where a render worker could record another old-ring draw after the idle fence had already been queued.
 			std::scoped_lock ring(sharedRing.drawMutex);
-			const auto deferAdoption = [&]() {
-				sharedRing.DeferPending(pending);
-				return sharedRing.slots[0] != nullptr;
-			};
-			if (consumes.HasPending()) {
-				return deferAdoption();
-			}
-			if (!draw.WaitForGpuIdle(engine.directQueue)) {
-				return deferAdoption();
-			}
-			sharedRing.Retire();
+			auto announced = frames->TakeRingIfIdle();
+			if (!announced) return;
+			auto pending = *announced;
+			sharedRing.Release();
 
 			auto* dev = engine.device;
 			bool ok = pending.slotCount > 0 && pending.slotCount <= SharedRingDesc::kMaxSlots;
@@ -674,18 +429,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				openHr = pending.produceFence ? dev->OpenSharedHandle(pending.produceFence, __uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.produceFence)) : E_HANDLE;
 				ok = SUCCEEDED(openHr);
 			}
-			for (std::size_t i = 0; ok && i < pending.slotCount; ++i) {
-				openObject = "consume fence";
-				openSlot = static_cast<int>(i);
-				openHr = pending.consumeFences[i] ? dev->OpenSharedHandle(pending.consumeFences[i], __uuidof(ID3D12Fence), reinterpret_cast<void**>(&sharedRing.consumeFences[i])) : E_HANDLE;
-				ok = SUCCEEDED(openHr);
-			}
-			SharedRingState::CloseHandles(pending);
+			SharedFrameConsumer::CloseHandles(pending);
 			if (!ok) {
 				const auto gameLuid = dev->GetAdapterLuid();
 				REX::ERROR("D3D12Compositor: OpenSharedHandle failed for {} (slot {}, hr=0x{:08X}); game adapter LUID 0x{:08X}:0x{:08X}, browser-host adapter LUID 0x{:08X}:0x{:08X}", openObject, openSlot, static_cast<std::uint32_t>(openHr), static_cast<std::uint32_t>(gameLuid.HighPart), gameLuid.LowPart, pending.adapterLuidHigh, pending.adapterLuidLow);
 				sharedRing.Release();
-				return false;
+				return;
 			}
 			sharedRing.slotCount = pending.slotCount;
 			for (std::uint32_t i = 0; i < sharedRing.slotCount; ++i) {
@@ -701,10 +450,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			sharedRing.activeGeneration = pending.generation;
 			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, {} slots, generation {})", pending.width, pending.height, sharedRing.slotCount, pending.generation);
-			return true;
 		}
 
-		// Setup, on the Submit / tick thread.
+		// Setup, on the tick thread.
 		void EnsureSetup()
 		{
 			if (setupAttempted) {
@@ -731,8 +479,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				REX::ERROR("D3D12Compositor: setup failed; overlay disabled this session");
 				return;
 			}
-			g_overlayDrawFn.store(&Impl::OverlayDrawThunk, std::memory_order_release);
 			setupOk = true;
+			g_overlayDrawFn.store(&Impl::OverlayDrawThunk, std::memory_order_release);
 			REX::INFO("D3D12Compositor: UI-pass overlay armed (no IDXGISwapChain::Present hook)");
 		}
 
@@ -751,41 +499,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const auto desc = a_buffer->GetDesc();
 			ObserveOutputSize(desc);
 
-			if (!visible.load(std::memory_order_relaxed)) {
-				return false;
-			}
-			const auto frame = sharedRing.SnapshotFrame();
-			const auto frameGeneration = frame.generation;
-			auto ringSlot = frame.slot;
-			auto serial = frame.serial;
-
 			std::scoped_lock ring(sharedRing.drawMutex);
-			if (!frame.ready) {
-				if (!noSharedFrameLogged) {
-					noSharedFrameLogged = true;
-					REX::DEBUG("D3D12Compositor: UI-pass hand-off reached before the browser host published a shared-ring frame; nothing to draw yet");
-				}
-				return false;
-			}
-			if (a_firstDrawInRegion && frameGeneration == sharedRing.activeGeneration && serial != 0 && ringSlot < sharedRing.slotCount && sharedRing.slots[ringSlot] && (!sharedRing.produceFence || sharedRing.produceFence->GetCompletedValue() >= serial)) {
-				sharedRing.readySlot = ringSlot;
-				sharedRing.readySerial = serial;
-			}
-			if (sharedRing.readySerial == 0 || sharedRing.readySlot >= sharedRing.slotCount || !sharedRing.slots[sharedRing.readySlot]) {
-				return false;  // no fully-produced frame yet this ring generation
-			}
-			ringSlot = sharedRing.readySlot;
-			serial = sharedRing.readySerial;
-
+			if (!sharedRing.produceFence) return false;
+			const auto produced = sharedRing.produceFence->GetCompletedValue();
+			if (produced == UINT64_MAX) return false;
 			const auto rtvFormat = UiTargetFormat::ResolveRtv(desc.Format);
 			auto* pso = draw.EnsurePipeline(engine.device, rtvFormat);
-			if (!pso) {
-				return false;
-			}
-			// Reserve consume tracking before mutating the engine command list. If the fixed tracker is ever exhausted, skip the draw rather than lose the exact-submission fence signal that protects shared-ring reuse.
-			if (!consumes.Track(a_list, sharedRing.consumeFences[ringSlot], serial)) {
-				return false;
-			}
+			if (!pso) return false;
+			const auto frame = frames->Record(reinterpret_cast<std::uintptr_t>(a_list),
+				a_firstDrawInRegion, sharedRing.activeGeneration, produced);
+			if (!frame) return false;
+			const auto ringSlot = frame->sharedSlot;
+			const auto serial = frame->frameIndex;
 
 			const D3D12_CPU_DESCRIPTOR_HANDLE rtv = draw.rtvHeap->GetCPUDescriptorHandleForHeapStart();
 			D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
@@ -830,31 +555,20 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	D3D12Compositor::D3D12Compositor() = default;
 	D3D12Compositor::~D3D12Compositor() = default;
 
-	bool D3D12Compositor::Initialize()
+	bool D3D12Compositor::Initialize(std::shared_ptr<SharedFrameConsumer> a_frames)
 	{
 		_impl = std::make_unique<Impl>();
+		_impl->frames = std::move(a_frames);
 		return true;
 	}
 
-
-	void D3D12Compositor::PrepareSharedRing()
+	void D3D12Compositor::Update()
 	{
-		if (!_impl || !_impl->sharedRing.pendingDirty) {
-			return;
-		}
+		if (!_impl) return;
+		_impl->PollCompletions();
+		if (!_impl->frames->HasPendingRing()) return;
 		_impl->EnsureSetup();
-		if (_impl->setupOk) {
-			(void)_impl->EnsureSharedRing();
-		}
-	}
-
-	void D3D12Compositor::Submit(const FrameBufferView& a_frame)
-	{
-		if (!_impl) {
-			return;
-		}
-		_impl->sharedRing.CacheFrame(a_frame);
-		PrepareSharedRing();
+		if (_impl->setupOk) _impl->EnsureSharedRing();
 	}
 
 	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
@@ -863,21 +577,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_firstDrawInRegion);
 	}
 
-	void D3D12Compositor::SetSharedRing(const SharedRingDesc& a_desc)
-	{
-		if (_impl) {
-			_impl->sharedRing.SetPending(a_desc);
-		} else {
-			// Not initialized: still own the handles — close them.
-			SharedRingDesc desc = a_desc;
-			SharedRingState::CloseHandles(desc);
-		}
-	}
-
 	void D3D12Compositor::SetVisible(bool a_visible)
 	{
 		if (_impl) {
-			_impl->visible.store(a_visible, std::memory_order_relaxed);
+			_impl->frames->SetVisible(a_visible);
 		}
 	}
 

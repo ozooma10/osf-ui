@@ -5,7 +5,7 @@
 
 namespace OSFUI
 {
-	// Policy for revealing a presentation. Decides whether a frame is fresh enough to submit, reveal or wait expired.
+	// Observes frame metadata to decide when to reveal a presentation or time out.
 	class ViewRevealGate
 	{
 	public:
@@ -22,7 +22,7 @@ namespace OSFUI
 
 		struct Decision
 		{
-			bool   submitFrame{ false };
+			bool   frameChanged{ false };
 			bool   reveal{ false };
 			bool   timedOut{ false };
 			double heldSeconds{ 0.0 };
@@ -31,7 +31,7 @@ namespace OSFUI
 		// Arm on closed-to-open edge. Most recent frame remains baseline, so cached content cannot satisfy this presentation.
 		void Arm();
 		// Arm for a live browser-surface resize. A matching frame must also come
-		// from a newer shared-ring generation than the one already submitted.
+		// from a newer shared-ring generation than the one already observed.
 		void ArmForResize();
 		void Cancel();
 		void Reset();
@@ -45,8 +45,8 @@ namespace OSFUI
 		bool                  m_frameReady{ false };
 		double                m_heldSeconds{ 0.0 };
 		std::optional<double> m_lastPolledAt;
-		std::uint64_t         m_lastSubmittedGeneration{ 0 };
-		std::uint64_t         m_lastSubmittedFrame{ 0 };
+		std::uint64_t         m_lastObservedGeneration{ 0 };
+		std::uint64_t         m_lastObservedFrame{ 0 };
 		bool                  m_requireNewGeneration{ false };
 		std::uint64_t         m_generationFloor{ 0 };
 	};

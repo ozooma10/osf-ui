@@ -19,6 +19,7 @@
 #include "Core/Paths.h"
 #include "Core/Ids.h"
 #include "Render/WebView2HostWebRenderer.h"
+#include "Render/SharedFrameConsumer.h"
 
 namespace OSFUI
 {
@@ -98,20 +99,11 @@ namespace OSFUI
 	bool Runtime::InitializeCompositor()
 	{
 		_compositor = std::make_unique<D3D12Compositor>();
-		if (!_compositor->Initialize()) {
+		if (!_compositor->Initialize(_renderer->Frames())) {
 			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
 			return false;
 		}
 		return true;
-	}
-
-	void Runtime::WireRenderPipeline()
-	{
-		_renderer->SetSharedRingHandler([this](const SharedRingDesc& a_desc) {
-			if (_compositor) {
-				_compositor->SetSharedRing(a_desc);
-			}
-		});
 	}
 
 	void Runtime::InitializeBridge()
@@ -205,7 +197,6 @@ namespace OSFUI
 			_webRuntimeInitializing = false;
 			return false;
 		}
-		WireRenderPipeline();
 		InitializeBridge();
 		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (_bridge) _bridge->HandleWebMessage(a_viewId, a_json);
@@ -712,12 +703,10 @@ namespace OSFUI
 		}
 		if (_compositor) {
 			if (visible && !wasVisible) {
-				_latestFrame.reset();
 				m_viewReveal.Arm();
 				_viewGeometryReady.store(false, std::memory_order_release);
 			} else {
 				if (!visible) {
-					_latestFrame.reset();
 					m_viewReveal.Cancel();  // closed while a reveal was still pending
 					_viewGeometryReady.store(true, std::memory_order_release);
 				}
@@ -826,7 +815,6 @@ namespace OSFUI
 		m_viewRecovery.ClearAll();
 		m_viewInputGrants.ResetAll();
 		_pendingMouseMove.store(kNoPendingMouseMove);
-		_latestFrame.reset();
 		m_viewReveal.Reset();
 		_inputFocusGranted = false;
 		std::size_t reloaded = 0;
@@ -928,7 +916,6 @@ namespace OSFUI
 		if (visible && _compositor) {
 			_compositor->SetVisible(false);
 			_renderer->SetPointerInputEnabled(false);
-			_latestFrame.reset();
 			if (captureChanged) {
 				m_viewReveal.ArmForResize();
 			} else {
@@ -954,38 +941,32 @@ namespace OSFUI
 			a_width, a_height, view.width, view.height, observedWidth, observedHeight);
 	}
 
-	void Runtime::SubmitFrameIfVisible()
+	void Runtime::UpdateViewReveal()
 	{
 		if (!_initialized || !IsVisible() || !_renderer || !_compositor) {
 			return;
 		}
 
-		const auto frame = _renderer->TakeLatestFrame();
-		if (frame) {
-			_latestFrame = *frame;
-		}
+		const auto frame = _renderer->Frames()->Latest();
 		const auto expected = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
 		const bool outputSizeKnown = _gameClientSizeObserved.load(std::memory_order_acquire);
 		std::optional<ViewRevealGate::FrameObservation> observation;
-		if (_latestFrame) {
+		if (frame) {
 			observation = ViewRevealGate::FrameObservation{
-				.generation = _latestFrame->ringGeneration,
-				.index = _latestFrame->frameIndex,
+				.generation = frame->ringGeneration,
+				.index = frame->frameIndex,
 				.outputSizeKnown = outputSizeKnown,
-				.matchesExpectedSize = _latestFrame->width == expected.width && _latestFrame->height == expected.height,
+				.matchesExpectedSize = frame->width == expected.width && frame->height == expected.height,
 			};
 		}
 
 		const auto decision = m_viewReveal.Observe(observation, _uptime);
-		if (decision.submitFrame && frame) {
-			_compositor->Submit(*frame);
+		if (decision.frameChanged && frame) {
 			if (observation && observation->outputSizeKnown && observation->matchesExpectedSize) {
 				if (const auto active = _presentation.ActiveMenu()) {
 					FinishColdOpenTiming(*active);
 				}
 			}
-		} else {
-			_compositor->PrepareSharedRing();
 		}
 		if (decision.reveal) {
 			_compositor->SetVisible(true);  // the cached frame is fresh and output-sized

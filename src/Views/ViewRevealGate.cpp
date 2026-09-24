@@ -16,7 +16,7 @@ namespace OSFUI
 
 	void ViewRevealGate::ArmForResize()
 	{
-		const auto generationFloor = m_lastSubmittedGeneration;
+		const auto generationFloor = m_lastObservedGeneration;
 		Arm();
 		m_requireNewGeneration = true;
 		m_generationFloor = generationFloor;
@@ -35,19 +35,19 @@ namespace OSFUI
 	void ViewRevealGate::Reset()
 	{
 		Cancel();
-		m_lastSubmittedGeneration = 0;
-		m_lastSubmittedFrame = 0;
+		m_lastObservedGeneration = 0;
+		m_lastObservedFrame = 0;
 	}
 
 	ViewRevealGate::Decision ViewRevealGate::Observe(const std::optional<FrameObservation>& a_frame, double a_nowSeconds)
 	{
 		Decision decision;
 		if (a_frame) {
-			const bool newFrame = a_frame->generation != m_lastSubmittedGeneration || a_frame->index != m_lastSubmittedFrame;
+			const bool newFrame = a_frame->generation != m_lastObservedGeneration || a_frame->index != m_lastObservedFrame;
 			if (newFrame) {
-				m_lastSubmittedGeneration = a_frame->generation;
-				m_lastSubmittedFrame = a_frame->index;
-				decision.submitFrame = true;
+				m_lastObservedGeneration = a_frame->generation;
+				m_lastObservedFrame = a_frame->index;
+				decision.frameChanged = true;
 				m_frameReady = m_pending;
 			}
 			if (!m_pending) {

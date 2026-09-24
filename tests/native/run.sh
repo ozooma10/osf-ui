@@ -64,6 +64,7 @@ SUITES=(
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"
 "deferred_main_thread_work_tests deferred_main_thread_work_tests.cpp"
 "output_size_observation_tests output_size_observation_tests.cpp"
+"shared_frame_state_tests shared_frame_state_tests.cpp"
 "runtime_lifecycle_contract_tests runtime_lifecycle_contract_tests.cpp"
 "view_reveal_gate_tests view_reveal_gate_tests.cpp ../../src/Views/ViewRevealGate.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"
