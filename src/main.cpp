@@ -13,6 +13,6 @@ SFSE_PLUGIN_PRELOAD(const SFSE::PreLoadInterface* a_sfse)
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 {
-	SFSE::Init(a_sfse, { .trampoline = true, .trampolineSize = 1024 });
+	SFSE::Init(a_sfse);
 	return OSFUI::Plugin::OnLoad();
 }

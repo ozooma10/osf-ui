@@ -69,13 +69,6 @@ namespace OSFUI
 			return true;
 		}
 
-		void OnAttemptSetupFailed(double a_now)
-		{
-			if (_phase == Phase::AwaitingResponse) {
-				Schedule(a_now);
-			}
-		}
-
 		[[nodiscard]] bool ExpireResponseWait(double a_now)
 		{
 			if (_phase != Phase::AwaitingResponse || a_now < _responseDeadline) {

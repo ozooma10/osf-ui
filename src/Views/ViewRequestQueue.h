@@ -29,9 +29,11 @@ namespace OSFUI
             bool        active{ false };
         };
 
+        using Operation = std::variant<ViewPresentationRequest, OpenRequest, RelativePointerRequest>;
+
         struct Batch
         {
-            std::vector<std::variant<ViewPresentationRequest, OpenRequest, RelativePointerRequest>> presentation;
+            std::vector<Operation> presentation;
         };
 
         void Enqueue(ViewPresentationRequest a_request);
@@ -41,6 +43,6 @@ namespace OSFUI
 
     private:
         std::mutex m_mutex;
-        std::vector<std::variant<ViewPresentationRequest, OpenRequest, RelativePointerRequest>> m_presentation;
+        std::vector<Operation> m_presentation;
     };
 }

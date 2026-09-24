@@ -100,7 +100,7 @@ namespace OSFUI
 			return;
 		}
 		_lastViewsData = std::move(dumped);
-		PublishPlatformState("views");
+		PublishViewsState();
 	}
 
 	std::unordered_set<std::string> Runtime::InstantiatedViewsOfMod(std::string_view a_mod) const
@@ -130,18 +130,16 @@ namespace OSFUI
 		_bridge->PublishState(targets, a_mod, a_key, a_value);
 	}
 
-	void Runtime::PublishPlatformState(std::string_view a_key, std::string_view a_viewId)
+	void Runtime::PublishViewsState(std::string_view a_viewId)
 	{
 		if (!_bridge) {
 			return;
 		}
 		const auto deliver = [&](const std::string& a_view) {
-			if (a_key == "views") {
-				if (_lastViewsData.empty()) {
-					_lastViewsData = Json::Dump(BuildViewsData());
-				}
-				_bridge->PublishJsonState(a_view, "osfui", "views", _lastViewsData);
+			if (_lastViewsData.empty()) {
+				_lastViewsData = Json::Dump(BuildViewsData());
 			}
+			_bridge->PublishJsonState(a_view, "osfui", "views", _lastViewsData);
 		};
 		if (!a_viewId.empty()) {
 			deliver(std::string(a_viewId));
@@ -161,7 +159,7 @@ namespace OSFUI
 		}
 		_viewProtocolFaultCounts.erase(std::string(a_viewId));
 		_osfSettings.ClearFailure(std::format("view.protocol-misuse:{}", a_viewId));
-		PublishPlatformState("views", a_viewId);
+		PublishViewsState(a_viewId);
 		const std::string mod{ Ids::ModOf(a_viewId) };
 		if (const auto* entries = _retainedState.Find(mod)) {
 			for (const auto& entry : *entries) {

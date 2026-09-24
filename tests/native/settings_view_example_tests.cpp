@@ -35,10 +35,10 @@ int main()
     CHECK(initial.state[0].mod == "osfui-example" && initial.state[0].key == "showDetails");
     settings.values["showDetails"] = true;
     settings.changed("osfui-example", nullptr, settings.changedUser);
-    auto changed = api.TakeViewStateOps();
+    auto changed = api.TakePendingBatch().state;
     CHECK(changed.size() == 1 && changed[0].value == true);
     settings.changed("osfui-example", "unrelated", settings.changedUser);
-    CHECK(api.TakeViewStateOps().empty());
+    CHECK(api.TakePendingBatch().state.empty());
     settings.hotkey("osfui-example", "openPanel", settings.hotkeyUser);
     auto open = api.TakePendingBatch();
     CHECK(open.state.size() == 1 && open.state[0].value == true);
@@ -46,6 +46,6 @@ int main()
     settings.readStatus["showDetails"] = OSFSettings::API::Status::UnknownSetting;
     settings.hotkey("osfui-example", "openPanel", settings.hotkeyUser);
     CHECK(api.TakePendingBatch().presentation.empty());
-    CHECK(api.TakeViewStateOps().empty());
+    CHECK(api.TakePendingBatch().state.empty());
     return g_failures;
 }

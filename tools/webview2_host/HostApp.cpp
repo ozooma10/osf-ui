@@ -198,7 +198,6 @@ namespace osfui::wv2
 
 		struct App
 		{
-			HostOptions options;
 			Logger      log;
 			Pipe        pipe;
 			HANDLE      gameProcess{ nullptr };
@@ -213,8 +212,6 @@ namespace osfui::wv2
 			static constexpr std::size_t kGameMessagesPerDrain = 128;
 			BoundedQueue<json> gameMessages{ kMaxGameMessages };
 			std::atomic_bool pipeDead{ false };
-			std::atomic_bool gameMessageOverflow{ false };
-			std::atomic_bool shutdownRequested{ false };
 			std::uint64_t nextHeartbeatAt{ 0 };  // STA thread only
 
 			// Init state from the game.
@@ -359,7 +356,6 @@ namespace osfui::wv2
 					json&      parsed = *message;
 					const auto type = Json::Get(parsed, "type", "");
 					if (type == "shutdown") {
-						shutdownRequested.store(true, std::memory_order_release);
 						quit.store(true, std::memory_order_release);
 						log.Info("shutdown request received from the game");
 						::SetEvent(wakeEvent);
@@ -372,7 +368,6 @@ namespace osfui::wv2
 					const auto result =
 						gameMessages.Push(std::move(parsed), coalesceKey);
 					if (result == decltype(gameMessages)::PushResult::Full) {
-						gameMessageOverflow.store(true, std::memory_order_release);
 						quit.store(true, std::memory_order_release);
 						log.Error(std::format(
 							"game-message queue exceeded {} messages; closing the browser host",
@@ -1718,7 +1713,6 @@ namespace osfui::wv2
 	int RunHost(const HostOptions& a_options)
 	{
 		App app;
-		app.options = a_options;
 		app.log.Open(a_options.logFile);
 
 		bool elevated = false;

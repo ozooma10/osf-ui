@@ -245,7 +245,7 @@ Validation: `xmake build 'OSF UI'` compiled the plugin and host and deployed to 
    ~40 `_renderer/_bridge/_compositor` null checks, four atomics for one UiPass install state, and triple function-pointer indirection in the compositor are all dead weight.
    Construct renderer/compositor/bridge once at kPostPostLoad (host spawn + GPU setup stay lazy). Use `ComPtr` instead of ~20 `SafeRelease` sites.
 
-## Dead code / leftovers (safe deletions, verify each with a grep)
+## Dead code / leftovers (original review list; cleanup status below)
 
 - `InstallOverlayDrawPath` / `_drawPathRequested` (Runtime.cpp:231-239) — never installs anything.
 - Ring-truncation health channel (HealthEvent/SetHealthHandler/ReportHealth, ringSlotsAnnounced/Reported; WebView2HostWebRenderer.cpp:340-348,1125-1134,1638-1648,1705-1708; Runtime.cpp:88-91; OSFSettingsClient.cpp:118-120) — can't fire.
@@ -258,6 +258,16 @@ Validation: `xmake build 'OSF UI'` compiled the plugin and host and deployed to 
 - `ScavengeLegacyViewMirrors` (renderer :166-192) — full process snapshot every start for a pre-08e101d migration.
 - `package.json`, `package-lock.json`, `node_modules/` (incl. broken symlink), `tools/xmake/frontend_views.lua`; `.gitignore` stale entries.
 - `DeferredMainThreadWork.h` (one atomic for one field), `PendingPresentationWork`, `PublishPlatformState(key)` (only "views"), `InitializePaths` wrapper.
+
+### Cleanup status (2026-09-23)
+
+The unused renderer health channel, session metadata, duplicate failure guards, console state, input probes, host fields, BridgeApi methods and fields, trampoline reservation, legacy mirror scavenger, root npm manifests, unused XMake frontend helper, and thin runtime wrappers were removed. The draw hook now installs directly during lazy WebView runtime initialization. The duplicate per-view BridgeApi request cap was removed; MessageBridge still enforces its request limit.
+
+The review list also named live behavior. The renderer's process-handle mutex remains necessary for worker/stop synchronization. FocusMenu's button receiver still consumes captured gamepad events. `physicalWheel` is a live input message, and the `{kind:"event", name:"ui.visibility"}` bridge event still blurs focused page elements when a view hides. Only the obsolete visibility envelope check was removed.
+
+The ignored local `node_modules/` folder remains: automatic approval review rejected its recursive deletion. Removing legacy mirror scavenging means abandoned pre-migration mirrors are no longer cleaned at startup.
+
+Validation: `xmake build 'OSF UI'` passed and deployed DLL/host hashes matched the build outputs. Focused BridgeApi, settings-view example, and runtime lifecycle contract checks passed. No fresh game run was performed for this cleanup.
 
 ## Duplication
 

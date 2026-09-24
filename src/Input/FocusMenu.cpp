@@ -49,12 +49,7 @@ namespace OSFUI
 		void Receiver_OnCursorMove(void*, const void*) {}
 		void Receiver_OnMouseMove(void*, const void*) {}
 
-		void Receiver_OnCharacter(void*, const void* a_event)
-		{
-			if (a_event && Log::DebugEnabled()) {
-				REX::DEBUG("FocusMenu: input char U+{:04X}", *reinterpret_cast<const std::uint32_t*>(reinterpret_cast<const std::uint8_t*>(a_event) + 0x28));
-			}
-		}
+		void Receiver_OnCharacter(void*, const void*) {}
 
 		void Receiver_OnButton(void*, const RE::ButtonEvent* a_event)
 		{
@@ -64,9 +59,6 @@ namespace OSFUI
 			if (a_event->deviceType == RE::InputEvent::DeviceType::kGamepad &&
 				g_gamepadCapture.load(std::memory_order_relaxed)) {
 				ConsumeGamepadEvent(a_event);
-			}
-			if (Log::DebugEnabled()) {
-				REX::DEBUG("FocusMenu: input button dev={} id={:#x} value={:.2f} held={:.2f}", static_cast<std::uint32_t>(a_event->deviceType), a_event->idCode, a_event->value, a_event->heldDownSecs);
 			}
 		}
 

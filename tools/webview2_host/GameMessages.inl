@@ -232,12 +232,6 @@
 				if (!AnyRevealPending()) ApplyDeferredHides();
 			}
 
-			void HandleShutdown(const json&)
-			{
-				log.Info(std::format("shutdown requested by the game (frames={})", frameSerial));
-				quit.store(true);
-			}
-
 			void HandleGameMessage(const json& a_msg)
 			{
 				using Handler = void (App::*)(const json&);
@@ -260,7 +254,6 @@
 					{ msg::PostWeb::kType, &App::HandlePostWeb },
 					{ msg::OpenDevTools::kType, &App::HandleOpenDevTools },
 					{ msg::DestroyView::kType, &App::HandleDestroyView },
-					{ msg::Shutdown::kType, &App::HandleShutdown },
 				};
 				const auto type = Json::Get(a_msg, "type", "");
 				for (const auto& [name, handler] : handlers) {

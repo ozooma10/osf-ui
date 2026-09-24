@@ -7,7 +7,6 @@
 namespace OSFUI
 {
 	MenuEventSink    MenuEventSink::s_instance;
-	std::atomic_bool MenuEventSink::s_consoleOpen{ false };
 	std::atomic_bool MenuEventSink::s_chargenOpen{ false };
 	std::atomic_bool MenuEventSink::s_loadingOpen{ false };
 	std::atomic_bool MenuEventSink::s_mainMenuOpen{ false };
@@ -36,7 +35,6 @@ namespace OSFUI
 		const std::string_view name = a_event.menuName;
 		// Keep the rare console edge visible in the default log for hotkey diagnosis.
 		if (name == "Console") {
-			s_consoleOpen.store(a_event.opening, std::memory_order_relaxed);
 			REX::INFO("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
 		}
 		if (name == RE::ChargenMenu::MENU_NAME) {
@@ -58,11 +56,6 @@ namespace OSFUI
 	bool MenuEventSink::TransitionOpen()
 	{
 		return s_loadingOpen.load(std::memory_order_acquire) || s_mainMenuOpen.load(std::memory_order_acquire);
-	}
-
-	bool MenuEventSink::ConsoleOpen()
-	{
-		return s_consoleOpen.load(std::memory_order_relaxed);
 	}
 
 	bool MenuEventSink::ChargenOpen()

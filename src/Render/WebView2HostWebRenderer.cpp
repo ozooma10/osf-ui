@@ -3,7 +3,6 @@
 
 #include <atomic>
 #include <deque>
-#include <limits>
 #include <random>
 #include <thread>
 #include <unordered_map>
@@ -136,61 +135,6 @@ namespace OSFUI
 			return true;
 		}
 
-		bool ProcessIsAlive(DWORD a_pid)
-		{
-			if (a_pid == 0) return false;
-			const HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, a_pid);
-			if (!process) {
-				return ::GetLastError() != ERROR_INVALID_PARAMETER;
-			}
-			const bool alive = ::WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
-			::CloseHandle(process);
-			return alive;
-		}
-
-		std::optional<DWORD> SessionMirrorPid(
-			std::string_view a_name, std::string_view a_prefix)
-		{
-			if (!a_name.starts_with(a_prefix)) return std::nullopt;
-			const auto digits = a_name.substr(a_prefix.size());
-			if (digits.empty()) return std::nullopt;
-			std::uint64_t value = 0;
-			for (const unsigned char ch : digits) {
-				if (ch < '0' || ch > '9') return std::nullopt;
-				value = value * 10 + (ch - '0');
-				if (value > std::numeric_limits<DWORD>::max()) return std::nullopt;
-			}
-			return static_cast<DWORD>(value);
-		}
-
-		std::size_t ScavengeLegacyViewMirrors(const std::filesystem::path& a_localRoot)
-		{
-			std::size_t removed = 0;
-			std::error_code ec;
-			const bool anotherHostRunning = BrowserHostProcessRunning();
-			for (std::filesystem::directory_iterator it(a_localRoot, ec), end;
-				 !ec && it != end; it.increment(ec)) {
-				if (!it->is_directory(ec)) {
-					if (ec) break;
-					continue;
-				}
-				const auto name = Utf8Path(it->path().filename());
-				if (name == "views-mirror") {
-					if (anotherHostRunning) continue;
-				} else if (const auto legacyPid = SessionMirrorPid(name, "views-mirror-")) {
-					if (ProcessIsAlive(*legacyPid)) continue;
-				} else if (const auto devPid = SessionMirrorPid(name, "views-dev-")) {
-					if (ProcessIsAlive(*devPid)) continue;
-				} else {
-					continue;
-				}
-				std::error_code removeEc;
-				std::filesystem::remove_all(it->path(), removeEc);
-				if (!removeEc) ++removed;
-			}
-			return removed;
-		}
-
 		// Read the browser-host log tail for pre-handshake failure diagnostics.
 		std::vector<std::string> ReadLogTail(const std::filesystem::path& a_file,
 			std::size_t a_maxLines)
@@ -281,7 +225,6 @@ namespace OSFUI
 		LoadHandler             onLoad;
 		FailureHandler          onFailure;
 		CursorChangeHandler     onCursorChange;
-		HealthHandler           onHealth;
 		// Game-thread only (Drain/setters).
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
@@ -320,30 +263,12 @@ namespace OSFUI
 		std::atomic<Lifecycle> lifecycle{ Lifecycle::Stopped };
 		std::atomic_bool stopRequested{ false };
 		std::atomic_bool connected{ false }, dead{ false };
-		bool             deadLogged{ false };
-
-		struct BrowserHostSession
-		{
-			DWORD  pid{ 0 };
-			HANDLE process{ nullptr };
-			HWND   topLevel{ nullptr };
-		};
-		std::mutex sessionMutex;
-		BrowserHostSession session;
+		std::mutex hostProcessMutex;
+		HANDLE     hostProcess{ nullptr };
 
 		// Focus grants cross a process boundary; epochs reject stale requests.
 		std::atomic_bool focusRequested{ false };
 		std::atomic<std::uint64_t> focusEpoch{ 0 };
-
-		std::atomic<std::uint32_t> ringSlotsAnnounced{ 0 };
-		std::uint32_t              ringSlotsReported{ 0 };
-
-		void ReportHealth(std::string_view a_code, bool a_active, std::string_view a_detail = {})
-		{
-			if (onHealth) {
-				onHealth(HealthEvent{ a_code, a_active, a_detail });
-			}
-		}
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;
@@ -395,27 +320,16 @@ namespace OSFUI
 		std::condition_variable written;
 		std::uint64_t lastWrittenSequence{ 0 };
 		bool writerFailed{ false };
-		std::atomic_bool outboundOverflowed{ false };
-
-		void SetTopLevel(HWND a_topLevel)
+		void SetBrowserHostProcess(HANDLE a_process)
 		{
-			std::scoped_lock lock(sessionMutex);
-			session.topLevel = a_topLevel;
-		}
-
-		void SetBrowserHostProcess(DWORD a_pid, HANDLE a_process)
-		{
-			std::scoped_lock lock(sessionMutex);
-			session.pid = a_pid;
-			session.process = a_process;
+			std::scoped_lock lock(hostProcessMutex);
+			hostProcess = a_process;
 		}
 
 		HANDLE TakeBrowserHostProcess()
 		{
-			std::scoped_lock lock(sessionMutex);
-			session.pid = 0;
-			session.topLevel = nullptr;
-			return std::exchange(session.process, nullptr);
+			std::scoped_lock lock(hostProcessMutex);
+			return std::exchange(hostProcess, nullptr);
 		}
 
 		void SignalDead(std::string_view a_reason)
@@ -449,10 +363,8 @@ namespace OSFUI
 			const auto result = outbound.Push(Json::Dump(a_msg), CoalesceKey(a_msg),
 				nextOutboundSequence.fetch_add(1, std::memory_order_relaxed));
 			if (result == decltype(outbound)::PushResult::Full) {
-				if (!outboundOverflowed.exchange(true)) {
-					SignalDead(std::format(
-						"outbound IPC message queue exceeded {} messages", kMaxOutbound));
-				}
+				SignalDead(std::format(
+					"outbound IPC message queue exceeded {} messages", kMaxOutbound));
 				return false;
 			}
 			return result != decltype(outbound)::PushResult::Closed;
@@ -574,7 +486,6 @@ namespace OSFUI
 			const auto localRoot = LocalOsfuiDir();
 			const auto started = std::chrono::steady_clock::now();
 			if (config.devMode) {
-				ScavengeLegacyViewMirrors(localRoot);
 				const auto mirror = localRoot / std::format("views-dev-{}", ::GetCurrentProcessId());
 				std::error_code ec;
 				std::filesystem::remove_all(mirror, ec);
@@ -627,10 +538,9 @@ namespace OSFUI
 				[](const std::filesystem::path& a_generation) {
 					return CacheGenerationCanBeRemoved(a_generation);
 				});
-			const auto legacyRemoved = ScavengeLegacyViewMirrors(localRoot);
 			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-			REX::INFO("WebView2HostWebRenderer: USVFS views cache {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s) + {} legacy mirror(s), retained {} generation(s))",
-				prepared->reused ? "reused" : "published", ToUtf8(mappedViewsRoot.native()), prepared->fingerprint.files, static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), elapsed, scavenged.removed, legacyRemoved, scavenged.retained);
+			REX::INFO("WebView2HostWebRenderer: USVFS views cache {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s), retained {} generation(s))",
+				prepared->reused ? "reused" : "published", ToUtf8(mappedViewsRoot.native()), prepared->fingerprint.files, static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), elapsed, scavenged.removed, scavenged.retained);
 			if (scavenged.failed) {
 				REX::WARN("WebView2HostWebRenderer: {} views-cache item(s) could not be scavenged; they will be retried next launch", scavenged.failed);
 			}
@@ -735,7 +645,6 @@ namespace OSFUI
 
 			stopRequested.store(false, std::memory_order_release);
 			connected.store(false, std::memory_order_release);
-			outboundOverflowed.store(false, std::memory_order_release);
 			{
 				std::scoped_lock lock(writerGateMutex);
 				writerReady = false;
@@ -836,7 +745,6 @@ namespace OSFUI
 			}
 
 			const HWND gameTopLevel = FindTopLevelWindow();
-			SetTopLevel(gameTopLevel);
 
 			auto pipeSeed = ::GetTickCount64() ^
 				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17);
@@ -937,7 +845,7 @@ namespace OSFUI
 					*peerPid, ::GetLastError()));
 				return;
 			}
-			SetBrowserHostProcess(*peerPid, browserHostProcess);
+			SetBrowserHostProcess(browserHostProcess);
 
 			const auto webView2RuntimeVersion =
 				greeting.runtimeVersion.empty() ? std::string("?") : greeting.runtimeVersion;
@@ -1108,9 +1016,6 @@ namespace OSFUI
 					static_cast<std::uintptr_t>(slots[i]));
 				++desc.slotCount;
 			}
-			// Health notifications are drained on the tick thread.
-			ringSlotsAnnounced.store(static_cast<std::uint32_t>(slots.size()),
-				std::memory_order_relaxed);
 			desc.produceFence = reinterpret_cast<void*>(
 				static_cast<std::uintptr_t>(a_msg.produceFence));
 			desc.width = a_msg.width;
@@ -1213,19 +1118,16 @@ namespace OSFUI
 					}
 					break;
 				case Notify::Kind::Dead:
-					if (!deadLogged) {
-						deadLogged = true;
-						REX::ERROR("WebView2HostWebRenderer: browser-host connection lost — the "
-								   "overlay is closing before bounded browser-host recovery begins "
-								   "(browser-host log: {})", Utf8Path(browserHostLog));
-						if (onFailure) {
-							onFailure(FailureEvent{
-								.stage = "host-connection",
-								.viewId = inputTargetId,
-								.description = "WebView2 browser-host connection lost",
-								.errorCode = 0
-							});
-						}
+					REX::ERROR("WebView2HostWebRenderer: browser-host connection lost — the "
+							   "overlay is closing before bounded browser-host recovery begins "
+							   "(browser-host log: {})", Utf8Path(browserHostLog));
+					if (onFailure) {
+						onFailure(FailureEvent{
+							.stage = "host-connection",
+							.viewId = inputTargetId,
+							.description = "WebView2 browser-host connection lost",
+							.errorCode = 0
+						});
 					}
 					break;
 				}
@@ -1339,10 +1241,6 @@ namespace OSFUI
 			// Never stall Starfield's main thread waiting for a stranded host after pipe failure.
 			Stop(true);
 
-			if (ringSlotsReported > SharedRingDesc::kMaxSlots) {
-				ReportHealth("host.ring-truncated", false);
-			}
-
 			const auto discardedOut = outbound.Size();
 			outbound.Reset();
 			{
@@ -1354,7 +1252,6 @@ namespace OSFUI
 				lastWrittenSequence = 0;
 				writerFailed = false;
 			}
-			outboundOverflowed.store(false, std::memory_order_release);
 
 			{
 				std::scoped_lock lock(notifyMutex);
@@ -1366,11 +1263,8 @@ namespace OSFUI
 			frames->Disconnect();
 			connected.store(false, std::memory_order_release);
 			dead.store(false, std::memory_order_release);
-			deadLogged = false;
 			focusRequested.store(false);
 			focusEpoch.store(0);
-			ringSlotsAnnounced.store(0);
-			ringSlotsReported = 0;
 			stopRequested.store(false);
 
 			if (discardedOut) {
@@ -1413,11 +1307,9 @@ namespace OSFUI
 		return true;
 	}
 
-	bool WebView2HostWebRenderer::RestartAfterFailure()
+	void WebView2HostWebRenderer::RestartAfterFailure()
 	{
-		if (!_impl) return false;
 		_impl->ResetAfterFailure();
-		return true;
 	}
 
 	void WebView2HostWebRenderer::CreateOrNavigateView(const ViewManifest& a_manifest)
@@ -1528,17 +1420,6 @@ namespace OSFUI
 			if (released[slot]) _impl->Send(ToJson(msg::FrameAck{ .slot = slot, .serial = released[slot] }));
 		}
 
-		// Report truncated ring depth as a game-thread degradation, not total failure.
-		if (const auto announced = _impl->ringSlotsAnnounced.exchange(0, std::memory_order_relaxed);
-			announced != 0 && announced != _impl->ringSlotsReported) {
-			_impl->ringSlotsReported = announced;
-			const bool truncated = announced > SharedRingDesc::kMaxSlots;
-			const auto detail = truncated ?
-				std::format("browser host announced {} slots, capacity {}",
-					announced, SharedRingDesc::kMaxSlots) :
-				std::string{};
-			_impl->ReportHealth("host.ring-truncated", truncated, detail);
-		}
 	}
 
 	std::shared_ptr<SharedFrameConsumer> WebView2HostWebRenderer::Frames() const
@@ -1570,10 +1451,6 @@ namespace OSFUI
 	void WebView2HostWebRenderer::SetCursorChangeHandler(CursorChangeHandler a_handler)
 	{
 		_impl->onCursorChange = std::move(a_handler);
-	}
-	void WebView2HostWebRenderer::SetHealthHandler(HealthHandler a_handler)
-	{
-		_impl->onHealth = std::move(a_handler);
 	}
 	void WebView2HostWebRenderer::SetInputFocus(bool a_focused)
 	{

@@ -29,11 +29,6 @@ namespace OSFUI
 		return *instance;
 	}
 
-	bool Runtime::InitializePaths()
-	{
-		return Paths::Initialize();
-	}
-
 	void Runtime::LoadStartupContent()
 	{
 		_views.DiscoverAll(Paths::ViewsDir());
@@ -85,11 +80,6 @@ namespace OSFUI
 
 		_renderer->SetFailureHandler([this](const WebView2HostWebRenderer::FailureEvent& a_e) {
 			OnRendererFailure(a_e);
-		});
-
-		_renderer->SetHealthHandler([this](const WebView2HostWebRenderer::HealthEvent& a_e) {
-			if (a_e.active) _osfSettings.ReportFailure(a_e.code, a_e.code, a_e.detail);
-			else _osfSettings.ClearFailure(a_e.code);
 		});
 
 		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
@@ -153,7 +143,7 @@ namespace OSFUI
 		_rendererFailureLatched = false;
 		_browserHostRecovery.Reset();
 
-		if(!InitializePaths()) {
+		if (!Paths::Initialize()) {
 			return false;
 		}
 
@@ -204,7 +194,7 @@ namespace OSFUI
 		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (_bridge) _bridge->HandleWebMessage(a_viewId, a_json);
 		});
-		if (_drawPathRequested && !UiPass::Install()) {
+		if (!UiPass::Install()) {
 			_osfSettings.ReportFailure("startup.draw-path", "webview.draw-path", "Scaleform UI pass hook failed");
 			return false;
 		}
@@ -221,19 +211,9 @@ namespace OSFUI
 		return true;
 	}
 
-	bool Runtime::InstallOverlayDrawPath()
-	{
-		_drawPathRequested = true;
-		if (_compositor && !UiPass::Install()) {
-			REX::ERROR("Runtime: Scaleform UI pass hook failed");
-			return false;
-		}
-		return true;
-	}
-
 	void Runtime::OnDataLoaded()
 	{
-		_dataLoadedInit.Request();
+		_dataLoadedInitPending.store(true, std::memory_order_release);
 	}
 
 	void Runtime::OnPostDataLoaded()
@@ -284,23 +264,14 @@ namespace OSFUI
 	}
 
 
-	Runtime::PendingPresentationWork Runtime::TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin)
+	void Runtime::ApplyPresentationRequests(
+		const std::vector<ViewRequestQueue::Operation>& a_local,
+		const std::vector<API::BridgeApi::ViewPresentationRequest>& a_plugin)
 	{
-		auto queued = m_viewRequests.Take();
-		PendingPresentationWork work;
-		work.local = std::move(queued.presentation);
-		work.plugin = std::move(a_plugin);
-		return work;
-	}
-
-	void Runtime::ApplyPresentationRequests(const PendingPresentationWork& a_work)
-	{
-		const auto& reqs = a_work.local;
-		const auto& pluginReqs = a_work.plugin;
-		if (reqs.empty() && pluginReqs.empty()) {
+		if (a_local.empty() && a_plugin.empty()) {
 			return;
 		}
-		for (const auto& operation : reqs) {
+		for (const auto& operation : a_local) {
 			if (const auto* pointer = std::get_if<ViewRequestQueue::RelativePointerRequest>(&operation)) {
 				ApplyViewPresentationPolicy();
 				ApplyRelativePointerRequests({ *pointer });
@@ -339,7 +310,7 @@ namespace OSFUI
 				break;
 			}
 		}
-		for (const auto& r : pluginReqs) {
+		for (const auto& r : a_plugin) {
 			if (r.open) {
 				BeginViewOpen(r.view, "on demand", r.requestedAt);
 			} else {
@@ -804,14 +775,7 @@ namespace OSFUI
 
 		const auto attempt = _browserHostRecovery.Attempts();
 		REX::INFO("Runtime: restarting browser host (attempt {}/{})", attempt, BrowserHostRecovery::kMaxAttempts);
-		if (!_renderer || !_renderer->RestartAfterFailure()) {
-			REX::ERROR("Runtime: renderer could not reset its failed browser-host connection");
-			_browserHostRecovery.OnAttemptSetupFailed(_uptime);
-			if (_browserHostRecovery.PhaseValue() == BrowserHostRecovery::Phase::Exhausted) {
-				REX::ERROR("Runtime: automatic browser-host recovery exhausted; the next explicit menu open will start a fresh retry cycle");
-			}
-			return;
-		}
+		_renderer->RestartAfterFailure();
 
 		_rendererFailureLatched = false;
 		RehydrateRendererAfterRestart();

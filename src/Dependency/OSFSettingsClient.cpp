@@ -115,9 +115,6 @@ namespace OSFUI
 		} else if (a_code == "view.protocol-misuse") {
 			result = { Severity::Warning, "A mod WebView is sending unsupported requests", degraded,
 				"Update the owning mod and OSF UI to compatible versions." };
-		} else if (a_code == "host.ring-truncated") {
-			result = { Severity::Warning, "OSF UI is dropping browser frame data",
-				"WebViews may appear incomplete or fail to refresh.", kRepair };
 		}
 		return result;
 	}

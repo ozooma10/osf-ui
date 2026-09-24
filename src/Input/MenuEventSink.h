@@ -18,8 +18,6 @@ namespace OSFUI
 			const RE::MenuOpenCloseEvent& a_event,
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
 
-		// Any-thread console edge used because its kModal-clear flag escapes the menu-mode walk.
-		[[nodiscard]] static bool ConsoleOpen();
 		// Any-thread semantic edge. Runtime consumes it on the game main thread.
 		[[nodiscard]] static bool ChargenOpen();
 		[[nodiscard]] static bool TransitionOpen();
@@ -28,7 +26,6 @@ namespace OSFUI
 		MenuEventSink() = default;
 
 		static MenuEventSink    s_instance;
-		static std::atomic_bool s_consoleOpen;
 		static std::atomic_bool s_chargenOpen;
 		static std::atomic_bool s_loadingOpen;
 		static std::atomic_bool s_mainMenuOpen;

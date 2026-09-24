@@ -45,8 +45,6 @@ namespace OSFUI::API
 			bool                                  open{ true };
 			std::chrono::steady_clock::time_point requestedAt;
 		};
-		std::vector<ViewPresentationRequest> TakeViewPresentationRequests();
-
 		void SetViewCatalog(const std::vector<std::string>& a_viewIds);
 		void SetViewInstantiated(std::string_view a_viewId, bool a_instantiated);
 
@@ -56,8 +54,6 @@ namespace OSFUI::API
 			std::string    key;
 			nlohmann::json value;
 		};
-		std::vector<ViewStateOp> TakeViewStateOps();
-
 		struct PendingBatch
 		{
 			std::vector<ViewPresentationRequest> presentation;
@@ -65,8 +61,6 @@ namespace OSFUI::API
 			std::vector<std::string>              viewRegistrations;
 		};
 		[[nodiscard]] PendingBatch TakePendingBatch();
-
-		std::vector<std::string> TakeViewRegistrations();
 
 		bool ClaimPapyrusEndpoint(std::string_view a_name);
 		void ReleasePapyrusEndpoint(std::string_view a_name);
@@ -129,10 +123,8 @@ namespace OSFUI::API
 		};
 		struct InflightRequest
 		{
-			std::uint64_t token{ 0 };
 			std::string view;
 			std::string deferToken;  // MessageBridge::Defer()'s token, not the page's request id
-			std::string name;
 			bool answered{ false };
 			bool rejected{ false };
 			std::string payloadJson;
@@ -141,9 +133,7 @@ namespace OSFUI::API
 		};
 		struct PendingReply
 		{
-			std::string view;
 			std::string deferToken;
-			std::string name;
 			std::string payloadJson;
 			bool        rejected{ false };
 			std::string code;

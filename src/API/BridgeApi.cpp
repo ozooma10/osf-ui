@@ -9,7 +9,6 @@ namespace OSFUI::API
 	namespace
 	{
 		constexpr std::size_t kMaxPendingSendsPerView = 64;
-		constexpr std::size_t kMaxInflightRequestsPerView = 64;
 
 		const std::string* FindIdCaseInsensitive(
 			const std::unordered_set<std::string>& a_ids, std::string_view a_wanted)
@@ -276,16 +275,6 @@ namespace OSFUI::API
 		MarkPending(kPendingPump);
 	}
 
-	std::vector<BridgeApi::ViewPresentationRequest> BridgeApi::TakeViewPresentationRequests()
-	{
-		const auto reasons = _pending.fetch_and(~kPendingPresentation, std::memory_order_acq_rel);
-		if (!(reasons & kPendingPresentation)) return {};
-		std::lock_guard lock(_mutex);
-		std::vector<ViewPresentationRequest> out;
-		out.swap(_pendingViewPresentationRequests);
-		return out;
-	}
-
 	bool BridgeApi::RegisterView(const char* a_viewId) noexcept
 	{
 		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId) ||
@@ -294,27 +283,6 @@ namespace OSFUI::API
 		_pendingViewRegs.emplace_back(a_viewId);
 		MarkPending(kPendingViewRegistrations);
 		return true;
-	}
-
-	std::vector<std::string> BridgeApi::TakeViewRegistrations()
-	{
-		const auto reasons = _pending.fetch_and(~kPendingViewRegistrations,
-			std::memory_order_acq_rel);
-		if (!(reasons & kPendingViewRegistrations)) return {};
-		std::lock_guard lock(_mutex);
-		std::vector<std::string> out;
-		out.swap(_pendingViewRegs);
-		return out;
-	}
-
-	std::vector<BridgeApi::ViewStateOp> BridgeApi::TakeViewStateOps()
-	{
-		const auto reasons = _pending.fetch_and(~kPendingState, std::memory_order_acq_rel);
-		if (!(reasons & kPendingState)) return {};
-		std::lock_guard lock(_mutex);
-		std::vector<ViewStateOp> out;
-		out.swap(_pendingStateOps);
-		return out;
 	}
 
 	BridgeApi::PendingBatch BridgeApi::TakePendingBatch()
@@ -381,19 +349,13 @@ namespace OSFUI::API
 		std::uint64_t token;
 		{
 			std::lock_guard lock(_mutex);
-			const auto count = std::ranges::count_if(_inflightRequests,
-				[&](const auto& item) { return item.second.view == view; });
-			if (count >= kMaxInflightRequestsPerView) {
-				a_bridge.Reject("request-capacity", "too many requests are in flight");
-				return;
-			}
 			token = _nextRequestToken++;
 		}
 		const std::string defer = a_bridge.Defer([this, token] { DropInflightRequest(token); });
 		{
 			std::lock_guard lock(_mutex);
 			_inflightRequests.emplace(token,
-				InflightRequest{ token, view, defer, a_name });
+				InflightRequest{ .view = view, .deferToken = defer });
 		}
 		Request request;
 		request.name = a_name.c_str();
@@ -476,8 +438,8 @@ namespace OSFUI::API
 				for (auto it = _inflightRequests.begin(); it != _inflightRequests.end();) {
 					if (!it->second.answered) { ++it; continue; }
 					auto& request = it->second;
-					replies.push_back({ request.view, request.deferToken, request.name,
-						request.payloadJson, request.rejected, request.code, request.message });
+					replies.push_back({ request.deferToken, request.payloadJson,
+						request.rejected, request.code, request.message });
 					it = _inflightRequests.erase(it);
 				}
 			}

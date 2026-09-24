@@ -39,17 +39,9 @@ namespace OSFUI
 			std::uint32_t    errorCode{ 0 };
 		};
 
-		struct HealthEvent
-		{
-			std::string_view code;
-			bool             active{ true };
-			std::string_view detail;
-		};
-
 		using WebMessageHandler = std::function<void(std::string_view a_viewId, std::string_view a_json)>;
 		using LoadHandler = std::function<void(const LoadEvent& a_event)>;
 		using FailureHandler = std::function<void(const FailureEvent& a_event)>;
-		using HealthHandler = std::function<void(const HealthEvent& a_event)>;
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
 		// Update drains game-thread callbacks; cursor callbacks run on the transport thread.
@@ -58,7 +50,7 @@ namespace OSFUI
 		~WebView2HostWebRenderer();
 
 		bool Initialize(const WebView2HostConfig& a_config);
-		bool RestartAfterFailure();
+		void RestartAfterFailure();
 		void CreateOrNavigateView(const ViewManifest& a_manifest);
 		bool RefreshViewFiles(std::string_view a_viewId);
 		void SetInputTargetView(std::string_view a_id);
@@ -73,7 +65,6 @@ namespace OSFUI
 		void SetFailureHandler(FailureHandler a_handler);
 		void SetCursorChangeHandler(CursorChangeHandler a_handler);
 		void SetInputFocus(bool a_focused);
-		void SetHealthHandler(HealthHandler a_handler);
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down);
 		void InjectKeyboard(const osfui::wv2::msg::Keyboard& a_key);
 		void InjectText(const osfui::wv2::msg::TextInput& a_text);

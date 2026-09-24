@@ -45,7 +45,7 @@ int main()
     api.SetViewCatalog({ "acme/panel", "acme/hud" });
     CHECK(api.RequestMenu("acme/panel", true));
     CHECK(!api.RequestMenu("missing/panel", true));
-    auto presentation = api.TakeViewPresentationRequests();
+    auto presentation = api.TakePendingBatch().presentation;
     CHECK(presentation.size() == 1 && presentation[0].view == "acme/panel" && presentation[0].open);
 
     API::Client client;
@@ -56,12 +56,12 @@ int main()
 
     CHECK(api.RegisterView("acme/panel"));
     CHECK(!api.RegisterView("osfui/settings"));
-    auto registrations = api.TakeViewRegistrations();
+    auto registrations = api.TakePendingBatch().viewRegistrations;
     CHECK(registrations == std::vector<std::string>{ "acme/panel" });
 
     CHECK(api.SetViewState("acme", "status", R"({"ready":true})"));
     CHECK(!api.SetViewState("acme", "status", "{bad"));
-    auto state = api.TakeViewStateOps();
+    auto state = api.TakePendingBatch().state;
     CHECK(state.size() == 1 && state[0].mod == "acme" && state[0].key == "status");
 
     CHECK(api.RegisterRelativePointer("acme/panel", &Pointer, nullptr));

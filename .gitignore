@@ -19,7 +19,6 @@ external/
 
 # files
 *.zip
-*.tgz
 compile_commands.json
 
 # MSVC compiler droppings from host-test builds run outside .build

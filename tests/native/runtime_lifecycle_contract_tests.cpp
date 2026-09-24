@@ -51,7 +51,7 @@ int main()
     const auto policy = runtime.substr(runtime.find("void Runtime::ApplyViewPresentationPolicy()"));
     Check(policy.find("ReconcileInputSuppression()") < policy.find("SetInputTargetView"),
         "hotkeys are blocked before the browser receives input focus");
-    const auto lazyEnd = runtime.find("bool Runtime::InstallOverlayDrawPath()", lazy);
+    const auto lazyEnd = runtime.find("void Runtime::OnDataLoaded()", lazy);
     const auto lazyBody = runtime.substr(lazy, lazyEnd - lazy);
     Check(lazyBody.find("InitializeRenderer()") != std::string::npos &&
           lazyBody.find("InitializeCompositor()") != std::string::npos,

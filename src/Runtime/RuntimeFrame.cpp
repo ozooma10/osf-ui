@@ -10,7 +10,7 @@ namespace OSFUI
 {
 	void Runtime::ProcessLifecycleWork()
 	{
-		if (_dataLoadedInit.Take()) InitializeDataLoadedState();
+		if (_dataLoadedInitPending.exchange(false, std::memory_order_acq_rel)) InitializeDataLoadedState();
 		if (_postDataLoadedReady.load(std::memory_order_acquire) && !_menuEventsAttempted) {
 			_menuEventsAttempted = true;
 			_menuEventsAvailable = UiLayoutGuard::VerifyUiLayout() && MenuEventSink::Install();
@@ -100,10 +100,10 @@ namespace OSFUI
 		ProcessLifecycleWork();
 		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
 		DrainViewRegistrations(std::move(bridgeBatch.viewRegistrations));
-		const auto presentationWork = TakePresentationRequests(std::move(bridgeBatch.presentation));
+		auto localRequests = m_viewRequests.Take();
 		auto papyrusBatch = API::Papyrus::TakePendingBatch();
 		ProcessBackendQueues(std::move(papyrusBatch), std::move(bridgeBatch.state));
-		ApplyPresentationRequests(presentationWork);
+		ApplyPresentationRequests(localRequests.presentation, bridgeBatch.presentation);
 		ReconcileFrameState(a_deltaSeconds);
 		ProcessRendererFrame(a_deltaSeconds);
 		DrainRelativePointerCapture();

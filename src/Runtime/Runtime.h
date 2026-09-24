@@ -9,7 +9,6 @@
 #include "Dependency/OSFSettingsClient.h"
 #include "Input/GamepadSession.h"
 #include "Render/WebView2HostWebRenderer.h"
-#include "Runtime/DeferredMainThreadWork.h"
 #include "Runtime/AdaptiveViewGeometry.h"
 #include "Views/Dev/DevViewReloadWorker.h"
 #include "Views/ViewPresentationController.h"
@@ -32,8 +31,6 @@ namespace OSFUI
 
 		bool Initialize();
 		void OnPostPostLoad();
-		// Install the render hook after peer plugins have had a chance to establish their hook chain.
-		bool InstallOverlayDrawPath();
 		void OnDataLoaded();
 		void OnPostDataLoaded();
 
@@ -65,7 +62,6 @@ namespace OSFUI
 	private:
 		Runtime() = default;
 
-		bool InitializePaths();
 		void LoadStartupContent();
 		bool EnsureWebRuntime();
 		bool EnsureCaptureIntegration();
@@ -90,14 +86,9 @@ namespace OSFUI
 
 		void QueueMouseMove();
 
-		struct PendingPresentationWork
-		{
-			std::vector<std::variant<ViewPresentationRequest, ViewRequestQueue::OpenRequest,
-				ViewRequestQueue::RelativePointerRequest>> local;
-			std::vector<API::BridgeApi::ViewPresentationRequest> plugin;
-		};
-		PendingPresentationWork TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin);
-		void                          ApplyPresentationRequests(const PendingPresentationWork& a_work);
+		void ApplyPresentationRequests(
+			const std::vector<ViewRequestQueue::Operation>& a_local,
+			const std::vector<API::BridgeApi::ViewPresentationRequest>& a_plugin);
 		void                          ApplyRelativePointerRequests(const std::vector<ViewRequestQueue::RelativePointerRequest>& a_requests);
 
 		bool BeginViewOpen(std::string_view a_id, std::string_view a_reason = "on demand",
@@ -160,7 +151,7 @@ namespace OSFUI
 		std::unordered_set<std::string> InstantiatedViewsOfMod(std::string_view a_mod) const;
 
 		void PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value);
-		void PublishPlatformState(std::string_view a_key, std::string_view a_viewId = {});
+		void PublishViewsState(std::string_view a_viewId = {});
 
 		void OnViewGreeted(std::string_view a_viewId);
 		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
@@ -171,7 +162,7 @@ namespace OSFUI
 		std::unique_ptr<MessageBridge>          _bridge;
 		OSFSettingsClient                       _osfSettings;
 
-		DeferredMainThreadWork                  _dataLoadedInit;
+		std::atomic_bool                        _dataLoadedInitPending{ false };
 		std::atomic_bool              _devToolsRequested{ false };
 
 		std::unique_ptr<DevViewReloadWorker> _devViewReload;
@@ -232,7 +223,6 @@ namespace OSFUI
 		bool                          _captureIntegrationInitialized{ false };
 		bool                          _captureIntegrationAvailable{ false };
 		std::atomic_bool              _postDataLoadedReady{ false };
-		bool                          _drawPathRequested{ false };
 		bool                          _webRuntimeInitializing{ false };
 		bool                          _webRuntimeReady{ false };
 
