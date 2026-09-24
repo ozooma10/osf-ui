@@ -212,28 +212,44 @@
 				// Duplicate everything into the game and announce the new ring.
 				std::vector<std::uint64_t> slots;
 				slots.reserve(kRingSlots);
+				std::vector<HANDLE> remoteHandles;
+				remoteHandles.reserve(kRingSlots + 1);
+				const auto closeUnannouncedHandles = [&] {
+					for (const auto remote : remoteHandles) {
+						HANDLE local = nullptr;
+						if (::DuplicateHandle(gameProcess, remote, ::GetCurrentProcess(), &local,
+							0, FALSE, DUPLICATE_CLOSE_SOURCE)) {
+							::CloseHandle(local);
+						}
+					}
+				};
 				for (auto& slot : ring) {
 					const auto remote = DuplicateToGame(slot.localHandle);
 					if (!remote) {
+						closeUnannouncedHandles();
 						ReleaseRing();
 						return false;
 					}
+					remoteHandles.push_back(remote);
 					slots.push_back(reinterpret_cast<std::uint64_t>(remote));
 				}
 				HANDLE produceLocal = nullptr;
 				if (FAILED(produceFence->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr,
 						&produceLocal))) {
 					log.Error("produce fence CreateSharedHandle failed");
+					closeUnannouncedHandles();
 					ReleaseRing();
 					return false;
 				}
 				const auto produceRemote = DuplicateToGame(produceLocal);
 				::CloseHandle(produceLocal);
 				if (!produceRemote) {
+					closeUnannouncedHandles();
 					ReleaseRing();
 					return false;
 				}
-				Send(msg::ToJson(msg::Textures{
+				remoteHandles.push_back(produceRemote);
+				if (!Send(msg::ToJson(msg::Textures{
 					.width = a_width,
 					.height = a_height,
 					.slots = std::move(slots),
@@ -241,7 +257,11 @@
 					.keyedMutex = ringKeyedMutex,
 					.adapterLuidLow = graphicsAdapterLuid.LowPart,
 					.adapterLuidHigh = static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart),
-				}));
+				}))) {
+					closeUnannouncedHandles();
+					ReleaseRing();
+					return false;
+				}
 				log.InfoFwd(std::format(
 					"shared texture ring ready {}x{} ({} slots, keyedMutex={})",
 					a_width, a_height, kRingSlots, ringKeyedMutex));
@@ -403,15 +423,16 @@
 			View* ResolveView(const json& a_msg)
 			{
 				if (const auto it = a_msg.find("view"); it != a_msg.end() && it->is_string()) {
-					if (auto* view = FindView(it->get<std::string>())) return view;
+					return FindView(it->get<std::string>());
 				}
-				return inputTarget;
+				return nullptr;
 			}
 
 			View& CreateView(const std::string& a_id)
 			{
 				auto owned = std::make_unique<View>();
 				owned->id = a_id;
+				owned->generation = nextViewGeneration++;
 				const auto slash = a_id.find('/');
 				owned->modId = ToWide(a_id.substr(0, slash));
 				owned->viewName = ToWide(a_id.substr(slash + 1));

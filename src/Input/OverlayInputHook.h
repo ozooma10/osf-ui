@@ -14,10 +14,6 @@ namespace OSFUI
 			std::uint32_t height{ 0 };
 		};
 
-		// Renderer-worker request to restore focus on Starfield's window thread.
-		inline constexpr std::uint32_t kRestoreGameFocusMessage = 0x8049;
-		// Wake WndProc to apply cursor state immediately after main-thread policy changes.
-		inline constexpr std::uint32_t kRefreshInputStateMessage = 0x804A;
 		// Install once on the first main-thread tick; never un-subclass another overlay's chain.
 		bool Install();
 		void RequestStateRefresh();

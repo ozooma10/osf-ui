@@ -111,10 +111,12 @@ int main()
     bridge.HandleWebMessage("acme/panel",
         R"({"kind":"send","name":"osfui.hello","payload":{}})");
     CHECK(g_sent.size() == 2);
-    CHECK(g_sent[0]["kind"] == "ready");
-    CHECK(g_sent[1]["kind"] == "event");
-    CHECK(g_sent[1]["name"] == "acme.during-recovery");
-    CHECK(g_sent[1]["payload"]["value"] == 7);
+    if (g_sent.size() == 2) {
+        CHECK(g_sent[0]["kind"] == "ready");
+        CHECK(g_sent[1]["kind"] == "event");
+        CHECK(g_sent[1]["name"] == "acme.during-recovery");
+        CHECK(g_sent[1]["payload"]["value"] == 7);
+    }
 
 
     CHECK(g_ready == 2); // readiness fires again after recreation
@@ -127,6 +129,14 @@ int main()
     CHECK(api.SendToWeb("ACME/PANEL", "mixed-case", "{}"));
     api.PumpMainThread();
     CHECK(g_sent.size() == 1 && g_sent.back()["name"] == "mixed-case");
+    g_sent.clear();
+    CHECK(api.SendToWeb("acme/panel", "commented-json", R"({/* allowed input */"value":3})"));
+    api.PumpMainThread();
+    CHECK(g_sent.size() == 1 && g_sent.back()["payload"]["value"] == 3);
+    g_sent.clear();
+    const std::string qualifiedEvent = std::string(64, 'a') + "." + std::string(125, 'b');
+    bridge.Emit("acme/panel", qualifiedEvent, nlohmann::json::object());
+    CHECK(g_sent.size() == 1 && g_sent.back()["name"] == qualifiedEvent);
     CHECK(api.ClaimPapyrusEndpoint("acme.refresh"));
     CHECK(!api.RegisterSend("Acme.Refresh", &Send, nullptr));
     CHECK(!api.ClaimPapyrusEndpoint("ACME.INCREMENT"));

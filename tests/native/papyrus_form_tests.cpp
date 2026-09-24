@@ -192,7 +192,7 @@ int main()
 	CHECK(registerRequest(*vm, 0, {}, "FormSink", "T.Forms", "choose") != 0);
 
 	vm->calls.clear();
-	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-form"));
+	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-form") == API::Papyrus::StaticDispatchResult::kQueued);
 	CHECK(vm->calls.size() == 1);
 	std::string token = vm->calls.empty() ? "" : vm->calls[0].args.back();
 	CHECK(reply(*vm, 0, {}, token, &scalarForm));
@@ -203,7 +203,7 @@ int main()
 	}
 
 	vm->calls.clear();
-	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-forms"));
+	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-forms") == API::Papyrus::StaticDispatchResult::kQueued);
 	token = vm->calls.empty() ? "" : vm->calls[0].args.back();
 	CHECK(replyForms(*vm, 0, {}, token, { &keyword, nullptr, &weapon }));
 	{

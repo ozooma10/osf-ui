@@ -22,7 +22,9 @@ namespace OSFUI
 	[[nodiscard]] constexpr CursorShape CursorShapeFromSystemCursorId(std::uint32_t a_id) noexcept
 	{
 		switch (a_id) {
-		case 0:     return CursorShape::kNone;
+		// WebView2 also reports 0 for custom CSS cursors. The IPC carries only
+		// system IDs, so keep a visible fallback instead of hiding the pointer.
+		case 0:     return CursorShape::kArrow;
 		case 32513: return CursorShape::kIBeam;
 		case 32514: return CursorShape::kWait;
 		case 32515: return CursorShape::kCross;

@@ -36,6 +36,13 @@ namespace OSFUI
 			}
 			return;
 		}
+		if (!a_desired && ui->pauseRequestCount == 0) {
+			// A game/load teardown can reset the engine counter before our release.
+			// Do not wrap its unsigned count by sending an unmatched decrement.
+			REX::WARN("SimPause: engine pause counter was already zero at release");
+			g_engaged = false;
+			return;
+		}
 		ui->ModifyMenuPauseCounter(PauseSourceName(), a_desired);
 		g_engaged = a_desired;
 		REX::DEBUG("SimPause: {} (UI::pauseRequestCount {})", a_desired ? "engaged" : "released",

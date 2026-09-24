@@ -20,7 +20,7 @@ int main()
 	assert(CursorShapeFromSystemCursorId(32648) == CursorShape::kNotAllowed);
 	assert(CursorShapeFromSystemCursorId(32649) == CursorShape::kHand);
 	assert(CursorShapeFromSystemCursorId(32651) == CursorShape::kHelp);
-	assert(CursorShapeFromSystemCursorId(0) == CursorShape::kNone);
+	assert(CursorShapeFromSystemCursorId(0) == CursorShape::kArrow);
 	assert(CursorShapeFromSystemCursorId(99999) == CursorShape::kArrow);
 
 	std::cout << "cursor shape tests passed\n";

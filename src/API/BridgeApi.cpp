@@ -94,6 +94,7 @@ namespace OSFUI::API
 	void BridgeApi::UnregisterRelativePointer(const char* a_viewId) noexcept
 	{
 		if (!a_viewId) return;
+		std::lock_guard dispatchLock(_callbackDispatchMutex);
 		std::lock_guard lock(_mutex);
 		_relativePointers.erase(StringUtil::ToLowerAscii(a_viewId));
 	}
@@ -107,6 +108,7 @@ namespace OSFUI::API
 	bool BridgeApi::DispatchRelativePointer(std::string_view a_viewId,
 		RelativePointerPhase a_phase, float a_dx, float a_dy, float a_wheel)
 	{
+		std::lock_guard dispatchLock(_callbackDispatchMutex);
 		RelativePointerRegistration registration;
 		{
 			std::lock_guard lock(_mutex);
@@ -131,12 +133,14 @@ namespace OSFUI::API
 	void BridgeApi::UnregisterViewOpenPreflight(const char* a_viewId) noexcept
 	{
 		if (!a_viewId) return;
+		std::lock_guard dispatchLock(_callbackDispatchMutex);
 		std::lock_guard lock(_mutex);
 		_viewOpenPreflights.erase(StringUtil::ToLowerAscii(a_viewId));
 	}
 
 	BridgeApi::ViewOpenPreflightResult BridgeApi::RunViewOpenPreflight(std::string_view a_viewId)
 	{
+		std::lock_guard dispatchLock(_callbackDispatchMutex);
 		ViewOpenPreflightRegistration registration;
 		{
 			std::lock_guard lock(_mutex);
@@ -161,6 +165,7 @@ namespace OSFUI::API
 	void BridgeApi::UnregisterViewLifecycle(const char* a_viewId) noexcept
 	{
 		if (!a_viewId) return;
+		std::lock_guard dispatchLock(_callbackDispatchMutex);
 		std::lock_guard lock(_mutex);
 		_viewLifecycles.erase(StringUtil::ToLowerAscii(a_viewId));
 	}
@@ -168,6 +173,7 @@ namespace OSFUI::API
 	bool BridgeApi::DispatchViewLifecycle(const std::string& a_viewId,
 		ViewLifecyclePhase a_phase)
 	{
+		std::lock_guard dispatchLock(_callbackDispatchMutex);
 		ViewLifecycleRegistration registration;
 		{
 			std::lock_guard lock(_mutex);
@@ -184,7 +190,10 @@ namespace OSFUI::API
 	{
 		if (!a_viewId || !a_type || !a_type[0] || !a_payloadJson ||
 			!Ids::IsValidQualifiedViewId(a_viewId) || std::string_view(a_type).size() > 128 ||
-			std::string_view(a_payloadJson).size() > 1024u * 1024u || !Json::Parse(a_payloadJson)) return false;
+			std::string_view(a_payloadJson).size() > 1024u * 1024u) return false;
+		auto parsed = Json::Parse(a_payloadJson);
+		if (!parsed) return false;
+		auto canonicalPayload = Json::Dump(*parsed);
 		std::lock_guard lock(_mutex);
 		std::size_t count = 0;
 		for (const auto& send : _pendingSends) count += Ids::EqualsCaseInsensitiveAscii(send.view, a_viewId);
@@ -193,7 +202,7 @@ namespace OSFUI::API
 				[&](const PendingSend& send) { return Ids::EqualsCaseInsensitiveAscii(send.view, a_viewId); });
 			_pendingSends.erase(oldest);
 		}
-		_pendingSends.push_back({ a_viewId, a_type, a_payloadJson });
+		_pendingSends.push_back({ a_viewId, a_type, std::move(canonicalPayload) });
 		MarkPending(kPendingPump);
 		return true;
 	}

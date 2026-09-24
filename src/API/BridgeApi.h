@@ -169,6 +169,9 @@ namespace OSFUI::API
 		}
 		std::unordered_set<std::string> _papyrusEndpoints;
 		std::mutex                                    _mutex;
+		// Unregister waits for callbacks already dispatched on another thread.
+		// Recursive so a callback may unregister itself without deadlocking.
+		std::recursive_mutex                          _callbackDispatchMutex;
 		std::atomic<std::uint32_t>                    _pending{ 0 };
 		std::unordered_map<std::string, Registration>        _sends;             // strict RegisterSend set
 		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set

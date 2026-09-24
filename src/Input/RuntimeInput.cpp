@@ -27,7 +27,7 @@ namespace OSFUI
 
 	bool Runtime::OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key)
 	{
-		if (_developerMode && a_key.vk == kVkF12) {
+		if (_developerMode && IsInputCaptured() && a_key.vk == kVkF12) {
 			if (a_key.down && !a_key.repeat) _devToolsRequested.store(true);
 			return true;
 		}

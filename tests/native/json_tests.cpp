@@ -32,6 +32,8 @@ int main()
 		{ "i", 42 },
 		{ "neg", -7 },
 		{ "big", 9007199254740993ull },  // 2^53 + 1: lossy through a double
+		{ "u64max", std::numeric_limits<std::uint64_t>::max() },
+		{ "i64min", std::numeric_limits<std::int64_t>::min() },
 		{ "f", 2.5 },
 		{ "whole", 2 },
 		{ "arr", Value::array({ 1, 2 }) },
@@ -74,6 +76,9 @@ int main()
 	Check(Json::Get(obj, "i", std::uint32_t{ 1 }) == 42u, "positive into u32 still reads");
 	// The signed path is unaffected.
 	Check(Json::Get(obj, "neg", std::int32_t{ 0 }) == -7, "negative into i32 reads");
+	Check(Json::Get(obj, "big", std::uint32_t{ 9 }) == 9u, "large unsigned into u32 keeps default");
+	Check(Json::Get(obj, "u64max", std::int64_t{ 9 }) == 9, "u64 max into i64 keeps default");
+	Check(Json::Get(obj, "i64min", std::int32_t{ 9 }) == 9, "i64 min into i32 keeps default");
 
 	// ---- a non-object receiver reads as all-defaults instead of throwing.
 	for (const Value& notAnObject : { Value(Value::array({ 1 })), Value("str"), Value(7), Value() }) {

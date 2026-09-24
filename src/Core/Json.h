@@ -56,14 +56,12 @@ namespace OSFUI::Json
 			if (!it->is_number_integer()) {
 				return fallback();
 			}
-			if constexpr (std::is_unsigned_v<D>) {
-				if (!it->is_number_unsigned() && it->get<std::int64_t>() < 0) {
-					return fallback();
-				}
-				return static_cast<R>(it->get<std::uint64_t>());
-			} else {
-				return static_cast<R>(it->get<std::int64_t>());
+			if (it->is_number_unsigned()) {
+				const auto value = it->get<std::uint64_t>();
+				return std::in_range<R>(value) ? static_cast<R>(value) : fallback();
 			}
+			const auto value = it->get<std::int64_t>();
+			return std::in_range<R>(value) ? static_cast<R>(value) : fallback();
 		}
 	}
 

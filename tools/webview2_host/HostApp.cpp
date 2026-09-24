@@ -234,6 +234,7 @@ namespace osfui::wv2
 			struct View
 			{
 				std::string id;
+				std::uint64_t generation{ 0 };
 				std::wstring modId;
 				std::wstring viewName;
 				HWND        window{ nullptr };
@@ -264,6 +265,8 @@ namespace osfui::wv2
 				std::wstring currentUrl;
 				std::optional<std::wstring> pendingNavigate;
 				std::deque<std::string> queuedPostWeb;
+				std::size_t queuedPostWebBytes{ 0 };
+				bool queuedPostWebOverflowWarned{ false };
 				SyntheticMouseButtons syntheticMouseButtons;
 				std::shared_ptr<CdpInputQueue> cdpInput;
 				CdpPressedKeys cdpKeys;
@@ -271,6 +274,7 @@ namespace osfui::wv2
 				bool cdpComposition{ false };
 			};
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
+			std::uint64_t nextViewGeneration{ 1 };
 			View* inputTarget{ nullptr };  // mouse/focus/synthetic-key target
 			bool  captureStarted{ false };
 			bool          focusGranted{ false };
@@ -650,9 +654,9 @@ namespace osfui::wv2
 				const auto hr = environment3->CreateCoreWebView2CompositionController(
 					a_view.window,
 					Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
-						[this, id = a_view.id](HRESULT a_controllerHr,
+						[this, id = a_view.id, generation = a_view.generation](HRESULT a_controllerHr,
 							ICoreWebView2CompositionController* a_controller) -> HRESULT {
-							if (auto* view = FindView(id)) {
+							if (auto* view = FindView(id); view && view->generation == generation) {
 								return OnController(*view, a_controllerHr, a_controller);
 							}
 							if (a_controller) {
@@ -774,6 +778,7 @@ namespace osfui::wv2
 				if (SUCCEEDED(a_view.webView->get_Settings(&settings)) && settings) {
 					settings->put_AreDefaultContextMenusEnabled(FALSE);
 					settings->put_AreDevToolsEnabled(devMode ? TRUE : FALSE);
+					settings->put_IsZoomControlEnabled(FALSE);
 				} else {
 					log.Warn(std::format("view '{}': settings unavailable — the browser "
 						"context menu stays enabled", a_view.id));
@@ -945,10 +950,11 @@ namespace osfui::wv2
 					return eventHr;
 				}
 				const auto viewId = a_view.id;
+				const auto generation = a_view.generation;
 				const auto scriptHr = AddDocumentScript(a_view, EmbeddedScript::NetworkGuard,
-					[this, viewId](const HRESULT a_scriptHr) {
+					[this, viewId, generation](const HRESULT a_scriptHr) {
 						auto* current = FindView(viewId);
-						if (!current) return;
+						if (!current || current->generation != generation) return;
 						if (FAILED(a_scriptHr)) {
 							log.Error(std::format("egress neuter script install failed (0x{:08X})",
 								static_cast<unsigned>(a_scriptHr)));
@@ -974,7 +980,11 @@ namespace osfui::wv2
 
 			void QueueGameFocusRestore()
 			{
-				if (gameTopLevel) ::PostMessageW(gameTopLevel, kRestoreGameFocusMessage, 0, 0);
+				if (gameTopLevel) {
+					if (const auto message = RestoreGameFocusMessage()) {
+						::PostMessageW(gameTopLevel, message, 0, 0);
+					}
+				}
 			}
 
 			void InstallEvents(View& a_view)
@@ -1321,6 +1331,7 @@ namespace osfui::wv2
 					a_view.webView->PostWebMessageAsString(wide.c_str());
 				}
 				a_view.queuedPostWeb.clear();
+				a_view.queuedPostWebBytes = 0;
 			}
 
 			void ApplyScale(View& a_view)

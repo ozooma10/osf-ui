@@ -73,6 +73,7 @@ SUITES=(
 "wv2_mouse_buttons_tests wv2_mouse_buttons_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
 "view_presentation_controller_tests view_presentation_controller_tests.cpp ../../src/Views/ViewPresentationController.cpp"
+"view_request_queue_tests view_request_queue_tests.cpp ../../src/Views/ViewRequestQueue.cpp"
 "wndproc_chain_tests wndproc_chain_tests.cpp"
 "papyrus_call_tests papyrus_call_tests.cpp"
 "ui_pass_policy_tests ui_pass_policy_tests.cpp"
@@ -161,4 +162,8 @@ for suite in "${SUITES[@]}"; do
     [[ -f "$bin" ]] || bin="$bin.exe"
     "$bin" || failures=$((failures + $?))
 done
-exit "$failures"
+if (( failures > 0 )); then
+    echo "native checks failed: $failures" >&2
+    exit 1
+fi
+exit 0

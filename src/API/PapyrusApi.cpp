@@ -277,7 +277,7 @@ namespace OSFUI::API::Papyrus
 				pending.token = token;
 				pending.view = a_sourceViewId;
 				pending.deferToken = a_deferToken;
-				pending.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+				pending.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 				State().viewRequests.emplace(token, std::move(pending));
 				MarkPending();
 			}
@@ -290,10 +290,11 @@ namespace OSFUI::API::Papyrus
 			return StaticDispatchResult::kQueued;
 		}
 
-		bool DispatchViewRequest(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken)
+		StaticDispatchResult DispatchViewRequest(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken)
 		{
 			const auto targets = CollectTargets(Kind::kRequest, a_modId, a_name);
-			return !targets.empty() && DispatchViewRequestTo(targets.front(), a_name, a_args, a_sourceViewId, a_deferToken) == StaticDispatchResult::kQueued;
+			return targets.empty() ? StaticDispatchResult::kTargetRejected :
+				DispatchViewRequestTo(targets.front(), a_name, a_args, a_sourceViewId, a_deferToken);
 		}
 
 		std::optional<Value> ReadPapyrusValue(const RE::BSScript::Variable* a_value, std::string_view a_native)
@@ -742,8 +743,13 @@ namespace OSFUI::API::Papyrus
 				std::construct_at(std::addressof(e.receiver));  // overwrite ptr = null, skip Release
 			}
 			State().entries.clear();
-			// Drop queued session identities and signal the runtime to clear retained copies.
-			State().viewRequests.clear();
+			// Settle old requests on the main tick and clear session identities.
+			for (auto& [_, request] : State().viewRequests) {
+				request.answered = true;
+				request.rejected = true;
+				request.code = "game-load";
+				request.message = "Papyrus request was canceled by game load";
+			}
 			State().states.clear();
 			State().events.clear();
 			State().sessionReset = true;
@@ -846,7 +852,7 @@ namespace OSFUI::API::Papyrus
 		return DispatchSend(a_modId, a_name, a_args, a_sourceViewId);
 	}
 
-	bool OnViewRequest(std::string_view a_modId, std::string_view a_name,
+	StaticDispatchResult OnViewRequest(std::string_view a_modId, std::string_view a_name,
 		const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken)
 	{
 		return DispatchViewRequest(a_modId, a_name, a_args, a_sourceViewId, a_deferToken);

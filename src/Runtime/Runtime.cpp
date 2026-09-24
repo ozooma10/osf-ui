@@ -50,7 +50,7 @@ namespace OSFUI
 
 	bool Runtime::InitializeRenderer()
 	{
-		_renderer = std::make_unique<WebView2HostWebRenderer>();
+		auto renderer = std::make_unique<WebView2HostWebRenderer>();
 
 		const auto initialWidth = kDefaultViewWidth;
 		const auto initialHeight = kDefaultViewHeight;
@@ -68,11 +68,12 @@ namespace OSFUI
 			.dataDir = Paths::DataDir(),
 		};
 
-		if (!_renderer->Initialize(rendererConfig)) {
+		if (!renderer->Initialize(rendererConfig)) {
 			REX::ERROR("Runtime: WebView2 renderer failed to initialize");
 			return false;
 		}
 
+		_renderer = std::move(renderer);
 		return true;
 	}
 
@@ -98,32 +99,33 @@ namespace OSFUI
 
 	bool Runtime::InitializeCompositor()
 	{
-		_compositor = std::make_unique<D3D12Compositor>();
-		if (!_compositor->Initialize(_renderer->Frames())) {
+		auto compositor = std::make_unique<D3D12Compositor>();
+		if (!compositor->Initialize(_renderer->Frames())) {
 			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
 			return false;
 		}
+		_compositor = std::move(compositor);
 		return true;
 	}
 
 	void Runtime::InitializeBridge()
 	{
 		if (_bridge) return;
-		_bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
+		auto bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
 			if (_renderer) {
 				_renderer->SendMessageToWeb(a_viewId, a_json);
 			}
 		});
 		
-		_bridge->SetHelloHook([this](std::string_view a_viewId) { OnViewGreeted(a_viewId); });
+		bridge->SetHelloHook([this](std::string_view a_viewId) { OnViewGreeted(a_viewId); });
 
-		_bridge->SetProtocolFaultSink([this](std::string_view a_viewId, std::string_view a_code, std::string_view a_message, 
+		bridge->SetProtocolFaultSink([this](std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
 			const nlohmann::json& a_detail, bool a_viewFault) {
 			OnProtocolFault(a_viewId, a_code, a_message, a_detail, a_viewFault);
 		});
 
-		RegisterPlatformEndpoints(*_bridge);
-
+		RegisterPlatformEndpoints(*bridge);
+		_bridge = std::move(bridge);
 	}
 
     void Runtime::InitializeStartupViews()
@@ -182,19 +184,20 @@ namespace OSFUI
 
 	bool Runtime::EnsureWebRuntime()
 	{
-		if (_renderer && _compositor && _bridge) return true;
+		if (_webRuntimeReady) return true;
 		if (_webRuntimeInitializing || !_osfSettings.Available()) return false;
 		_webRuntimeInitializing = true;
-		if (!InitializeRenderer()) {
+		struct ResetInitializing final {
+			bool& flag;
+			~ResetInitializing() { flag = false; }
+		} resetInitializing{ _webRuntimeInitializing };
+		if (!_renderer && !InitializeRenderer()) {
 			_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "WebView2 renderer failed to initialize");
-			_webRuntimeInitializing = false;
 			return false;
 		}
 		WireRendererLifecycleCallbacks();
-		if (!InitializeCompositor()) {
+		if (!_compositor && !InitializeCompositor()) {
 			_osfSettings.ReportFailure("startup.compositor", "webview.compositor-init", "D3D12 compositor failed to initialize");
-			_renderer.reset();
-			_webRuntimeInitializing = false;
 			return false;
 		}
 		InitializeBridge();
@@ -203,10 +206,9 @@ namespace OSFUI
 		});
 		if (_drawPathRequested && !UiPass::Install()) {
 			_osfSettings.ReportFailure("startup.draw-path", "webview.draw-path", "Scaleform UI pass hook failed");
-			_webRuntimeInitializing = false;
 			return false;
 		}
-		if (_developerMode) {
+		if (_developerMode && !_devViewReload) {
 			_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_id) {
 				return _renderer && _renderer->RefreshViewFiles(a_id);
 			});
@@ -214,7 +216,7 @@ namespace OSFUI
 		_osfSettings.ClearFailure("startup.renderer");
 		_osfSettings.ClearFailure("startup.compositor");
 		_osfSettings.ClearFailure("startup.draw-path");
-		_webRuntimeInitializing = false;
+		_webRuntimeReady = true;
 		REX::INFO("Runtime: lazy WebView2 runtime initialized");
 		return true;
 	}
@@ -236,7 +238,7 @@ namespace OSFUI
 
 	void Runtime::OnPostDataLoaded()
 	{
-		_postDataLoadedReady = true;
+		_postDataLoadedReady.store(true, std::memory_order_release);
 	}
 
 	void Runtime::InitializeDataLoadedState()
@@ -248,7 +250,7 @@ namespace OSFUI
 	bool Runtime::EnsureCaptureIntegration()
 	{
 		if (_captureIntegrationInitialized) return _captureIntegrationAvailable;
-		if (!_postDataLoadedReady) return false;
+		if (!_postDataLoadedReady.load(std::memory_order_acquire)) return false;
 		_captureIntegrationInitialized = true;
 		if (!UiLayoutGuard::VerifyUiLayout()) {
 			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
@@ -287,8 +289,6 @@ namespace OSFUI
 		auto queued = m_viewRequests.Take();
 		PendingPresentationWork work;
 		work.local = std::move(queued.presentation);
-		work.openViews = std::move(queued.openViews);
-		work.relativePointer = std::move(queued.relativePointer);
 		work.plugin = std::move(a_plugin);
 		return work;
 	}
@@ -297,16 +297,26 @@ namespace OSFUI
 	{
 		const auto& reqs = a_work.local;
 		const auto& pluginReqs = a_work.plugin;
-		if (reqs.empty() && pluginReqs.empty() && a_work.openViews.empty() && a_work.relativePointer.empty()) {
+		if (reqs.empty() && pluginReqs.empty()) {
 			return;
 		}
-		for (const auto req : reqs) {
-			switch (req) {
+		for (const auto& operation : reqs) {
+			if (const auto* pointer = std::get_if<ViewRequestQueue::RelativePointerRequest>(&operation)) {
+				ApplyViewPresentationPolicy();
+				ApplyRelativePointerRequests({ *pointer });
+				continue;
+			}
+			if (const auto* open = std::get_if<ViewRequestQueue::OpenRequest>(&operation)) {
+				BeginViewOpen(open->view, "on demand", open->requestedAt);
+				continue;
+			}
+			switch (std::get<ViewPresentationRequest>(operation)) {
 			case ViewPresentationRequest::Back: {
 				const auto active = _presentation.ActiveMenu();
 				if (_pendingViewOpen) {
 					CancelPendingOpen();
 				} else if (active) {
+					CancelColdOpenTiming(*active);
 					if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
 						BeginViewOpen(*target, "for native back navigation");
 					} else if (m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
@@ -323,24 +333,22 @@ namespace OSFUI
 			}
 			case ViewPresentationRequest::CloseAll:
 				CancelPendingOpen();
+				_coldOpenTiming.reset();
 				_viewOpenPreflightBarriers.clear();
 				_presentation.CloseAll();
 				break;
 			}
-		}
-		for (const auto& request : a_work.openViews) {
-			BeginViewOpen(request.view, "on demand", request.requestedAt);
 		}
 		for (const auto& r : pluginReqs) {
 			if (r.open) {
 				BeginViewOpen(r.view, "on demand", r.requestedAt);
 			} else {
 				CancelPendingOpen(r.view);
+				CancelColdOpenTiming(r.view);
 				_presentation.Close(r.view);
 			}
 		}
 		ApplyViewPresentationPolicy();
-		ApplyRelativePointerRequests(a_work.relativePointer);
 	}
 
 	void Runtime::ApplyRelativePointerRequests(const std::vector<ViewRequestQueue::RelativePointerRequest>& a_requests)

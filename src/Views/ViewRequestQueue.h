@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <variant>
 
 namespace OSFUI
 {
@@ -30,9 +31,7 @@ namespace OSFUI
 
         struct Batch
         {
-            std::vector<ViewPresentationRequest> presentation;
-            std::vector<OpenRequest> openViews;
-            std::vector<RelativePointerRequest> relativePointer;
+            std::vector<std::variant<ViewPresentationRequest, OpenRequest, RelativePointerRequest>> presentation;
         };
 
         void Enqueue(ViewPresentationRequest a_request);
@@ -42,8 +41,6 @@ namespace OSFUI
 
     private:
         std::mutex m_mutex;
-        std::vector<ViewPresentationRequest> m_presentation;
-        std::vector<OpenRequest> m_openViews;
-        std::vector<RelativePointerRequest> m_relativePointer;
+        std::vector<std::variant<ViewPresentationRequest, OpenRequest, RelativePointerRequest>> m_presentation;
     };
 }

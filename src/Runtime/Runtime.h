@@ -92,9 +92,8 @@ namespace OSFUI
 
 		struct PendingPresentationWork
 		{
-			std::vector<ViewPresentationRequest>         local;
-			std::vector<ViewRequestQueue::OpenRequest>    openViews;  // EnqueueOpenView (internal native triggers)
-			std::vector<ViewRequestQueue::RelativePointerRequest> relativePointer;
+			std::vector<std::variant<ViewPresentationRequest, ViewRequestQueue::OpenRequest,
+				ViewRequestQueue::RelativePointerRequest>> local;
 			std::vector<API::BridgeApi::ViewPresentationRequest> plugin;
 		};
 		PendingPresentationWork TakePresentationRequests(std::vector<API::BridgeApi::ViewPresentationRequest> a_plugin);
@@ -232,9 +231,10 @@ namespace OSFUI
 		std::atomic_bool              _captureInput{ false };
 		bool                          _captureIntegrationInitialized{ false };
 		bool                          _captureIntegrationAvailable{ false };
-		bool                          _postDataLoadedReady{ false };
+		std::atomic_bool              _postDataLoadedReady{ false };
 		bool                          _drawPathRequested{ false };
 		bool                          _webRuntimeInitializing{ false };
+		bool                          _webRuntimeReady{ false };
 
 		bool OverlayCanDraw() const;
 

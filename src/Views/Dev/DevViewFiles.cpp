@@ -2,8 +2,11 @@
 #include "Core/Utf8Path.h"
 
 #include <algorithm>
-#include <unordered_set>
 #include <vector>
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 namespace OSFUI::DevViewFiles
 {
@@ -26,6 +29,19 @@ namespace OSFUI::DevViewFiles
 		{
 			a_error = Utf8Path(a_path.filename()) + ": " + a_ec.message();
 			return false;
+		}
+
+		bool SameRelativePath(const std::filesystem::path& a_lhs, const std::filesystem::path& a_rhs)
+		{
+#ifdef _WIN32
+			// The mirror lives on a case-insensitive Windows filesystem. A case-only
+			// source rename must not make pruning delete the just-copied destination.
+			const auto lhs = a_lhs.native();
+			const auto rhs = a_rhs.native();
+			return ::CompareStringOrdinal(lhs.c_str(), -1, rhs.c_str(), -1, TRUE) == CSTR_EQUAL;
+#else
+			return a_lhs == a_rhs;
+#endif
 		}
 	}  // namespace
 
@@ -129,10 +145,10 @@ namespace OSFUI::DevViewFiles
 			return Utf8Path(a_entry.relative);
 		});
 
-		std::unordered_set<std::string> sourcePaths;
+		std::vector<std::filesystem::path> sourcePaths;
 		sourcePaths.reserve(sourceEntries.size());
 		for (const auto& entry : sourceEntries) {
-			sourcePaths.insert(Utf8Path(entry.relative));
+			sourcePaths.push_back(entry.relative);
 			const auto destination = a_destination / entry.relative;
 			const bool destinationExists = std::filesystem::exists(destination, ec);
 			if (ec)
@@ -170,7 +186,9 @@ namespace OSFUI::DevViewFiles
 			end;
 			!ec && it != end; it.increment(ec)) {
 			const auto relative = it->path().lexically_relative(a_destination);
-			if (!sourcePaths.contains(Utf8Path(relative))) {
+			if (!std::ranges::any_of(sourcePaths, [&](const auto& sourcePath) {
+				return SameRelativePath(sourcePath, relative);
+			})) {
 				stale.push_back(it->path());
 			}
 		}

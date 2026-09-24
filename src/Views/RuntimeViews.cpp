@@ -89,6 +89,11 @@ namespace OSFUI
 		}
 
 		CancelColdOpenTiming(id);
+		// A failed menu load cancels the user's pending open; a later recovery must
+		// not surface the menu long after that request. HUD intent survives retries.
+		if (const auto* manifest = _views.Find(id); manifest && manifest->kind == ViewKind::Menu) {
+			CancelPendingOpen(id);
+		}
 		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]", a_viewId, a_url, a_description, a_errorCode);
 
 		const auto recovery = m_viewRecovery.ScheduleFailure(id, _uptime);

@@ -114,7 +114,7 @@ namespace OSFUI
 
 		// Engine owns this session-lifetime buffer; pin its refcount to avoid allocator mismatch.
 		constexpr std::size_t kAllocSize = 0x200;
-		constexpr std::size_t kVtblSlots = 32;  // covers IMenu vfuncs 0x00..0x1A
+		constexpr std::size_t kVtblSlots = 27;  // IMenu vfuncs 0x00..0x1A
 
 		// IMenu field offsets (mirror RE/I/IMenu.h static_asserts).
 		constexpr std::size_t kOffRefCount = 0x008;  // u32 Scaleform refcount

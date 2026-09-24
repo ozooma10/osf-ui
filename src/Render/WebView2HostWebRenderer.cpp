@@ -36,8 +36,6 @@
 
 using nlohmann::json;
 
-static_assert(OSFUI::OverlayInputHook::kRestoreGameFocusMessage ==
-	osfui::wv2::kRestoreGameFocusMessage);
 
 namespace OSFUI
 {
@@ -991,12 +989,14 @@ namespace OSFUI
 					.epoch = focusEpoch.load(),
 					.view = inputTargetId,
 				}));
-			}
-			if (!PublishConnected(std::move(bootstrap))) {
-				if (!stopRequested.load(std::memory_order_acquire)) {
-					SignalDead("connection snapshot exceeded the outbound queue limit");
+				// Setters hold stateMutex through their outbound enqueue. Publishing
+				// under the same lock makes the snapshot and later diffs one order.
+				if (!PublishConnected(std::move(bootstrap))) {
+					if (!stopRequested.load(std::memory_order_acquire)) {
+						SignalDead("connection snapshot exceeded the outbound queue limit");
+					}
+					return;
 				}
-				return;
 			}
 
 			ReadLoop();
@@ -1177,6 +1177,8 @@ namespace OSFUI
 					}
 					break;
 				case Notify::Kind::Load:
+					// A failed connection cannot certify document load or recovery.
+					if (dead.load(std::memory_order_acquire)) break;
 					if (onLoad) {
 						const LoadEvent event{
 							.viewId = value.view,
@@ -1435,10 +1437,10 @@ namespace OSFUI
 			if (_impl->inputTargetId.empty()) {
 				_impl->inputTargetId = a_manifest.id;
 			}
+			// Re-registering an instantiated view navigates it for dev or crash recovery.
+			_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
+				.logicalHeight = logicalHeight }));
 		}
-		// Re-registering an instantiated view navigates it for dev or crash recovery.
-		_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
-			.logicalHeight = logicalHeight }));
 	}
 
     bool WebView2HostWebRenderer::RefreshViewFiles(std::string_view a_viewId)
@@ -1448,7 +1450,6 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::SetInputTargetView(std::string_view a_id)
 	{
-		bool changed = false;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
 			if (!_impl->FindView(a_id)) {
@@ -1458,14 +1459,12 @@ namespace OSFUI
 			}
 			if (_impl->inputTargetId == a_id) return;
 			_impl->inputTargetId = a_id;
-			changed = true;
-		}
-		if (!changed) return;
-		_impl->Send(ToJson(msg::SetInputTarget{ .view = std::string(a_id) }));
-		if (_impl->focusRequested.load()) {
-			const auto epoch = _impl->focusEpoch.fetch_add(1) + 1;
-			_impl->Send(ToJson(msg::Focus{
-				.focused = true, .epoch = epoch, .view = std::string(a_id) }));
+			_impl->Send(ToJson(msg::SetInputTarget{ .view = std::string(a_id) }));
+			if (_impl->focusRequested.load()) {
+				const auto epoch = _impl->focusEpoch.fetch_add(1) + 1;
+				_impl->Send(ToJson(msg::Focus{
+					.focused = true, .epoch = epoch, .view = std::string(a_id) }));
+			}
 		}
 	}
 
@@ -1477,28 +1476,27 @@ namespace OSFUI
 			if (_impl->width == a_width && _impl->height == a_height) return;
 			_impl->width = a_width;
 			_impl->height = a_height;
+			_impl->Send(ToJson(msg::Resize{ .width = a_width, .height = a_height }));
 		}
-		_impl->Send(ToJson(msg::Resize{ .width = a_width, .height = a_height }));
 	}
 
 	void WebView2HostWebRenderer::SetViewport(
 		const std::uint32_t a_width, const std::uint32_t a_height)
 	{
 		if (!a_width || !a_height) return;
-		std::uint64_t presentation = 0;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
 			if (_impl->viewportWidth == a_width && _impl->viewportHeight == a_height) return;
 			_impl->viewportWidth = a_width;
 			_impl->viewportHeight = a_height;
-			presentation = ++_impl->presentationEpoch;
+			const auto presentation = ++_impl->presentationEpoch;
 			_impl->frames->SetPresentation(_impl->presentationEpoch, !_impl->allHidden);
+			_impl->Send(ToJson(msg::Viewport{
+				.width = a_width,
+				.height = a_height,
+				.presentationEpoch = presentation,
+			}));
 		}
-		_impl->Send(ToJson(msg::Viewport{
-			.width = a_width,
-			.height = a_height,
-			.presentationEpoch = presentation,
-		}));
 	}
 
 	void WebView2HostWebRenderer::SetPointerInputEnabled(const bool a_enabled)
@@ -1507,8 +1505,8 @@ namespace OSFUI
 			std::scoped_lock lock(_impl->stateMutex);
 			if (_impl->pointerInputEnabled == a_enabled) return;
 			_impl->pointerInputEnabled = a_enabled;
+			_impl->Send(ToJson(msg::PointerInput{ .enabled = a_enabled }));
 		}
-		_impl->Send(ToJson(msg::PointerInput{ .enabled = a_enabled }));
 	}
 
 	void WebView2HostWebRenderer::Update(double)
@@ -1551,11 +1549,8 @@ namespace OSFUI
 	void WebView2HostWebRenderer::SendMessageToWeb(
 		std::string_view a_viewId, std::string_view a_json)
 	{
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			const auto* view = _impl->FindView(a_viewId);
-			if (!view) return;
-		}
+		std::scoped_lock lock(_impl->stateMutex);
+		if (!_impl->FindView(a_viewId)) return;
 		_impl->SendOrQueue(ToJson(msg::PostWeb{ .view = std::string(a_viewId),
 			.json = std::string(a_json) }));
 	}
@@ -1582,17 +1577,14 @@ namespace OSFUI
 	}
 	void WebView2HostWebRenderer::SetInputFocus(bool a_focused)
 	{
-		_impl->focusRequested.store(a_focused);
-		const auto epoch = _impl->focusEpoch.fetch_add(1) + 1;
-		std::string target;
-		{
-			std::scoped_lock lock(_impl->stateMutex);
-			target = _impl->inputTargetId;
-		}
 		if (a_focused) {
 			_impl->Start();
 		}
-		_impl->Send(ToJson(msg::Focus{ .focused = a_focused, .epoch = epoch, .view = target }));
+		std::scoped_lock lock(_impl->stateMutex);
+		_impl->focusRequested.store(a_focused);
+		const auto epoch = _impl->focusEpoch.fetch_add(1) + 1;
+		_impl->Send(ToJson(msg::Focus{ .focused = a_focused, .epoch = epoch,
+			.view = _impl->inputTargetId }));
 	}
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
@@ -1664,7 +1656,6 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden)
 	{
-		std::uint64_t presentation = 0;
 		{
 			std::scoped_lock lock(_impl->stateMutex);
 			auto* view = _impl->FindView(a_viewId);
@@ -1680,10 +1671,9 @@ namespace OSFUI
 			} else if (_impl->allHidden) {
 				_impl->frames->SetPresentation(_impl->presentationEpoch, !_impl->allHidden);
 			}
-			presentation = _impl->presentationEpoch;
+			_impl->Send(ToJson(msg::SetHidden{ .view = std::string(a_viewId),
+				.hidden = a_hidden, .presentationEpoch = _impl->presentationEpoch }));
 		}
-		_impl->Send(ToJson(msg::SetHidden{ .view = std::string(a_viewId),
-			.hidden = a_hidden, .presentationEpoch = presentation }));
 	}
 
 	void WebView2HostWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)
@@ -1694,8 +1684,8 @@ namespace OSFUI
 			if (!view) return;
 			if (view->order == a_order) return;
 			view->order = a_order;
+			_impl->Send(ToJson(msg::SetOrder{ .view = std::string(a_viewId), .order = a_order }));
 		}
-		_impl->Send(ToJson(msg::SetOrder{ .view = std::string(a_viewId), .order = a_order }));
 	}
 
 	void WebView2HostWebRenderer::DestroyView(std::string_view a_viewId)
@@ -1713,9 +1703,9 @@ namespace OSFUI
 			if (_impl->allHidden) {
 				_impl->frames->SetPresentation(_impl->presentationEpoch, !_impl->allHidden);
 			}
+			_impl->Send(ToJson(msg::DestroyView{ .view = std::string(a_viewId) }));
 		}
 		// Game-thread map; no lock.
 		_impl->consoleHandlers.erase(std::string(a_viewId));
-		_impl->Send(ToJson(msg::DestroyView{ .view = std::string(a_viewId) }));
 	}
 }

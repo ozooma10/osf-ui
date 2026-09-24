@@ -11,7 +11,7 @@ namespace OSFUI
 	void Runtime::ProcessLifecycleWork()
 	{
 		if (_dataLoadedInit.Take()) InitializeDataLoadedState();
-		if (_postDataLoadedReady && !_menuEventsAttempted) {
+		if (_postDataLoadedReady.load(std::memory_order_acquire) && !_menuEventsAttempted) {
 			_menuEventsAttempted = true;
 			_menuEventsAvailable = UiLayoutGuard::VerifyUiLayout() && MenuEventSink::Install();
 		}

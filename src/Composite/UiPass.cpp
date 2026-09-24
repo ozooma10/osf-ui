@@ -95,7 +95,10 @@ namespace OSFUI::UiPass
 				for (UINT i = 0; i < a_numBarriers && tl_handoffWindow.HandoffArmed(); ++i) {
 					const auto& barrier = a_barriers[i];
 					if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION ||
+						(barrier.Flags & D3D12_RESOURCE_BARRIER_FLAG_END_ONLY) ||
 						!barrier.Transition.pResource ||
+						(barrier.Transition.Subresource != D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES &&
+							barrier.Transition.Subresource != 0) ||
 						barrier.Transition.StateBefore != D3D12_RESOURCE_STATE_RENDER_TARGET ||
 						!(barrier.Transition.StateAfter &
 							(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_COPY_SOURCE))) {
@@ -105,7 +108,7 @@ namespace OSFUI::UiPass
 					const auto rtvFormat = UiTargetFormat::ResolveRtv(desc.Format);
 					if (rtvFormat == DXGI_FORMAT_UNKNOWN ||
 						desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-						desc.SampleDesc.Count != 1 ||
+						desc.SampleDesc.Count != 1 || desc.DepthOrArraySize != 1 ||
 						desc.Width < 256 || desc.Height < 256) {
 						continue;
 					}

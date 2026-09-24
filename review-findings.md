@@ -173,6 +173,53 @@ Browser/game smoke tests were not run; repository instructions limit this task t
 - Build/test: run.sh `exit "$failures"` wraps mod 256 (tests/native/run.sh:163); package.ps1 mutates env without restore (:50,53-54); CREDITS.md listed but deleted (:78);
   nlohmann_json unpinned in prod vs pinned in tests (xmake.lua:14); `bridge_api_tests.cpp:119-124` indexes after a failed size CHECK.
 
+### Tier 3 assessment and changes (2026-09-23)
+
+The original lines above are retained as the review record. Verdicts below refer to the current checkout and to source-level behavior; compilation and native tests do not establish fresh in-game behavior.
+
+| Item | Verdict | Resolution |
+| --- | --- | --- |
+| Listener before `Initialize` | Valid ordering hazard; fixed | Register the SFSE listener only after runtime initialization succeeds. The proposed SFSE unload consequence was not reproduced. |
+| `EnsureWebRuntime` partial state | Valid; fixed | Construct renderer, compositor, and bridge before publishing each member. A scope guard clears the initialization latch on every exit, and a separate ready bit prevents partial objects from counting as success. Failed stages can retry. |
+| Data-load message threading | Valid data race; fixed | `kPostDataLoad` already uses an atomic work latch. `kPostPostDataLoad` now publishes an atomic ready flag consumed by the main tick. |
+| Pending menu after load failure | Valid; fixed | A failed menu load cancels its pending open. HUD retry intent remains intact. |
+| Cold-open timing after Back | Valid; fixed | Back, CloseAll, and explicit plugin close discard timing for the closed request. |
+| Request order across types | Valid; fixed | One queue retains Back, CloseAll, open, and relative-pointer order from local producers. A regression covers an open followed by CloseAll followed by another open. |
+| `Json::Get` integer narrowing | Valid; fixed | Signed and unsigned integer reads use `std::in_range` before conversion. Native checks cover values outside 32-bit and signed 64-bit targets. |
+| Stale load after Dead | Valid race; fixed | The renderer ignores load notifications after connection death; reset already clears the old notification queue. |
+| Bootstrap snapshot gap | Valid race; fixed | Snapshot publication and every state setter's enqueue now share `stateMutex`, so a setter diff cannot fall into the disconnected gap or overtake a newer snapshot. |
+| Dev mirror for newly watched view | Valid; fixed | First watch refreshes the mirror and reloads after success, covering source edits made while the view was unwatched. |
+| `SyncTree` case rename | Valid on Windows; fixed | Stale-path pruning compares relative paths using Windows ordinal case-insensitive comparison, so it cannot delete the just-copied destination after a case-only rename. |
+| `SendToWeb` comment JSON | Valid; fixed | Store the parsed, serialized payload instead of splicing the original comment-bearing text. A native bridge check sends commented JSON. |
+| Papyrus deadline | Valid mismatch; fixed | The Papyrus request ledger now uses the bridge's 30-second runtime deadline; the page's default timer remains 10 seconds. |
+| Papyrus capacity result | Valid; fixed | Capacity refusal propagates a `request-capacity` reply instead of an unavailable-endpoint reply. |
+| Papyrus requests on game load | Valid; fixed | Mark outstanding requests as rejected with `game-load` and drain them through the normal reply batch; late Papyrus answers cannot settle them. |
+| Qualified event name truncation | Valid; fixed | Event encoding allows a 64-byte mod id plus `.` and a 128-byte endpoint name. A native check covers a 190-byte qualified name. |
+| `Unregister*` and active callback | Valid; fixed | Relative-pointer, preflight, and lifecycle dispatch hold a recursive callback gate through invocation. Unregister waits for another thread's active callback before returning. |
+| Private `WM_APP` values on game HWND | Valid collision risk; fixed | Both processes use named `RegisterWindowMessageW` IDs for focus restore and input refresh. |
+| `SystemCursorId == 0` | Valid; fixed fallback | [WebView2 uses zero for custom CSS cursors](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2compositioncontroller?view=webview2-1.0.3912.50). Map it to a visible arrow because the IPC does not carry custom `HCURSOR` data. Exact custom cursor shapes remain unsupported. |
+| SimPause unsigned decrement | Plausible on a reset counter; guarded | If the engine counter is already zero at release, clear our latch without decrementing. A live load/reset interleaving was not reproduced. |
+| FocusMenu vtable copy | Valid; fixed | Copy 27 slots, the `IMenu` declarations through `0x1A`, instead of reading five entries beyond that table. |
+| WndProc install publication | Valid; mitigated | Seed the class proc and predecessor before swapping WndProc, and use atomic pointers while the window thread forwards. A simultaneous third-party subclass between `GetWindowLongPtrW` and `SetWindowLongPtrW` still needs live compatibility evidence. |
+| F12 while overlay closed | Valid; fixed | Developer F12 is consumed only while overlay input is captured. |
+| Host oversize `Send` | Already fixed in Tier 2 | `Pipe::WriteResult::InvalidPayload` drops the message without setting `pipeDead`; no further change. |
+| `ReportSecurityFailure` early return | Invalid as stated | The first failure sets `rendererFatal` and `quit`, sends Fatal, and stops the WebView. Later callbacks return into an already terminating host. |
+| Async callbacks found only by id | Valid; fixed | Controller and network-guard completions also check the instance generation; an old completion cannot initialize a recreated view of the same id. |
+| `ResolveView` input-target fallback | Valid; fixed | Messages lacking a known explicit view now resolve to no view, so stale control messages cannot affect the input target. |
+| `queuedPostWeb` growth | Valid; fixed | Bound each view's pending posts to 64 messages and 8 MiB, dropping oldest with a single warning. |
+| `EnsureRing` partial failure | Valid; fixed | Failed duplication or announcement closes handles already duplicated into the game process before releasing the local ring. |
+| Destroy view and CDP focus | Valid; fixed | Reconcile CDP focus after replacing a destroyed input target. |
+| Ctrl+wheel zoom | Valid; fixed | Disable WebView2 zoom controls for hosted views. |
+| Ring adoption drains GPU | Stale in current code | `TakeRingIfIdle` defers adoption while reads exist; `EnsureSharedRing` no longer calls a GPU-idle wait. The draw mutex still protects resource replacement. |
+| UI-pass candidate filter | Valid guard gap; fixed | Ignore `END_ONLY` transitions, which [complete a split barrier while the resource has been pending](https://learn.microsoft.com/en-us/windows/win32/direct3d12/using-resource-barriers-to-synchronize-resource-states-in-direct3d-12), and texture arrays; require an all-subresource or subresource-zero transition. A concrete game trigger remains unverified. |
+| Native runner exit count | Valid; fixed | Report the count but exit 1 for any failure, avoiding shell exit-code wrap at 256. |
+| Package environment | Valid; fixed | Restore all three environment variables in `finally`, including on packaging failure. |
+| Deleted `CREDITS.md` | Stale optional entry; cleaned | Removed the nonexistent file from the optional document copy list. |
+| JSON package version | Valid reproducibility gap; fixed | Production XMake now requests the same nlohmann/json 3.11.3 version as native tests. |
+| Bridge test indexing | Valid test crash risk; fixed | Index the sent-message vector only after its size check succeeds. |
+
+Validation: `xmake build 'OSF UI'` compiled the plugin and host and deployed to the configured MO2 mod; built/deployed DLL, host EXE, and PEX SHA-256 hashes matched. All 29 native suites passed; `tools/package.ps1` parsed successfully; `git diff --check` was clean. Browser and game smoke tests were not run. The items noted as needing live evidence remain open for runtime acceptance.
+
 ---
 
 ## Maintainability — structural themes (highest leverage first)

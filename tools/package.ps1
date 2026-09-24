@@ -47,14 +47,16 @@ if (-not (Test-Path -LiteralPath (Join-Path $webViewNative 'include\WebView2.h')
     -not (Test-Path -LiteralPath (Join-Path $webViewNative 'x64\WebView2LoaderStatic.lib'))) {
     Fail "WebView2 SDK not found at '$WebView2SdkDir'"
 }
-$env:WEBVIEW2_SDK_DIR = $WebView2SdkDir
-
-# Disable developer-machine auto-deploy while producing the isolated archive.
-$env:XSE_SF_MODS_PATH = $null
-$env:XSE_SF_GAME_PATH = $null
-
-Push-Location $RepoRoot
+$previousWebView2SdkDir = $env:WEBVIEW2_SDK_DIR
+$previousModsPath = $env:XSE_SF_MODS_PATH
+$previousGamePath = $env:XSE_SF_GAME_PATH
 try {
+    $env:WEBVIEW2_SDK_DIR = $WebView2SdkDir
+    # Disable developer-machine auto-deploy while producing the isolated archive.
+    $env:XSE_SF_MODS_PATH = $null
+    $env:XSE_SF_GAME_PATH = $null
+    Push-Location $RepoRoot
+    try {
     if (-not $SkipBuild) {
         Step "Configuring $Mode"
         xmake f -P $RepoRoot -m $Mode -y
@@ -75,7 +77,7 @@ try {
 
     $uiRoot = Join-Path $StageData 'SFSE\Plugins\OSF\UI'
     New-Item -ItemType Directory -Path $uiRoot -Force | Out-Null
-    foreach ($doc in 'LICENSE', 'EXCEPTIONS', 'CREDITS.md') {
+    foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
         $source = Join-Path $RepoRoot $doc
         if (Test-Path -LiteralPath $source) {
             Copy-Item -LiteralPath $source -Destination (Join-Path $uiRoot $doc) -Force
@@ -141,7 +143,13 @@ try {
     Write-Host "Created $archive" -ForegroundColor Green
     Write-Host "SHA256 $hash"
     Write-Host 'Requires OSF Settings Slim (settings ABI 1.0 and diagnostics ABI 1.0), SFSE, and Address Library.'
+    }
+    finally {
+        Pop-Location
+    }
 }
 finally {
-    Pop-Location
+    $env:WEBVIEW2_SDK_DIR = $previousWebView2SdkDir
+    $env:XSE_SF_MODS_PATH = $previousModsPath
+    $env:XSE_SF_GAME_PATH = $previousGamePath
 }

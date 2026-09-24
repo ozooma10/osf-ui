@@ -100,6 +100,16 @@ int main()
 	assert(fs::is_directory(mirror / "swap"));
 	assert(Read(mirror / "swap" / "child.txt") == "directory");
 
+#ifdef _WIN32
+	Write(source / "Case.js", "before");
+	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
+	fs::rename(source / "Case.js", source / "case-temporary.js");
+	fs::rename(source / "case-temporary.js", source / "case.js");
+	Write(source / "case.js", "after");
+	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
+	assert(Read(mirror / "case.js") == "after");
+#endif
+
 
 	const auto unicodeSource = root / "unicode-source";
 	const auto unicodeMirror = root / "unicode-mirror";

@@ -180,7 +180,21 @@
 			void HandlePostWeb(const json& a_msg)
 			{
 				if (auto* view = ResolveView(a_msg)) {
-					view->queuedPostWeb.push_back(msg::FromJson<msg::PostWeb>(a_msg).json);
+					constexpr std::size_t kMaxQueuedPostWeb = 64;
+					constexpr std::size_t kMaxQueuedPostWebBytes = 8u * 1024u * 1024u;
+					auto payload = msg::FromJson<msg::PostWeb>(a_msg).json;
+					if (payload.size() > kMaxQueuedPostWebBytes) return;
+					while (view->queuedPostWeb.size() >= kMaxQueuedPostWeb ||
+						view->queuedPostWebBytes + payload.size() > kMaxQueuedPostWebBytes) {
+						view->queuedPostWebBytes -= view->queuedPostWeb.front().size();
+						view->queuedPostWeb.pop_front();
+						if (!view->queuedPostWebOverflowWarned) {
+							view->queuedPostWebOverflowWarned = true;
+							log.Warn(std::format("view '{}': pending web messages exceeded the {}-message/{}-byte cap; dropping oldest", view->id, kMaxQueuedPostWeb, kMaxQueuedPostWebBytes));
+						}
+					}
+					view->queuedPostWebBytes += payload.size();
+					view->queuedPostWeb.push_back(std::move(payload));
 					DrainQueuedViewWork(*view);
 				}
 			}
@@ -214,6 +228,7 @@
 				});
 				RefreshCaptureVisibility();
 				if (wasInputTarget) inputTarget = views.empty() ? nullptr : views.front().get();
+				ReconcileCdpFocus();
 				if (!AnyRevealPending()) ApplyDeferredHides();
 			}
 

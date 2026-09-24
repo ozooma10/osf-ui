@@ -11,7 +11,7 @@ add_rules("mode.debug", "mode.releasedbg")
 add_rules("plugin.vsxmake.autoupdate")
 
 -- JSON for view manifests and the message bridge
-add_requires("nlohmann_json")
+add_requires("nlohmann_json 3.11.3")
 
 -- The mirrored host is self-contained: static CRT and WebView2 loader.
 target("osfui-webview2-host")

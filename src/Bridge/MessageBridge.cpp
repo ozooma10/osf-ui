@@ -24,9 +24,9 @@ namespace OSFUI
 		// Keep the runtime deadline longer than the page timer so timeout and no-response stay distinct.
 		constexpr auto kRequestDeadline = std::chrono::seconds(30);
 
-		[[nodiscard]] std::string BoundedEcho(std::string_view a_s)
+		[[nodiscard]] std::string BoundedEcho(std::string_view a_s, std::size_t a_limit = kMaxEndpointNameLength)
 		{
-			return std::string{ a_s.substr(0, StringUtil::Utf8TruncateLen(a_s, kMaxEndpointNameLength)) };
+			return std::string{ a_s.substr(0, StringUtil::Utf8TruncateLen(a_s, a_limit)) };
 		}
 
 		[[nodiscard]] std::string OwnerQualifiedEndpoint(std::string_view a_sourceViewId, std::string_view a_name)
@@ -590,7 +590,7 @@ namespace OSFUI
 
 	std::string MessageBridge::EncodeEvent(std::string_view a_name, std::string_view a_payloadJson)
 	{
-		const auto name = Quote(BoundedEcho(a_name));
+		const auto name = Quote(BoundedEcho(a_name, Ids::kMaxModIdLen + 1 + kMaxEndpointNameLength));
 		std::string message;
 		message.reserve(a_payloadJson.size() + name.size() + 40);
 		message += R"({"kind":"event","name":)";

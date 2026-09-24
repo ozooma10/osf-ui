@@ -75,6 +75,10 @@ namespace OSFUI
 				if (!state.initialized) {
 					state.fingerprint = *fingerprint;
 					state.initialized = true;
+					// A view may first be opened after the source changed while it was
+					// unwatched. Refresh the mirror before treating this baseline as current.
+					state.changedAt = now - kSettleTime;
+					state.pending = true;
 					continue;
 				}
 				if (state.fingerprint != *fingerprint) {

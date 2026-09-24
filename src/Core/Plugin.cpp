@@ -89,12 +89,6 @@ namespace OSFUI::Plugin
 
 	bool OnLoad()
 	{
-		if (const auto* messaging = SFSE::GetMessagingInterface()) {
-			if (!messaging->RegisterListener(OnSFSEMessage)) {
-				REX::WARN("Plugin: failed to register SFSE message listener (non-fatal)");
-			}
-		}
-
 		try {
 			if (!Runtime::Get().Initialize()) {
 				REX::ERROR("{}: Runtime initialization failed", kPluginName);
@@ -106,6 +100,11 @@ namespace OSFUI::Plugin
 		} catch (...) {
 			REX::ERROR("{}: Runtime initialization threw an unknown exception; plugin load aborted", kPluginName);
 			return false;
+		}
+		if (const auto* messaging = SFSE::GetMessagingInterface()) {
+			if (!messaging->RegisterListener(OnSFSEMessage)) {
+				REX::WARN("Plugin: failed to register SFSE message listener (non-fatal)");
+			}
 		}
 
 		if (const auto* tasks = SFSE::GetTaskInterface()) {
