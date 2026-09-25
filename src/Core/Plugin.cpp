@@ -2,11 +2,11 @@
 
 #include "API/PapyrusBindHook.h"
 #include "Core/Version.h"
-#include "REL/Trampoline.h"
+#include "REL/THook.h"
 #include "Runtime/Runtime.h"
 
 #include <array>
-#include <cstring>
+#include <optional>
 
 namespace OSFUI::Plugin
 {
@@ -16,9 +16,9 @@ namespace OSFUI::Plugin
 		constexpr auto                          kIdleTickInterval = std::chrono::milliseconds(100);
 		constexpr double                        kMaxDeltaSeconds = 0.1;
 
-		using AdvanceFn = void* (*)(void*, void*, void*, void*);
+		using AdvanceHook = REL::THook<void*(void*, void*, void*, void*)>;
 
-		AdvanceFn                                            g_advance{ nullptr };
+		std::array<std::optional<AdvanceHook>, 2>            g_advanceHooks;
 		std::optional<std::chrono::steady_clock::time_point> g_lastTick;
 		std::chrono::steady_clock::time_point                g_nextIdleTick{};
 
@@ -36,35 +36,34 @@ namespace OSFUI::Plugin
 			Runtime::Get().Tick(dt);
 		}
 
+		template <std::size_t Index>
 		void* AdvanceThunk(void* a_ui, void* a_functor1, void* a_functor2, void* a_arg4) noexcept
 		{
-			void* result = g_advance(a_ui, a_functor1, a_functor2, a_arg4);
+			void* result = (*g_advanceHooks[Index])(a_ui, a_functor1, a_functor2, a_arg4);
 			OnUiFrame();
 			return result;
-		}
-
-		std::uintptr_t DecodeCallTarget(std::uintptr_t a_site)
-		{
-			if (*reinterpret_cast<const std::uint8_t*>(a_site) != 0xE8) {
-				return 0;
-			}
-			std::int32_t rel{};
-			std::memcpy(&rel, reinterpret_cast<const void*>(a_site + 1), sizeof(rel));
-			return a_site + 5 + rel;
 		}
 
 		bool InstallUiFrameHook()
 		{
 			const auto base = RE::ID::UI::UpdateMenus.address();
-			const auto target = DecodeCallTarget(base + kAdvanceCallSites[0]);
-			if (!target || target != DecodeCallTarget(base + kAdvanceCallSites[1])) {
-				REX::ERROR("FrameTick: UI_AdvanceActiveMenus call sites in UI::UpdateMenus do not match the expected layout; frame tick unavailable");
-				return false;
-			}
-			// Call whatever target is there now so hooks from other plugins on the same sites stay chained.
-			g_advance = reinterpret_cast<AdvanceFn>(target);
 			for (const auto offset : kAdvanceCallSites) {
-				REL::GetTrampoline().write_call<5>(base + offset, &AdvanceThunk);
+				if (*reinterpret_cast<const std::uint8_t*>(base + offset) != 0xE8) {
+					REX::ERROR("FrameTick: UI_AdvanceActiveMenus call sites in UI::UpdateMenus do not match the expected layout; frame tick unavailable");
+					return false;
+				}
+			}
+			// Preserve each site's current target independently so other plugins' hooks stay chained.
+			g_advanceHooks[0].emplace("FrameTick::Advance0", RE::ID::UI::UpdateMenus, kAdvanceCallSites[0], &AdvanceThunk<0>);
+			g_advanceHooks[1].emplace("FrameTick::Advance1", RE::ID::UI::UpdateMenus, kAdvanceCallSites[1], &AdvanceThunk<1>);
+			for (auto& hook : g_advanceHooks) {
+				if (!hook->Init()) {
+					REX::ERROR("FrameTick: UI_AdvanceActiveMenus hook could not be initialized");
+					return false;
+				}
+			}
+			for (auto& hook : g_advanceHooks) {
+				hook->Enable();
 			}
 			REX::INFO("FrameTick: installed on both UI_AdvanceActiveMenus call sites in UI::UpdateMenus");
 			return true;
