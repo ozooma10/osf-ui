@@ -1,5 +1,6 @@
 #include "Core/Plugin.h"
 
+#include "API/PapyrusBindHook.h"
 #include "Core/Version.h"
 #include "REL/Trampoline.h"
 #include "Runtime/Runtime.h"
@@ -129,6 +130,9 @@ namespace OSFUI::Plugin
 		if (!InstallUiFrameHook()) {
 			REX::ERROR("{}: frame tick hook unavailable; plugin load aborted", kPluginName);
 			return false;
+		}
+		if (!API::Papyrus::InstallBindHook()) {
+			REX::WARN("{}: Papyrus bind hook unavailable; natives bind on data load instead", kPluginName);
 		}
 
 		return true;

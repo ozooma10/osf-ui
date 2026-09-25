@@ -94,6 +94,7 @@ namespace OSFUI::API::Papyrus
 			// Set while a world-replacing save/load operation is in flight; dispatch into the VM is refused until
 			// the new session is announced (TESLoadGameEvent) or the operation fails.
 			std::atomic_bool                                    suspended{ false };
+			std::atomic_bool                                    nativesBound{ false };
 		};
 
 		ProcessState& State()
@@ -746,7 +747,7 @@ namespace OSFUI::API::Papyrus
 			return BridgeApi::Get().RequestMenu(id.c_str(), false);
 		}
 
-		void BindNatives(PapVM* a_vm)
+		void BindNativeMethods(PapVM* a_vm)
 		{
 			a_vm->BindNativeMethod(kPlatformScriptName, "IsAvailable", &IsAvailable, true, false);
 			a_vm->BindNativeMethod(kPlatformScriptName, "GetVersion", &GetVersion, true, false);
@@ -778,8 +779,11 @@ namespace OSFUI::API::Papyrus
 
 		bool TryBindNatives()
 		{
+			if (State().nativesBound.load(std::memory_order_acquire)) {
+				return true;
+			}
 			if (auto* gameVM = RE::GameVM::GetSingleton(); gameVM && gameVM->GetVM()) {
-				BindNatives(gameVM->GetVM());
+				BindNatives(*gameVM->GetVM());
 				return true;
 			}
 			return false;
@@ -817,8 +821,8 @@ namespace OSFUI::API::Papyrus
 			}
 		}
 
-		// Session boundaries: refuse VM dispatch while a world-replacing load is in flight, then rebind natives
-		// and clear stale registrations before the new session runs.
+		// Session boundaries: refuse VM dispatch while a world-replacing load is in flight, then clear stale
+		// registrations before the new session runs. Natives stay bound; the VM outlives the session.
 		class SessionSink final :
 			public RE::BSTEventSink<RE::SaveLoadEvent>,
 			public RE::BSTEventSink<RE::TESLoadGameEvent>
@@ -850,17 +854,23 @@ namespace OSFUI::API::Papyrus
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESLoadGameEvent&, RE::BSTEventSource<RE::TESLoadGameEvent>*) override
 			{
 				ClearRegistrations("game load");
-				if (!TryBindNatives()) {
-					REX::ERROR("PapyrusApi: could not re-bind native scripts after load (GameVM unavailable)");
-				}
 				SetSuspended(false, "game loaded");
 				return RE::BSEventNotifyControl::kContinue;
 			}
 		};
 	}
 
+	void BindNatives(PapVM& a_vm)
+	{
+		if (State().nativesBound.exchange(true, std::memory_order_acq_rel)) {
+			return;
+		}
+		BindNativeMethods(&a_vm);
+	}
+
 	void Install()
 	{
+		// Fallback for a missing bind hook: by data load the VM exists, though scripts may already have run.
 		if (!TryBindNatives()) {
 			REX::ERROR("PapyrusApi: GameVM unavailable at install; OSFUI natives not bound");
 		}
@@ -870,7 +880,7 @@ namespace OSFUI::API::Papyrus
 				src->RegisterSink(SessionSink::GetSingleton());
 				s_sinkInstalled = true;
 			} else {
-				REX::WARN("PapyrusApi: TESLoadGameEvent source null; natives will not re-bind after a game load");
+				REX::WARN("PapyrusApi: TESLoadGameEvent source null; registrations will not clear after a game load");
 			}
 			if (auto* src = RE::SaveLoadEvent::GetEventSource()) {
 				src->RegisterSink(SessionSink::GetSingleton());

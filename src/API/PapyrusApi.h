@@ -9,12 +9,21 @@
 
 #include <nlohmann/json.hpp>
 
+namespace RE::BSScript
+{
+	class IVirtualMachine;
+}
+
 namespace OSFUI::API::Papyrus
 {
 	// Untrusted script dispatch must reject this trusted platform script.
 	inline constexpr std::string_view kPlatformScriptName = "OSFUI";
 
-	// Main thread and idempotent; binds natives and installs the session sinks (load in flight, game loaded).
+	// Binds the OSFUI natives on a_vm once per process; later calls are no-ops. Normally reached from the
+	// GameVM constructor hook (PapyrusBindHook); Install() falls back to it when the hook is absent.
+	void BindNatives(RE::BSScript::IVirtualMachine& a_vm);
+
+	// Main thread and idempotent; binds natives if still unbound and installs the session sinks.
 	void Install();
 
 	// Any thread. Returning to the main menu ends the script session: registrations, queued state and
