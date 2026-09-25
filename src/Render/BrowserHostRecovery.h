@@ -5,7 +5,7 @@
 
 namespace OSFUI
 {
-	// Main-thread retry timing for terminal browser-host failures; transport ownership stays in the renderer.
+	// Main-thread failure state and retry timing; transport ownership stays in the renderer.
 	class BrowserHostRecovery
 	{
 	public:
@@ -28,6 +28,8 @@ namespace OSFUI
 			m_attempts = 0;
 			m_retryAt = 0.0;
 			m_responseDeadline = 0.0;
+			m_healthyUntil = 0.0;
+			m_failureHandled = false;
 		}
 
 		// A load proves responsiveness, not stability. Keep the retry budget until the host stays healthy.
@@ -36,6 +38,7 @@ namespace OSFUI
 			if (!CanAcceptResponse()) return;
 			m_phase = Phase::Healthy;
 			m_healthyUntil = a_now + 60.0;
+			m_failureHandled = false;
 		}
 
 		void ObserveHealth(double a_now)
@@ -43,19 +46,21 @@ namespace OSFUI
 			if (m_phase == Phase::Healthy && a_now >= m_healthyUntil) Reset();
 		}
 
-		void Disable()
+		// First failure per host wins. Return whether Runtime should apply failure cleanup/reporting.
+		[[nodiscard]] bool OnFailure(double a_now, bool a_retryable)
 		{
-			m_phase = Phase::Disabled;
-			m_retryAt = 0.0;
-			m_responseDeadline = 0.0;
-		}
-
-		void OnRetryableFailure(double a_now)
-		{
-			if (m_phase == Phase::Disabled) {
-				return;
+			if (m_failureHandled) {
+				return false;
 			}
-			Schedule(a_now);
+			m_failureHandled = true;
+			if (a_retryable) {
+				Schedule(a_now);
+			} else {
+				m_phase = Phase::Disabled;
+				m_retryAt = 0.0;
+				m_responseDeadline = 0.0;
+			}
+			return true;
 		}
 
 		[[nodiscard]] bool BeginDueAttempt(double a_now)
@@ -66,6 +71,7 @@ namespace OSFUI
 			++m_attempts;
 			m_phase = Phase::AwaitingResponse;
 			m_responseDeadline = a_now + kResponseTimeoutSeconds;
+			m_failureHandled = false;  // accept failures from the replacement while UI remains blocked
 			return true;
 		}
 
@@ -96,6 +102,12 @@ namespace OSFUI
 			return m_phase == Phase::AwaitingResponse;
 		}
 
+		// Recovery permits UI use before a failure and after a replacement responds.
+		[[nodiscard]] bool IsAvailable() const
+		{
+			return m_phase == Phase::Idle || m_phase == Phase::Healthy;
+		}
+
 		[[nodiscard]] Phase PhaseValue() const { return m_phase; }
 		[[nodiscard]] std::uint32_t Attempts() const { return m_attempts; }
 
@@ -117,6 +129,7 @@ namespace OSFUI
 		};
 
 		Phase         m_phase{ Phase::Idle };
+		bool          m_failureHandled{ false };
 		std::uint32_t m_attempts{ 0 };
 		double        m_retryAt{ 0.0 };
 		double        m_responseDeadline{ 0.0 };

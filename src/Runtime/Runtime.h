@@ -181,8 +181,6 @@ namespace OSFUI
 
 		// Browser-host recovery.
 		BrowserHostRecovery m_browserHostRecovery;
-		bool m_rendererFailed{ false };          // opens fail closed until recovery completes
-		bool m_rendererFailureLatched{ false };  // first failure per helper wins
 
 		// Input components own their state and cross-thread publication boundaries.
 		InputCaptureController m_inputCapture;

@@ -49,12 +49,10 @@ namespace OSFUI
 		const std::string id(a_viewId);
 		// A navigation creates a fresh document; no pointer ownership crosses that boundary.
 		m_relativePointer.Cancel(id);
-		if (!a_failed && m_rendererFailed && m_browserHostRecovery.CanAcceptResponse()) {
+		if (!a_failed && m_browserHostRecovery.CanAcceptResponse()) {
 			const auto attempts = m_browserHostRecovery.Attempts();
 			m_browserHostRecovery.OnResponse(m_nowSeconds);
 			API::BridgeApi::Get().SetBridgeAvailability(m_bridge.get());
-			m_rendererFailed = false;
-			m_rendererFailureLatched = false;
 			m_osfSettings.ClearFailure("runtime.renderer");
 			REX::INFO("Runtime: replacement browser host responded on attempt {}; menus remain closed; requested HUDs resume after loading", attempts);
 		}
@@ -104,7 +102,7 @@ namespace OSFUI
 
 	void Runtime::DriveRecovery()
 	{
-		if (m_rendererFailed || !m_renderer) {
+		if (!m_browserHostRecovery.IsAvailable() || !m_renderer) {
 			return;
 		}
 

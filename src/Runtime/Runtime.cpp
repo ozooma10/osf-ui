@@ -128,8 +128,6 @@ namespace OSFUI
 		if (m_initialized) {
 			return true;
 		}
-		m_rendererFailed = false;
-		m_rendererFailureLatched = false;
 		m_browserHostRecovery.Reset();
 
 		if (!Paths::Initialize()) {
@@ -330,7 +328,7 @@ namespace OSFUI
 				"The view cannot open because the UI draw path is unavailable", { { "view", a_id } });
 			return;
 		}
-		if (m_rendererFailed) {
+		if (!m_browserHostRecovery.IsAvailable()) {
 			if (m_browserHostRecovery.RequestManualRetry(m_nowSeconds)) {
 				REX::INFO("Runtime: open of '{}' requested a fresh browser-host recovery cycle; the overlay remains closed until the replacement reaches its reveal gate", a_id);
 			} else if (m_browserHostRecovery.PhaseValue() ==
@@ -395,11 +393,11 @@ namespace OSFUI
 	void Runtime::DrivePendingOpen()
 	{
 		const bool menusAllowed = m_inputCapture.MenuEventsAvailable() && !MenuEventSink::TransitionOpen();
-		if (!m_rendererFailed && menusAllowed && !m_inputCapture.IntegrationAttempted() && m_viewOpens.PendingMenu()) {
+		if (m_browserHostRecovery.IsAvailable() && menusAllowed && !m_inputCapture.IntegrationAttempted() && m_viewOpens.PendingMenu()) {
 			const auto* manifest = m_views.Find(*m_viewOpens.PendingMenu());
 			if (manifest && manifest->capturesInput) m_inputCapture.EnsureIntegration(m_postDataLoadedReady.load(std::memory_order_acquire));
 		}
-		const auto ready = m_viewOpens.TakeReady(!m_rendererFailed, menusAllowed,
+		const auto ready = m_viewOpens.TakeReady(m_browserHostRecovery.IsAvailable(), menusAllowed,
 			[this](std::string_view a_id) { return ViewOpenReadiness(a_id); });
 		for (const auto& id : ready) {
 			m_presentation.Open(id);
@@ -567,7 +565,6 @@ namespace OSFUI
 		REX::INFO("Runtime: restarting browser host (attempt {}/{})", attempt, BrowserHostRecovery::kMaxAttempts);
 		m_renderer->RestartAfterFailure();
 
-		m_rendererFailureLatched = false;
 		RehydrateRendererAfterRestart();
 	}
 
@@ -602,26 +599,22 @@ namespace OSFUI
 
 	void Runtime::OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event)
 	{
-		if (m_rendererFailureLatched) {
+		const bool retryableBrowserHostLoss =
+			a_event.stage == "host-connection" && m_renderer;
+		if (!m_browserHostRecovery.OnFailure(m_nowSeconds, retryableBrowserHostLoss)) {
 			return;
 		}
 		API::BridgeApi::Get().SetBridgeAvailability(nullptr);
-		m_rendererFailureLatched = true;
-		m_rendererFailed = true;
 		m_osfSettings.ReportFailure("runtime.renderer", "webview.renderer-failed",
 			"The OSF UI browser stopped working",
 			{ { "view", a_event.viewId }, { "stage", a_event.stage }, { "detail", a_event.description }, { "errorCode", a_event.errorCode } });
-		const bool retryableBrowserHostLoss =
-			a_event.stage == "host-connection" && m_renderer;
 		if (retryableBrowserHostLoss) {
-			m_browserHostRecovery.OnRetryableFailure(m_nowSeconds);
 			REX::ERROR("Runtime: browser-host connection failed for view '{}' (0x{:08X}): {} - closing the overlay; bounded browser-host recovery is scheduled", a_event.viewId, a_event.errorCode, a_event.description);
 			if (m_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Exhausted) {
 				REX::ERROR("Runtime: automatic browser-host recovery exhausted; the next explicit menu open will start a fresh retry cycle");
 			}
 		} else {
-			m_browserHostRecovery.Disable();
 			REX::ERROR("Runtime: renderer failed at '{}' for view '{}' (0x{:08X}): {} - closing the overlay and disabling it for this session", a_event.stage, a_event.viewId, a_event.errorCode, a_event.description);
 		}
 		m_viewRecovery.ClearAll();
