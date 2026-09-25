@@ -16,7 +16,7 @@ namespace OSFUI::UiPass::DirectProbe
         std::atomic_uint g_heapSamples{0}, g_heapMatches{0}, g_draws{0};
         std::atomic_uint g_endMatches{0}, g_endTransitions{0}, g_insideEndTransitions{0};
         std::atomic_uint g_copiedHandleSamples{0}, g_copiedHandleMatches{0};
-        // Owned numeric identities only; never dereference these after the pass returns.
+        // Copied numeric identities only (no COM ownership); never dereference these after the pass returns.
         struct Snapshot { std::uintptr_t list{}, resource[2]{}, heap[2]{}, copiedResource{}; };
         thread_local Snapshot tl_begin{}, tl_last{};
         thread_local unsigned tl_frame{}, tl_barriers{};
@@ -224,6 +224,13 @@ namespace OSFUI::UiPass::DirectProbe
                 r==tl_last.resource[0], r==tl_last.resource[1], fg, first, d.Width, d.Height, static_cast<unsigned>(d.Format));
         }
     }
-    void DrawResult(bool drew) { if (tl_active && drew) ++g_draws; }
+    void DrawResult(bool drew)
+    {
+        if (tl_active && drew) {
+            const auto count = ++g_draws;
+            if (count == 1 || count % 120 == 0)
+                REX::INFO("[UiDirect] REFERENCE actualOverlayDraws={} f={} phase={}", count, tl_frame, tl_phase);
+        }
+    }
 }
 #endif

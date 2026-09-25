@@ -15,7 +15,7 @@ add_requires("nlohmann_json 3.11.3")
 
 option("ui_pass_direct_probe")
     set_default(false)
-    set_description("Bounded read-only render-pass pointer comparison; keeps the barrier draw path")
+    set_description("Bounded render-pass diagnostics; keeps the barrier draw path")
 option_end()
 
 -- The mirrored host is self-contained: static CRT and WebView2 loader.

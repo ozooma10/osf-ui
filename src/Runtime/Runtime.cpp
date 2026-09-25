@@ -142,10 +142,6 @@ namespace OSFUI
 
 	void Runtime::OnPostLoad()
 	{
-		if (m_postLoadAttempted) {
-			return;
-		}
-		m_postLoadAttempted = true;
 		if (!m_osfSettings.Initialize()) {
 			REX::ERROR("Runtime: OSF Settings dependency unavailable or ABI-incompatible; OSF UI remains inert");
 			return;
