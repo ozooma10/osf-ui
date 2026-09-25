@@ -22,7 +22,7 @@ namespace OSFUI::Json
 		}
 		try {
 			return Value::parse(stream, /*cb=*/nullptr, /*allow_exceptions=*/true, /*ignore_comments=*/true);
-		} catch (const std::exception& e) {
+		} catch (const Value::parse_error& e) {
 			std::string_view what = e.what();
 			if (!what.empty() && what.front() == '[') {
 				if (const auto end = what.find("] "); end != std::string_view::npos) {

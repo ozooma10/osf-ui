@@ -40,19 +40,15 @@ namespace SettingsViewExample
     void Consumer::OnSettingChanged(const char*, const char* key, void* user) noexcept
     {
         if (key && std::string_view(key) != "showDetails") return;
-        try {
-            if (!static_cast<Consumer*>(user)->PublishSettings()) REX::WARN("Example state could not be published");
-        } catch (...) { REX::ERROR("Example settings callback failed"); }
+        if (!static_cast<Consumer*>(user)->PublishSettings()) REX::WARN("Example state could not be published");
     }
 
     void Consumer::OnHotkey(const char*, const char*, void* user) noexcept
     {
-        try {
-            auto& self = *static_cast<Consumer*>(user);
-            // SDK mutations enqueue work safely; this callback never calls the engine directly.
-            if (self.PublishSettings() && !self._views.RequestMenu(kViewId, true)) {
-                REX::WARN("Example view open could not be queued");
-            }
-        } catch (...) { REX::ERROR("Example hotkey callback failed"); }
+        auto& self = *static_cast<Consumer*>(user);
+        // SDK mutations enqueue work safely; this callback never calls the engine directly.
+        if (self.PublishSettings() && !self._views.RequestMenu(kViewId, true)) {
+            REX::WARN("Example view open could not be queued");
+        }
     }
 }

@@ -12,9 +12,6 @@ namespace OSFUI::Plugin
 {
 	namespace
 	{
-		// Starfield 1.16.244: UI::UpdateMenus calls UI_AdvanceActiveMenus from exactly one of two
-		// mutually exclusive sites per frame, on the game main thread. Hooking both gives a once-per-frame
-		// main-thread pump with no SFSE worker hop. Same design as CruiseFromStarmap's UiPostAdvanceHook.
 		constexpr std::array<std::ptrdiff_t, 2> kAdvanceCallSites{ 0x228, 0x2A1 };
 		constexpr auto                          kIdleTickInterval = std::chrono::milliseconds(100);
 		constexpr double                        kMaxDeltaSeconds = 0.1;
@@ -39,16 +36,10 @@ namespace OSFUI::Plugin
 			Runtime::Get().Tick(dt);
 		}
 
-		void* AdvanceThunk(void* a_ui, void* a_functor1, void* a_functor2, void* a_arg4)
+		void* AdvanceThunk(void* a_ui, void* a_functor1, void* a_functor2, void* a_arg4) noexcept
 		{
 			void* result = g_advance(a_ui, a_functor1, a_functor2, a_arg4);
-			try {
-				OnUiFrame();
-			} catch (const std::exception& e) {
-				REX::ERROR("FrameTick: Runtime::Tick threw '{}'", e.what());
-			} catch (...) {
-				REX::ERROR("FrameTick: Runtime::Tick threw an unknown exception");
-			}
+			OnUiFrame();
 			return result;
 		}
 
@@ -79,46 +70,32 @@ namespace OSFUI::Plugin
 			return true;
 		}
 
-		void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
+		void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg) noexcept
 		{
 			if (!a_msg) {
 				return;
 			}
-			try {
-				switch (a_msg->type) {
-					case SFSE::MessagingInterface::kPostPostLoad:
-						REX::INFO("Plugin: SFSE message kPostPostLoad");
-						Runtime::Get().OnPostPostLoad();
-						break;
-					case SFSE::MessagingInterface::kPostDataLoad:
-						REX::INFO("Plugin: SFSE message kPostDataLoad");
-						Runtime::Get().OnDataLoaded();
-						break;
-					case SFSE::MessagingInterface::kPostPostDataLoad:
-						REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-						Runtime::Get().OnPostDataLoaded();
-						break;
-				}
-			} catch (const std::exception& e) {
-				REX::ERROR("Plugin: SFSE message {} threw '{}'", a_msg->type, e.what());
-			} catch (...) {
-				REX::ERROR("Plugin: SFSE message {} threw an unknown exception", a_msg->type);
+			switch (a_msg->type) {
+				case SFSE::MessagingInterface::kPostPostLoad:
+					REX::INFO("Plugin: SFSE message kPostPostLoad");
+					Runtime::Get().OnPostPostLoad();
+					break;
+				case SFSE::MessagingInterface::kPostDataLoad:
+					REX::INFO("Plugin: SFSE message kPostDataLoad");
+					Runtime::Get().OnDataLoaded();
+					break;
+				case SFSE::MessagingInterface::kPostPostDataLoad:
+					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
+					Runtime::Get().OnPostDataLoaded();
+					break;
 			}
 		}
 	}
 
-	bool OnLoad()
+	bool OnLoad() noexcept
 	{
-		try {
-			if (!Runtime::Get().Initialize()) {
-				REX::ERROR("{}: Runtime initialization failed", kPluginName);
-				return false;
-			}
-		} catch (const std::exception& e) {
-			REX::ERROR("{}: Runtime initialization threw '{}'; plugin load aborted", kPluginName, e.what());
-			return false;
-		} catch (...) {
-			REX::ERROR("{}: Runtime initialization threw an unknown exception; plugin load aborted", kPluginName);
+		if (!Runtime::Get().Initialize()) {
+			REX::ERROR("{}: Runtime initialization failed", kPluginName);
 			return false;
 		}
 		if (const auto* messaging = SFSE::GetMessagingInterface()) {

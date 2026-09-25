@@ -104,7 +104,7 @@ namespace OSFUI
 		_sendDelivered = false;
 		_trace.clear();
 
-		// The transport catches handler exceptions above us. This guard still restores the in-flight context while the exception unwinds, so a later Respond/Reject cannot accidentally settle the abandoned request.
+		// Restore the in-flight context on exit so a later Respond/Reject cannot settle an abandoned request.
 		const ScopeExit cleanup([this] {
 			_inMessage = false;
 			const auto result = _trace.empty() ? std::string_view{ "(nothing)" } : std::string_view{ _trace };

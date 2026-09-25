@@ -430,16 +430,6 @@ namespace OSFUI
 			}
 		}
 
-		void WriterEntry() noexcept
-		{
-			try {
-				WriterMain();
-			} catch (const std::exception& e) {
-				SignalDead(std::string("outbound writer threw: ") + e.what());
-			} catch (...) {
-				SignalDead("outbound writer threw an unknown exception");
-			}
-		}
 		// stateMutex must be held.
 		ViewRec* FindView(std::string_view a_id)
 		{
@@ -655,21 +645,8 @@ namespace OSFUI
 				writerFailed = false;
 			}
 			pipe.PrepareForOpen();
-			try {
-				writer = std::thread([this] { WriterEntry(); });
-				worker = std::thread([this] { WorkerEntry(); });
-			} catch (const std::exception& e) {
-				REX::ERROR("WebView2HostWebRenderer: could not create transport thread: {}",
-					e.what());
-				stopRequested.store(true, std::memory_order_release);
-				outbound.Close();
-				writerGate.notify_all();
-				pipe.Close();
-				if (writer.joinable()) writer.join();
-				lifecycle.store(Lifecycle::Failed, std::memory_order_release);
-				if (!dead.exchange(true)) Push(Notify{ .kind = Notify::Kind::Dead });
-				return false;
-			}
+			writer = std::thread([this] { WriterMain(); });
+			worker = std::thread([this] { WorkerMain(); });
 			REX::DEBUG("WebView2HostWebRenderer: starting browser-host transport threads");
 			return true;
 		}
@@ -719,17 +696,6 @@ namespace OSFUI
 					tail.size(), Utf8Path(browserHostLog));
 			for (const auto& line : tail) {
 				REX::INFO("BrowserHostDiag: | {}", line);
-			}
-		}
-
-		void WorkerEntry() noexcept
-		{
-			try {
-				WorkerMain();
-			} catch (const std::exception& e) {
-				SignalDead(std::string("connection worker threw: ") + e.what());
-			} catch (...) {
-				SignalDead("connection worker threw an unknown exception");
 			}
 		}
 
@@ -1070,16 +1036,7 @@ namespace OSFUI
 							std::scoped_lock lock(stateMutex);
 							knownView = FindView(value.view) != nullptr;
 						}
-						// Contain page/handler exceptions at the game-thread drain boundary.
-						try {
-							if (onWebMessage && knownView) onWebMessage(value.view, value.text);
-						} catch (const std::exception& e) {
-							REX::ERROR("WebView2HostWebRenderer: web message from '{}' threw: {}",
-								value.view, e.what());
-						} catch (...) {
-							REX::ERROR("WebView2HostWebRenderer: web message from '{}' threw a non-std exception",
-								value.view);
-						}
+						if (onWebMessage && knownView) onWebMessage(value.view, value.text);
 					}
 					break;
 				case Notify::Kind::Load:

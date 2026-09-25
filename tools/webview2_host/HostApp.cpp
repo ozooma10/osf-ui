@@ -1279,7 +1279,10 @@ namespace osfui::wv2
 							OnFrameArrived(a_pool);
 						});
 					captureSession = framePool.CreateCaptureSession(captureItem);
-					try { captureSession.IsCursorCaptureEnabled(false); } catch (...) {}
+					try { captureSession.IsCursorCaptureEnabled(false); }
+					catch (const winrt::hresult_error& a_error) {
+						log.Warn(std::format("cursor capture control unavailable: {}", ToUtf8(a_error.message())));
+					}
 					ApplyCaptureCadence();
 					captureSession.StartCapture();
 					return true;
@@ -1557,7 +1560,11 @@ namespace osfui::wv2
 				focusEpoch = 0;
 				captureClosing.store(true);
 				if (framePool) {
-					try { framePool.FrameArrived(frameToken); } catch (...) {}
+					try { framePool.FrameArrived(frameToken); }
+					catch (const winrt::hresult_error& e) {
+						log.Warn(std::format("capture frame callback removal failed (hr=0x{:08X})",
+							static_cast<std::uint32_t>(e.code().value)));
+					}
 				}
 				if (captureSession) {
 					try { captureSession.Close(); }
@@ -1697,7 +1704,11 @@ namespace osfui::wv2
 				log.pipe.store(nullptr, std::memory_order_release);
 				CloseWebResources();
 				if (dispatcher) {
-					try { dispatcher.ShutdownQueueAsync(); } catch (...) {}
+					try { dispatcher.ShutdownQueueAsync(); }
+					catch (const winrt::hresult_error& e) {
+						log.Warn(std::format("dispatcher shutdown failed (hr=0x{:08X})",
+							static_cast<std::uint32_t>(e.code().value)));
+					}
 					dispatcher = nullptr;
 				}
 				rootVisual = nullptr;
@@ -1817,36 +1828,21 @@ namespace osfui::wv2
 		}
 		app.log.Info("hello sent (WebView2 Runtime " + webView2RuntimeVersion + ")");
 
+		app.wakeEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+		if (!app.wakeEvent) {
+			app.log.Error(std::format("CreateEvent(wake) failed (Win32 error {})", ::GetLastError()));
+			app.log.pipe.store(nullptr, std::memory_order_release);
+			app.pipe.Close();
+			::CloseHandle(app.gameProcess);
+			::CloseHandle(instanceMutex);
+			return 10;
+		}
+		app.reader = std::thread([&app] { app.ReaderMain(); });
 		int code = 10;
 		try {
-			app.wakeEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-			if (!app.wakeEvent) {
-				throw std::runtime_error("CreateEvent(wake) failed");
-			}
-			app.reader = std::thread([&app] {
-				try {
-					app.ReaderMain();
-				} catch (const winrt::hresult_error& e) {
-					app.log.Error("pipe reader failed: " + ToUtf8(e.message()));
-					app.quit.store(true);
-					::SetEvent(app.wakeEvent);
-				} catch (const std::exception& e) {
-					app.log.Error(std::string("pipe reader failed: ") + e.what());
-					app.quit.store(true);
-					::SetEvent(app.wakeEvent);
-				} catch (...) {
-					app.log.Error("pipe reader failed with an unknown exception");
-					app.quit.store(true);
-					::SetEvent(app.wakeEvent);
-				}
-			});
 			code = app.Run();
 		} catch (const winrt::hresult_error& e) {
 			app.log.Error("unhandled browser-host failure: " + ToUtf8(e.message()));
-		} catch (const std::exception& e) {
-			app.log.Error(std::string("unhandled browser-host failure: ") + e.what());
-		} catch (...) {
-			app.log.Error("unhandled browser-host failure: unknown exception");
 		}
 		app.quit.store(true);
 		if (app.wakeEvent) {

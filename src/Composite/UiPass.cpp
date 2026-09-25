@@ -88,7 +88,7 @@ namespace OSFUI::UiPass
 		void STDMETHODCALLTYPE ResourceBarrierThunk(
 			ID3D12GraphicsCommandList* a_self,
 			const UINT a_numBarriers,
-			const D3D12_RESOURCE_BARRIER* a_barriers)
+			const D3D12_RESOURCE_BARRIER* a_barriers) noexcept
 		{
 			tl_handoffWindow.OnBarrierCall();
 			if (tl_handoffWindow.HandoffArmed() && a_barriers) {

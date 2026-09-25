@@ -41,9 +41,7 @@ namespace OSFUI
 				.modId = view.launcherMod.c_str(), .id = view.id.c_str(), .modTitle = view.launcherModTitle.c_str(),
 				.title = view.title.c_str(), .description = view.description.c_str(),
 				.open = [](const char*, const char* id, void*) noexcept {
-					try {
-						if (!API::BridgeApi::Get().RequestMenu(id, true)) REX::WARN("Launcher could not queue view '{}'", id);
-					} catch (...) { REX::ERROR("Launcher could not queue WebView request"); }
+					if (!API::BridgeApi::Get().RequestMenu(id, true)) REX::WARN("Launcher could not queue view '{}'", id);
 				}
 			});
 			if (result != OSFSettings::API::Launcher::Status::Ok)

@@ -91,11 +91,7 @@ namespace OSFUI
 			if (!std::ranges::any_of(_reads, [&](const Read& a_read) {
 				return a_read.list == a_list && a_read.frame == selected;
 			})) {
-				try {
-					_reads.push_back({ .frame = selected, .list = a_list });
-				} catch (...) {
-					return std::nullopt;
-				}
+				_reads.push_back({ .frame = selected, .list = a_list });
 			}
 			if (promote) {
 				_current = std::exchange(_pending, {});

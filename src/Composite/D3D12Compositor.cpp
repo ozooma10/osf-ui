@@ -57,7 +57,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		std::atomic<QueueExecutedFn> g_queueExecutedFn{ nullptr };
 		constexpr std::size_t kExecuteCommandListsSlot = 10;
 
-		void STDMETHODCALLTYPE ExecuteCommandListsThunk(ID3D12CommandQueue* a_queue, const UINT a_count, ID3D12CommandList* const* a_lists)
+		void STDMETHODCALLTYPE ExecuteCommandListsThunk(ID3D12CommandQueue* a_queue, const UINT a_count, ID3D12CommandList* const* a_lists) noexcept
 		{
 			if (const auto original = g_origExecuteCommandLists.load(std::memory_order_acquire)) {
 				original(a_queue, a_count, a_lists);
@@ -338,14 +338,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				ID3D12Fence* fence = nullptr;
 				hr = engine.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
 				if (SUCCEEDED(hr)) {
-					try {
-						timelines.push_back({ a_queue, fence });
-						a_queue->AddRef();
-						timeline = std::prev(timelines.end());
-					} catch (...) {
-						SafeRelease(fence);
-						hr = E_OUTOFMEMORY;
-					}
+					timelines.push_back({ a_queue, fence });
+					a_queue->AddRef();
+					timeline = std::prev(timelines.end());
 				}
 			}
 			std::uint64_t value = 0;

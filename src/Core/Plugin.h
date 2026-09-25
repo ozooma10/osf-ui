@@ -2,5 +2,5 @@
 
 namespace OSFUI::Plugin
 {
-	bool OnLoad();
+	bool OnLoad() noexcept;
 }

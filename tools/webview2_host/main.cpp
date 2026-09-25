@@ -3,7 +3,6 @@
 #include <format>
 
 #include <shellapi.h>
-#include <exception>
 #include <string>
 #include <vector>
 
@@ -35,17 +34,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 	if (options.pipeName.empty() || options.gamePid == 0) {
 		return 1;
 	}
-	try {
-		if (broker) {
-			const auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
-				options.pipeName, options.gamePid, options.logFile.native());
-			const auto result = osfui::wv2::RunLaunchBroker(executable, args);
-			return result.ok ? static_cast<int>(result.method) : 0;
-		}
-		return osfui::wv2::RunHost(options);
-	} catch (const std::exception&) {
-		return 10;
-	} catch (...) {
-		return 10;
+	if (broker) {
+		const auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
+			options.pipeName, options.gamePid, options.logFile.native());
+		const auto result = osfui::wv2::RunLaunchBroker(executable, args);
+		return result.ok ? static_cast<int>(result.method) : 0;
 	}
+	return osfui::wv2::RunHost(options);
 }
