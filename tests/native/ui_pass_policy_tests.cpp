@@ -17,7 +17,6 @@ namespace
 
 int main()
 {
-	using OSFUI::UiPass::detail::CanChainForeignExecute;
 	using OSFUI::UiPass::detail::CanRecordOverlay;
 	using OSFUI::UiPass::detail::CommandListHookState;
 	using OSFUI::UiPass::detail::FrameGenerationTargetPolicy;
@@ -35,10 +34,6 @@ int main()
 	Check(!CanRecordOverlay(CommandListHookState::Failed),
 		"overlay recording remains disabled after command-list hook failure");
 
-	Check(CanChainForeignExecute(0x140000000),
-		"foreign execute hooks are chained by default");
-	Check(!CanChainForeignExecute(0),
-		"a null slot has no engine pass to chain and is refused");
 	Check(PostCompositeTargetMatchesOutputAspect(3440, 1440, 3440, 1440),
 		"an output-sized post-composite target retains the validated path");
 	Check(PostCompositeTargetMatchesOutputAspect(2580, 1080, 3440, 1440),

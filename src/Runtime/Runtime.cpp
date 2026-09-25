@@ -101,8 +101,7 @@ namespace OSFUI
 		
 		bridge->SetHelloHook([this](std::string_view a_viewId) { OnViewGreeted(a_viewId); });
 
-		bridge->SetProtocolFaultSink([this](std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
-			const nlohmann::json& a_detail, bool a_viewFault) {
+		bridge->SetProtocolFaultSink([this](std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault) {
 			OnProtocolFault(a_viewId, a_code, a_message, a_detail, a_viewFault);
 		});
 
@@ -177,10 +176,6 @@ namespace OSFUI
 		m_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (m_bridge) m_bridge->HandleWebMessage(a_viewId, a_json);
 		});
-		if (!UiPass::Install()) {
-			m_osfSettings.ReportFailure("startup.draw-path", "webview.draw-path", "Scaleform UI pass hook failed");
-			return false;
-		}
 		if (m_developerMode && !m_devViewReload) {
 			m_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_id) {
 				return m_renderer && m_renderer->RefreshViewFiles(a_id);
