@@ -10,7 +10,7 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Set on the load thread (Register), read on the main thread (Open/Close from Runtime::Tick).
+		// Set on the load thread (Register), read on the main thread (Open/Close from Runtime::Update).
 		std::atomic_bool g_registered{ false };
 		std::atomic_bool g_gamepadCapture{ false };
 

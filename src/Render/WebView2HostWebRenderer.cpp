@@ -1359,7 +1359,7 @@ namespace OSFUI
 		}
 	}
 
-	void WebView2HostWebRenderer::Update(double)
+	void WebView2HostWebRenderer::Update()
 	{
 		// Start and initialize the browser host while the overlay remains hidden.
 		if (_impl->lifecycle.load(std::memory_order_acquire) ==

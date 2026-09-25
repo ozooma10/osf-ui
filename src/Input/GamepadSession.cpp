@@ -1,5 +1,6 @@
 #include "Input/GamepadSession.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -63,11 +64,16 @@ namespace OSFUI
 		}
 	}
 
-	GamepadSession::Frame GamepadSession::Update(const XInputPoller::State& a_state, Mode a_mode, double a_deltaSeconds, double a_now) noexcept
+	GamepadSession::Frame GamepadSession::Update(const XInputPoller::State& a_state, Mode a_mode, double a_now) noexcept
 	{
 		Frame frame;
 		frame.axes = { a_state.lx, a_state.ly, a_state.rx, a_state.ry };
 		const bool started = !m_active;
+		// Never integrate time spent outside this input mode, or catch up scrolling after a stall.
+		constexpr double kMaxScrollDeltaSeconds = 0.1;
+		const double scrollDelta = started || m_mode != a_mode ? 0.0 :
+			std::clamp(a_now - m_lastSampleTime, 0.0, kMaxScrollDeltaSeconds);
+		m_lastSampleTime = a_now;
 		bool       dpadPressed = false;
 
 		if (started)
@@ -144,7 +150,7 @@ namespace OSFUI
 		if (a_mode == Mode::kDefault && std::fabs(a_state.ry) > kScrollDeadzone)
 		{
 			constexpr float kScrollNotchesPerSecond = 8.0f;
-			m_scrollAccumulator += a_state.ry * kScrollNotchesPerSecond * static_cast<float>(a_deltaSeconds);
+			m_scrollAccumulator += a_state.ry * kScrollNotchesPerSecond * static_cast<float>(scrollDelta);
 			const int notches = static_cast<int>(m_scrollAccumulator);
 			if (notches != 0)
 			{
@@ -171,6 +177,7 @@ namespace OSFUI
 		m_buttons = 0;
 		m_navigation.Reset();
 		m_scrollAccumulator = 0.0f;
+		m_lastSampleTime = 0.0;
 		m_lastPublishedAxes = {};
 		return true;
 	}

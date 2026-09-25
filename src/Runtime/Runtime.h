@@ -46,7 +46,7 @@ namespace OSFUI
 		void OnPostPostLoad();
 		void OnDataLoaded();
 		void OnPostDataLoaded();
-		void Tick(double a_deltaSeconds);
+		void Update();
 
 		// Published state, safe to query from the window-message thread.
 		bool IsVisible() const;
@@ -86,8 +86,8 @@ namespace OSFUI
 		void ProcessLifecycleWork();
 		void ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus,
 			std::vector<API::BridgeApi::ViewStateOp> a_bridgeState);
-		void ReconcileFrameState(double a_deltaSeconds);
-		void ProcessRendererFrame(double a_deltaSeconds);
+		void ReconcileFrameState();
+		void ProcessRendererFrame();
 
 		// View requests, presentation and output geometry.
 		void ApplyPresentationRequests(
@@ -122,7 +122,7 @@ namespace OSFUI
 		bool ReconcileInputSuppression();
 		void ReconcileFocusMenu();
 		// Poll XInput and deliver events to the active document (`ui.gamepad` events).
-		void RouteGamepadInput(double a_deltaSeconds);
+		void RouteGamepadInput();
 
 		// Relative-pointer session; callbacks run on the main-thread tick.
 		void ApplyRelativePointerRequests(const std::vector<ViewRequestQueue::RelativePointerRequest>& a_requests);
@@ -164,7 +164,8 @@ namespace OSFUI
 		bool _developerMode{ false };       // startup-latched; changes apply next launch
 		bool _highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
 		std::uint64_t _mainTickSerial{ 0 };
-		double _uptime{ 0.0 };
+		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
+		double _nowSeconds{ 0.0 };
 		// SFSE lifecycle producer -> main-thread consumer.
 		std::atomic_bool _dataLoadedInitPending{ false };
 		std::atomic_bool _postDataLoadedReady{ false };

@@ -74,7 +74,8 @@ namespace OSFUI
 			int                        wheelDelta{ 0 };
 		};
 
-		[[nodiscard]] Frame Update(const XInputPoller::State& a_state, Mode a_mode, double a_deltaSeconds, double a_now) noexcept;
+		// a_now is monotonic seconds; scrolling owns its elapsed-time clamp within the session.
+		[[nodiscard]] Frame Update(const XInputPoller::State& a_state, Mode a_mode, double a_now) noexcept;
 
 		[[nodiscard]] bool End() noexcept;
 		[[nodiscard]] bool Active() const noexcept { return m_active; }
@@ -85,6 +86,7 @@ namespace OSFUI
 		std::uint32_t     m_buttons{ 0 };
 		GamepadNavigation m_navigation;
 		float             m_scrollAccumulator{ 0.0f };
+		double            m_lastSampleTime{ 0.0 };
 		Axes              m_lastPublishedAxes{};
 	};
 }

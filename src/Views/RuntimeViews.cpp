@@ -51,7 +51,7 @@ namespace OSFUI
 		_relativePointer.Cancel(id);
 		if (!a_failed && _rendererFailed && _browserHostRecovery.CanAcceptResponse()) {
 			const auto attempts = _browserHostRecovery.Attempts();
-			_browserHostRecovery.OnResponse(_uptime);
+			_browserHostRecovery.OnResponse(_nowSeconds);
 			API::BridgeApi::Get().SetBridgeAvailability(_bridge.get());
 			_rendererFailed = false;
 			_rendererFailureLatched = false;
@@ -73,7 +73,7 @@ namespace OSFUI
 		}
 		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]", a_viewId, a_url, a_description, a_errorCode);
 
-		const auto recovery = m_viewRecovery.ScheduleFailure(id, _uptime);
+		const auto recovery = m_viewRecovery.ScheduleFailure(id, _nowSeconds);
 		if(recovery.exhausted) {
 			REX::ERROR("view '{}' has exhausted its crash-recovery budget; destroying and unregistering the view (fix its files and relaunch)", a_viewId);
 			_osfSettings.ClearFailure("view.load-retrying:" + id);
@@ -108,7 +108,7 @@ namespace OSFUI
 			return;
 		}
 
-		for(const auto& id : m_viewRecovery.TakeDue(_uptime)) {
+		for(const auto& id : m_viewRecovery.TakeDue(_nowSeconds)) {
 			const auto* manifest = _views.Find(id);
 			if(!manifest) {
 				continue;

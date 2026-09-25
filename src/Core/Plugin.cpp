@@ -13,47 +13,21 @@ namespace OSFUI::Plugin
 	namespace
 	{
 		constexpr std::array<std::ptrdiff_t, 2> kAdvanceCallSites{ 0x228, 0x2A1 };
-		constexpr auto                          kIdleTickInterval = std::chrono::milliseconds(100);
-		constexpr double                        kMaxDeltaSeconds = 0.1;
 
 		using AdvanceHook = REL::THook<void*(void*, void*, void*, void*)>;
 
-		std::array<std::optional<AdvanceHook>, 2>            g_advanceHooks;
-		std::optional<std::chrono::steady_clock::time_point> g_lastTick;
-		std::chrono::steady_clock::time_point                g_nextIdleTick{};
-
-		void OnUiFrame()
-		{
-			const auto now = std::chrono::steady_clock::now();
-			if (!Runtime::Get().IsVisible() && now < g_nextIdleTick) {
-				return;
-			}
-			g_nextIdleTick = now + kIdleTickInterval;
-
-			double dt = g_lastTick ? std::chrono::duration<double>(now - *g_lastTick).count() : 0.0;
-			g_lastTick = now;
-			dt = std::clamp(dt, 0.0, kMaxDeltaSeconds);
-			Runtime::Get().Tick(dt);
-		}
+		std::array<std::optional<AdvanceHook>, 2> g_advanceHooks;
 
 		template <std::size_t Index>
 		void* AdvanceThunk(void* a_ui, void* a_functor1, void* a_functor2, void* a_arg4) noexcept
 		{
 			void* result = (*g_advanceHooks[Index])(a_ui, a_functor1, a_functor2, a_arg4);
-			OnUiFrame();
+			Runtime::Get().Update();
 			return result;
 		}
 
 		bool InstallUiFrameHook()
 		{
-			const auto base = RE::ID::UI::UpdateMenus.address();
-			for (const auto offset : kAdvanceCallSites) {
-				if (*reinterpret_cast<const std::uint8_t*>(base + offset) != 0xE8) {
-					REX::ERROR("FrameTick: UI_AdvanceActiveMenus call sites in UI::UpdateMenus do not match the expected layout; frame tick unavailable");
-					return false;
-				}
-			}
-			// Preserve each site's current target independently so other plugins' hooks stay chained.
 			g_advanceHooks[0].emplace("FrameTick::Advance0", RE::ID::UI::UpdateMenus, kAdvanceCallSites[0], &AdvanceThunk<0>);
 			g_advanceHooks[1].emplace("FrameTick::Advance1", RE::ID::UI::UpdateMenus, kAdvanceCallSites[1], &AdvanceThunk<1>);
 			for (auto& hook : g_advanceHooks) {

@@ -19,7 +19,7 @@ namespace OSFUI
 		bool IntegrationAvailable() const { return _integrationAvailable; }
 
 		bool ReconcileSuppression(bool a_wantsCapture, OSFSettingsClient& a_settings);
-		void ReconcileFocusMenu(bool a_wantsCapture, double a_uptime);
+		void ReconcileFocusMenu(bool a_wantsCapture, double a_now);
 		void PublishCapture(bool a_wantsCapture);
 		bool CaptureRequested() const;
 		void ReconcileBrowserFocus(WebView2HostWebRenderer* a_renderer, bool a_visible, bool a_hasActiveMenu);

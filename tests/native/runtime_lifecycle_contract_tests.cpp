@@ -23,6 +23,7 @@ int main()
 {
     const auto runtime = Read("../../src/Runtime/Runtime.cpp");
     const auto input = Read("../../src/Input/RuntimeInput.cpp");
+    const auto capture = Read("../../src/Input/InputCaptureController.cpp");
     const auto plugin = Read("../../src/Core/Plugin.cpp");
     const auto frame = Read("../../src/Runtime/RuntimeFrame.cpp");
     const auto ids = Read("../../src/Core/Ids.h");
@@ -55,8 +56,8 @@ int main()
         "renderer and compositor construction are confined to the lazy path");
     Check(lazyBody.find("EnsureCaptureIntegration()") == std::string::npos,
         "web input is not installed merely by constructing the renderer");
-    Check(input.find("AcquireInputSuppression") != std::string::npos &&
-          input.find("ReleaseInputSuppression") != std::string::npos,
+    Check(capture.find("AcquireInputSuppression") != std::string::npos &&
+          capture.find("ReleaseInputSuppression") != std::string::npos,
         "focused web menus hold an OSF Settings suppression lease");
     Check(input.find("VK_F10") == std::string::npos && runtime.find("VK_F10") == std::string::npos,
         "F10 has no OSF UI behavior");

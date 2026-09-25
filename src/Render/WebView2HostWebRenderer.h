@@ -58,7 +58,7 @@ namespace OSFUI
 		void Resize(std::uint32_t a_width, std::uint32_t a_height);
 		void SetViewport(std::uint32_t a_width, std::uint32_t a_height);
 		void SetPointerInputEnabled(bool a_enabled);
-		void Update(double a_deltaSeconds);
+		void Update();
 		std::shared_ptr<SharedFrameConsumer> Frames() const;
 		void SendMessageToWeb(std::string_view a_viewId, std::string_view a_json);
 		void SetWebMessageHandler(WebMessageHandler a_handler);

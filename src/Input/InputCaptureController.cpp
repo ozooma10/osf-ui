@@ -45,7 +45,7 @@ namespace OSFUI
 		return false;
 	}
 
-	void InputCaptureController::ReconcileFocusMenu(bool a_wantsCapture, double a_uptime)
+	void InputCaptureController::ReconcileFocusMenu(bool a_wantsCapture, double a_now)
 	{
 		const bool wantOpen = a_wantsCapture;
 		if (wantOpen != _focusMenuOpen) {
@@ -69,13 +69,13 @@ namespace OSFUI
 		}
 		constexpr double kHealSeconds = 1.0;
 		if (_focusMenuMismatchSince < 0.0) {
-			_focusMenuMismatchSince = a_uptime;
+			_focusMenuMismatchSince = a_now;
 			return;
 		}
-		if (a_uptime - _focusMenuMismatchSince < kHealSeconds) {
+		if (a_now - _focusMenuMismatchSince < kHealSeconds) {
 			return;
 		}
-		REX::WARN("FocusMenu: engine state diverged from requested (want {}, engine {}) for {:.1f}s; re-sending {} (watchdog)", wantOpen ? "open" : "closed", wantOpen ? "closed" : "open", a_uptime - _focusMenuMismatchSince, wantOpen ? "kShow" : "kHide");
+		REX::WARN("FocusMenu: engine state diverged from requested (want {}, engine {}) for {:.1f}s; re-sending {} (watchdog)", wantOpen ? "open" : "closed", wantOpen ? "closed" : "open", a_now - _focusMenuMismatchSince, wantOpen ? "kShow" : "kHide");
 		_focusMenuMismatchSince = -1.0;  // re-arm: another full window before the next retry
 		if (wantOpen) {
 			FocusMenu::Open();

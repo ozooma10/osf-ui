@@ -89,7 +89,7 @@ namespace OSFUI::API::Papyrus
 			std::vector<QueuedEvent>                            events;
 			std::unordered_map<std::string, PendingViewRequest> viewRequests;
 			std::uint64_t                                       nextViewRequest{ 1 };
-			// Raised on game load so Runtime::Tick purges session-scoped retained state.
+			// Raised on game load so Runtime::Update purges session-scoped retained state.
 			bool                                                sessionReset{ false };
 			// Set while a world-replacing save/load operation is in flight; dispatch into the VM is refused until
 			// the new session is announced (TESLoadGameEvent) or the operation fails.

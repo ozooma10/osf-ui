@@ -338,7 +338,7 @@ namespace OSFUI
 			return false;
 		}
 		if (_rendererFailed) {
-			if (_browserHostRecovery.RequestManualRetry(_uptime)) {
+			if (_browserHostRecovery.RequestManualRetry(_nowSeconds)) {
 				REX::INFO("Runtime: open of '{}' requested a fresh browser-host recovery cycle; the overlay remains closed until the replacement reaches its reveal gate", a_id);
 			} else if (_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Waiting ||
@@ -531,7 +531,7 @@ namespace OSFUI
 				_pointerInput.CenterCursor();
 			}
 			if (active && _pointerInput.GeometryReady()) {
-				_pointerInput.QueueMouseMove();  // flushed by Tick's once-per-frame move injection
+				_pointerInput.QueueMouseMove();  // flushed by Update's coalesced move injection
 			}
 		}
 
@@ -567,8 +567,8 @@ namespace OSFUI
 
 	void Runtime::DriveBrowserHostRecovery()
 	{
-		_browserHostRecovery.ObserveHealth(_uptime);
-		if (_browserHostRecovery.ExpireResponseWait(_uptime)) {
+		_browserHostRecovery.ObserveHealth(_nowSeconds);
+		if (_browserHostRecovery.ExpireResponseWait(_nowSeconds)) {
 			REX::ERROR("Runtime: replacement browser host produced no load response in {:.0f}s", BrowserHostRecovery::kResponseTimeoutSeconds);
 			if (_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Exhausted) {
@@ -576,7 +576,7 @@ namespace OSFUI
 			}
 		}
 
-		if (!_browserHostRecovery.BeginDueAttempt(_uptime)) {
+		if (!_browserHostRecovery.BeginDueAttempt(_nowSeconds)) {
 			return;
 		}
 
@@ -632,7 +632,7 @@ namespace OSFUI
 		const bool retryableBrowserHostLoss =
 			a_event.stage == "host-connection" && _renderer;
 		if (retryableBrowserHostLoss) {
-			_browserHostRecovery.OnRetryableFailure(_uptime);
+			_browserHostRecovery.OnRetryableFailure(_nowSeconds);
 			REX::ERROR("Runtime: browser-host connection failed for view '{}' (0x{:08X}): {} - closing the overlay; bounded browser-host recovery is scheduled", a_event.viewId, a_event.errorCode, a_event.description);
 			if (_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Exhausted) {
@@ -735,7 +735,7 @@ namespace OSFUI
 			};
 		}
 
-		const auto decision = m_viewReveal.Observe(observation, _uptime);
+		const auto decision = m_viewReveal.Observe(observation, _nowSeconds);
 		if (decision.frameChanged && frame) {
 			if (observation && observation->outputSizeKnown && observation->matchesExpectedSize) {
 				if (const auto active = _presentation.ActiveMenu()) {

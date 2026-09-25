@@ -84,10 +84,10 @@ namespace OSFUI
 	void Runtime::ReconcileFocusMenu()
 	{
 		if (!ReconcileInputSuppression()) ApplyViewPresentationPolicy();
-		_inputCapture.ReconcileFocusMenu(_presentation.DesiredCapture(), _uptime);
+		_inputCapture.ReconcileFocusMenu(_presentation.DesiredCapture(), _nowSeconds);
 	}
 
-	void Runtime::RouteGamepadInput(double a_deltaSeconds)
+	void Runtime::RouteGamepadInput()
 	{
 		const auto endSession = [this] {
 			if (m_gamepadSession.End()) {
@@ -106,7 +106,7 @@ namespace OSFUI
 		}
 
 		const auto mode = m_viewInputGrants.GamepadModeFor(*active);
-		const auto frame = m_gamepadSession.Update(m_gamepadSource.Poll(), mode, a_deltaSeconds, _uptime);
+		const auto frame = m_gamepadSession.Update(m_gamepadSource.Poll(), mode, _nowSeconds);
 
 		const auto applyAction = [this](GamepadSession::Action a_action) {
 			std::uint32_t key = 0;

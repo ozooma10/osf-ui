@@ -12,7 +12,6 @@ namespace OSFUI
 	{
 		if (_dataLoadedInitPending.exchange(false, std::memory_order_acq_rel)) InitializeDataLoadedState();
 		_inputCapture.ObserveLifecycle(_postDataLoadedReady.load(std::memory_order_acquire));
-		DriveBrowserHostRecovery();
 		if (MenuEventSink::TransitionOpen()) _viewOpens.SuspendMenus();
 		if (_presentation.SetSuspended(!_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || _rendererFailed)) {
 			ApplyViewPresentationPolicy();
@@ -44,25 +43,23 @@ namespace OSFUI
 				if (reply.rejected) _bridge->RejectTo(reply.deferToken, reply.code, reply.message);
 				else _bridge->RespondTo(reply.deferToken, reply.value);
 			}
-			_bridge->Tick();
 		}
 		API::BridgeApi::Get().PumpMainThread();
 	}
 
-	void Runtime::ReconcileFrameState(double a_deltaSeconds)
+	void Runtime::ReconcileFrameState()
 	{
 		ReconcileFocusMenu();
 		_inputCapture.ReconcileBrowserFocus(_renderer.get(), m_visible.load(), _presentation.ActiveMenu().has_value());
 		_inputCapture.ReconcileControlLayer(_presentation.DesiredCapture(), IsInputCaptured());
 		SimPause::Apply(_presentation.DesiredPause());
 		FreeCursor::Apply(_presentation.DesiredCapture());
-		RouteGamepadInput(a_deltaSeconds);
+		RouteGamepadInput();
 	}
 
-	void Runtime::ProcessRendererFrame(double a_deltaSeconds)
+	void Runtime::ProcessRendererFrame()
 	{
 		if (!_renderer) return;
-		DriveRecovery();
 		DriveDevTools();
 		PumpDevViewReload();
 		if (const auto clientSize = OverlayInputHook::GameWindowClientSize()) {
@@ -79,17 +76,22 @@ namespace OSFUI
 		if (_compositor) {
 			_compositor->Update(); // retire reads and adopt rings even while hidden
 		}
-		_renderer->Update(a_deltaSeconds);
+		_renderer->Update();
+		// A response queued during a stall must be observed before its deadline expires.
+		// Recovery may restart the renderer only after notification callbacks have returned.
+		DriveBrowserHostRecovery();
+		DriveRecovery();
 		DrivePendingOpen();
 		UpdateViewReveal();
 	}
 
-	void Runtime::Tick(double a_deltaSeconds)
+	void Runtime::Update()
 	{
 		if (!_initialized) return;
 		if (!_osfSettings.Available()) return;
 		++_mainTickSerial;
-		_uptime += a_deltaSeconds;
+		const auto now = std::chrono::steady_clock::now();
+		_nowSeconds = std::chrono::duration<double>(now.time_since_epoch()).count();
 		ProcessLifecycleWork();
 		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
 		DrainViewRegistrations(std::move(bridgeBatch.viewRegistrations));
@@ -97,8 +99,10 @@ namespace OSFUI
 		auto papyrusBatch = API::Papyrus::TakePendingBatch();
 		ProcessBackendQueues(std::move(papyrusBatch), std::move(bridgeBatch.state));
 		ApplyPresentationRequests(localRequests.presentation, bridgeBatch.presentation);
-		ReconcileFrameState(a_deltaSeconds);
-		ProcessRendererFrame(a_deltaSeconds);
+		ReconcileFrameState();
+		ProcessRendererFrame();
+		// Native, Papyrus and browser queues get to settle requests before timeout checks.
+		if (_bridge) _bridge->Tick(now);
 		_relativePointer.Drain();
 		if (!_lastShownView.empty()) {
 			API::BridgeApi::Get().DispatchViewLifecycle(

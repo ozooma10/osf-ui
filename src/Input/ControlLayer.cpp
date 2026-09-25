@@ -10,7 +10,7 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Main-thread-only state (Apply runs from Runtime::Tick).
+		// Main-thread-only state (Apply runs from Runtime::Update).
 		RE::BSInputEnableLayer* g_layer{ nullptr };
 		bool                    g_engaged{ false };
 
