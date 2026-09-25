@@ -4,6 +4,7 @@
 #include "Composite/EngineD3D12.h"
 #include "Composite/UiPassPolicy.h"
 #include "Composite/UiPassDirectProbe.h"
+#include "Composite/UiPassStateAudit.h"
 #include "Composite/UiTargetFormat.h"
 #include "Core/Log.h"
 #include "Platform/WindowsPlatform.h"
@@ -133,7 +134,9 @@ namespace OSFUI::UiPass
 					const auto expectedHeight = static_cast<std::uint32_t>(expectedOutput);
 					const bool targetAspectMatchesOutput = detail::PostCompositeTargetMatchesOutputAspect(
 						desc.Width, desc.Height, expectedWidth, expectedHeight);
-					if (!targetAspectMatchesOutput) {
+					// Native Scaleform menus can use a letterboxed UI layer. Only the
+					// post-composite output must match the swapchain aspect ratio.
+					if (g_usePostComposite.load(std::memory_order_acquire) && !targetAspectMatchesOutput) {
 						if (!g_ignoredPostCompositeAspectLogged.exchange(true, std::memory_order_relaxed)) {
 							REX::DEBUG("[UiPass] ignored post-composite target {}x{} with aspect incompatible with output {}x{}; continuing hand-off search",
 								static_cast<std::uint64_t>(desc.Width), desc.Height,
@@ -228,6 +231,9 @@ namespace OSFUI::UiPass
 				const bool heapsOk =
 					g_selfTestHeapsSeen.load(std::memory_order_relaxed);
 				if (patched && barrierOk && heapsOk) {
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+					StateAudit::Install(vtbl);
+#endif
 					g_selfTestList.store(nullptr, std::memory_order_release);
 					g_hookInstallState.store(
 						detail::CommandListHookState::Ready, std::memory_order_release);
@@ -306,8 +312,16 @@ namespace OSFUI::UiPass
 			// Scope compositor-heap suppression so every exit restores engine tracking.
 			struct OverlayDrawScope
 			{
-				OverlayDrawScope() { tl_inOverlayDraw = true; }
-				~OverlayDrawScope() { tl_inOverlayDraw = false; }
+				OverlayDrawScope() { tl_inOverlayDraw = true;
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+					StateAudit::Foreign(true);
+#endif
+				}
+				~OverlayDrawScope() { tl_inOverlayDraw = false;
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+					StateAudit::Foreign(false);
+#endif
+				}
 			};
 			const bool drew = [&] {
 				const OverlayDrawScope scope;

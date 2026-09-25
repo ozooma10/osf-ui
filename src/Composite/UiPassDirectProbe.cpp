@@ -1,4 +1,5 @@
 #include "Composite/UiPassDirectProbe.h"
+#include "Composite/UiPassStateAudit.h"
 
 #ifdef OSF_UI_PASS_DIRECT_PROBE
 #include "API/BridgeApi.h"
@@ -111,6 +112,16 @@ namespace OSFUI::UiPass::DirectProbe
                     Read(Read(rt + 8)), Read<unsigned>(rt + 0x14), Read<unsigned>(rt + 0x18));
             }
             if (tl_detail) {
+                const auto layout = Read(ctx);
+                const auto definition = Read(layout);
+                REX::INFO("[UiDirect] f={} {} layoutKind={} groups={} constantsBytes={} constantsSlot={}", tl_frame,Name(pass,after),
+                    Read<unsigned char>(definition+4), Read<unsigned>(layout+0x40),Read<unsigned char>(definition+6),Read<unsigned>(layout+0x58));
+                for (unsigned j=0; layout && j<(std::min)(Read<unsigned>(layout+0x40),4u); ++j) {
+                    const auto group = Read(ctx+0x10+j*8);
+                    const auto desc = Read(group);
+                    REX::INFO("[UiDirect] f={} {} group{} present={} rootSlot={} tables={}/{}",tl_frame,Name(pass,after),j,group!=0,
+                        Read<unsigned>(layout+0x48+j*4),Read<unsigned>(desc+0x21C),Read<unsigned>(desc+0x218));
+                }
                 const auto index = Read<unsigned>(graph + 0x140);
                 const auto node = index < 6 ? Read(graph + 0x108 + index * 8) : 0;
                 REX::INFO("[UiDirect] f={} {} graph={:X} batch={:X} ctx={:X} cached={:X} list={:X} heaps={:X}/{:X} arrayHead={:X}/{:X}/{:X} poolCount={} node={:X} rtInfo={:X} cache={:X}/{:X}/{:X}/{:X}/{:X}/{:X}",
@@ -136,6 +147,7 @@ namespace OSFUI::UiPass::DirectProbe
         }();
         if (!supported) return;
         if (pass == Pass::Begin) {
+            StateAudit::Begin();
             // Explicit diagnostic controls use the public queued UI API. This bypasses
             // the example's rejected settings schema, not the compositor draw path.
             static HANDLE open = CreateEventW(nullptr, FALSE, FALSE, L"Local\\OSFUI.UiPassDirectProbe.Open");
@@ -168,6 +180,7 @@ namespace OSFUI::UiPass::DirectProbe
         }
         if (!tl_active) return;
         tl_phase = Name(pass, false);
+        StateAudit::Phase(tl_phase);
         tl_last = Capture(pass, false, graph, io);
     }
     void Leave(Pass pass, void* graph, void* io, ID3D12GraphicsCommandList* observedList,
@@ -176,6 +189,8 @@ namespace OSFUI::UiPass::DirectProbe
         if (!tl_active) return;
         tl_phase = Name(pass, true);
         tl_last = Capture(pass, true, graph, io);
+        StateAudit::Phase(tl_phase);
+        if (pass == Pass::End) StateAudit::End(tl_last.list, tl_frame, tl_detail);
         if (pass == Pass::Begin) tl_begin = tl_last;
         if (tl_last.list && reinterpret_cast<std::uintptr_t>(observedList) == tl_last.list && heapCount == 2) {
             ++g_heapSamples;
