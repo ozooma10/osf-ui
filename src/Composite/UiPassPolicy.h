@@ -22,12 +22,6 @@ namespace OSFUI::UiPass::detail
 		return a_state == CommandListHookState::Ready;
 	}
 
-	// Fail-open: a foreign pointer in an execute slot is assumed to be a call-through hook and chained
-	[[nodiscard]] constexpr bool CanChainForeignExecute(const std::uintptr_t a_current)
-	{
-		return a_current != 0;
-	}
-
 	[[nodiscard]] constexpr bool PostCompositeTargetMatchesOutputAspect(
 		const std::uint64_t a_targetWidth,
 		const std::uint32_t a_targetHeight,

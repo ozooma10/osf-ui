@@ -4,6 +4,7 @@
 #include "Core/Version.h"
 #include "REL/THook.h"
 #include "Runtime/Runtime.h"
+#include "Composite/UiPass.h"
 
 #include <array>
 #include <optional>
@@ -81,6 +82,10 @@ namespace OSFUI::Plugin
 			REX::WARN("{}: Papyrus bind hook unavailable; natives bind on the first UI tick after data load instead", kPluginName);
 		}
 
+		if (!UiPass::Install()) {
+			REX::ERROR("{}: UI pass hook unavailable; plugin load aborted", kPluginName);
+			return false;
+		}
 		return true;
 	}
 }

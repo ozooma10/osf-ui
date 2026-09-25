@@ -13,6 +13,11 @@ add_rules("plugin.vsxmake.autoupdate")
 -- JSON for view manifests and the message bridge
 add_requires("nlohmann_json 3.11.3")
 
+option("ui_pass_direct_probe")
+    set_default(false)
+    set_description("Bounded read-only render-pass pointer comparison; keeps the barrier draw path")
+option_end()
+
 -- The mirrored host is self-contained: static CRT and WebView2 loader.
 target("osfui-webview2-host")
     set_kind("binary")
@@ -69,6 +74,9 @@ target("wv2-pipe-tests")
 
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
 target("OSF UI")
+    if has_config("ui_pass_direct_probe") then
+        add_defines("OSF_UI_PASS_DIRECT_PROBE")
+    end
     -- Keep the binary basename independent of the MO2 folder name.
     set_basename("OSFUI")
     add_rules("commonlibsf.plugin", {

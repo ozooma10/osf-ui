@@ -3,6 +3,7 @@
 #include "Composite/D3D12Compositor.h"  // RecordOverlayIntoRenderTarget
 #include "Composite/EngineD3D12.h"
 #include "Composite/UiPassPolicy.h"
+#include "Composite/UiPassDirectProbe.h"
 #include "Composite/UiTargetFormat.h"
 #include "Core/Log.h"
 #include "Platform/WindowsPlatform.h"
@@ -10,13 +11,13 @@
 #include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
 #include "RE/IDs_VTABLE.h"
+#include "REL/THook.h"
 #include "REL/Utility.h"
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <utility>
+#include <optional>
 
 namespace OSFUI::UiPass
 {
@@ -24,13 +25,12 @@ namespace OSFUI::UiPass
 	{
 		constexpr std::size_t kExecuteSlot = 7;
 
-		using ExecuteFn = void* (*)(void*, void*, void*, void*);
+		using ExecuteHook = REL::THookVFT<void*(void*, void*, void*, void*)>;
 
-		std::atomic<std::uintptr_t> g_origBegin{ 0 };
-		std::atomic<std::uintptr_t> g_origEnd{ 0 };
-		std::atomic<std::uintptr_t> g_origComposite{ 0 };
+		std::optional<ExecuteHook> g_beginHook;
+		std::optional<ExecuteHook> g_endHook;
+		std::optional<ExecuteHook> g_compositeHook;
 		std::atomic<bool> g_installed{ false };
-		std::atomic<bool> g_installOk{ false };
 		std::atomic_bool g_usePostComposite{ false };
 		std::atomic<DXGI_FORMAT> g_postCompositeTargetFormat{ DXGI_FORMAT_UNKNOWN };
 		std::atomic_bool g_ignoredPostCompositeFormatLogged{ false };
@@ -91,6 +91,9 @@ namespace OSFUI::UiPass
 			const D3D12_RESOURCE_BARRIER* a_barriers) noexcept
 		{
 			tl_handoffWindow.OnBarrierCall();
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+			if (!tl_inOverlayDraw) DirectProbe::Barrier(a_self, a_numBarriers, a_barriers);
+#endif
 			if (tl_handoffWindow.HandoffArmed() && a_barriers) {
 				for (UINT i = 0; i < a_numBarriers && tl_handoffWindow.HandoffArmed(); ++i) {
 					const auto& barrier = a_barriers[i];
@@ -140,6 +143,9 @@ namespace OSFUI::UiPass
 					}
 					const bool fgTarget = (barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_COPY_SOURCE) != 0 && (barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) == 0;
 					const bool regionFirst = tl_handoffWindow.ConsumeAndReportFirstCandidate();
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+					DirectProbe::Candidate(a_self, barrier.Transition.pResource, fgTarget, regionFirst);
+#endif
 					RecordOverlayAtHandoff(a_self, barrier.Transition.pResource, fgTarget, regionFirst);
 				}
 			}
@@ -273,7 +279,7 @@ namespace OSFUI::UiPass
 		{
 			if (!detail::CanRecordOverlay(
 					g_hookInstallState.load(std::memory_order_acquire)) ||
-				!g_installOk.load(std::memory_order_acquire) ||
+				!g_installed.load(std::memory_order_acquire) ||
 				!a_list || !a_buffer) {
 				return;
 			}
@@ -307,6 +313,9 @@ namespace OSFUI::UiPass
 				const OverlayDrawScope scope;
 				return RecordOverlayIntoRenderTarget(a_list, a_buffer, target.firstDrawInRegion);
 			}();
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+			DirectProbe::DrawResult(drew);
+#endif
 			if (!drew) {
 				// Early-outs occur before the compositor rebinds descriptor heaps.
 				return;
@@ -319,22 +328,31 @@ namespace OSFUI::UiPass
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
 			EnsureDrawHooksInstalled();
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+			DirectProbe::Enter(DirectProbe::Pass::Begin, a_ctx, a_io);
+#endif
 			if (g_usePostComposite.load(std::memory_order_acquire)) {
 				// Bound an unfinished post-composite search to the frame that opened it.
 				tl_handoffWindow.Cancel();
 			} else {
 				tl_handoffWindow.Begin();
 			}
-			const auto original =
-				reinterpret_cast<ExecuteFn>(g_origBegin.load(std::memory_order_relaxed));
-			return original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+			auto* result = (*g_beginHook)(a_this, a_ctx, a_io, a_r9);
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+			DirectProbe::Leave(DirectProbe::Pass::Begin, a_ctx, a_io, tl_heapList, tl_heapCount, tl_heaps);
+#endif
+			return result;
 		}
 
 		void* EndThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			const auto original =
-				reinterpret_cast<ExecuteFn>(g_origEnd.load(std::memory_order_relaxed));
-			void* result = original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+			DirectProbe::Enter(DirectProbe::Pass::End, a_ctx, a_io);
+#endif
+			void* result = (*g_endHook)(a_this, a_ctx, a_io, a_r9);
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+			DirectProbe::Leave(DirectProbe::Pass::End, a_ctx, a_io, tl_heapList, tl_heapCount, tl_heaps);
+#endif
 			if (!g_usePostComposite.load(std::memory_order_acquire)) {
 				tl_handoffWindow.End();
 			}
@@ -343,6 +361,9 @@ namespace OSFUI::UiPass
 
 		void* CompositeThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+			DirectProbe::Enter(DirectProbe::Pass::Composite, a_ctx, a_io);
+#endif
 			const bool postComposite = g_usePostComposite.load(std::memory_order_acquire);
 			if (postComposite) {
 				// Capture the engine heaps used by the composite, then draw into its
@@ -352,152 +373,63 @@ namespace OSFUI::UiPass
 				// The stable ScaleformEnd fallback must not leak into the composite.
 				tl_handoffWindow.Cancel();
 			}
-			const auto original =
-				reinterpret_cast<ExecuteFn>(
-					g_origComposite.load(std::memory_order_relaxed));
-			void* result =
-				original ? original(a_this, a_ctx, a_io, a_r9) : nullptr;
+			void* result = (*g_compositeHook)(a_this, a_ctx, a_io, a_r9);
+#ifdef OSF_UI_PASS_DIRECT_PROBE
+			DirectProbe::Leave(DirectProbe::Pass::Composite, a_ctx, a_io, tl_heapList, tl_heapCount, tl_heaps);
+#endif
 			if (postComposite) {
 				tl_handoffWindow.End();
 			}
 			return result;
 		}
 
-		[[nodiscard]] std::uintptr_t HookExecuteSlot(
-			const char* a_label,
-			const REL::ID a_vtblId,
-			const REL::ID a_implId,
-			ExecuteFn a_thunk,
-			std::atomic<std::uintptr_t>& a_orig,
-			bool* a_vanillaOwner = nullptr,
-			std::string* a_foreignOwner = nullptr)
+		void ConfigureDrawPath()
 		{
-			const REL::Relocation<std::uintptr_t> vtbl{ a_vtblId };
-			const REL::Relocation<std::uintptr_t> expected{ a_implId };
-			const auto slotAddress =
-				vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
-
-			const auto current = *reinterpret_cast<const std::uintptr_t*>(slotAddress);
-			const bool vanillaOwner = current == expected.address();
-			std::string foreignOwner;
-			if (!vanillaOwner) {
-				if (!detail::CanChainForeignExecute(current)) {
-					REX::WARN("[UiPass] {}: slot 7 is null; nothing to chain, not hooking", a_label);
-					return 0;
-				}
-				foreignOwner = Platform::ModuleNameForAddress(reinterpret_cast<const void*>(current));
-				REX::INFO("[UiPass] {}: chaining foreign hook from '{}' at 0x{:X} (vanilla implementation was 0x{:X})", a_label, foreignOwner.empty() ? "unknown module" : foreignOwner, current, expected.address());
-			}
-			if (a_vanillaOwner) {
-				*a_vanillaOwner = vanillaOwner;
-			}
-			if (a_foreignOwner) {
-				*a_foreignOwner = std::move(foreignOwner);
-			}
-
-			a_orig.store(current, std::memory_order_release);
-			if (!REL::WriteSafeData(slotAddress, reinterpret_cast<std::uintptr_t>(a_thunk))) {
-				REX::WARN("[UiPass] {}: vtable slot write failed; not hooking", a_label);
-				return 0;
-			}
-			REX::INFO("[UiPass] hooked {} slot 7 "
-					   "(vtbl 0x{:X}, original 0x{:X})",
-				a_label, vtbl.address(), current);
-			return current;
-		}
-
-		void RestoreExecuteSlot(
-			const char* a_label,
-			const REL::ID a_vtblId,
-			const std::uintptr_t a_original,
-			ExecuteFn a_thunk)
-		{
-			if (a_original == 0) {
-				return;
-			}
-			const REL::Relocation<std::uintptr_t> vtbl{ a_vtblId };
-			const auto slotAddress = vtbl.address() + kExecuteSlot * sizeof(std::uintptr_t);
-			const auto current = *reinterpret_cast<const std::uintptr_t*>(slotAddress);
-			if (current != reinterpret_cast<std::uintptr_t>(a_thunk)) {
-				REX::ERROR("[UiPass] {}: incomplete hook rollback could not verify slot 7; "
-						   "leaving the current owner untouched",
-					a_label);
-				return;
-			}
-			if (!REL::WriteSafeData(slotAddress, a_original)) {
-				REX::ERROR("[UiPass] {}: incomplete hook rollback could not restore slot 7",
-					a_label);
-				return;
-			}
-			REX::INFO("[UiPass] restored {} slot 7 after incomplete hook installation", a_label);
+			const REL::Relocation<std::uintptr_t> compositeVtable{
+				RE::VTABLE::CreationRendererPrivate__ScaleformCompositeRenderPass[0]
+			};
+			const auto current = reinterpret_cast<const std::uintptr_t*>(compositeVtable.address())[kExecuteSlot];
+			const bool vanilla = current == RE::ID::CreationRendererPrivate::ScaleformCompositeRenderPass::ExecuteRenderPass.address();
+			const auto owner = Platform::ModuleNameForAddress(reinterpret_cast<const void*>(current));
+			const auto target = detail::SelectPostCompositeTarget(vanilla, owner);
+			g_usePostComposite.store(target.supported, std::memory_order_release);
+			g_postCompositeTargetFormat.store(
+				target.format == detail::PostCompositeTargetFormat::Rgba16Float ?
+					DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM,
+				std::memory_order_release);
+			REX::INFO("[UiPass] draw path: {} (composite owner: {})",
+				target.supported ? "post-ScaleformComposite" : "ScaleformEnd",
+				owner.empty() ? "unknown" : owner);
 		}
 	}
 
 	bool Install()
 	{
-		if (g_installed.exchange(true, std::memory_order_relaxed)) {
-			return g_installOk.load(std::memory_order_acquire);
+		if (g_installed.load(std::memory_order_acquire)) {
+			return true;
 		}
 
-		const auto origBegin = HookExecuteSlot(
-			"ScaleformBegin",
+		// Inspect the existing composite owner before replacing its slot.
+		ConfigureDrawPath();
+		g_beginHook.emplace("UiPass::ScaleformBegin",
 			RE::VTABLE::CreationRendererPrivate____ScaleformBeginRenderPass[0],
-			RE::ID::CreationRendererPrivate::ScaleformBeginRenderPass::ExecuteRenderPass,
-			&BeginThunk, g_origBegin);
-		const auto origEnd = HookExecuteSlot(
-			"ScaleformEnd",
+			kExecuteSlot, &BeginThunk);
+		g_endHook.emplace("UiPass::ScaleformEnd",
 			RE::VTABLE::CreationRendererPrivate____ScaleformEndRenderPass[0],
-			RE::ID::CreationRendererPrivate::ScaleformEndRenderPass::ExecuteRenderPass,
-			&EndThunk, g_origEnd);
-		bool compositeVanillaOwner = false;
-		std::string compositeForeignOwner;
-		const auto origComposite = HookExecuteSlot(
-			"ScaleformComposite",
+			kExecuteSlot, &EndThunk);
+		g_compositeHook.emplace("UiPass::ScaleformComposite",
 			RE::VTABLE::CreationRendererPrivate__ScaleformCompositeRenderPass[0],
-			RE::ID::CreationRendererPrivate::ScaleformCompositeRenderPass::ExecuteRenderPass,
-			&CompositeThunk, g_origComposite,
-			&compositeVanillaOwner, &compositeForeignOwner);
-
-		const auto postCompositeTarget = detail::SelectPostCompositeTarget(
-			compositeVanillaOwner, compositeForeignOwner);
-		g_usePostComposite.store(
-			origComposite != 0 && postCompositeTarget.supported, std::memory_order_release);
-		g_postCompositeTargetFormat.store(
-			postCompositeTarget.format == detail::PostCompositeTargetFormat::Rgba16Float ?
-				DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM,
-			std::memory_order_release);
-
-		const bool ok =
-			origBegin != 0 && origEnd != 0 && origComposite != 0;
-		g_installOk.store(ok, std::memory_order_release);
-		if (!ok) {
-			// Install all three entrypoints atomically so their thread-local protocol stays coherent.
-			RestoreExecuteSlot("ScaleformBegin",
-				RE::VTABLE::CreationRendererPrivate____ScaleformBeginRenderPass[0],
-				origBegin, &BeginThunk);
-			RestoreExecuteSlot("ScaleformEnd",
-				RE::VTABLE::CreationRendererPrivate____ScaleformEndRenderPass[0],
-				origEnd, &EndThunk);
-			RestoreExecuteSlot("ScaleformComposite",
-				RE::VTABLE::CreationRendererPrivate__ScaleformCompositeRenderPass[0],
-				origComposite, &CompositeThunk);
-			REX::ERROR("[UiPass] hook set incomplete — the overlay has no draw path this "
-					   "session. See the per-hook lines above for which slot declined.");
-		} else if (g_usePostComposite.load(std::memory_order_acquire)) {
-			REX::INFO("[UiPass] draw enabled: overlay records into Starfield's validated {} post-ScaleformComposite target hand-off",
-				UiTargetFormat::Name(g_postCompositeTargetFormat.load(std::memory_order_relaxed)));
-		} else if (compositeVanillaOwner) {
-			REX::INFO("[UiPass] vanilla composite uses the stable ScaleformEnd hand-off for generated-frame compatibility");
-		} else {
-			REX::WARN("[UiPass] post-composite target contract is unknown for '{}'; using the stable ScaleformEnd hand-off",
-				compositeForeignOwner.empty() ? "unknown composite owner" : compositeForeignOwner);
-		}
-		return ok;
+			kExecuteSlot, &CompositeThunk);
+		g_beginHook->Enable();
+		g_endHook->Enable();
+		g_compositeHook->Enable();
+		g_installed.store(true, std::memory_order_release);
+		return true;
 	}
 
 	bool DrawEnabled()
 	{
-		return g_installOk.load(std::memory_order_acquire) &&
+		return g_installed.load(std::memory_order_acquire) &&
 			g_hookInstallState.load(std::memory_order_acquire) != detail::CommandListHookState::Failed;
 	}
 
