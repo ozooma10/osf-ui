@@ -1,7 +1,7 @@
-html { color-scheme: dark; font: 20px system-ui, sans-serif; background: #111b25; color: #f2f5f7; }
+html { color-scheme: dark; font: 14px system-ui, sans-serif; background: transparent; color: #f2f5f7; }
 body { margin: 0; }
-main { padding: 48px; }
-h1 { font-size: 32px; }
+main { box-sizing: border-box; width: min(540px, 90vw); margin: 24px auto; padding: 20px; background: #111b25; border: 1px solid #6c8496; border-radius: 8px; }
+h1 { font-size: 24px; }
 p { line-height: 1.6; }
 button { margin-top: 24px; padding: 12px 28px; font: inherit; cursor: pointer; }
 label { display: block; margin-top: 20px; }
