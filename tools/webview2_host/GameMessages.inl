@@ -13,6 +13,7 @@
 				userData = std::filesystem::path(ToWide(a_msg.userDataDir));
 				devMode = a_msg.devMode;
 				highRefreshCapture = a_msg.highRefreshCapture;
+				language = a_msg.language;
 				windowActive = GameIsForeground();
 				log.InfoFwd("input mode: forwarded CDP; native focus remains in Starfield");
 				if (userData.empty()) {
@@ -46,7 +47,7 @@
 					return;
 				}
 				rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
-				log.Info(std::format("init: views='{}' {}x{} highRefreshCapture={} topLevel=0x{:X}", ToUtf8(viewsRoot.native()), width, height, highRefreshCapture, reinterpret_cast<std::uintptr_t>(gameTopLevel)));
+				log.Info(std::format("init: views='{}' {}x{} highRefreshCapture={} language='{}' topLevel=0x{:X}", ToUtf8(viewsRoot.native()), width, height, highRefreshCapture, language, reinterpret_cast<std::uintptr_t>(gameTopLevel)));
 				BeginEnvironment();
 			}
 

@@ -11,9 +11,10 @@ namespace OSFSettings::API
 {
     // Packed major.minor ABI versions, independent of the plugin release version.
     // The initial contract stays at 1.0 until launch. After launch, existing slots, signatures and status values are frozen; additions require a minor bump.
-    inline constexpr std::uint32_t kVersion = 0x00010000u;
+    inline constexpr std::uint32_t kVersion = 0x00010001u;
     inline constexpr std::uint32_t kUnboundKey = 0xFF; // Allowed only when the schema permits unbinding.
     inline constexpr std::uint32_t kBaseVersion = 0x00010000u;
+    inline constexpr std::uint32_t kLanguageVersion = 0x00010001u; // ISettings::GetLanguage
     inline constexpr wchar_t kModuleName[] = L"OSFSettings.dll";
     inline constexpr char kRequestExportName[] = "OSFSettings_RequestAPI";
 
@@ -111,6 +112,10 @@ namespace OSFSettings::API
         virtual Status RegisterAction(const char* mod, const char* id, ActionFn callback, void* context) noexcept = 0;
         // Only the first completion succeeds. Tokens expire on load.
         virtual Status CompleteAction(Invocation invocation, bool succeeded, const char* message) noexcept = 0;
+
+        // ABI 1.1. The game's language code from sLanguage:General, lower-cased ("en", "de", "ptbr").
+        // Same buffer contract as GetString. NotReady until the game's translation resources have loaded.
+        virtual Status GetLanguage(char* out, std::uint32_t capacity, std::uint32_t* required) noexcept = 0;
 
     protected:
         ~ISettings() = default;
@@ -287,6 +292,27 @@ namespace OSFSettings::API
         Status CompleteAction(Invocation invocation, bool succeeded, const char* message = nullptr) const noexcept
         {
             return m_api ? m_api->CompleteAction(invocation, succeeded, message) : Status::NotReady;
+        }
+
+        // NotReady, without touching the provider, when it predates ABI 1.1.
+        Status GetLanguage(char* out, std::uint32_t capacity, std::uint32_t* required) const noexcept
+        {
+            return Has(kLanguageVersion) ? m_api->GetLanguage(out, capacity, required) : Status::NotReady;
+        }
+        Status GetLanguage(std::string& out) const noexcept
+        {
+            std::string buffer;
+            std::uint32_t required{};
+            auto status = GetLanguage(nullptr, 0, &required);
+            while (status == Status::BufferTooSmall) {
+                buffer.resize(required);
+                status = GetLanguage(buffer.data(), static_cast<std::uint32_t>(buffer.size()), &required);
+            }
+            if (status == Status::Ok) {
+                buffer.resize(required - 1);
+                out.swap(buffer);
+            }
+            return status;
         }
 
     private:

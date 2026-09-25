@@ -15,6 +15,7 @@ namespace OSFUI
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
 		bool          highRefreshCapture{ false };
+		std::string   language;  // game language code; empty keeps the WebView2 default
 		std::filesystem::path dataDir;
 	};
 

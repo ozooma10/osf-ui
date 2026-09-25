@@ -26,6 +26,9 @@ namespace SettingsTest
         HotkeyFn hotkey{};
         void* hotkeyUser{};
         std::string registeredMod, registeredId;
+        std::string language{"en"};
+        Status languageStatus = Status::Ok;
+        int languageReads = 0;
 
         bool IsReady() noexcept override { return ready; }
         Status GetBool(const char*, const char* key, bool* out) noexcept override
@@ -75,6 +78,16 @@ namespace SettingsTest
             return Status::Ok;
         }
         Status GetString(const char*, const char*, char*, std::uint32_t, std::uint32_t*) noexcept override { return Status::TypeMismatch; }
+        Status GetLanguage(char* out, std::uint32_t capacity, std::uint32_t* required) noexcept override
+        {
+            if (!out) ++languageReads;
+            if (languageStatus != Status::Ok) return languageStatus;
+            *required = static_cast<std::uint32_t>(language.size() + 1);
+            if (!out || capacity < *required) return Status::BufferTooSmall;
+            language.copy(out, language.size());
+            out[language.size()] = '\0';
+            return Status::Ok;
+        }
         Status SetString(const char*, const char*, const char*, std::uint32_t) noexcept override { return Status::TypeMismatch; }
         Status ReadRegistry(const char*, RegistryFn, void*) noexcept override { return Status::InternalError; }
         Status RegisterAction(const char*, const char*, ActionFn, void*) noexcept override { return Status::Ok; }

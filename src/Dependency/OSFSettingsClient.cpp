@@ -51,6 +51,23 @@ namespace OSFUI
 		}
 	}
 
+	std::string OSFSettingsClient::Language()
+	{
+		if (!_language.empty() || !_available || !_settings.Has(OSFSettings::API::kLanguageVersion)) {
+			return _language;
+		}
+		std::string language;
+		const auto status = _settings.GetLanguage(language);
+		if (status == Status::NotReady) {
+			return _language;  // translations not loaded yet; ask again later
+		}
+		if (Check(status, "read language")) {
+			_language = std::move(language);
+			REX::INFO("OSF Settings reports game language '{}'", _language);
+		}
+		return _language;
+	}
+
 	void OSFSettingsClient::ReadStartupBool(const char* a_key, bool& a_value)
 	{
 		a_value = false;

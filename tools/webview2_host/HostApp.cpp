@@ -28,6 +28,8 @@
 #include <DispatcherQueue.h>
 #include <WebView2.h>
 #include <WebView2EnvironmentOptions.h>
+
+#include "LanguageTag.h"
 #include <shellapi.h>
 #include <wrl.h>
 #include <wrl/client.h>
@@ -223,6 +225,7 @@ namespace osfui::wv2
 			std::uint32_t         viewportWidth{ 1 }, viewportHeight{ 1 };
 			bool                  devMode{ false };
 			bool                  highRefreshCapture{ false };
+			std::string           language;  // game language code from init; empty keeps the WebView2 default
 			bool                  windowActive{ true };
 
 			HWND bootstrapWindow{ nullptr };
@@ -624,6 +627,17 @@ namespace osfui::wv2
 				}
 				log.InfoFwd(
 					"WebView2 renderer and native-occlusion throttling disabled for the offscreen capture browser host");
+				if (const auto tag = LanguageTag::FromGameLanguage(language); !tag.empty()) {
+					// Drives navigator.language, Accept-Language and Chromium's own UI strings for every view.
+					const auto languageHr = environmentOptions->put_Language(ToWide(tag).c_str());
+					if (FAILED(languageHr)) {
+						log.Warn(std::format("WebView2 rejected language '{}' (hr=0x{:08X}); keeping its default", tag, static_cast<std::uint32_t>(languageHr)));
+					} else {
+						log.Info(std::format("WebView2 language '{}' (game language '{}')", tag, language));
+					}
+				} else if (!language.empty()) {
+					log.Warn(std::format("game language '{}' has no BCP-47 mapping; keeping the WebView2 default", language));
+				}
 				const auto hr = ::CreateCoreWebView2EnvironmentWithOptions(
 					nullptr, userData.c_str(), environmentOptions.Get(), callback.Get());
 				if (FAILED(hr)) {

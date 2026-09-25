@@ -84,6 +84,7 @@ namespace osfui::wv2::msg
 		std::string   userDataDir;
 		bool          devMode{ false };
 		bool          highRefreshCapture{ false };
+		std::string   language;  // game language code ("en", "ptbr"); empty keeps the WebView2 default
 		std::uint32_t adapterLuidLow{ 0 };
 		std::uint32_t adapterLuidHigh{ 0 };
 
@@ -95,6 +96,7 @@ namespace osfui::wv2::msg
 			F("userDataDir", &Init::userDataDir),
 			F("devMode", &Init::devMode),
 			F("highRefreshCapture", &Init::highRefreshCapture),
+			F("language", &Init::language),
 			F("adapterLuidLow", &Init::adapterLuidLow),
 			F("adapterLuidHigh", &Init::adapterLuidHigh),
 		};

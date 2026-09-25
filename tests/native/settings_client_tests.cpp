@@ -50,6 +50,36 @@ int main()
     }
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
+        settings.language = "ptbr";
+        Install(&settings, &diagnostics);
+        OSFSettingsClient client;
+        CHECK(client.Initialize());
+        CHECK(settings.languageReads == 0); // Not a startup read; the game language loads later.
+        CHECK(client.Language() == "ptbr");
+        settings.language = "de";
+        CHECK(client.Language() == "ptbr" && settings.languageReads == 1); // Cached once known.
+    }
+    {
+        SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
+        settings.languageStatus = Status::NotReady;
+        Install(&settings, &diagnostics);
+        OSFSettingsClient client;
+        CHECK(client.Initialize());
+        CHECK(client.Language().empty());
+        settings.languageStatus = Status::Ok;
+        CHECK(client.Language() == "en"); // Retried once the game's translations have loaded.
+        CHECK(!diagnostics.Has("settings.language"));
+    }
+    {
+        SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
+        Install(&settings, &diagnostics);
+        settingsVersion = 0x00010000; // OSF Settings older than ABI 1.1.
+        OSFSettingsClient client;
+        CHECK(client.Initialize());
+        CHECK(client.Language().empty() && settings.languageReads == 0);
+    }
+    {
+        SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
         settings.readStatus["developerMode"] = Status::UnknownMod;
         settings.readStatus["highRefreshCapture"] = Status::TypeMismatch;
         Install(&settings, &diagnostics);

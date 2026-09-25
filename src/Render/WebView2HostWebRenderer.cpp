@@ -873,6 +873,7 @@ namespace OSFUI
 					.userDataDir = ToUtf8(userData.native()),
 					.devMode = config.devMode,
 					.highRefreshCapture = config.highRefreshCapture,
+					.language = config.language,
 					.adapterLuidLow = adapterLuidLow,
 					.adapterLuidHigh = adapterLuidHigh,
 				}));

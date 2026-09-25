@@ -1,10 +1,10 @@
 # OSF Settings SDK (vendored)
 
-Exact copies of `sdk/` from OSF Settings Slim at commit `140b93e8074af53e954f028a00122f5be59a9f37`:
+Exact copies of `sdk/` from OSF Settings Slim at commit `8a1f6eada2f0e3acabbaf2dd39890e0baa10b4d9`:
 
 | Header | ABI |
 | --- | --- |
-| `OSFSettings.h` | settings 1.0 |
+| `OSFSettings.h` | settings 1.1 |
 | `OSFSettings_Diagnostics.h` | diagnostics 1.0 |
 | `OSFSettings_Launcher.h` | launcher 1.0 (optional) |
 

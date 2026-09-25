@@ -60,6 +60,7 @@ namespace OSFUI
 			.height = initialHeight,
 			.devMode = _developerMode,
 			.highRefreshCapture = _highRefreshCapture,
+			.language = _osfSettings.Language(),
 			.dataDir = Paths::DataDir(),
 		};
 

@@ -1,4 +1,5 @@
 
+#include "LanguageTag.h"
 #include "Wv2Messages.h"
 
 #include <cassert>
@@ -55,15 +56,26 @@ int main()
 			.userDataDir = "C:/users/data",
 			.devMode = true,
 			.highRefreshCapture = true,
+			.language = "ptbr",
 			.adapterLuidLow = 4242,
 			.adapterLuidHigh = 7,
 		};
 		const auto got = RoundTrip(sent);
 		Check(got.topLevelHwnd == sent.topLevelHwnd, "u64 handle survives (above 2^53)");
+		Check(got.language == "ptbr", "language survives");
+		Check(msg::FromJson<msg::Init>(json{ { "type", "init" } }).language.empty(), "language defaults to empty");
 		Check(got.viewsPath == sent.viewsPath, "string survives");
 		Check(got.width == 2560 && got.height == 1440, "u32 survives");
 		Check(got.devMode && got.highRefreshCapture, "bools survive independently");
 		Check(got.adapterLuidHigh == 7, "adapter luid survives");
+	}
+	{
+		using osfui::wv2::LanguageTag::FromGameLanguage;
+		Check(FromGameLanguage("en") == "en" && FromGameLanguage("DE") == "de", "two-letter game codes pass through lower-cased");
+		Check(FromGameLanguage("ptbr") == "pt-BR" && FromGameLanguage("esmx") == "es-MX", "packed region codes become BCP-47");
+		Check(FromGameLanguage("zhhans") == "zh-Hans" && FromGameLanguage("zhhant") == "zh-Hant", "Chinese script codes map explicitly");
+		Check(FromGameLanguage("pt-BR") == "pt-br", "tags with a hyphen pass through");
+		Check(FromGameLanguage("").empty() && FromGameLanguage("en us").empty() && FromGameLanguage("../x").empty(), "invalid codes yield empty");
 	}
 	{
 		const msg::SetOrder sent{ .view = "acme.mod/panel", .order = -12 };
