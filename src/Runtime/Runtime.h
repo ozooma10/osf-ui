@@ -164,7 +164,6 @@ namespace OSFUI
 		bool m_webRuntimeInitializing{ false };
 		bool m_webRuntimeReady{ false };
 		bool m_developerMode{ false };       // startup-latched; changes apply next launch
-		bool m_highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
 		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
 		double m_nowSeconds{ 0.0 };
 		// SFSE lifecycle producer -> main-thread consumer.

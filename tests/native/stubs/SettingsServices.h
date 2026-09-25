@@ -14,7 +14,7 @@ namespace SettingsTest
     struct Settings : ISettings
     {
         bool ready = true;
-        std::map<std::string, bool> values{{"developerMode", false}, {"highRefreshCapture", false}, {"showDetails", false}};
+        std::map<std::string, bool> values{{"developerMode", false}, {"showDetails", false}};
         std::map<std::string, Status> readStatus;
         int reads = 0, acquisitions = 0, releases = 0, registrations = 0;
         Status acquireStatus = Status::Ok, releaseStatus = Status::Ok;

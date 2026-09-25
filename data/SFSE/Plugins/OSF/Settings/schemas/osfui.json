@@ -2,16 +2,6 @@
   "title": "OSF UI",
   "description": "Starfield Web Interface Framework",
   "groups": {
-    "Runtime": [
-      {
-        "key": "highRefreshCapture",
-        "label": "240 Hz focused capture",
-        "type": "bool",
-        "default": false,
-        "requires": "restart",
-        "hint": "Allow focused web menus to request capture at up to 240 Hz. May increase GPU use."
-      }
-    ],
     "Developer": [
       {
         "key": "developerMode",

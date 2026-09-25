@@ -224,7 +224,6 @@ namespace osfui::wv2
 			std::uint32_t         width{ 1 }, height{ 1 };
 			std::uint32_t         viewportWidth{ 1 }, viewportHeight{ 1 };
 			bool                  devMode{ false };
-			bool                  highRefreshCapture{ false };
 			std::string           language;  // game language code from init; empty keeps the WebView2 default
 			bool                  windowActive{ true };
 
@@ -1234,8 +1233,7 @@ namespace osfui::wv2
 			{
 				if (!captureSession) return;
 				const bool visible = captureHasVisibleView.load(std::memory_order_acquire);
-				const std::uint32_t desiredHz = !visible ? 4u :
-					highRefreshCapture && focusGranted ? 240u : 60u;
+				const std::uint32_t desiredHz = visible ? 60u : 4u;
 				if (captureCadenceHz == desiredHz) return;
 				try {
 					if (const auto cadence = captureSession.try_as<
@@ -1249,7 +1247,7 @@ namespace osfui::wv2
 						captureCadenceHz = desiredHz;
 						log.Info(std::format(
 							"WGC cadence -> {} mode, up to {} Hz ({:.3f} ms)",
-							!visible ? "hidden" : focusGranted ? "input-capturing menu" : "HUD",
+							visible ? "visible" : "hidden",
 							desiredHz,
 							std::chrono::duration<double, std::milli>(applied).count()));
 					} else {

@@ -51,7 +51,6 @@ namespace OSFUI
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = m_developerMode,
-			.highRefreshCapture = m_highRefreshCapture,
 			.language = m_osfSettings.Language(),
 			.dataDir = Paths::DataDir(),
 		};
@@ -153,7 +152,6 @@ namespace OSFUI
 			return;
 		}
 		m_developerMode = m_osfSettings.DeveloperMode();
-		m_highRefreshCapture = m_osfSettings.HighRefreshCapture();
 		Log::SetDebugLogging(m_developerMode);
 		LoadStartupContent();
 		m_osfSettings.RegisterLaunchers(m_views.All());

@@ -38,14 +38,13 @@ int main()
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
         settings.values["developerMode"] = true;
-        settings.values["highRefreshCapture"] = true;
         Install(&settings, &diagnostics);
         OSFSettingsClient client;
         CHECK(client.Initialize());
-        CHECK(client.DeveloperMode() && client.HighRefreshCapture());
+        CHECK(client.DeveloperMode());
         settings.values["developerMode"] = false;
         CHECK(client.DeveloperMode()); // Startup-only, no live subscription.
-        CHECK(settings.reads == 2 && !settings.changed);
+        CHECK(settings.reads == 1 && !settings.changed);
     }
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
@@ -80,13 +79,12 @@ int main()
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
         settings.readStatus["developerMode"] = Status::UnknownMod;
-        settings.readStatus["highRefreshCapture"] = Status::TypeMismatch;
         Install(&settings, &diagnostics);
         OSFSettingsClient client;
         CHECK(client.Initialize());
-        CHECK(!client.DeveloperMode() && !client.HighRefreshCapture());
+        CHECK(!client.DeveloperMode());
         CHECK(diagnostics.Has("settings.developerMode"));
-        CHECK(diagnostics.Get("settings.highRefreshCapture").severity == OSFSettings::API::Diagnostics::Severity::Warning);
+        CHECK(diagnostics.Get("settings.developerMode").severity == OSFSettings::API::Diagnostics::Severity::Warning);
     }
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;

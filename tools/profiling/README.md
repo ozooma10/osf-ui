@@ -39,7 +39,6 @@ Capture each for 60 seconds, three times, and use the median. Warm the save and 
 | A3 | Static focused menu | WebView2 composition, WGC copy, D3D12 blend |
 | A4 | Animated/interactive page | JS/layout/paint and capture cadence |
 | A5 | Passive HUD during gameplay | Non-capturing presentation cost |
-| A6 | A3 with 240 Hz capture enabled | High-refresh policy delta |
 
 Repeat A1-A5 at 1080p, 1440p, and 4K, and the key pair with Frame Generation off and on. Change one variable at a time. For lifecycle, run 100 open/close cycles or 30 minutes and judge private bytes, dedicated GPU memory, handles, and threads back in the same hidden state; a leak stays monotonic and never plateaus.
 

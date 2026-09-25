@@ -25,7 +25,6 @@ namespace OSFUI
 			return false;
 		}
 		ReadStartupBool("developerMode", m_developerMode);
-		ReadStartupBool("highRefreshCapture", m_highRefreshCapture);
 		ClearFailure("dependency");
 		return true;
 	}
