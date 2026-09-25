@@ -155,38 +155,38 @@ namespace OSFUI::API
 		};
 		void MarkPending(std::uint32_t a_bits) noexcept
 		{
-			_pending.fetch_or(a_bits, std::memory_order_release);
+			m_pending.fetch_or(a_bits, std::memory_order_release);
 		}
-		std::unordered_set<std::string> _papyrusEndpoints;
-		std::mutex                                    _mutex;
+		std::unordered_set<std::string> m_papyrusEndpoints;
+		std::mutex                                    m_mutex;
 		// Unregister waits for callbacks already dispatched on another thread.
 		// Recursive so a callback may unregister itself without deadlocking.
-		std::recursive_mutex                          _callbackDispatchMutex;
-		std::atomic<std::uint32_t>                    _pending{ 0 };
-		std::unordered_map<std::string, Registration>        _sends;             // strict RegisterSend set
-		std::unordered_map<std::string, RequestRegistration> _requests;          // desired request set
-		std::unordered_map<std::string, RelativePointerRegistration> _relativePointers;  // exact view owner, first-wins
-		std::unordered_map<std::string, ViewOpenPreflightRegistration> _viewOpenPreflights;  // exact view owner, first-wins
-		std::unordered_map<std::string, ViewLifecycleRegistration> _viewLifecycles;  // exact view owner, first-wins
-		std::unordered_map<std::uint64_t, InflightRequest> _inflightRequests;
-		std::uint64_t                                 _nextRequestToken{ 1 };
-		std::vector<PendingSend>                       _pendingSends;
-		std::vector<ViewPresentationRequest>          _pendingViewPresentationRequests;  // Drained by Runtime.
-		std::unordered_set<std::string>               _knownViews;         // boot-discovered qualified view ids
-		std::unordered_set<std::string>               _instantiatedViews;  // views with an instantiated document
-		bool                                          _viewCatalogReady{ false };
-		std::vector<ViewStateOp>                      _pendingStateOps;    // SetViewState writes, drained by Runtime
-		std::vector<std::string>                      _pendingViewRegs;    // RegisterView ids, drained by Runtime
-		MessageBridge*                                _bridge{ nullptr };         // non-owning; set on main thread
-		MessageBridge*                                _appliedBridge{ nullptr };  // bridge we last applied to
-		bool                                          _dirty{ false };            // endpoint set changed since apply
-		ReadyFn                                _readyCb{ nullptr };
-		void*                                         _readyUser{ nullptr };
-		std::condition_variable                       _readyInvokeCv;
-		bool                                          _readyInvoking{ false };
-		std::thread::id                               _readyInvokingThread{};
-		bool                                          _readyFired{ false };
-		std::uint64_t _readyRevision{ 0 };
-		std::atomic_bool                              _bridgeAvailable{ false };
+		std::recursive_mutex                          m_callbackDispatchMutex;
+		std::atomic<std::uint32_t>                    m_pending{ 0 };
+		std::unordered_map<std::string, Registration>        m_sends;             // strict RegisterSend set
+		std::unordered_map<std::string, RequestRegistration> m_requests;          // desired request set
+		std::unordered_map<std::string, RelativePointerRegistration> m_relativePointers;  // exact view owner, first-wins
+		std::unordered_map<std::string, ViewOpenPreflightRegistration> m_viewOpenPreflights;  // exact view owner, first-wins
+		std::unordered_map<std::string, ViewLifecycleRegistration> m_viewLifecycles;  // exact view owner, first-wins
+		std::unordered_map<std::uint64_t, InflightRequest> m_inflightRequests;
+		std::uint64_t                                 m_nextRequestToken{ 1 };
+		std::vector<PendingSend>                       m_pendingSends;
+		std::vector<ViewPresentationRequest>          m_pendingViewPresentationRequests;  // Drained by Runtime.
+		std::unordered_set<std::string>               m_knownViews;         // boot-discovered qualified view ids
+		std::unordered_set<std::string>               m_instantiatedViews;  // views with an instantiated document
+		bool                                          m_viewCatalogReady{ false };
+		std::vector<ViewStateOp>                      m_pendingStateOps;    // SetViewState writes, drained by Runtime
+		std::vector<std::string>                      m_pendingViewRegs;    // RegisterView ids, drained by Runtime
+		MessageBridge*                                m_bridge{ nullptr };         // non-owning; set on main thread
+		MessageBridge*                                m_appliedBridge{ nullptr };  // bridge we last applied to
+		bool                                          m_dirty{ false };            // endpoint set changed since apply
+		ReadyFn                                m_readyCb{ nullptr };
+		void*                                         m_readyUser{ nullptr };
+		std::condition_variable                       m_readyInvokeCv;
+		bool                                          m_readyInvoking{ false };
+		std::thread::id                               m_readyInvokingThread{};
+		bool                                          m_readyFired{ false };
+		std::uint64_t m_readyRevision{ 0 };
+		std::atomic_bool                              m_bridgeAvailable{ false };
 	};
 }

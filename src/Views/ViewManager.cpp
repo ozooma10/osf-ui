@@ -9,7 +9,7 @@ namespace OSFUI
 {
 	void ViewManager::DiscoverAll(const std::filesystem::path& a_viewsDir)
 	{
-		_views.clear();
+		m_views.clear();
 
 		std::error_code ec;
 		if (!std::filesystem::is_directory(a_viewsDir, ec)) {
@@ -55,19 +55,19 @@ namespace OSFUI
 				if (auto manifest = ViewManifest::Load(manifestPath)) {
 					REX::INFO("ViewManager: discovered view '{}' ({}, {}x{})",
 						manifest->id, manifest->title, manifest->width, manifest->height);
-					_views.push_back(std::move(*manifest));
+					m_views.push_back(std::move(*manifest));
 				}
 			}
 		}
 		// Sort qualified ids so creation, catalogs, and equal-order z ties are deterministic.
-		std::ranges::sort(_views, {}, &ViewManifest::id);
-		REX::INFO("ViewManager: {} view(s) discovered under {}", _views.size(), Utf8Path(a_viewsDir));
+		std::ranges::sort(m_views, {}, &ViewManifest::id);
+		REX::INFO("ViewManager: {} view(s) discovered under {}", m_views.size(), Utf8Path(a_viewsDir));
 	}
 
 	const ViewManifest* ViewManager::Find(std::string_view a_id) const
 	{
-		const auto it = std::ranges::find_if(_views,
+		const auto it = std::ranges::find_if(m_views,
 			[&](const auto& v) { return Ids::EqualsCaseInsensitiveAscii(v.id, a_id); });
-		return it != _views.end() ? &*it : nullptr;
+		return it != m_views.end() ? &*it : nullptr;
 	}
 }

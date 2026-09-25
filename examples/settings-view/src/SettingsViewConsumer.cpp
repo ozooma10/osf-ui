@@ -7,34 +7,34 @@ namespace SettingsViewExample
 {
     bool Consumer::Initialize()
     {
-        if (_attempted) return _initialized;
-        _attempted = true;
-        if (!_settings.Init() || !_settings.IsReady() || !_views.Init()) return false;
+        if (m_attempted) return m_initialized;
+        m_attempted = true;
+        if (!m_settings.Init() || !m_settings.IsReady() || !m_views.Init()) return false;
         // IsReady is intentionally false before the first WebView exists.
-        if (!_views.RegisterView(kViewId)) return false;
-        const auto subscription = _settings.Subscribe(kModId, &OnSettingChanged, this, &_subscription);
+        if (!m_views.RegisterView(kViewId)) return false;
+        const auto subscription = m_settings.Subscribe(kModId, &OnSettingChanged, this, &m_subscription);
         if (subscription != OSFSettings::API::Status::Ok) return false;
-        if (!PublishSettings() || _settings.RegisterHotkey(kModId, "openPanel", &OnHotkey, this) != OSFSettings::API::Status::Ok) {
-            const auto status = _settings.Unsubscribe(_subscription);
+        if (!PublishSettings() || m_settings.RegisterHotkey(kModId, "openPanel", &OnHotkey, this) != OSFSettings::API::Status::Ok) {
+            const auto status = m_settings.Unsubscribe(m_subscription);
             if (status != OSFSettings::API::Status::Ok) REX::ERROR("Example unsubscribe failed: {}", static_cast<unsigned>(status));
             return false;
         }
-        _initialized = true;
+        m_initialized = true;
         return true;
     }
 
     bool Consumer::PublishSettings()
     {
         // Settings callbacks and the initial read can run on different threads.
-        std::lock_guard lock(_publishMutex);
+        std::lock_guard lock(m_publishMutex);
         bool showDetails{};
-        const auto status = _settings.GetBool(kModId, "showDetails", &showDetails);
+        const auto status = m_settings.GetBool(kModId, "showDetails", &showDetails);
         if (status != OSFSettings::API::Status::Ok) {
             REX::WARN("Example setting read failed: {}", static_cast<unsigned>(status));
             return false;
         }
         // Explicit, minimal forwarding. No schema, binding data, or other mods' settings enter the page.
-        return _views.SetViewState(kModId, "showDetails", showDetails ? "true" : "false");
+        return m_views.SetViewState(kModId, "showDetails", showDetails ? "true" : "false");
     }
 
     void Consumer::OnSettingChanged(const char*, const char* key, void* user) noexcept
@@ -47,7 +47,7 @@ namespace SettingsViewExample
     {
         auto& self = *static_cast<Consumer*>(user);
         // SDK mutations enqueue work safely; this callback never calls the engine directly.
-        if (self.PublishSettings() && !self._views.RequestMenu(kViewId, true)) {
+        if (self.PublishSettings() && !self.m_views.RequestMenu(kViewId, true)) {
             REX::WARN("Example view open could not be queued");
         }
     }

@@ -24,35 +24,35 @@ namespace OSFUI
 
 		void Reset()
 		{
-			_phase = Phase::Idle;
-			_attempts = 0;
-			_retryAt = 0.0;
-			_responseDeadline = 0.0;
+			m_phase = Phase::Idle;
+			m_attempts = 0;
+			m_retryAt = 0.0;
+			m_responseDeadline = 0.0;
 		}
 
 		// A load proves responsiveness, not stability. Keep the retry budget until the host stays healthy.
 		void OnResponse(double a_now)
 		{
 			if (!CanAcceptResponse()) return;
-			_phase = Phase::Healthy;
-			_healthyUntil = a_now + 60.0;
+			m_phase = Phase::Healthy;
+			m_healthyUntil = a_now + 60.0;
 		}
 
 		void ObserveHealth(double a_now)
 		{
-			if (_phase == Phase::Healthy && a_now >= _healthyUntil) Reset();
+			if (m_phase == Phase::Healthy && a_now >= m_healthyUntil) Reset();
 		}
 
 		void Disable()
 		{
-			_phase = Phase::Disabled;
-			_retryAt = 0.0;
-			_responseDeadline = 0.0;
+			m_phase = Phase::Disabled;
+			m_retryAt = 0.0;
+			m_responseDeadline = 0.0;
 		}
 
 		void OnRetryableFailure(double a_now)
 		{
-			if (_phase == Phase::Disabled) {
+			if (m_phase == Phase::Disabled) {
 				return;
 			}
 			Schedule(a_now);
@@ -60,18 +60,18 @@ namespace OSFUI
 
 		[[nodiscard]] bool BeginDueAttempt(double a_now)
 		{
-			if (_phase != Phase::Waiting || a_now < _retryAt) {
+			if (m_phase != Phase::Waiting || a_now < m_retryAt) {
 				return false;
 			}
-			++_attempts;
-			_phase = Phase::AwaitingResponse;
-			_responseDeadline = a_now + kResponseTimeoutSeconds;
+			++m_attempts;
+			m_phase = Phase::AwaitingResponse;
+			m_responseDeadline = a_now + kResponseTimeoutSeconds;
 			return true;
 		}
 
 		[[nodiscard]] bool ExpireResponseWait(double a_now)
 		{
-			if (_phase != Phase::AwaitingResponse || a_now < _responseDeadline) {
+			if (m_phase != Phase::AwaitingResponse || a_now < m_responseDeadline) {
 				return false;
 			}
 			Schedule(a_now);
@@ -81,45 +81,45 @@ namespace OSFUI
 		// Manual retry resets the exhausted budget but does not reopen the overlay.
 		[[nodiscard]] bool RequestManualRetry(double a_now)
 		{
-			if (_phase != Phase::Exhausted) {
+			if (m_phase != Phase::Exhausted) {
 				return false;
 			}
-			_attempts = 0;
-			_phase = Phase::Waiting;
-			_retryAt = a_now;
-			_responseDeadline = 0.0;
+			m_attempts = 0;
+			m_phase = Phase::Waiting;
+			m_retryAt = a_now;
+			m_responseDeadline = 0.0;
 			return true;
 		}
 
 		[[nodiscard]] bool CanAcceptResponse() const
 		{
-			return _phase == Phase::AwaitingResponse;
+			return m_phase == Phase::AwaitingResponse;
 		}
 
-		[[nodiscard]] Phase PhaseValue() const { return _phase; }
-		[[nodiscard]] std::uint32_t Attempts() const { return _attempts; }
+		[[nodiscard]] Phase PhaseValue() const { return m_phase; }
+		[[nodiscard]] std::uint32_t Attempts() const { return m_attempts; }
 
 	private:
 		void Schedule(double a_now)
 		{
-			_responseDeadline = 0.0;
-			if (_attempts >= kMaxAttempts) {
-				_phase = Phase::Exhausted;
-				_retryAt = 0.0;
+			m_responseDeadline = 0.0;
+			if (m_attempts >= kMaxAttempts) {
+				m_phase = Phase::Exhausted;
+				m_retryAt = 0.0;
 				return;
 			}
-			_phase = Phase::Waiting;
-			_retryAt = a_now + kBackoffSeconds[_attempts];
+			m_phase = Phase::Waiting;
+			m_retryAt = a_now + kBackoffSeconds[m_attempts];
 		}
 
 		static constexpr std::array<double, kMaxAttempts> kBackoffSeconds{
 			1.0, 3.0, 10.0
 		};
 
-		Phase         _phase{ Phase::Idle };
-		std::uint32_t _attempts{ 0 };
-		double        _retryAt{ 0.0 };
-		double        _responseDeadline{ 0.0 };
-		double        _healthyUntil{ 0.0 };
+		Phase         m_phase{ Phase::Idle };
+		std::uint32_t m_attempts{ 0 };
+		double        m_retryAt{ 0.0 };
+		double        m_responseDeadline{ 0.0 };
+		double        m_healthyUntil{ 0.0 };
 	};
 }

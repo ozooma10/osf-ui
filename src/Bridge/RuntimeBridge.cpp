@@ -92,22 +92,22 @@ namespace OSFUI
 
     void Runtime::BroadcastViewsData()
 	{
-		if (!_bridge) {
+		if (!m_bridge) {
 			return;
 		}
 		auto dumped = Json::Dump(BuildViewsData());
-		if (dumped == _lastViewsData) {
+		if (dumped == m_lastViewsData) {
 			return;
 		}
-		_lastViewsData = std::move(dumped);
+		m_lastViewsData = std::move(dumped);
 		PublishViewsState();
 	}
 
 	std::unordered_set<std::string> Runtime::InstantiatedViewsOfMod(std::string_view a_mod) const
 	{
 		std::unordered_set<std::string> targets;
-		for (const auto& manifest : _views.All()) {
-			if (!_presentation.IsInstantiated(manifest.id)) {
+		for (const auto& manifest : m_views.All()) {
+			if (!m_presentation.IsInstantiated(manifest.id)) {
 				continue;
 			}
 			if (Ids::EqualsCaseInsensitiveAscii(Ids::ModOf(manifest.id), a_mod)) {
@@ -119,7 +119,7 @@ namespace OSFUI
 
 	void Runtime::PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value)
 	{
-		if (!_bridge) {
+		if (!m_bridge) {
 			return;
 		}
 		const auto targets = InstantiatedViewsOfMod(a_mod);
@@ -127,26 +127,26 @@ namespace OSFUI
 			REX::DEBUG("Runtime: state '{}/{}' has no instantiated view yet - retained for the next greeting", a_mod, a_key);
 			return;
 		}
-		_bridge->PublishState(targets, a_mod, a_key, a_value);
+		m_bridge->PublishState(targets, a_mod, a_key, a_value);
 	}
 
 	void Runtime::PublishViewsState(std::string_view a_viewId)
 	{
-		if (!_bridge) {
+		if (!m_bridge) {
 			return;
 		}
 		const auto deliver = [&](const std::string& a_view) {
-			if (_lastViewsData.empty()) {
-				_lastViewsData = Json::Dump(BuildViewsData());
+			if (m_lastViewsData.empty()) {
+				m_lastViewsData = Json::Dump(BuildViewsData());
 			}
-			_bridge->PublishJsonState(a_view, "osfui", "views", _lastViewsData);
+			m_bridge->PublishJsonState(a_view, "osfui", "views", m_lastViewsData);
 		};
 		if (!a_viewId.empty()) {
 			deliver(std::string(a_viewId));
 			return;
 		}
-		for (const auto& manifest : _views.All()) {
-			if (_presentation.IsInstantiated(manifest.id)) {
+		for (const auto& manifest : m_views.All()) {
+			if (m_presentation.IsInstantiated(manifest.id)) {
 				deliver(manifest.id);
 			}
 		}
@@ -154,16 +154,16 @@ namespace OSFUI
 
 	void Runtime::OnViewGreeted(std::string_view a_viewId)
 	{
-		if (!_bridge) {
+		if (!m_bridge) {
 			return;
 		}
-		_viewProtocolFaultCounts.erase(std::string(a_viewId));
-		_osfSettings.ClearFailure(std::format("view.protocol-misuse:{}", a_viewId));
+		m_viewProtocolFaultCounts.erase(std::string(a_viewId));
+		m_osfSettings.ClearFailure(std::format("view.protocol-misuse:{}", a_viewId));
 		PublishViewsState(a_viewId);
 		const std::string mod{ Ids::ModOf(a_viewId) };
-		if (const auto* entries = _retainedState.Find(mod)) {
+		if (const auto* entries = m_retainedState.Find(mod)) {
 			for (const auto& entry : *entries) {
-				_bridge->PublishState(a_viewId, mod, entry.key, entry.value);
+				m_bridge->PublishState(a_viewId, mod, entry.key, entry.value);
 			}
 		}
 		m_viewInputGrants.ResetPage(a_viewId);
@@ -172,8 +172,8 @@ namespace OSFUI
 	void Runtime::OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)
 	{
 
-		if (_developerMode && _bridge && !a_viewId.empty()) {
-			_bridge->Emit(a_viewId, "osfui.debug.error", nlohmann::json{
+		if (m_developerMode && m_bridge && !a_viewId.empty()) {
+			m_bridge->Emit(a_viewId, "osfui.debug.error", nlohmann::json{
 				{ "code", std::string(a_code) },
 				{ "message", std::string(a_message) },
 				{ "detail", a_detail },
@@ -184,8 +184,8 @@ namespace OSFUI
 			return;
 		}
 		constexpr std::uint32_t kProtocolFaultThreshold = 10;
-		if (++_viewProtocolFaultCounts[std::string(a_viewId)] == kProtocolFaultThreshold) {
-			_osfSettings.ReportFailure(std::format("view.protocol-misuse:{}", a_viewId), "view.protocol-misuse", a_message,
+		if (++m_viewProtocolFaultCounts[std::string(a_viewId)] == kProtocolFaultThreshold) {
+			m_osfSettings.ReportFailure(std::format("view.protocol-misuse:{}", a_viewId), "view.protocol-misuse", a_message,
 				{ { "view", std::string(a_viewId) }, { "code", std::string(a_code) }, { "count", kProtocolFaultThreshold } });
 		}
 	}
@@ -194,10 +194,10 @@ namespace OSFUI
 	{
 		a_bridge.RegisterSend("close", [this](const nlohmann::json&, MessageBridge& a_b) {
 			const std::string source(a_b.CurrentSource());
-			if (_viewOpens.Cancel(source)) {
+			if (m_viewOpens.Cancel(source)) {
 				return;
 			}
-			if (_presentation.Close(source)) {
+			if (m_presentation.Close(source)) {
 				ApplyViewPresentationPolicy();
 			}
 		});
@@ -205,9 +205,9 @@ namespace OSFUI
 			const std::string src(a_b.CurrentSource());
 			const bool visible = Json::Get(a_p, "visible", false);
 			if (!visible) {
-				_viewOpens.Cancel(src);
+				m_viewOpens.Cancel(src);
 			}
-			const bool changed = visible ? BeginViewOpen(src) : _presentation.Close(src);
+			const bool changed = visible ? BeginViewOpen(src) : m_presentation.Close(src);
 			if (changed) {
 				ApplyViewPresentationPolicy();
 			}
@@ -217,14 +217,14 @@ namespace OSFUI
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			const auto* manifest = _views.Find(id);
+			const auto* manifest = m_views.Find(id);
 			if (!manifest) {
 				REX::WARN("Runtime: menu.open refused — '{}' was not discovered", id);
 				a_b.Reject("unknown-view", "view was not discovered");
 				return;
 			}
 			id = manifest->id;
-			if (manifest->kind == ViewKind::Menu && manifest->capturesInput && _inputCapture.IntegrationAttempted() && !_inputCapture.IntegrationAvailable()) {
+			if (manifest->kind == ViewKind::Menu && manifest->capturesInput && m_inputCapture.IntegrationAttempted() && !m_inputCapture.IntegrationAvailable()) {
 				REX::WARN("Runtime: menu.open refused — required input integration is unavailable");
 				a_b.Reject("input-unavailable", "required input integration is unavailable");
 				return;
@@ -237,14 +237,14 @@ namespace OSFUI
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			if (const auto* manifest = _views.Find(id)) {
+			if (const auto* manifest = m_views.Find(id)) {
 				id = manifest->id;
 			}
 			bool cancelled = false;
-			cancelled = _viewOpens.Cancel(id);
-			if (_presentation.Close(id)) {
+			cancelled = m_viewOpens.Cancel(id);
+			if (m_presentation.Close(id)) {
 				ApplyViewPresentationPolicy();
-			} else if (!cancelled && !_presentation.IsInstantiated(id)) {
+			} else if (!cancelled && !m_presentation.IsInstantiated(id)) {
 				a_b.Reject("unknown-view", "view is not instantiated");
 				return;
 			}
@@ -255,10 +255,10 @@ namespace OSFUI
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			if (const auto* manifest = _views.Find(id)) {
+			if (const auto* manifest = m_views.Find(id)) {
 				id = manifest->id;
 			}
-			if (!_presentation.IsInstantiated(id)) {
+			if (!m_presentation.IsInstantiated(id)) {
 				a_b.Reject("unknown-view", "not an instantiated view");
 				return;
 			}
@@ -266,8 +266,8 @@ namespace OSFUI
 			const bool hidden = Json::Get(a_p, "hidden", false);
 			bool changed = false;
 			if (hidden) {
-				_viewOpens.Cancel(id);
-				changed = _presentation.Close(id);
+				m_viewOpens.Cancel(id);
+				changed = m_presentation.Close(id);
 			} else {
 				changed = BeginViewOpen(id);
 			}
@@ -383,7 +383,7 @@ namespace OSFUI
 			const bool handle = Json::Get(a_p, "handle", false);
 			std::string target = Json::Get(a_p, "view", "");
 			if (handle && !target.empty()) {
-				const auto* manifest = _views.Find(target);
+				const auto* manifest = m_views.Find(target);
 				if (!manifest || manifest->kind != ViewKind::Menu || manifest->id == src) {
 					REX::WARN("Runtime: [content] view '{}' requested invalid back target '{}'", src, target);
 					target.clear();  // Preserve ordinary browser-owned Back as the safe fallback.

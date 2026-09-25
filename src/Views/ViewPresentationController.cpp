@@ -6,26 +6,26 @@ namespace OSFUI
 {
 	void ViewPresentationController::AddInstantiated(const InstantiatedView& a_view)
 	{
-		_instantiated[a_view.id] = a_view;
+		m_instantiated[a_view.id] = a_view;
 	}
 
 	bool ViewPresentationController::RemoveInstantiated(std::string_view a_id)
 	{
 		const bool changed = Close(a_id);
-		_instantiated.erase(std::string(a_id));
+		m_instantiated.erase(std::string(a_id));
 		return changed;
 	}
 
 	const ViewPresentationController::InstantiatedView* ViewPresentationController::FindInstantiated(std::string_view a_id) const
 	{
-		const auto it = _instantiated.find(std::string(a_id));
-		return it == _instantiated.end() ? nullptr : &it->second;
+		const auto it = m_instantiated.find(std::string(a_id));
+		return it == m_instantiated.end() ? nullptr : &it->second;
 	}
 
 	bool ViewPresentationController::IsOpen(std::string_view a_id) const
 	{
 		const std::string id(a_id);
-		return _hudShown.contains(id) || (_activeMenu && *_activeMenu == id);
+		return m_hudShown.contains(id) || (m_activeMenu && *m_activeMenu == id);
 	}
 
 	bool ViewPresentationController::IsInstantiated(std::string_view a_id) const
@@ -42,24 +42,24 @@ namespace OSFUI
 		const std::string id(a_id);
 
 		if (view->kind == ViewKind::Hud) {
-			return _hudShown.insert(id).second;  // false if already shown
+			return m_hudShown.insert(id).second;  // false if already shown
 		}
 
-		if (_activeMenu && *_activeMenu == id) {
+		if (m_activeMenu && *m_activeMenu == id) {
 			return false;
 		}
-		_activeMenu = id;
+		m_activeMenu = id;
 		return true;
 	}
 
 	bool ViewPresentationController::Close(std::string_view a_id)
 	{
 		const std::string id(a_id);
-		if (_hudShown.erase(id) > 0) {
+		if (m_hudShown.erase(id) > 0) {
 			return true;
 		}
-		if (_activeMenu && *_activeMenu == id) {
-			_activeMenu.reset();
+		if (m_activeMenu && *m_activeMenu == id) {
+			m_activeMenu.reset();
 			return true;
 		}
 		return false;
@@ -67,74 +67,74 @@ namespace OSFUI
 
 	bool ViewPresentationController::CloseActiveMenu()
 	{
-		if (!_activeMenu) {
+		if (!m_activeMenu) {
 			return false;
 		}
-		_activeMenu.reset();
+		m_activeMenu.reset();
 		return true;
 	}
 
 	void ViewPresentationController::CloseAll()
 	{
 		// Clear menus and HUDs so transitions cannot leave the overlay visible.
-		_activeMenu.reset();
-		_hudShown.clear();
+		m_activeMenu.reset();
+		m_hudShown.clear();
 	}
 
 	bool ViewPresentationController::SetSuspended(bool a_suspended)
 	{
-		if (_suspended == a_suspended) return false;
-		_suspended = a_suspended;
-		if (_suspended) _activeMenu.reset();
+		if (m_suspended == a_suspended) return false;
+		m_suspended = a_suspended;
+		if (m_suspended) m_activeMenu.reset();
 		return true;
 	}
 
 	bool ViewPresentationController::DesiredVisible() const
 	{
-		return !_suspended && (!_hudShown.empty() || _activeMenu.has_value());
+		return !m_suspended && (!m_hudShown.empty() || m_activeMenu.has_value());
 	}
 
 	bool ViewPresentationController::DesiredCapture() const
 	{
-		if (_suspended || !_activeMenu) {
+		if (m_suspended || !m_activeMenu) {
 			return false;
 		}
-		const auto* view = FindInstantiated(*_activeMenu);
+		const auto* view = FindInstantiated(*m_activeMenu);
 		return view && view->capturesInput;
 	}
 
 	bool ViewPresentationController::DesiredPause() const
 	{
-		if (_suspended || !_activeMenu) {
+		if (m_suspended || !m_activeMenu) {
 			return false;
 		}
-		const auto* view = FindInstantiated(*_activeMenu);
+		const auto* view = FindInstantiated(*m_activeMenu);
 		return view && view->pausesGame;
 	}
 
 	std::optional<std::string> ViewPresentationController::ActiveMenu() const
 	{
-		return _suspended ? std::nullopt : _activeMenu;
+		return m_suspended ? std::nullopt : m_activeMenu;
 	}
 
 	std::vector<ViewPresentationController::Layer> ViewPresentationController::DesiredLayers() const
 	{
 		std::vector<Layer> layers;
-		layers.reserve(_instantiated.size());
-		for (const auto& [id, view] : _instantiated) {
+		layers.reserve(m_instantiated.size());
+		for (const auto& [id, view] : m_instantiated) {
 			Layer layer;
 			layer.id = id;
 			if (view.kind == ViewKind::Hud) {
-				layer.hidden = !_hudShown.contains(id);
+				layer.hidden = !m_hudShown.contains(id);
 				layer.z = std::clamp(view.order, 0, 999);
-			} else if (_activeMenu && *_activeMenu == id) {
+			} else if (m_activeMenu && *m_activeMenu == id) {
 				layer.hidden = false;
 				layer.z = 1000;
 			} else {
 				layer.hidden = true;
 				layer.z = 1000;  // menu band; hidden, so exact value is immaterial
 			}
-			layer.hidden = layer.hidden || _suspended;
+			layer.hidden = layer.hidden || m_suspended;
 			layers.push_back(std::move(layer));
 		}
 		return layers;

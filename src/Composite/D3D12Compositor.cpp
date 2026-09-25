@@ -558,18 +558,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 	bool D3D12Compositor::Initialize(std::shared_ptr<SharedFrameConsumer> a_frames)
 	{
-		_impl = std::make_unique<Impl>();
-		_impl->frames = std::move(a_frames);
+		m_impl = std::make_unique<Impl>();
+		m_impl->frames = std::move(a_frames);
 		return true;
 	}
 
 	void D3D12Compositor::Update()
 	{
-		if (!_impl) return;
-		_impl->PollCompletions();
-		if (!_impl->frames->HasPendingRing()) return;
-		_impl->EnsureSetup();
-		if (_impl->setupOk) _impl->EnsureSharedRing();
+		if (!m_impl) return;
+		m_impl->PollCompletions();
+		if (!m_impl->frames->HasPendingRing()) return;
+		m_impl->EnsureSetup();
+		if (m_impl->setupOk) m_impl->EnsureSharedRing();
 	}
 
 	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
@@ -580,13 +580,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 	void D3D12Compositor::SetVisible(bool a_visible)
 	{
-		if (_impl) {
-			_impl->frames->SetVisible(a_visible);
+		if (m_impl) {
+			m_impl->frames->SetVisible(a_visible);
 		}
 	}
 
 	std::optional<OutputSize> D3D12Compositor::GetObservedOutputSize() const
 	{
-		return _impl ? _impl->outputSize.Snapshot() : std::nullopt;
+		return m_impl ? m_impl->outputSize.Snapshot() : std::nullopt;
 	}
 }

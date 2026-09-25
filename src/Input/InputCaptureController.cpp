@@ -13,18 +13,18 @@ namespace OSFUI
 {
 	bool InputCaptureController::EnsureIntegration(bool a_postDataLoadedReady)
 	{
-		if (_integrationAttempted) return _integrationAvailable;
+		if (m_integrationAttempted) return m_integrationAvailable;
 		if (!a_postDataLoadedReady) return false;
-		_integrationAttempted = true;
+		m_integrationAttempted = true;
 		if (!UiLayoutGuard::VerifyUiLayout()) {
 			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
 			return false;
 		}
-		const bool menuEventsInstalled = _menuEventsAvailable;
+		const bool menuEventsInstalled = m_menuEventsAvailable;
 		const bool focusMenuRegistered = FocusMenu::Register();
 		const bool inputInstalled = OverlayInputHook::Install();
-		_integrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
-		if (!_integrationAvailable) {
+		m_integrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
+		if (!m_integrationAvailable) {
 			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
 			return false;
 		}
@@ -48,9 +48,9 @@ namespace OSFUI
 	void InputCaptureController::ReconcileFocusMenu(bool a_wantsCapture, double a_now)
 	{
 		const bool wantOpen = a_wantsCapture;
-		if (wantOpen != _focusMenuOpen) {
-			_focusMenuOpen = wantOpen;
-			_focusMenuMismatchSince = -1.0;  // fresh request: full grace window
+		if (wantOpen != m_focusMenuOpen) {
+			m_focusMenuOpen = wantOpen;
+			m_focusMenuMismatchSince = -1.0;  // fresh request: full grace window
 			if (wantOpen) {
 				FocusMenu::Open();
 			} else {
@@ -64,19 +64,19 @@ namespace OSFUI
 		}
 		const bool engineOpen = FocusMenu::IsOpenInEngine();
 		if (engineOpen == wantOpen) {
-			_focusMenuMismatchSince = -1.0;
+			m_focusMenuMismatchSince = -1.0;
 			return;
 		}
 		constexpr double kHealSeconds = 1.0;
-		if (_focusMenuMismatchSince < 0.0) {
-			_focusMenuMismatchSince = a_now;
+		if (m_focusMenuMismatchSince < 0.0) {
+			m_focusMenuMismatchSince = a_now;
 			return;
 		}
-		if (a_now - _focusMenuMismatchSince < kHealSeconds) {
+		if (a_now - m_focusMenuMismatchSince < kHealSeconds) {
 			return;
 		}
-		REX::WARN("FocusMenu: engine state diverged from requested (want {}, engine {}) for {:.1f}s; re-sending {} (watchdog)", wantOpen ? "open" : "closed", wantOpen ? "closed" : "open", a_now - _focusMenuMismatchSince, wantOpen ? "kShow" : "kHide");
-		_focusMenuMismatchSince = -1.0;  // re-arm: another full window before the next retry
+		REX::WARN("FocusMenu: engine state diverged from requested (want {}, engine {}) for {:.1f}s; re-sending {} (watchdog)", wantOpen ? "open" : "closed", wantOpen ? "closed" : "open", a_now - m_focusMenuMismatchSince, wantOpen ? "kShow" : "kHide");
+		m_focusMenuMismatchSince = -1.0;  // re-arm: another full window before the next retry
 		if (wantOpen) {
 			FocusMenu::Open();
 		} else {
@@ -95,36 +95,36 @@ namespace OSFUI
 		// sentinel. In forwarded mode this grant does not transfer OS focus.
 		const bool focusMenuReady = !wantsCapture || (FocusMenu::IsRegistered() && FocusMenu::IsOpenInEngine());
 		const bool want = wantsCapture && focusMenuReady;
-		if (want == _browserFocusGranted) {
+		if (want == m_browserFocusGranted) {
 			return;
 		}
-		_browserFocusGranted = want;
+		m_browserFocusGranted = want;
 		a_renderer->SetInputFocus(want);
 	}
 
 	void InputCaptureController::ObserveLifecycle(bool a_postDataLoadedReady)
 	{
-		if (a_postDataLoadedReady && !_menuEventsAttempted) {
-			_menuEventsAttempted = true;
-			_menuEventsAvailable = UiLayoutGuard::VerifyUiLayout() && MenuEventSink::Install();
+		if (a_postDataLoadedReady && !m_menuEventsAttempted) {
+			m_menuEventsAttempted = true;
+			m_menuEventsAvailable = UiLayoutGuard::VerifyUiLayout() && MenuEventSink::Install();
 		}
 	}
 
 	void InputCaptureController::PublishCapture(bool a_wantsCapture)
 	{
-		if (_captureRequested.exchange(a_wantsCapture) != a_wantsCapture) {
+		if (m_captureRequested.exchange(a_wantsCapture) != a_wantsCapture) {
 			OverlayInputHook::RequestStateRefresh();
 		}
 	}
 
 	bool InputCaptureController::CaptureRequested() const
 	{
-		return _captureRequested.load();
+		return m_captureRequested.load();
 	}
 
 	void InputCaptureController::ResetBrowserFocus()
 	{
-		_browserFocusGranted = false;
+		m_browserFocusGranted = false;
 	}
 
 	void InputCaptureController::ReconcileControlLayer(bool a_wantsCapture, bool a_inputCaptured)

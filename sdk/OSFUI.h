@@ -57,18 +57,18 @@ namespace OSFUI::API
 		// Resolves with a JSON payload. Invalid JSON rejects with "invalid-response".
 		void Respond(const char* json) const noexcept
 		{
-			if (_respond) _respond(_token, json);
+			if (m_respond) m_respond(m_token, json);
 		}
 		// Rejects with a stable code and optional message.
 		void Reject(const char* code, const char* message = "") const noexcept
 		{
-			if (_reject) _reject(_token, code, message);
+			if (m_reject) m_reject(m_token, code, message);
 		}
 
 		// Host-owned reply state; copy it, do not modify it.
-		std::uint64_t _token{};
-		RespondFn _respond{};
-		RejectFn _reject{};
+		std::uint64_t m_token{};
+		RespondFn m_respond{};
+		RejectFn m_reject{};
 	};
 	static_assert(std::is_standard_layout_v<Request> && std::is_trivially_copyable_v<Request>);
 

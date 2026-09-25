@@ -6,22 +6,22 @@ namespace OSFUI
 {
 	bool ViewOpenCoordinator::Contains(std::string_view a_view) const
 	{
-		return (_menu && *_menu == a_view) || _huds.contains(std::string(a_view));
+		return (m_menu && *m_menu == a_view) || m_huds.contains(std::string(a_view));
 	}
 
 	void ViewOpenCoordinator::BeginTiming(std::string_view a_view, bool a_instantiated,
 		std::optional<Clock::time_point> a_requestedAt, Clock::time_point a_now)
 	{
-		if (_timing && _timing->view == a_view) return;
+		if (m_timing && m_timing->view == a_view) return;
 		const auto requestedAt = a_requestedAt && *a_requestedAt != Clock::time_point{} && *a_requestedAt <= a_now ?
 			*a_requestedAt : a_now;
-		_timing = ColdOpenTiming{ .view = std::string(a_view), .requestedAt = requestedAt };
-		if (a_instantiated) _timing->instantiatedAt = a_now;
+		m_timing = ColdOpenTiming{ .view = std::string(a_view), .requestedAt = requestedAt };
+		if (a_instantiated) m_timing->instantiatedAt = a_now;
 	}
 
 	void ViewOpenCoordinator::OnInstantiated(std::string_view a_view, Clock::time_point a_now)
 	{
-		if (_timing && _timing->view == a_view) _timing->instantiatedAt = a_now;
+		if (m_timing && m_timing->view == a_view) m_timing->instantiatedAt = a_now;
 	}
 
 	void ViewOpenCoordinator::OnLoad(std::string_view a_view, bool a_failed, Clock::time_point a_now)
@@ -30,16 +30,16 @@ namespace OSFUI
 			CancelTiming(a_view);
 			// A failed menu must not appear much later after recovery. HUD intent
 			// survives failed loads until an explicit close or view teardown.
-			if (_menu && *_menu == a_view) CancelMenu();
-		} else if (_timing && _timing->view == a_view) {
-			_timing->loadedAt = a_now;
+			if (m_menu && *m_menu == a_view) CancelMenu();
+		} else if (m_timing && m_timing->view == a_view) {
+			m_timing->loadedAt = a_now;
 		}
 	}
 
 	std::optional<ViewOpenCoordinator::Timing> ViewOpenCoordinator::FinishTiming(std::string_view a_view, Clock::time_point a_now)
 	{
-		if (!_timing || _timing->view != a_view) return std::nullopt;
-		const auto timing = std::exchange(_timing, std::nullopt);
+		if (!m_timing || m_timing->view != a_view) return std::nullopt;
+		const auto timing = std::exchange(m_timing, std::nullopt);
 		if (!timing->instantiatedAt || !timing->loadedAt) return std::nullopt;
 		const auto ms = [](Clock::time_point a_begin, Clock::time_point a_end) {
 			return std::chrono::duration_cast<std::chrono::milliseconds>(a_end - a_begin).count();
@@ -51,7 +51,7 @@ namespace OSFUI
 
 	void ViewOpenCoordinator::CancelTiming(std::string_view a_view)
 	{
-		if (_timing && _timing->view == a_view) _timing.reset();
+		if (m_timing && m_timing->view == a_view) m_timing.reset();
 	}
 
 	bool ViewOpenCoordinator::QueueMenu(std::string_view a_view, Readiness a_readiness, bool a_stateBarrier,
@@ -61,69 +61,69 @@ namespace OSFUI
 		CancelMenu();
 		if (!a_stateBarrier && a_readiness == Readiness::Ready) return true;
 		BeginTiming(a_view, true, a_requestedAt, a_now);
-		_menu = a_view;
-		_menuReadyTick = a_tick + (a_stateBarrier ? 1 : 0);
+		m_menu = a_view;
+		m_menuReadyTick = a_tick + (a_stateBarrier ? 1 : 0);
 		return false;
 	}
 
 	void ViewOpenCoordinator::QueueHud(std::string_view a_view, std::uint64_t a_readyTick)
 	{
-		_huds.try_emplace(std::string(a_view), a_readyTick);
+		m_huds.try_emplace(std::string(a_view), a_readyTick);
 	}
 
 	std::vector<std::string> ViewOpenCoordinator::TakeReady(std::uint64_t a_tick, bool a_hostReady, bool a_menusAllowed,
 		const std::function<Readiness(std::string_view)>& a_readiness)
 	{
 		std::vector<std::string> ready;
-		for (auto it = _huds.begin(); it != _huds.end();) {
+		for (auto it = m_huds.begin(); it != m_huds.end();) {
 			if (it->second > a_tick) { ++it; continue; }
 			const auto state = a_readiness(it->first);
 			if (state == Readiness::Missing) {
-				it = _huds.erase(it);
+				it = m_huds.erase(it);
 			} else if (a_hostReady && state == Readiness::Ready) {
 				ready.push_back(it->first);
-				it = _huds.erase(it);
+				it = m_huds.erase(it);
 			} else {
 				++it;
 			}
 		}
-		if (!_menu || !a_hostReady || !a_menusAllowed) return ready;
-		const auto state = a_readiness(*_menu);
+		if (!m_menu || !a_hostReady || !a_menusAllowed) return ready;
+		const auto state = a_readiness(*m_menu);
 		if (state == Readiness::Missing || state == Readiness::InputUnavailable) {
 			CancelMenu();
-		} else if (a_tick >= _menuReadyTick && state == Readiness::Ready) {
-			ready.push_back(std::move(*_menu));
-			_menu.reset(); // timing remains until the first presentable frame
+		} else if (a_tick >= m_menuReadyTick && state == Readiness::Ready) {
+			ready.push_back(std::move(*m_menu));
+			m_menu.reset(); // timing remains until the first presentable frame
 		}
 		return ready;
 	}
 
 	bool ViewOpenCoordinator::CancelMenu()
 	{
-		if (!_menu) return false;
-		CancelTiming(*_menu);
-		_menu.reset();
+		if (!m_menu) return false;
+		CancelTiming(*m_menu);
+		m_menu.reset();
 		return true;
 	}
 
 	bool ViewOpenCoordinator::Cancel(std::string_view a_view)
 	{
 		CancelTiming(a_view);
-		const bool hud = _huds.erase(std::string(a_view)) != 0;
-		const bool menu = _menu && *_menu == a_view && CancelMenu();
+		const bool hud = m_huds.erase(std::string(a_view)) != 0;
+		const bool menu = m_menu && *m_menu == a_view && CancelMenu();
 		return menu || hud;
 	}
 
 	void ViewOpenCoordinator::SuspendMenus()
 	{
-		_menu.reset();
-		_timing.reset();
+		m_menu.reset();
+		m_timing.reset();
 	}
 
 	void ViewOpenCoordinator::Clear()
 	{
-		_menu.reset();
-		_huds.clear();
-		_timing.reset();
+		m_menu.reset();
+		m_huds.clear();
+		m_timing.reset();
 	}
 }

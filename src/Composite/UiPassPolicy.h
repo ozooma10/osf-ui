@@ -147,18 +147,18 @@ namespace OSFUI::UiPass::detail
 	public:
 		TargetDecision Observe(bool a_fgTarget, bool a_regionFirst)
 		{
-			bool classificationKnown = _classificationKnown.load(std::memory_order_acquire);
+			bool classificationKnown = m_classificationKnown.load(std::memory_order_acquire);
 			if (a_regionFirst) {
-				const bool previousRegionHadFgTarget = _regionSawFgTarget.exchange(false, std::memory_order_acq_rel);
-				_frameGeneration.store(previousRegionHadFgTarget, std::memory_order_release);
-				classificationKnown = _classificationKnown.exchange(true, std::memory_order_acq_rel);
+				const bool previousRegionHadFgTarget = m_regionSawFgTarget.exchange(false, std::memory_order_acq_rel);
+				m_frameGeneration.store(previousRegionHadFgTarget, std::memory_order_release);
+				classificationKnown = m_classificationKnown.exchange(true, std::memory_order_acq_rel);
 			}
 			if (a_fgTarget) {
-				_regionSawFgTarget.store(true, std::memory_order_release);
-				_frameGeneration.store(true, std::memory_order_release);
+				m_regionSawFgTarget.store(true, std::memory_order_release);
+				m_frameGeneration.store(true, std::memory_order_release);
 			}
 
-			const bool frameGeneration = _frameGeneration.load(std::memory_order_acquire);
+			const bool frameGeneration = m_frameGeneration.load(std::memory_order_acquire);
 			const bool draw = (classificationKnown || a_fgTarget) && (!frameGeneration || a_fgTarget);
 			return {
 				.draw = draw,
@@ -169,12 +169,12 @@ namespace OSFUI::UiPass::detail
 
 		bool FrameGenerationActive() const
 		{
-			return _frameGeneration.load(std::memory_order_acquire);
+			return m_frameGeneration.load(std::memory_order_acquire);
 		}
 
 	private:
-		std::atomic_bool _frameGeneration{ false };
-		std::atomic_bool _regionSawFgTarget{ false };
-		std::atomic_bool _classificationKnown{ false };
+		std::atomic_bool m_frameGeneration{ false };
+		std::atomic_bool m_regionSawFgTarget{ false };
+		std::atomic_bool m_classificationKnown{ false };
 	};
 }

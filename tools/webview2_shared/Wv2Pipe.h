@@ -61,20 +61,20 @@ namespace osfui::wv2
 			HANDLE a_writeEvent, bool a_connected);
 		void SetError(const char* a_where, DWORD a_code);
 
-		HANDLE      _pipe{ INVALID_HANDLE_VALUE };
-		HANDLE      _readEvent{ nullptr };   // overlapped read (cancellable)
-		HANDLE      _writeEvent{ nullptr };  // overlapped write
-		std::mutex  _writeMutex;
-		std::mutex  _lifecycleMutex;
-		mutable std::mutex _stateMutex;
-		std::condition_variable _idle;
-		std::size_t _activeCalls{ 0 };
-		bool _opening{ false };
-		bool _accepting{ false };
-		bool _readerActive{ false };
-		bool _connected{ false };
-		bool _closing{ true };
-		mutable std::mutex _errorMutex;
-		std::string _lastError;
+		HANDLE      m_pipe{ INVALID_HANDLE_VALUE };
+		HANDLE      m_readEvent{ nullptr };   // overlapped read (cancellable)
+		HANDLE      m_writeEvent{ nullptr };  // overlapped write
+		std::mutex  m_writeMutex;
+		std::mutex  m_lifecycleMutex;
+		mutable std::mutex m_stateMutex;
+		std::condition_variable m_idle;
+		std::size_t m_activeCalls{ 0 };
+		bool m_opening{ false };
+		bool m_accepting{ false };
+		bool m_readerActive{ false };
+		bool m_connected{ false };
+		bool m_closing{ true };
+		mutable std::mutex m_errorMutex;
+		std::string m_lastError;
 	};
 }

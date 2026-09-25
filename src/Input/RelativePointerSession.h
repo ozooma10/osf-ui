@@ -37,11 +37,11 @@ namespace OSFUI
 		void RequestStop(Stop a_stop);
 		void Finish(API::RelativePointerPhase a_phase);
 
-		std::atomic_bool _active{ false };
-		std::atomic<float> _dx{ 0.0f };
-		std::atomic<float> _dy{ 0.0f };
-		std::atomic<float> _wheel{ 0.0f };
-		std::atomic<Stop> _stop{ Stop::kNone };
-		std::string _view;  // main-thread only
+		std::atomic_bool m_active{ false };
+		std::atomic<float> m_dx{ 0.0f };
+		std::atomic<float> m_dy{ 0.0f };
+		std::atomic<float> m_wheel{ 0.0f };
+		std::atomic<Stop> m_stop{ Stop::kNone };
+		std::string m_view;  // main-thread only
 	};
 }

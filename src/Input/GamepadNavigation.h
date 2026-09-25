@@ -20,17 +20,17 @@ namespace OSFUI
 		{
 			const float directed[4] = { a_ly, -a_ly, -a_lx, a_lx };
 
-			if (_activeDirection >= 0) {
-				const auto active = static_cast<std::uint8_t>(_activeDirection);
+			if (m_activeDirection >= 0) {
+				const auto active = static_cast<std::uint8_t>(m_activeDirection);
 				if (directed[active] > kReleaseThreshold) {
-					if (a_now >= _nextRepeat) {
-						_nextRepeat = a_now + kRepeatInterval;
+					if (a_now >= m_nextRepeat) {
+						m_nextRepeat = a_now + kRepeatInterval;
 						return static_cast<std::uint8_t>(1u << active);
 					}
 					return 0;
 				}
-				_activeDirection = -1;
-				_nextRepeat = 0.0;
+				m_activeDirection = -1;
+				m_nextRepeat = 0.0;
 			}
 
 			// Choose one axis per frame; diagonal ties favor vertical navigation.
@@ -41,18 +41,18 @@ namespace OSFUI
 			}
 
 			if (absY >= absX) {
-				_activeDirection = a_ly >= 0.0f ? 0 : 1;
+				m_activeDirection = a_ly >= 0.0f ? 0 : 1;
 			} else {
-				_activeDirection = a_lx < 0.0f ? 2 : 3;
+				m_activeDirection = a_lx < 0.0f ? 2 : 3;
 			}
-			_nextRepeat = a_now + kInitialRepeatDelay;
-			return static_cast<std::uint8_t>(1u << _activeDirection);
+			m_nextRepeat = a_now + kInitialRepeatDelay;
+			return static_cast<std::uint8_t>(1u << m_activeDirection);
 		}
 
 		void Reset() noexcept
 		{
-			_activeDirection = -1;
-			_nextRepeat = 0.0;
+			m_activeDirection = -1;
+			m_nextRepeat = 0.0;
 		}
 
 	private:
@@ -62,7 +62,7 @@ namespace OSFUI
 		static constexpr double kInitialRepeatDelay = 0.55;
 		static constexpr double kRepeatInterval = 0.13;
 
-		std::int8_t _activeDirection{ -1 };
-		double      _nextRepeat{ 0.0 };
+		std::int8_t m_activeDirection{ -1 };
+		double      m_nextRepeat{ 0.0 };
 	};
 }

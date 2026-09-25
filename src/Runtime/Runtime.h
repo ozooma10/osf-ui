@@ -144,62 +144,62 @@ namespace OSFUI
 
 		// Ownership: ordinary mutable fields below belong to the main-thread tick.
 		// Startup initializes paths/catalog/settings before input hooks are installed;
-		// _initialized, _developerMode and the renderer pointer then stay stable.
+		// m_initialized, m_developerMode and the renderer pointer then stay stable.
 		// Renderer load/failure callbacks run when its queues drain on that tick.
 
 		// Owned services. Keep their construction/destruction order explicit.
-		ViewManager _views;
-		std::unique_ptr<WebView2HostWebRenderer> _renderer;
-		std::unique_ptr<D3D12Compositor> _compositor;
-		std::unique_ptr<MessageBridge> _bridge;
-		OSFSettingsClient _osfSettings;
+		ViewManager m_views;
+		std::unique_ptr<WebView2HostWebRenderer> m_renderer;
+		std::unique_ptr<D3D12Compositor> m_compositor;
+		std::unique_ptr<MessageBridge> m_bridge;
+		OSFSettingsClient m_osfSettings;
 		// Main owns the worker; its synchronized interface owns cross-thread jobs.
-		std::unique_ptr<DevViewReloadWorker> _devViewReload;
+		std::unique_ptr<DevViewReloadWorker> m_devViewReload;
 
 		// Startup and frame lifecycle.
-		bool _initialized{ false };
-		bool _postPostLoadAttempted{ false };
-		bool _webRuntimeInitializing{ false };
-		bool _webRuntimeReady{ false };
-		bool _developerMode{ false };       // startup-latched; changes apply next launch
-		bool _highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
-		std::uint64_t _mainTickSerial{ 0 };
+		bool m_initialized{ false };
+		bool m_postPostLoadAttempted{ false };
+		bool m_webRuntimeInitializing{ false };
+		bool m_webRuntimeReady{ false };
+		bool m_developerMode{ false };       // startup-latched; changes apply next launch
+		bool m_highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
+		std::uint64_t m_mainTickSerial{ 0 };
 		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
-		double _nowSeconds{ 0.0 };
+		double m_nowSeconds{ 0.0 };
 		// SFSE lifecycle producer -> main-thread consumer.
-		std::atomic_bool _dataLoadedInitPending{ false };
-		std::atomic_bool _postDataLoadedReady{ false };
+		std::atomic_bool m_dataLoadedInitPending{ false };
+		std::atomic_bool m_postDataLoadedReady{ false };
 
 		// View lifecycle and presentation.
-		ViewPresentationController _presentation;
-		ViewOpenCoordinator _viewOpens;
+		ViewPresentationController m_presentation;
+		ViewOpenCoordinator m_viewOpens;
 		ViewLoadTracker m_viewLoads;
 		ViewRevealGate m_viewReveal;
 		ViewRecoveryTracker m_viewRecovery;
-		std::string _lastShownView;
+		std::string m_lastShownView;
 		std::atomic_bool m_visible{ false };  // main -> WndProc/frame-event producer
 		// Mutex-protected producer queue; only the main thread takes/applies batches.
 		ViewRequestQueue m_viewRequests;
 
 		// Browser-host recovery.
-		BrowserHostRecovery _browserHostRecovery;
-		bool _rendererFailed{ false };          // opens fail closed until recovery completes
-		bool _rendererFailureLatched{ false };  // first failure per helper wins
+		BrowserHostRecovery m_browserHostRecovery;
+		bool m_rendererFailed{ false };          // opens fail closed until recovery completes
+		bool m_rendererFailureLatched{ false };  // first failure per helper wins
 
 		// Input components own their state and cross-thread publication boundaries.
-		InputCaptureController _inputCapture;
-		PointerInputState _pointerInput;
-		RelativePointerSession _relativePointer;
+		InputCaptureController m_inputCapture;
+		PointerInputState m_pointerInput;
+		RelativePointerSession m_relativePointer;
 		ViewInputGrants m_viewInputGrants;
 		XInputPoller m_gamepadSource;
 		GamepadSession m_gamepadSession;
 
 		// Bridge state and protocol diagnostics.
-		RetainedStateStore _retainedState;
-		std::unordered_map<std::string, std::uint32_t> _viewProtocolFaultCounts;
-		std::string _lastViewsData;
+		RetainedStateStore m_retainedState;
+		std::unordered_map<std::string, std::uint32_t> m_viewProtocolFaultCounts;
+		std::string m_lastViewsData;
 
 		// Developer tools request (WndProc -> main).
-		std::atomic_bool _devToolsRequested{ false };
+		std::atomic_bool m_devToolsRequested{ false };
 	};
 }

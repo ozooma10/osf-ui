@@ -49,92 +49,92 @@ namespace osfui::wv2
 		};
 
 		explicit BoundedQueue(std::size_t a_capacity) :
-			_capacity(a_capacity)
+			m_capacity(a_capacity)
 		{}
 
 		PushResult Push(T a_value, std::string a_coalesceKey = {},
 			std::uint64_t a_sequence = 0)
 		{
-			std::unique_lock lock(_mutex);
-			if (_closed) return PushResult::Closed;
-			if (!a_coalesceKey.empty() && !_items.empty() &&
-				_items.back().coalesceKey == a_coalesceKey) {
-				_items.back() = Item{
+			std::unique_lock lock(m_mutex);
+			if (m_closed) return PushResult::Closed;
+			if (!a_coalesceKey.empty() && !m_items.empty() &&
+				m_items.back().coalesceKey == a_coalesceKey) {
+				m_items.back() = Item{
 					std::move(a_value), std::move(a_coalesceKey), a_sequence };
 				return PushResult::Coalesced;
 			}
-			if (_items.size() >= _capacity) return PushResult::Full;
-			_items.push_back(Item{
+			if (m_items.size() >= m_capacity) return PushResult::Full;
+			m_items.push_back(Item{
 				std::move(a_value), std::move(a_coalesceKey), a_sequence });
 			lock.unlock();
-			_ready.notify_one();
+			m_ready.notify_one();
 			return PushResult::Queued;
 		}
 
 		bool Prepend(std::vector<Item> a_items)
 		{
-			std::unique_lock lock(_mutex);
-			if (_closed || a_items.size() + _items.size() > _capacity) return false;
-			_items.insert(_items.begin(),
+			std::unique_lock lock(m_mutex);
+			if (m_closed || a_items.size() + m_items.size() > m_capacity) return false;
+			m_items.insert(m_items.begin(),
 				std::make_move_iterator(a_items.begin()),
 				std::make_move_iterator(a_items.end()));
 			lock.unlock();
-			_ready.notify_one();
+			m_ready.notify_one();
 			return true;
 		}
 
 		bool WaitPop(Item& a_item)
 		{
-			std::unique_lock lock(_mutex);
-			_ready.wait(lock, [this] { return _closed || !_items.empty(); });
-			if (_items.empty()) return false;
-			a_item = std::move(_items.front());
-			_items.pop_front();
+			std::unique_lock lock(m_mutex);
+			m_ready.wait(lock, [this] { return m_closed || !m_items.empty(); });
+			if (m_items.empty()) return false;
+			a_item = std::move(m_items.front());
+			m_items.pop_front();
 			return true;
 		}
 
 		bool TryPop(Item& a_item)
 		{
-			std::scoped_lock lock(_mutex);
-			if (_items.empty()) return false;
-			a_item = std::move(_items.front());
-			_items.pop_front();
+			std::scoped_lock lock(m_mutex);
+			if (m_items.empty()) return false;
+			a_item = std::move(m_items.front());
+			m_items.pop_front();
 			return true;
 		}
 
 		void Clear()
 		{
-			std::scoped_lock lock(_mutex);
-			_items.clear();
+			std::scoped_lock lock(m_mutex);
+			m_items.clear();
 		}
 
 		void Close()
 		{
 			{
-				std::scoped_lock lock(_mutex);
-				_closed = true;
+				std::scoped_lock lock(m_mutex);
+				m_closed = true;
 			}
-			_ready.notify_all();
+			m_ready.notify_all();
 		}
 
 		void Reset()
 		{
-			std::scoped_lock lock(_mutex);
-			_items.clear();
-			_closed = false;
+			std::scoped_lock lock(m_mutex);
+			m_items.clear();
+			m_closed = false;
 		}
 
 		[[nodiscard]] std::size_t Size() const
 		{
-			std::scoped_lock lock(_mutex);
-			return _items.size();
+			std::scoped_lock lock(m_mutex);
+			return m_items.size();
 		}
 
 	private:
-		std::size_t _capacity;
-		mutable std::mutex _mutex;
-		std::condition_variable _ready;
-		std::deque<Item> _items;
-		bool _closed{ false };
+		std::size_t m_capacity;
+		mutable std::mutex m_mutex;
+		std::condition_variable m_ready;
+		std::deque<Item> m_items;
+		bool m_closed{ false };
 	};
 }

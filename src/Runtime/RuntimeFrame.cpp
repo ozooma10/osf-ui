@@ -10,10 +10,10 @@ namespace OSFUI
 {
 	void Runtime::ProcessLifecycleWork()
 	{
-		if (_dataLoadedInitPending.exchange(false, std::memory_order_acq_rel)) InitializeDataLoadedState();
-		_inputCapture.ObserveLifecycle(_postDataLoadedReady.load(std::memory_order_acquire));
-		if (MenuEventSink::TransitionOpen()) _viewOpens.SuspendMenus();
-		if (_presentation.SetSuspended(!_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || _rendererFailed)) {
+		if (m_dataLoadedInitPending.exchange(false, std::memory_order_acq_rel)) InitializeDataLoadedState();
+		m_inputCapture.ObserveLifecycle(m_postDataLoadedReady.load(std::memory_order_acquire));
+		if (MenuEventSink::TransitionOpen()) m_viewOpens.SuspendMenus();
+		if (m_presentation.SetSuspended(!m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || m_rendererFailed)) {
 			ApplyViewPresentationPolicy();
 		}
 	}
@@ -22,26 +22,26 @@ namespace OSFUI
 		std::vector<API::BridgeApi::ViewStateOp> a_bridgeState)
 	{
 		// Retain owner state before the first WebView exists; its greeting will replay it.
-		if (a_papyrus.sessionReset) _retainedState.ClearSessionScoped();
+		if (a_papyrus.sessionReset) m_retainedState.ClearSessionScoped();
 		for (const auto& state : a_papyrus.states) {
-			_retainedState.Set(state.mod, state.key, state.value, true);
+			m_retainedState.Set(state.mod, state.key, state.value, true);
 			PublishModState(state.mod, state.key, state.value);
 		}
 		for (auto& op : a_bridgeState) {
-			_retainedState.Set(op.mod, op.key, op.value, false);
+			m_retainedState.Set(op.mod, op.key, op.value, false);
 			PublishModState(op.mod, op.key, op.value);
 		}
-		if (_bridge) {
+		if (m_bridge) {
 			for (const auto& event : a_papyrus.events) {
 				const auto targets = InstantiatedViewsOfMod(event.mod);
 				if (!targets.empty()) {
-					_bridge->Emit(targets, std::format("{}.{}", event.mod, event.name),
+					m_bridge->Emit(targets, std::format("{}.{}", event.mod, event.name),
 						nlohmann::json{ { "args", event.args } });
 				}
 			}
 			for (const auto& reply : a_papyrus.replies) {
-				if (reply.rejected) _bridge->RejectTo(reply.deferToken, reply.code, reply.message);
-				else _bridge->RespondTo(reply.deferToken, reply.value);
+				if (reply.rejected) m_bridge->RejectTo(reply.deferToken, reply.code, reply.message);
+				else m_bridge->RespondTo(reply.deferToken, reply.value);
 			}
 		}
 		API::BridgeApi::Get().PumpMainThread();
@@ -50,33 +50,33 @@ namespace OSFUI
 	void Runtime::ReconcileFrameState()
 	{
 		ReconcileFocusMenu();
-		_inputCapture.ReconcileBrowserFocus(_renderer.get(), m_visible.load(), _presentation.ActiveMenu().has_value());
-		_inputCapture.ReconcileControlLayer(_presentation.DesiredCapture(), IsInputCaptured());
-		SimPause::Apply(_presentation.DesiredPause());
-		FreeCursor::Apply(_presentation.DesiredCapture());
+		m_inputCapture.ReconcileBrowserFocus(m_renderer.get(), m_visible.load(), m_presentation.ActiveMenu().has_value());
+		m_inputCapture.ReconcileControlLayer(m_presentation.DesiredCapture(), IsInputCaptured());
+		SimPause::Apply(m_presentation.DesiredPause());
+		FreeCursor::Apply(m_presentation.DesiredCapture());
 		RouteGamepadInput();
 	}
 
 	void Runtime::ProcessRendererFrame()
 	{
-		if (!_renderer) return;
+		if (!m_renderer) return;
 		DriveDevTools();
 		PumpDevViewReload();
 		if (const auto clientSize = OverlayInputHook::GameWindowClientSize()) {
-			_pointerInput.ObserveGameClientSize();
+			m_pointerInput.ObserveGameClientSize();
 			OnOutputResized(clientSize->width, clientSize->height);
-		} else if (!_pointerInput.GameClientSizeObserved() && _compositor) {
-			if (const auto targetSize = _compositor->GetObservedOutputSize()) {
+		} else if (!m_pointerInput.GameClientSizeObserved() && m_compositor) {
+			if (const auto targetSize = m_compositor->GetObservedOutputSize()) {
 				OnOutputResized(targetSize->width, targetSize->height);
 			}
 		}
-		if (const auto move = _pointerInput.TakeMouseMove()) {
-			_renderer->InjectMouseMove(move->x, move->y);
+		if (const auto move = m_pointerInput.TakeMouseMove()) {
+			m_renderer->InjectMouseMove(move->x, move->y);
 		}
-		if (_compositor) {
-			_compositor->Update(); // retire reads and adopt rings even while hidden
+		if (m_compositor) {
+			m_compositor->Update(); // retire reads and adopt rings even while hidden
 		}
-		_renderer->Update();
+		m_renderer->Update();
 		// A response queued during a stall must be observed before its deadline expires.
 		// Recovery may restart the renderer only after notification callbacks have returned.
 		DriveBrowserHostRecovery();
@@ -87,11 +87,11 @@ namespace OSFUI
 
 	void Runtime::Update()
 	{
-		if (!_initialized) return;
-		if (!_osfSettings.Available()) return;
-		++_mainTickSerial;
+		if (!m_initialized) return;
+		if (!m_osfSettings.Available()) return;
+		++m_mainTickSerial;
 		const auto now = std::chrono::steady_clock::now();
-		_nowSeconds = std::chrono::duration<double>(now.time_since_epoch()).count();
+		m_nowSeconds = std::chrono::duration<double>(now.time_since_epoch()).count();
 		ProcessLifecycleWork();
 		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
 		DrainViewRegistrations(std::move(bridgeBatch.viewRegistrations));
@@ -102,11 +102,11 @@ namespace OSFUI
 		ReconcileFrameState();
 		ProcessRendererFrame();
 		// Native, Papyrus and browser queues get to settle requests before timeout checks.
-		if (_bridge) _bridge->Tick(now);
-		_relativePointer.Drain();
-		if (!_lastShownView.empty()) {
+		if (m_bridge) m_bridge->Tick(now);
+		m_relativePointer.Drain();
+		if (!m_lastShownView.empty()) {
 			API::BridgeApi::Get().DispatchViewLifecycle(
-				_lastShownView, API::ViewLifecyclePhase::kFrame);
+				m_lastShownView, API::ViewLifecyclePhase::kFrame);
 		}
 	}
 }

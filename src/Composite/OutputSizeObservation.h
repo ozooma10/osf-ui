@@ -23,12 +23,12 @@ namespace OSFUI
 			}
 
 			const auto packed = (static_cast<std::uint64_t>(a_width) << 32) | a_height;
-			_packed.store(packed, std::memory_order_release);
+			m_packed.store(packed, std::memory_order_release);
 		}
 
 		std::optional<OutputSize> Snapshot() const noexcept
 		{
-			const auto packed = _packed.load(std::memory_order_acquire);
+			const auto packed = m_packed.load(std::memory_order_acquire);
 			if (packed == 0) {
 				return std::nullopt;
 			}
@@ -40,6 +40,6 @@ namespace OSFUI
 		}
 
 	private:
-		std::atomic<std::uint64_t> _packed{ 0 };
+		std::atomic<std::uint64_t> m_packed{ 0 };
 	};
 }

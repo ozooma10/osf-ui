@@ -18,57 +18,57 @@ namespace osfui::wv2
 		using Completion = std::function<void(bool)>;
 		using Dispatch = std::function<void(const std::string&, const nlohmann::json&, Completion)>;
 		CdpInputQueue(Dispatch a_dispatch, std::function<void()> a_failure) :
-			_dispatch(std::move(a_dispatch)), _failure(std::move(a_failure)) {}
-		bool Idle() const { return _closed || (!_busy && _pending.empty()); }
+			m_dispatch(std::move(a_dispatch)), m_failure(std::move(a_failure)) {}
+		bool Idle() const { return m_closed || (!m_busy && m_pending.empty()); }
 		void CheckTimeout(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now())
 		{
-			if (!_closed && _busy && a_now - _started > std::chrono::seconds(5)) Fail();
+			if (!m_closed && m_busy && a_now - m_started > std::chrono::seconds(5)) Fail();
 		}
 
 		void Push(std::string a_method, nlohmann::json a_params)
 		{
-			if (_closed) return;
-			if (_pending.size() >= 256) { Fail(); return; }
-			_pending.emplace_back(std::move(a_method), std::move(a_params));
+			if (m_closed) return;
+			if (m_pending.size() >= 256) { Fail(); return; }
+			m_pending.emplace_back(std::move(a_method), std::move(a_params));
 			Pump();
 		}
 
 		void Close()
 		{
-			_closed = true;
-			_pending.clear();
-			_dispatch = {};
-			_failure = {};
+			m_closed = true;
+			m_pending.clear();
+			m_dispatch = {};
+			m_failure = {};
 		}
 
 	private:
 		void Fail()
 		{
-			auto failure = _failure;
+			auto failure = m_failure;
 			Close();
 			if (failure) failure();
 		}
 		void Pump()
 		{
-			if (_closed || _busy || _pending.empty()) return;
-			_busy = true;
-			_started = std::chrono::steady_clock::now();
+			if (m_closed || m_busy || m_pending.empty()) return;
+			m_busy = true;
+			m_started = std::chrono::steady_clock::now();
 			// Keep arguments alive even if a synchronous failure closes the queue.
-			const auto command = _pending.front();
-			const auto dispatch = _dispatch;
+			const auto command = m_pending.front();
+			const auto dispatch = m_dispatch;
 			dispatch(command.first, command.second, [self = shared_from_this()](bool ok) {
-				if (self->_closed) return;
+				if (self->m_closed) return;
 				if (!ok) { self->Fail(); return; }
-				self->_pending.pop_front();
-				self->_busy = false;
+				self->m_pending.pop_front();
+				self->m_busy = false;
 				self->Pump();
 			});
 		}
-		Dispatch _dispatch;
-		std::function<void()> _failure;
-		std::deque<std::pair<std::string, nlohmann::json>> _pending;
-		bool _busy{ false }, _closed{ false };
-		std::chrono::steady_clock::time_point _started;
+		Dispatch m_dispatch;
+		std::function<void()> m_failure;
+		std::deque<std::pair<std::string, nlohmann::json>> m_pending;
+		bool m_busy{ false }, m_closed{ false };
+		std::chrono::steady_clock::time_point m_started;
 	};
 
 	inline nlohmann::json CdpKeyParams(const msg::Keyboard& a_key)
@@ -93,23 +93,23 @@ namespace osfui::wv2
 		void Observe(const msg::Keyboard& a_key)
 		{
 			const auto id = std::pair{ a_key.vk, a_key.location };
-			if (a_key.down) _keys[id] = a_key;
-			else _keys.erase(id);
+			if (a_key.down) m_keys[id] = a_key;
+			else m_keys.erase(id);
 		}
 		std::vector<msg::Keyboard> ReleaseAll()
 		{
 			std::vector<msg::Keyboard> releases;
-			for (auto& [id, key] : _keys) {
+			for (auto& [id, key] : m_keys) {
 				key.down = false;
 				key.repeat = false;
 				key.modifiers = 0;
 				releases.push_back(std::move(key));
 			}
-			_keys.clear();
+			m_keys.clear();
 			return releases;
 		}
 	private:
-		std::map<std::pair<std::uint32_t, std::uint32_t>, msg::Keyboard> _keys;
+		std::map<std::pair<std::uint32_t, std::uint32_t>, msg::Keyboard> m_keys;
 	};
 
 	// WM_CHAR carries UTF-16 code units. Never put half of a surrogate pair on
@@ -117,17 +117,17 @@ namespace osfui::wv2
 	class Utf16Input
 	{
 	public:
-		void Reset() { _high = 0; }
+		void Reset() { m_high = 0; }
 		std::u16string Push(char16_t c)
 		{
-			if (c >= 0xD800 && c <= 0xDBFF) { _high = c; return {}; }
-			const auto high = std::exchange(_high, 0);
+			if (c >= 0xD800 && c <= 0xDBFF) { m_high = c; return {}; }
+			const auto high = std::exchange(m_high, 0);
 			if (c >= 0xDC00 && c <= 0xDFFF) {
 				return high ? std::u16string{ high, c } : std::u16string{};
 			}
 			return std::u16string{ c };
 		}
 	private:
-		char16_t _high{ 0 };
+		char16_t m_high{ 0 };
 	};
 }

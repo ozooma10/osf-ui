@@ -34,17 +34,17 @@ int main()
     Check(init != std::string::npos && postLoad != std::string::npos && lazy != std::string::npos,
         "runtime entry points exist");
     const auto initBody = runtime.substr(init, postLoad - init);
-    Check(initBody.find("_osfSettings.Initialize()") == std::string::npos,
+    Check(initBody.find("m_osfSettings.Initialize()") == std::string::npos,
 		"plugin load does not acquire OSF Settings before peer plugins have loaded");
     Check(initBody.find("InitializeRenderer()") == std::string::npos &&
           initBody.find("InitializeCompositor()") == std::string::npos,
         "lightweight initialization does not construct the WebView runtime");
     const auto postLoadBody = runtime.substr(postLoad, lazy - postLoad);
-    Check(postLoadBody.find("_osfSettings.Initialize()") != std::string::npos,
+    Check(postLoadBody.find("m_osfSettings.Initialize()") != std::string::npos,
         "OSF Settings is acquired on SFSE kPostPostLoad");
     Check(plugin.find("case SFSE::MessagingInterface::kPostPostLoad:") != std::string::npos,
         "dependency acquisition is dispatched at the Slim SDK lifecycle point");
-    Check(frame.find("_retainedState.Set") < frame.find("if (_bridge)"),
+    Check(frame.find("m_retainedState.Set") < frame.find("if (m_bridge)"),
         "owner state is retained before a lazy browser exists");
     const auto policy = runtime.substr(runtime.find("void Runtime::ApplyViewPresentationPolicy()"));
     Check(policy.find("ReconcileInputSuppression()") < policy.find("SetInputTargetView"),

@@ -39,14 +39,14 @@ namespace OSFUI
 		class ScopeExit
 		{
 		public:
-			explicit ScopeExit(std::function<void()> a_fn) : _fn(std::move(a_fn)) {}
-			~ScopeExit() { _fn(); }
+			explicit ScopeExit(std::function<void()> a_fn) : m_fn(std::move(a_fn)) {}
+			~ScopeExit() { m_fn(); }
 
 			ScopeExit(const ScopeExit&) = delete;
 			ScopeExit& operator=(const ScopeExit&) = delete;
 
 		private:
-			std::function<void()> _fn;
+			std::function<void()> m_fn;
 		};
 
 		// JSON string literal for a value we control the bounds of.
@@ -63,62 +63,62 @@ namespace OSFUI
 	}
 
 	MessageBridge::MessageBridge(SendFn a_send) :
-		_send(std::move(a_send))
+		m_send(std::move(a_send))
 	{}
 
 	void MessageBridge::RegisterSend(std::string a_name, SendHandler a_handler)
 	{
-		if (_requests.contains(a_name)) {
+		if (m_requests.contains(a_name)) {
 			REX::WARN("MessageBridge: [content] refused send endpoint '{}' — name already registered", a_name);
 			return;
 		}
-		_sends[std::move(a_name)] = std::move(a_handler);
+		m_sends[std::move(a_name)] = std::move(a_handler);
 	}
 
 	bool MessageBridge::RegisterRequest(std::string a_name, RequestHandler a_handler)
 	{
-		if (_sends.contains(a_name)) {
+		if (m_sends.contains(a_name)) {
 			REX::WARN("MessageBridge: [content] refused request endpoint '{}' — name already registered", a_name);
 			return false;
 		}
 		// BridgeApi owns public first-wins policy; this internal trampoline is replaceable.
-		_requests[std::move(a_name)] = std::move(a_handler);
+		m_requests[std::move(a_name)] = std::move(a_handler);
 		return true;
 	}
 
 	void MessageBridge::SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request)
 	{
-		_fallbackProbe = std::move(a_probe);
-		_fallbackSend = std::move(a_send);
-		_fallbackRequest = std::move(a_request);
+		m_fallbackProbe = std::move(a_probe);
+		m_fallbackSend = std::move(a_send);
+		m_fallbackRequest = std::move(a_request);
 	}
 
 	void MessageBridge::HandleWebMessage(std::string_view a_viewId, std::string_view a_json)
 	{
 		// Remember the source so settlements route back to it.
-		_currentSource = std::string(a_viewId);
-		_currentRequestId.clear();
-		_currentName.clear();
-		_settled = false;
-		_inMessage = true;
-		_sendDelivered = false;
-		_trace.clear();
+		m_currentSource = std::string(a_viewId);
+		m_currentRequestId.clear();
+		m_currentName.clear();
+		m_settled = false;
+		m_inMessage = true;
+		m_sendDelivered = false;
+		m_trace.clear();
 
 		// Restore the in-flight context on exit so a later Respond/Reject cannot settle an abandoned request.
 		const ScopeExit cleanup([this] {
-			_inMessage = false;
-			const auto result = _trace.empty() ? std::string_view{ "(nothing)" } : std::string_view{ _trace };
-			if (_sendDelivered) {
-				REX::TRACE("MessageBridge: '{}' from view '{}' -> {}", _currentName, _currentSource, result);
+			m_inMessage = false;
+			const auto result = m_trace.empty() ? std::string_view{ "(nothing)" } : std::string_view{ m_trace };
+			if (m_sendDelivered) {
+				REX::TRACE("MessageBridge: '{}' from view '{}' -> {}", m_currentName, m_currentSource, result);
 			} else {
-				REX::DEBUG("MessageBridge: '{}' from view '{}' -> {}", _currentName, _currentSource, result);
+				REX::DEBUG("MessageBridge: '{}' from view '{}' -> {}", m_currentName, m_currentSource, result);
 			}
-			_currentSource.clear();
-			_currentRequestId.clear();
-			_currentName.clear();
-			_settled = false;
-			_sendDelivered = false;
-			_trace.clear();
+			m_currentSource.clear();
+			m_currentRequestId.clear();
+			m_currentName.clear();
+			m_settled = false;
+			m_sendDelivered = false;
+			m_trace.clear();
 		});
 
 		const auto msg = Json::Parse(a_json);
@@ -144,7 +144,7 @@ namespace OSFUI
 		}
 		const auto& rawName = nameIt->get_ref<const std::string&>();
 		const auto name = BoundedEcho(rawName);
-		_currentName = name;
+		m_currentName = name;
 
 		if (kind != "send" && kind != "request") {
 			ReportProtocolFault(a_viewId, "invalid-request", "kind must be \"send\" or \"request\"", { { "kind", BoundedEcho(kind) }, { "name", name } });
@@ -177,7 +177,7 @@ namespace OSFUI
 				NoteTracedReply("invalid-request");
 				return;
 			}
-			_sendDelivered = DispatchSend(name, payload);
+			m_sendDelivered = DispatchSend(name, payload);
 			return;
 		}
 
@@ -200,12 +200,12 @@ namespace OSFUI
 
 	MessageBridge::ResolvedEndpoint MessageBridge::ResolveEndpoint(const std::string& a_name) const
 	{
-		for (const auto& candidate : { OwnerQualifiedEndpoint(_currentSource, a_name), a_name }) {
+		for (const auto& candidate : { OwnerQualifiedEndpoint(m_currentSource, a_name), a_name }) {
 			if (candidate.empty()) continue;
-			if (_sends.contains(candidate)) return { candidate, FallbackEndpointKind::kSend, false };
-			if (_requests.contains(candidate)) return { candidate, FallbackEndpointKind::kRequest, false };
-			if (_fallbackProbe) {
-				const auto kind = _fallbackProbe(_currentSource, candidate);
+			if (m_sends.contains(candidate)) return { candidate, FallbackEndpointKind::kSend, false };
+			if (m_requests.contains(candidate)) return { candidate, FallbackEndpointKind::kRequest, false };
+			if (m_fallbackProbe) {
+				const auto kind = m_fallbackProbe(m_currentSource, candidate);
 				if (kind != FallbackEndpointKind::kNone) return { candidate, kind, true };
 			}
 		}
@@ -215,34 +215,34 @@ namespace OSFUI
 	bool MessageBridge::DispatchSend(const std::string& a_name, const nlohmann::json& a_payload)
 	{
 		if (a_name == "osfui.hello") {
-			HandleHello(_currentSource);
+			HandleHello(m_currentSource);
 			NoteTracedReply("ready+state");
 			return true;
 		}
 		const auto endpoint = ResolveEndpoint(a_name);
 		if (endpoint.kind == FallbackEndpointKind::kRequest) {
-			ReportProtocolFault(_currentSource, "wrong-endpoint-kind", "use request() for this endpoint", { { "name", a_name } });
+			ReportProtocolFault(m_currentSource, "wrong-endpoint-kind", "use request() for this endpoint", { { "name", a_name } });
 			NoteTracedReply("wrong-endpoint-kind");
 			return false;
 		}
 		if (endpoint.kind == FallbackEndpointKind::kSend) {
 			if (endpoint.fallback) {
-				if (_fallbackSend) _fallbackSend(endpoint.name, a_payload, *this);
-			} else _sends.at(endpoint.name)(a_payload, *this);
+				if (m_fallbackSend) m_fallbackSend(endpoint.name, a_payload, *this);
+			} else m_sends.at(endpoint.name)(a_payload, *this);
 			return true;
 		}
 		constexpr std::size_t kMaxWarnedEndpoints = 512;
-		if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints && _warnedUnknownEndpoints.insert(a_name).second) {
+		if (m_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints && m_warnedUnknownEndpoints.insert(a_name).second) {
 			REX::WARN("MessageBridge: [content] dropped send to unknown endpoint '{}' (further drops of this endpoint are not logged)", a_name);
 		}
-		ReportProtocolFault(_currentSource, "unknown-endpoint", "no such endpoint", { { "name", a_name } });
+		ReportProtocolFault(m_currentSource, "unknown-endpoint", "no such endpoint", { { "name", a_name } });
 		NoteTracedReply("unknown-endpoint");
 		return false;
 	}
 
 	void MessageBridge::DispatchRequest(const std::string& a_name, const std::string& a_id, const nlohmann::json& a_payload)
 	{
-		_currentRequestId = a_id;
+		m_currentRequestId = a_id;
 		const auto endpoint = ResolveEndpoint(a_name);
 		if (endpoint.kind == FallbackEndpointKind::kSend) {
 			Reject("wrong-endpoint-kind", "use send() for this endpoint");
@@ -250,25 +250,25 @@ namespace OSFUI
 		}
 		if (endpoint.kind == FallbackEndpointKind::kNone) {
 			constexpr std::size_t kMaxWarnedEndpoints = 512;
-			if (_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
-				_warnedUnknownEndpoints.insert(a_name).second) {
+			if (m_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
+				m_warnedUnknownEndpoints.insert(a_name).second) {
 				REX::WARN("MessageBridge: [content] rejected request to unknown endpoint '{}' (further rejections of this endpoint are not logged)", a_name);
 			}
 			Reject("unknown-endpoint", "no such endpoint");
 			return;
 		}
-		const auto owned = std::ranges::count_if(_pending, [&](const auto& item) {
-			return item.second.view == _currentSource;
+		const auto owned = std::ranges::count_if(m_pending, [&](const auto& item) {
+			return item.second.view == m_currentSource;
 		});
 		if (owned >= kMaxPendingRequestsPerView) {
-			REX::WARN("MessageBridge: [content] view '{}' has {} requests in flight — refusing '{}'", _currentSource, owned, a_name);
+			REX::WARN("MessageBridge: [content] view '{}' has {} requests in flight — refusing '{}'", m_currentSource, owned, a_name);
 			Reject("request-capacity", "too many requests are already in flight for this view");
 			return;
 		}
 		if (endpoint.fallback) {
-			if (_fallbackRequest) _fallbackRequest(endpoint.name, a_payload, *this);
-		} else _requests.at(endpoint.name)(a_payload, *this);
-		if (!_settled) {
+			if (m_fallbackRequest) m_fallbackRequest(endpoint.name, a_payload, *this);
+		} else m_requests.at(endpoint.name)(a_payload, *this);
+		if (!m_settled) {
 			REX::ERROR("MessageBridge: request endpoint '{}' returned without settling", a_name);
 			Reject("internal", "the endpoint did not answer");
 		}
@@ -277,22 +277,22 @@ namespace OSFUI
 	void MessageBridge::HandleHello(std::string_view a_viewId)
 	{
 		// Preserve pre-hello events here; only OnViewCreated discards an old queue.
-		_gates[std::string(a_viewId)].greeted = true;
+		m_gates[std::string(a_viewId)].greeted = true;
 
 		// 1. `ready`, before anything else this document will see.
 		SendReady(a_viewId);
 		// Mark greeted before replay so PublishState can deliver current values.
-		if (_onHello) {
-			_onHello(a_viewId);
+		if (m_onHello) {
+			m_onHello(a_viewId);
 		}
 		// Open events only after replay so listener-raised events cannot overtake the backlog.
-		auto& live = _gates[std::string(a_viewId)];
+		auto& live = m_gates[std::string(a_viewId)];
 		auto queued = std::move(live.queued);
 		live.queued.clear();
 		live.eventsOpen = true;
 		for (const auto& encoded : queued) {
-			if (_send) {
-				_send(a_viewId, encoded);
+			if (m_send) {
+				m_send(a_viewId, encoded);
 			}
 		}
 		REX::DEBUG("MessageBridge: view '{}' greeted — ready, state replay, {} queued event(s), events open", a_viewId, queued.size());
@@ -300,52 +300,52 @@ namespace OSFUI
 
 	void MessageBridge::Respond(const nlohmann::json& a_payload)
 	{
-		if (_currentRequestId.empty()) {
-			REX::WARN("MessageBridge: Respond() outside a request ('{}')", _currentName);
+		if (m_currentRequestId.empty()) {
+			REX::WARN("MessageBridge: Respond() outside a request ('{}')", m_currentName);
 			return;
 		}
-		if (_settled) {
-			REX::WARN("MessageBridge: '{}' settled twice — ignoring the second answer", _currentName);
+		if (m_settled) {
+			REX::WARN("MessageBridge: '{}' settled twice — ignoring the second answer", m_currentName);
 			return;
 		}
-		_settled = true;
-		if (_send && !_currentSource.empty()) {
-			_send(_currentSource, EncodeReply(_currentRequestId, Json::Dump(a_payload)));
+		m_settled = true;
+		if (m_send && !m_currentSource.empty()) {
+			m_send(m_currentSource, EncodeReply(m_currentRequestId, Json::Dump(a_payload)));
 		}
 		NoteTracedReply("reply");
 	}
 
 	void MessageBridge::Reject(std::string_view a_code, std::string_view a_message)
 	{
-		if (_currentRequestId.empty()) {
+		if (m_currentRequestId.empty()) {
 			// Send endpoints have no settlement channel; use a request for outcomes.
-			REX::WARN("MessageBridge: Reject('{}') outside a request ('{}')", a_code, _currentName);
+			REX::WARN("MessageBridge: Reject('{}') outside a request ('{}')", a_code, m_currentName);
 			return;
 		}
-		if (_settled) {
-			REX::WARN("MessageBridge: '{}' settled twice — ignoring the second answer", _currentName);
+		if (m_settled) {
+			REX::WARN("MessageBridge: '{}' settled twice — ignoring the second answer", m_currentName);
 			return;
 		}
-		_settled = true;
-		if (_send && !_currentSource.empty()) {
-			_send(_currentSource, EncodeError(_currentRequestId, a_code, a_message));
+		m_settled = true;
+		if (m_send && !m_currentSource.empty()) {
+			m_send(m_currentSource, EncodeError(m_currentRequestId, a_code, a_message));
 		}
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
 
 	std::string MessageBridge::Defer(DeferredDropHandler a_onDropped)
 	{
-		if (_currentRequestId.empty() || _settled) {
-			REX::WARN("MessageBridge: Defer() outside an unsettled request ('{}')", _currentName);
+		if (m_currentRequestId.empty() || m_settled) {
+			REX::WARN("MessageBridge: Defer() outside an unsettled request ('{}')", m_currentName);
 			return {};
 		}
-		_settled = true;
+		m_settled = true;
 		// Use a runtime token because page correlation ids are only document-local.
-		auto token = "d" + std::to_string(_nextDeferToken++);
-		_pending[token] = Pending{
-			.view = _currentSource,
-			.requestId = _currentRequestId,
-			.name = _currentName,
+		auto token = "d" + std::to_string(m_nextDeferToken++);
+		m_pending[token] = Pending{
+			.view = m_currentSource,
+			.requestId = m_currentRequestId,
+			.name = m_currentName,
 			.deadline = std::chrono::steady_clock::now() + kRequestDeadline,
 			.onDropped = std::move(a_onDropped),
 		};
@@ -360,8 +360,8 @@ namespace OSFUI
 
 	void MessageBridge::RespondJsonTo(std::string_view a_token, std::string_view a_payloadJson)
 	{
-		const auto it = _pending.find(std::string(a_token));
-		if (it == _pending.end()) {
+		const auto it = m_pending.find(std::string(a_token));
+		if (it == m_pending.end()) {
 			// Never deliver late or duplicate settlements, but keep them visible in logs.
 			REX::DEBUG("MessageBridge: dropped a reply for '{}' — already settled, expired, or its view is gone",
 				a_token);
@@ -369,26 +369,26 @@ namespace OSFUI
 		}
 		const auto view = it->second.view;
 		const auto requestId = it->second.requestId;
-		_pending.erase(it);
-		if (_send && !view.empty()) {
-			_send(view, EncodeReply(requestId, a_payloadJson));
+		m_pending.erase(it);
+		if (m_send && !view.empty()) {
+			m_send(view, EncodeReply(requestId, a_payloadJson));
 		}
 		NoteTracedReply("reply");
 	}
 
 	void MessageBridge::RejectTo(std::string_view a_token, std::string_view a_code, std::string_view a_message)
 	{
-		const auto it = _pending.find(std::string(a_token));
-		if (it == _pending.end()) {
+		const auto it = m_pending.find(std::string(a_token));
+		if (it == m_pending.end()) {
 			REX::DEBUG("MessageBridge: dropped a '{}' rejection for '{}' — already settled, expired, or its view is gone",
 				a_code, a_token);
 			return;
 		}
 		const auto view = it->second.view;
 		const auto requestId = it->second.requestId;
-		_pending.erase(it);
-		if (_send && !view.empty()) {
-			_send(view, EncodeError(requestId, a_code, a_message));
+		m_pending.erase(it);
+		if (m_send && !view.empty()) {
+			m_send(view, EncodeError(requestId, a_code, a_message));
 		}
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
@@ -400,7 +400,7 @@ namespace OSFUI
 
 	void MessageBridge::EmitJson(std::string_view a_viewId, std::string_view a_name, std::string_view a_payloadJson)
 	{
-		if (!_send || a_viewId.empty()) {
+		if (!m_send || a_viewId.empty()) {
 			return;
 		}
 		DeliverEvent(a_viewId, EncodeEvent(a_name, a_payloadJson), a_name);
@@ -413,7 +413,7 @@ namespace OSFUI
 
 	void MessageBridge::EmitJson(const std::unordered_set<std::string>& a_viewIds, std::string_view a_name, std::string_view a_payloadJson)
 	{
-		if (!_send || a_viewIds.empty()) {
+		if (!m_send || a_viewIds.empty()) {
 			return;
 		}
 		// Encode once, hand the same text to every target transport.
@@ -427,7 +427,7 @@ namespace OSFUI
 
 	void MessageBridge::DeliverEvent(std::string_view a_viewId, const std::string& a_encoded, std::string_view a_name)
 	{
-		auto& gate = _gates[std::string(a_viewId)];
+		auto& gate = m_gates[std::string(a_viewId)];
 		if (!gate.eventsOpen) {
 			if (gate.queued.size() >= kMaxQueuedEventsPerView) {
 				gate.queued.pop_front();
@@ -438,7 +438,7 @@ namespace OSFUI
 			return;
 		}
 		NoteTracedReply(a_name);
-		_send(a_viewId, a_encoded);
+		m_send(a_viewId, a_encoded);
 	}
 
 	void MessageBridge::PublishState(std::string_view a_viewId, std::string_view a_mod, std::string_view a_key,
@@ -450,26 +450,26 @@ namespace OSFUI
 	void MessageBridge::PublishJsonState(std::string_view a_viewId, std::string_view a_mod, std::string_view a_key,
 		std::string_view a_valueJson)
 	{
-		if (!_send || a_viewId.empty()) {
+		if (!m_send || a_viewId.empty()) {
 			return;
 		}
 		// Pre-hello documents receive state through replay; do not queue stale values.
-		const auto it = _gates.find(std::string(a_viewId));
-		if (it == _gates.end() || !it->second.greeted) {
+		const auto it = m_gates.find(std::string(a_viewId));
+		if (it == m_gates.end() || !it->second.greeted) {
 			return;
 		}
-		if (!_inMessage && IsTracedState(a_key)) {
+		if (!m_inMessage && IsTracedState(a_key)) {
 			REX::DEBUG("MessageBridge: state '{}/{}' -> view '{}'", a_mod, a_key, a_viewId);
 		} else {
 			NoteTracedReply(std::format("state:{}", a_key));
 		}
-		_send(a_viewId, EncodeState(a_mod, a_key, a_valueJson));
+		m_send(a_viewId, EncodeState(a_mod, a_key, a_valueJson));
 	}
 
 	void MessageBridge::PublishState(const std::unordered_set<std::string>& a_viewIds, std::string_view a_mod,
 		std::string_view a_key, const nlohmann::json& a_value)
 	{
-		if (!_send || a_viewIds.empty()) {
+		if (!m_send || a_viewIds.empty()) {
 			return;
 		}
 		const auto valueJson = Json::Dump(a_value);
@@ -480,7 +480,7 @@ namespace OSFUI
 
 	void MessageBridge::SendReady(std::string_view a_viewId)
 	{
-		if (!_send || a_viewId.empty()) {
+		if (!m_send || a_viewId.empty()) {
 			return;
 		}
 		// Ready identifies the runtime release, bridge protocol, view, and owning mod.
@@ -498,7 +498,7 @@ namespace OSFUI
 		message += R"({"kind":"ready","payload":)";
 		message += payloadJson;
 		message += '}';
-		_send(a_viewId, message);
+		m_send(a_viewId, message);
 		REX::DEBUG("MessageBridge: ready -> view '{}'", a_viewId);
 	}
 
@@ -506,7 +506,7 @@ namespace OSFUI
 	{
 		OnViewDestroyed(a_viewId);  // retire the previous document and all its deferred tokens
 		// Arm a closed gate so events wait for the new document's hello.
-		auto& gate = _gates[std::string(a_viewId)];
+		auto& gate = m_gates[std::string(a_viewId)];
 		gate.greeted = false;
 		gate.eventsOpen = false;
 		gate.queued.clear();
@@ -514,15 +514,15 @@ namespace OSFUI
 
 	void MessageBridge::OnViewDestroyed(std::string_view a_viewId)
 	{
-		_gates.erase(std::string(a_viewId));
+		m_gates.erase(std::string(a_viewId));
 		// Reap deferred requests whose destination view no longer exists.
 		std::vector<DeferredDropHandler> dropped;
-		for (auto it = _pending.begin(); it != _pending.end();) {
+		for (auto it = m_pending.begin(); it != m_pending.end();) {
 			if (it->second.view == a_viewId) {
 				REX::DEBUG("MessageBridge: reaped in-flight request '{}' — view '{}' went away",
 					it->second.name, a_viewId);
 				if (it->second.onDropped) dropped.push_back(std::move(it->second.onDropped));
-				it = _pending.erase(it);
+				it = m_pending.erase(it);
 			} else {
 				++it;
 			}
@@ -532,14 +532,14 @@ namespace OSFUI
 
 	void MessageBridge::Tick(std::chrono::steady_clock::time_point a_now)
 	{
-		if (_pending.empty()) {
+		if (m_pending.empty()) {
 			return;
 		}
 		std::vector<Pending> expired;
-		for (auto it = _pending.begin(); it != _pending.end();) {
+		for (auto it = m_pending.begin(); it != m_pending.end();) {
 			if (a_now >= it->second.deadline) {
 				expired.emplace_back(it->second);
-				it = _pending.erase(it);
+				it = m_pending.erase(it);
 			} else {
 				++it;
 			}
@@ -549,8 +549,8 @@ namespace OSFUI
 			REX::WARN("MessageBridge: '{}' from view '{}' missed the {}s OSF UI runtime deadline",
 				req.name, req.view, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count());
 			// Settle with the page's correlation id, not the runtime map token.
-			if (_send && !req.view.empty()) {
-				_send(req.view, EncodeError(req.requestId, "no-response", "the endpoint handler never answered"));
+			if (m_send && !req.view.empty()) {
+				m_send(req.view, EncodeError(req.requestId, "no-response", "the endpoint handler never answered"));
 			}
 			// Handler silence is reported to the page but never counted against the view.
 			ReportProtocolFault(req.view, "no-response", "the endpoint handler never answered", { { "name", req.name } },
@@ -562,28 +562,28 @@ namespace OSFUI
 		const nlohmann::json& a_detail, bool a_viewFault)
 	{
 		REX::WARN("MessageBridge: [content] view '{}': {} — {}", a_viewId, a_code, a_message);
-		if (_protocolFaultSink) {
-			_protocolFaultSink(a_viewId, a_code, a_message, a_detail, a_viewFault);
+		if (m_protocolFaultSink) {
+			m_protocolFaultSink(a_viewId, a_code, a_message, a_detail, a_viewFault);
 		}
 	}
 
 	void MessageBridge::NoteTracedReply(std::string_view a_what)
 	{
-		if (!_inMessage) {
+		if (!m_inMessage) {
 			return;  // unsolicited push: not part of any message's trace
 		}
 		// Bound trace growth from handlers that attempt repeated settlement.
 		constexpr std::size_t kMaxTraceLength = 160;
-		if (_trace.size() >= kMaxTraceLength) {
-			if (!_trace.ends_with("...")) {
-				_trace += ", ...";
+		if (m_trace.size() >= kMaxTraceLength) {
+			if (!m_trace.ends_with("...")) {
+				m_trace += ", ...";
 			}
 			return;
 		}
-		if (!_trace.empty()) {
-			_trace += ", ";
+		if (!m_trace.empty()) {
+			m_trace += ", ";
 		}
-		_trace.append(a_what);
+		m_trace.append(a_what);
 	}
 
 	// Splice serialized payloads into fixed-key-order envelopes without a deep copy.

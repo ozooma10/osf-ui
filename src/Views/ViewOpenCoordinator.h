@@ -26,7 +26,7 @@ namespace OSFUI
 		};
 
 		bool Contains(std::string_view a_view) const;
-		const std::optional<std::string>& PendingMenu() const { return _menu; }
+		const std::optional<std::string>& PendingMenu() const { return m_menu; }
 
 		// Begin before instantiation so its duration belongs to this open request.
 		// Repeated requests preserve the first timestamp. Invalid/future timestamps
@@ -62,9 +62,9 @@ namespace OSFUI
 			Clock::time_point requestedAt;
 			std::optional<Clock::time_point> instantiatedAt, loadedAt;
 		};
-		std::optional<std::string> _menu;
-		std::uint64_t _menuReadyTick{ 0 };
-		std::unordered_map<std::string, std::uint64_t> _huds;
-		std::optional<ColdOpenTiming> _timing;
+		std::optional<std::string> m_menu;
+		std::uint64_t m_menuReadyTick{ 0 };
+		std::unordered_map<std::string, std::uint64_t> m_huds;
+		std::optional<ColdOpenTiming> m_timing;
 	};
 }

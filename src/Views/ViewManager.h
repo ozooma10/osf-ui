@@ -13,9 +13,9 @@ namespace OSFUI
 
 		// a_id is the qualified "<modId>/<viewName>" id.
 		[[nodiscard]] const ViewManifest* Find(std::string_view a_id) const;
-		[[nodiscard]] const std::vector<ViewManifest>& All() const { return _views; }
+		[[nodiscard]] const std::vector<ViewManifest>& All() const { return m_views; }
 
 	private:
-		std::vector<ViewManifest> _views;
+		std::vector<ViewManifest> m_views;
 	};
 }

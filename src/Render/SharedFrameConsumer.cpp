@@ -20,42 +20,42 @@ namespace OSFUI
 
 	SharedFrameConsumer::~SharedFrameConsumer()
 	{
-		if (_pendingRing) {
-			CloseHandles(*_pendingRing);
+		if (m_pendingRing) {
+			CloseHandles(*m_pendingRing);
 		}
 	}
 
 	void SharedFrameConsumer::AnnounceRing(SharedRingDesc a_ring)
 	{
-		std::scoped_lock lock(_mutex);
-		if (_pendingRing) {
-			CloseHandles(*_pendingRing);
+		std::scoped_lock lock(m_mutex);
+		if (m_pendingRing) {
+			CloseHandles(*m_pendingRing);
 		}
-		a_ring.generation = ++_nextGeneration;
-		_state.BeginRing(a_ring);
-		_pendingRing = a_ring;
+		a_ring.generation = ++m_nextGeneration;
+		m_state.BeginRing(a_ring);
+		m_pendingRing = a_ring;
 	}
 
 	void SharedFrameConsumer::Disconnect()
 	{
-		std::scoped_lock lock(_mutex);
-		_state.Disconnect();
-		if (_pendingRing) {
-			CloseHandles(*_pendingRing);
+		std::scoped_lock lock(m_mutex);
+		m_state.Disconnect();
+		if (m_pendingRing) {
+			CloseHandles(*m_pendingRing);
 		}
-		_pendingRing.reset();
+		m_pendingRing.reset();
 	}
 
 	bool SharedFrameConsumer::HasPendingRing() const
 	{
-		std::scoped_lock lock(_mutex);
-		return _pendingRing.has_value();
+		std::scoped_lock lock(m_mutex);
+		return m_pendingRing.has_value();
 	}
 
 	std::optional<SharedRingDesc> SharedFrameConsumer::TakeRingIfIdle()
 	{
-		std::scoped_lock lock(_mutex);
-		if (_state.HasReads()) return std::nullopt;
-		return std::exchange(_pendingRing, std::nullopt);
+		std::scoped_lock lock(m_mutex);
+		if (m_state.HasReads()) return std::nullopt;
+		return std::exchange(m_pendingRing, std::nullopt);
 	}
 }

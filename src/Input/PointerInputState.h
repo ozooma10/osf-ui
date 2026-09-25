@@ -46,15 +46,15 @@ namespace OSFUI
 		void DiscardMouseMove();
 
 	private:
-		std::atomic<float> _cursorX{ 0.0f };
-		std::atomic<float> _cursorY{ 0.0f };
-		std::atomic_bool _insideView{ true };
-		std::atomic_bool _geometryReady{ true };
-		std::atomic<std::uint64_t> _captureSize;
-		std::atomic<std::uint64_t> _viewSize;
-		std::atomic_bool _gameClientSizeObserved{ false };
-		bool _fixedScaleformGeometry{ false };
+		std::atomic<float> m_cursorX{ 0.0f };
+		std::atomic<float> m_cursorY{ 0.0f };
+		std::atomic_bool m_insideView{ true };
+		std::atomic_bool m_geometryReady{ true };
+		std::atomic<std::uint64_t> m_captureSize;
+		std::atomic<std::uint64_t> m_viewSize;
+		std::atomic_bool m_gameClientSizeObserved{ false };
+		bool m_fixedScaleformGeometry{ false };
 		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
-		std::atomic<std::uint64_t> _pendingMouseMove{ kNoPendingMouseMove };
+		std::atomic<std::uint64_t> m_pendingMouseMove{ kNoPendingMouseMove };
 	};
 }

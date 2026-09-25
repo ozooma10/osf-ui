@@ -26,12 +26,12 @@ namespace OSFUI
 
 	void Runtime::LoadStartupContent()
 	{
-		_views.DiscoverAll(Paths::ViewsDir());
+		m_views.DiscoverAll(Paths::ViewsDir());
 
 		std::vector<std::string> discoveredViewIds;
-		discoveredViewIds.reserve(_views.All().size());
+		discoveredViewIds.reserve(m_views.All().size());
 
-		for (const auto& manifest : _views.All()) {
+		for (const auto& manifest : m_views.All()) {
 			discoveredViewIds.push_back(manifest.id);
 		}
 
@@ -45,14 +45,14 @@ namespace OSFUI
 		const auto initialWidth = kDefaultViewWidth;
 		const auto initialHeight = kDefaultViewHeight;
 
-		_pointerInput.Initialize({ initialWidth, initialHeight });
+		m_pointerInput.Initialize({ initialWidth, initialHeight });
 
 		WebView2HostConfig rendererConfig{
 			.width = initialWidth,
 			.height = initialHeight,
-			.devMode = _developerMode,
-			.highRefreshCapture = _highRefreshCapture,
-			.language = _osfSettings.Language(),
+			.devMode = m_developerMode,
+			.highRefreshCapture = m_highRefreshCapture,
+			.language = m_osfSettings.Language(),
 			.dataDir = Paths::DataDir(),
 		};
 
@@ -61,21 +61,21 @@ namespace OSFUI
 			return false;
 		}
 
-		_renderer = std::move(renderer);
+		m_renderer = std::move(renderer);
 		return true;
 	}
 
 	void Runtime::WireRendererLifecycleCallbacks()
 	{
-		_renderer->SetLoadHandler([this](const WebView2HostWebRenderer::LoadEvent& a_e) {
+		m_renderer->SetLoadHandler([this](const WebView2HostWebRenderer::LoadEvent& a_e) {
 			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
 		});
 
-		_renderer->SetFailureHandler([this](const WebView2HostWebRenderer::FailureEvent& a_e) {
+		m_renderer->SetFailureHandler([this](const WebView2HostWebRenderer::FailureEvent& a_e) {
 			OnRendererFailure(a_e);
 		});
 
-		_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
+		m_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
 			HardwareCursor::SetShape(a_shape);
 		});
 	}
@@ -83,20 +83,20 @@ namespace OSFUI
 	bool Runtime::InitializeCompositor()
 	{
 		auto compositor = std::make_unique<D3D12Compositor>();
-		if (!compositor->Initialize(_renderer->Frames())) {
+		if (!compositor->Initialize(m_renderer->Frames())) {
 			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
 			return false;
 		}
-		_compositor = std::move(compositor);
+		m_compositor = std::move(compositor);
 		return true;
 	}
 
 	void Runtime::InitializeBridge()
 	{
-		if (_bridge) return;
+		if (m_bridge) return;
 		auto bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
-			if (_renderer) {
-				_renderer->SendMessageToWeb(a_viewId, a_json);
+			if (m_renderer) {
+				m_renderer->SendMessageToWeb(a_viewId, a_json);
 			}
 		});
 		
@@ -108,13 +108,13 @@ namespace OSFUI
 		});
 
 		RegisterPlatformEndpoints(*bridge);
-		_bridge = std::move(bridge);
+		m_bridge = std::move(bridge);
 	}
 
     void Runtime::InitializeStartupViews()
     {
 		std::size_t queued = 0;
-		for (const auto& manifest : _views.All()) {
+		for (const auto& manifest : m_views.All()) {
 			if (manifest.kind != ViewKind::Hud) {
 				continue;
 			}
@@ -129,37 +129,37 @@ namespace OSFUI
 
     bool Runtime::Initialize()
 	{
-		if (_initialized) {
+		if (m_initialized) {
 			return true;
 		}
-		_rendererFailed = false;
-		_rendererFailureLatched = false;
-		_browserHostRecovery.Reset();
+		m_rendererFailed = false;
+		m_rendererFailureLatched = false;
+		m_browserHostRecovery.Reset();
 
 		if (!Paths::Initialize()) {
 			return false;
 		}
 
-		_initialized = true;
+		m_initialized = true;
 		REX::INFO("Runtime: add-on loaded; waiting for SFSE kPostPostLoad before acquiring OSF Settings");
 		return true;
 	}
 
 	void Runtime::OnPostPostLoad()
 	{
-		if (_postPostLoadAttempted) {
+		if (m_postPostLoadAttempted) {
 			return;
 		}
-		_postPostLoadAttempted = true;
-		if (!_osfSettings.Initialize()) {
+		m_postPostLoadAttempted = true;
+		if (!m_osfSettings.Initialize()) {
 			REX::ERROR("Runtime: OSF Settings dependency unavailable or ABI-incompatible; OSF UI remains inert");
 			return;
 		}
-		_developerMode = _osfSettings.DeveloperMode();
-		_highRefreshCapture = _osfSettings.HighRefreshCapture();
-		Log::SetDebugLogging(_developerMode);
+		m_developerMode = m_osfSettings.DeveloperMode();
+		m_highRefreshCapture = m_osfSettings.HighRefreshCapture();
+		Log::SetDebugLogging(m_developerMode);
 		LoadStartupContent();
-		_osfSettings.RegisterLaunchers(_views.All());
+		m_osfSettings.RegisterLaunchers(m_views.All());
 		InitializeStartupViews();
 
 		REX::INFO("Runtime: lightweight add-on ready; WebView2 will initialize on first view demand");
@@ -167,51 +167,51 @@ namespace OSFUI
 
 	bool Runtime::EnsureWebRuntime()
 	{
-		if (_webRuntimeReady) return true;
-		if (_webRuntimeInitializing || !_osfSettings.Available()) return false;
-		_webRuntimeInitializing = true;
+		if (m_webRuntimeReady) return true;
+		if (m_webRuntimeInitializing || !m_osfSettings.Available()) return false;
+		m_webRuntimeInitializing = true;
 		struct ResetInitializing final {
 			bool& flag;
 			~ResetInitializing() { flag = false; }
-		} resetInitializing{ _webRuntimeInitializing };
-		if (!_renderer && !InitializeRenderer()) {
-			_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "WebView2 renderer failed to initialize");
+		} resetInitializing{ m_webRuntimeInitializing };
+		if (!m_renderer && !InitializeRenderer()) {
+			m_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "WebView2 renderer failed to initialize");
 			return false;
 		}
 		WireRendererLifecycleCallbacks();
-		if (!_compositor && !InitializeCompositor()) {
-			_osfSettings.ReportFailure("startup.compositor", "webview.compositor-init", "D3D12 compositor failed to initialize");
+		if (!m_compositor && !InitializeCompositor()) {
+			m_osfSettings.ReportFailure("startup.compositor", "webview.compositor-init", "D3D12 compositor failed to initialize");
 			return false;
 		}
 		InitializeBridge();
-		_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
-			if (_bridge) _bridge->HandleWebMessage(a_viewId, a_json);
+		m_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
+			if (m_bridge) m_bridge->HandleWebMessage(a_viewId, a_json);
 		});
 		if (!UiPass::Install()) {
-			_osfSettings.ReportFailure("startup.draw-path", "webview.draw-path", "Scaleform UI pass hook failed");
+			m_osfSettings.ReportFailure("startup.draw-path", "webview.draw-path", "Scaleform UI pass hook failed");
 			return false;
 		}
-		if (_developerMode && !_devViewReload) {
-			_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_id) {
-				return _renderer && _renderer->RefreshViewFiles(a_id);
+		if (m_developerMode && !m_devViewReload) {
+			m_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_id) {
+				return m_renderer && m_renderer->RefreshViewFiles(a_id);
 			});
 		}
-		_osfSettings.ClearFailure("startup.renderer");
-		_osfSettings.ClearFailure("startup.compositor");
-		_osfSettings.ClearFailure("startup.draw-path");
-		_webRuntimeReady = true;
+		m_osfSettings.ClearFailure("startup.renderer");
+		m_osfSettings.ClearFailure("startup.compositor");
+		m_osfSettings.ClearFailure("startup.draw-path");
+		m_webRuntimeReady = true;
 		REX::INFO("Runtime: lazy WebView2 runtime initialized");
 		return true;
 	}
 
 	void Runtime::OnDataLoaded()
 	{
-		_dataLoadedInitPending.store(true, std::memory_order_release);
+		m_dataLoadedInitPending.store(true, std::memory_order_release);
 	}
 
 	void Runtime::OnPostDataLoaded()
 	{
-		_postDataLoadedReady.store(true, std::memory_order_release);
+		m_postDataLoadedReady.store(true, std::memory_order_release);
 	}
 
 	void Runtime::InitializeDataLoadedState()
@@ -255,28 +255,28 @@ namespace OSFUI
 			}
 			switch (std::get<ViewPresentationRequest>(operation)) {
 			case ViewPresentationRequest::Back: {
-				const auto active = _presentation.ActiveMenu();
-				if (_viewOpens.PendingMenu()) {
-					_viewOpens.CancelMenu();
+				const auto active = m_presentation.ActiveMenu();
+				if (m_viewOpens.PendingMenu()) {
+					m_viewOpens.CancelMenu();
 				} else if (active) {
-					_viewOpens.CancelTiming(*active);
+					m_viewOpens.CancelTiming(*active);
 					if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
 						BeginViewOpen(*target, "for native back navigation");
-					} else if (m_viewInputGrants.OwnsBackAction(*active) && _renderer) {
+					} else if (m_viewInputGrants.OwnsBackAction(*active) && m_renderer) {
 						constexpr std::uint32_t kVkEscape = 0x1B;
-						_renderer->InjectKeyEvent(kVkEscape, true);
-						_renderer->InjectKeyEvent(kVkEscape, false);
+						m_renderer->InjectKeyEvent(kVkEscape, true);
+						m_renderer->InjectKeyEvent(kVkEscape, false);
 					} else {
-						_presentation.CloseActiveMenu();
+						m_presentation.CloseActiveMenu();
 					}
 				} else {
-					_presentation.CloseActiveMenu();
+					m_presentation.CloseActiveMenu();
 				}
 				break;
 			}
 			case ViewPresentationRequest::CloseAll:
-				_viewOpens.Clear();
-				_presentation.CloseAll();
+				m_viewOpens.Clear();
+				m_presentation.CloseAll();
 				break;
 			}
 		}
@@ -284,8 +284,8 @@ namespace OSFUI
 			if (r.open) {
 				BeginViewOpen(r.view, "on demand", r.requestedAt);
 			} else {
-				_viewOpens.Cancel(r.view);
-				_presentation.Close(r.view);
+				m_viewOpens.Cancel(r.view);
+				m_presentation.Close(r.view);
 			}
 		}
 		ApplyViewPresentationPolicy();
@@ -295,20 +295,20 @@ namespace OSFUI
 	{
 		for (const auto& request : a_requests) {
 			if (!request.active) {
-				_relativePointer.End(request.view);
+				m_relativePointer.End(request.view);
 				continue;
 			}
 
-			const auto active = _presentation.ActiveMenu();
-			if (!IsInputCaptured() || !active || *active != request.view || !_presentation.IsOpen(request.view)) {
-				if (_bridge) {
-					_bridge->ReportProtocolFault(request.view, "pointer-capture-forbidden",
+			const auto active = m_presentation.ActiveMenu();
+			if (!IsInputCaptured() || !active || *active != request.view || !m_presentation.IsOpen(request.view)) {
+				if (m_bridge) {
+					m_bridge->ReportProtocolFault(request.view, "pointer-capture-forbidden",
 						"only the visible input-owning menu can capture relative pointer input");
 				}
 				continue;
 			}
-			if (!_relativePointer.Begin(request.view) && _bridge) {
-				_bridge->ReportProtocolFault(request.view, "pointer-capture-unavailable",
+			if (!m_relativePointer.Begin(request.view) && m_bridge) {
+				m_bridge->ReportProtocolFault(request.view, "pointer-capture-unavailable",
 					"the native owner did not register a relative pointer handler", {}, false);
 			}
 		}
@@ -317,10 +317,10 @@ namespace OSFUI
 	bool Runtime::BeginViewOpen(std::string_view a_id, std::string_view a_reason,
 		std::optional<ViewOpenCoordinator::Clock::time_point> a_requestedAt)
 	{
-		const auto* manifest = _views.Find(a_id);
+		const auto* manifest = m_views.Find(a_id);
 		if (!manifest) {
 			REX::WARN("Runtime: cannot open '{}' — no discovered view has that id", a_id);
-			_osfSettings.ReportFailure("view." + std::string(a_id), "view.not-found",
+			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.not-found",
 				"The requested OSF UI view is not installed", { { "view", a_id } });
 			return false;
 		}
@@ -333,16 +333,16 @@ namespace OSFUI
 		// Require both installation and the lazy render-worker self-test before allowing input capture.
 		if (!UiPass::DrawEnabled()) {
 			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable", a_id);
-			_osfSettings.ReportFailure("view." + std::string(a_id), "view.draw-path-unavailable",
+			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.draw-path-unavailable",
 				"The view cannot open because the UI draw path is unavailable", { { "view", a_id } });
 			return false;
 		}
-		if (_rendererFailed) {
-			if (_browserHostRecovery.RequestManualRetry(_nowSeconds)) {
+		if (m_rendererFailed) {
+			if (m_browserHostRecovery.RequestManualRetry(m_nowSeconds)) {
 				REX::INFO("Runtime: open of '{}' requested a fresh browser-host recovery cycle; the overlay remains closed until the replacement reaches its reveal gate", a_id);
-			} else if (_browserHostRecovery.PhaseValue() ==
+			} else if (m_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Waiting ||
-				_browserHostRecovery.PhaseValue() ==
+				m_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::AwaitingResponse) {
 				REX::WARN("Runtime: cannot open '{}' yet - the browser host is recovering", a_id);
 			} else {
@@ -351,16 +351,16 @@ namespace OSFUI
 			}
 			return false;
 		}
-		if (_presentation.IsOpen(a_id) ||
-			_viewOpens.Contains(a_id)) return false;
+		if (m_presentation.IsOpen(a_id) ||
+			m_viewOpens.Contains(a_id)) return false;
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
-		if (requiresCaptureIntegration && !_inputCapture.IntegrationAttempted()) {
-			_inputCapture.EnsureIntegration(_postDataLoadedReady.load(std::memory_order_acquire));
+		if (requiresCaptureIntegration && !m_inputCapture.IntegrationAttempted()) {
+			m_inputCapture.EnsureIntegration(m_postDataLoadedReady.load(std::memory_order_acquire));
 		}
-		if (requiresCaptureIntegration && _inputCapture.IntegrationAttempted() &&
-			!_inputCapture.IntegrationAvailable()) {
+		if (requiresCaptureIntegration && m_inputCapture.IntegrationAttempted() &&
+			!m_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
-			_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable",
+			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable",
 				"The view requires web input, but input integration is unavailable", { { "view", a_id } });
 			return false;
 		}
@@ -377,19 +377,19 @@ namespace OSFUI
 
 		if (manifest->kind == ViewKind::Menu &&
 			m_viewLoads.GetState(a_id) != ViewLoadState::Finished) {
-			_viewOpens.BeginTiming(a_id, _presentation.IsInstantiated(a_id), a_requestedAt);
+			m_viewOpens.BeginTiming(a_id, m_presentation.IsInstantiated(a_id), a_requestedAt);
 		}
-		if (!_presentation.IsInstantiated(a_id) && !InstantiateView(*manifest, a_reason)) {
-			_viewOpens.CancelTiming(a_id);
+		if (!m_presentation.IsInstantiated(a_id) && !InstantiateView(*manifest, a_reason)) {
+			m_viewOpens.CancelTiming(a_id);
 			return false;
 		}
 
 		if (manifest->kind == ViewKind::Hud) {
-			_viewOpens.QueueHud(a_id, _mainTickSerial + (requiresStateBarrier ? 1 : 0));
+			m_viewOpens.QueueHud(a_id, m_mainTickSerial + (requiresStateBarrier ? 1 : 0));
 			return true;
 		}
-		if (_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id), requiresStateBarrier, _mainTickSerial, a_requestedAt)) {
-			return _presentation.Open(a_id);
+		if (m_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id), requiresStateBarrier, m_mainTickSerial, a_requestedAt)) {
+			return m_presentation.Open(a_id);
 		}
 		REX::DEBUG("Runtime: holding open of '{}' until its load, input integration and retained-state barrier are ready", a_id);
 		return true;
@@ -398,27 +398,27 @@ namespace OSFUI
 	ViewOpenCoordinator::Readiness Runtime::ViewOpenReadiness(std::string_view a_id) const
 	{
 		using Readiness = ViewOpenCoordinator::Readiness;
-		const auto* manifest = _views.Find(a_id);
-		if (!manifest || !_presentation.IsInstantiated(a_id)) return Readiness::Missing;
+		const auto* manifest = m_views.Find(a_id);
+		if (!manifest || !m_presentation.IsInstantiated(a_id)) return Readiness::Missing;
 		if (manifest->kind == ViewKind::Menu && manifest->capturesInput) {
-			if (!_inputCapture.IntegrationAttempted()) return Readiness::WaitingForInput;
-			if (!_inputCapture.IntegrationAvailable()) return Readiness::InputUnavailable;
+			if (!m_inputCapture.IntegrationAttempted()) return Readiness::WaitingForInput;
+			if (!m_inputCapture.IntegrationAvailable()) return Readiness::InputUnavailable;
 		}
 		return m_viewLoads.GetState(a_id) == ViewLoadState::Finished ? Readiness::Ready : Readiness::Loading;
 	}
 
 	void Runtime::DrivePendingOpen()
 	{
-		const bool menusAllowed = _inputCapture.MenuEventsAvailable() && !MenuEventSink::TransitionOpen();
-		if (!_rendererFailed && menusAllowed && !_inputCapture.IntegrationAttempted() && _viewOpens.PendingMenu()) {
-			const auto* manifest = _views.Find(*_viewOpens.PendingMenu());
-			if (manifest && manifest->capturesInput) _inputCapture.EnsureIntegration(_postDataLoadedReady.load(std::memory_order_acquire));
+		const bool menusAllowed = m_inputCapture.MenuEventsAvailable() && !MenuEventSink::TransitionOpen();
+		if (!m_rendererFailed && menusAllowed && !m_inputCapture.IntegrationAttempted() && m_viewOpens.PendingMenu()) {
+			const auto* manifest = m_views.Find(*m_viewOpens.PendingMenu());
+			if (manifest && manifest->capturesInput) m_inputCapture.EnsureIntegration(m_postDataLoadedReady.load(std::memory_order_acquire));
 		}
-		const auto ready = _viewOpens.TakeReady(_mainTickSerial, !_rendererFailed, menusAllowed,
+		const auto ready = m_viewOpens.TakeReady(m_mainTickSerial, !m_rendererFailed, menusAllowed,
 			[this](std::string_view a_id) { return ViewOpenReadiness(a_id); });
 		bool changed = false;
 		for (const auto& id : ready) {
-			changed = _presentation.Open(id) || changed;
+			changed = m_presentation.Open(id) || changed;
 			REX::DEBUG("Runtime: open prerequisites completed; opening '{}'", id);
 		}
 		if (changed) ApplyViewPresentationPolicy();
@@ -432,11 +432,11 @@ namespace OSFUI
 		bool catalogChanged = false;
 		for (const auto& id : a_ids) {
 			// Do not re-register instantiated views and discard their page state.
-			if (_presentation.IsInstantiated(id)) {
+			if (m_presentation.IsInstantiated(id)) {
 				REX::DEBUG("Runtime: plugin RegisterView('{}') — already instantiated, left untouched", id);
 				continue;
 			}
-			const auto* m = _views.Find(id);
+			const auto* m = m_views.Find(id);
 			if (!m) {
 				REX::WARN("Runtime: plugin RegisterView('{}') ignored — no views/{}/manifest.json was discovered at boot (ids are qualified '<modId>/<view>'; is the view folder installed?)", id, id);
 				continue;
@@ -456,105 +456,105 @@ namespace OSFUI
 
 	void Runtime::ApplyViewPresentationPolicy()
 	{
-		if (!_renderer) {
+		if (!m_renderer) {
 			return;
 		}
 		
-		if (!UiPass::DrawEnabled() && _presentation.ActiveMenu()) {
+		if (!UiPass::DrawEnabled() && m_presentation.ActiveMenu()) {
 			REX::WARN("Runtime: closing a requested menu because the Scaleform UI draw path is unavailable");
-			_viewOpens.SuspendMenus();
-			_presentation.CloseActiveMenu();
+			m_viewOpens.SuspendMenus();
+			m_presentation.CloseActiveMenu();
 		}
 
-		if (_presentation.DesiredCapture() && !_inputCapture.IntegrationAvailable()) {
+		if (m_presentation.DesiredCapture() && !m_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: closing a requested menu because required input integration is unavailable");
-			_viewOpens.SuspendMenus();
-			_presentation.CloseActiveMenu();
+			m_viewOpens.SuspendMenus();
+			m_presentation.CloseActiveMenu();
 		}
 
 		// Block OSF hotkeys before publishing browser visibility or input capture.
 		ReconcileInputSuppression();
 
-		const auto layers = _presentation.DesiredLayers();
+		const auto layers = m_presentation.DesiredLayers();
 		for (const auto& layer : layers) {
-			_renderer->SetViewOrder(layer.id, layer.z);
+			m_renderer->SetViewOrder(layer.id, layer.z);
 		}
-		const auto active = _presentation.ActiveMenu();
+		const auto active = m_presentation.ActiveMenu();
 		// Publish the input target before its view is shown. The browser host then
 		// grants focus only after that target becomes visible.
 		if (active) {
-			_renderer->SetInputTargetView(*active);
+			m_renderer->SetInputTargetView(*active);
 		}
 		// A menu switch is intentionally show-before-hide. The browser host keeps the outgoing visual until the incoming view passes its paint handshake;
 		for (const auto& layer : layers) {
 			if (!layer.hidden) {
-				_osfSettings.ClearFailure("view." + layer.id);
-				_renderer->SetViewHidden(layer.id, false);
+				m_osfSettings.ClearFailure("view." + layer.id);
+				m_renderer->SetViewHidden(layer.id, false);
 			}
 		}
 		for (const auto& layer : layers) {
 			if (layer.hidden) {
-				_renderer->SetViewHidden(layer.id, true);
+				m_renderer->SetViewHidden(layer.id, true);
 			}
 		}
 
-		const bool desiredCapture = _presentation.DesiredCapture();
-		_relativePointer.ReconcileOwner(desiredCapture && active ? *active : std::string_view{});
-		_inputCapture.PublishCapture(desiredCapture);
+		const bool desiredCapture = m_presentation.DesiredCapture();
+		m_relativePointer.ReconcileOwner(desiredCapture && active ? *active : std::string_view{});
+		m_inputCapture.PublishCapture(desiredCapture);
 
-		const bool visible = _presentation.DesiredVisible();
+		const bool visible = m_presentation.DesiredVisible();
 		const bool wasVisible = m_visible.exchange(visible);
 		if (visible && !wasVisible) {
-			_renderer->SetPointerInputEnabled(false);
+			m_renderer->SetPointerInputEnabled(false);
 		}
-		_inputCapture.ReconcileBrowserFocus(_renderer.get(), m_visible.load(), _presentation.ActiveMenu().has_value());
+		m_inputCapture.ReconcileBrowserFocus(m_renderer.get(), m_visible.load(), m_presentation.ActiveMenu().has_value());
 		if (!visible) {
-			_renderer->SetPointerInputEnabled(true);
+			m_renderer->SetPointerInputEnabled(true);
 		}
-		if (_compositor) {
+		if (m_compositor) {
 			if (visible && !wasVisible) {
 				m_viewReveal.Arm();
-				_pointerInput.SuspendGeometry();
+				m_pointerInput.SuspendGeometry();
 			} else {
 				if (!visible) {
 					m_viewReveal.Cancel();  // closed while a reveal was still pending
-					_pointerInput.ResumeGeometry();
+					m_pointerInput.ResumeGeometry();
 				}
 				if (!m_viewReveal.Pending()) {
-					_compositor->SetVisible(visible);
+					m_compositor->SetVisible(visible);
 				}
 			}
 		}
 
 		if (visible) {
 			if (!wasVisible) {
-				_pointerInput.CenterCursor();
+				m_pointerInput.CenterCursor();
 			}
-			if (active && _pointerInput.GeometryReady()) {
-				_pointerInput.QueueMouseMove();  // flushed by Update's coalesced move injection
+			if (active && m_pointerInput.GeometryReady()) {
+				m_pointerInput.QueueMouseMove();  // flushed by Update's coalesced move injection
 			}
 		}
 
 		const std::string shown = (visible && active) ? *active : std::string();
-		if (shown != _lastShownView) {
-			const std::string previous = _lastShownView;
-			_lastShownView = shown;
+		if (shown != m_lastShownView) {
+			const std::string previous = m_lastShownView;
+			m_lastShownView = shown;
 			const char* reason = (visible == wasVisible) ? "focus" : "overlay";
 			if (!previous.empty()) {
 				API::BridgeApi::Get().DispatchViewLifecycle(previous, API::ViewLifecyclePhase::kHidden);
-				if (_bridge) {
-					_bridge->Emit(previous, "ui.visibility", nlohmann::json{ { "visible", false }, { "reason", reason } });
+				if (m_bridge) {
+					m_bridge->Emit(previous, "ui.visibility", nlohmann::json{ { "visible", false }, { "reason", reason } });
 				}
 			}
 			if (!shown.empty()) {
 				API::BridgeApi::Get().DispatchViewLifecycle(shown, API::ViewLifecyclePhase::kShown);
-				if (_bridge) {
-					_bridge->Emit(shown, "ui.visibility", nlohmann::json{ { "visible", true }, { "reason", reason } });
+				if (m_bridge) {
+					m_bridge->Emit(shown, "ui.visibility", nlohmann::json{ { "visible", true }, { "reason", reason } });
 				}
 			}
 		}
 		if (visible != wasVisible) {
-			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _inputCapture.CaptureRequested());
+			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, m_inputCapture.CaptureRequested());
 		}
 
 		BroadcastViewsData();
@@ -567,47 +567,47 @@ namespace OSFUI
 
 	void Runtime::DriveBrowserHostRecovery()
 	{
-		_browserHostRecovery.ObserveHealth(_nowSeconds);
-		if (_browserHostRecovery.ExpireResponseWait(_nowSeconds)) {
+		m_browserHostRecovery.ObserveHealth(m_nowSeconds);
+		if (m_browserHostRecovery.ExpireResponseWait(m_nowSeconds)) {
 			REX::ERROR("Runtime: replacement browser host produced no load response in {:.0f}s", BrowserHostRecovery::kResponseTimeoutSeconds);
-			if (_browserHostRecovery.PhaseValue() ==
+			if (m_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Exhausted) {
 				REX::ERROR("Runtime: automatic browser-host recovery exhausted; the next explicit menu open will start a fresh retry cycle");
 			}
 		}
 
-		if (!_browserHostRecovery.BeginDueAttempt(_nowSeconds)) {
+		if (!m_browserHostRecovery.BeginDueAttempt(m_nowSeconds)) {
 			return;
 		}
 
-		const auto attempt = _browserHostRecovery.Attempts();
+		const auto attempt = m_browserHostRecovery.Attempts();
 		REX::INFO("Runtime: restarting browser host (attempt {}/{})", attempt, BrowserHostRecovery::kMaxAttempts);
-		_renderer->RestartAfterFailure();
+		m_renderer->RestartAfterFailure();
 
-		_rendererFailureLatched = false;
+		m_rendererFailureLatched = false;
 		RehydrateRendererAfterRestart();
 	}
 
 	void Runtime::RehydrateRendererAfterRestart()
 	{
-		if (!_renderer || !_bridge) {
+		if (!m_renderer || !m_bridge) {
 			return;
 		}
 
-		_relativePointer.Cancel();
+		m_relativePointer.Cancel();
 		m_viewRecovery.ClearAll();
 		m_viewInputGrants.ResetAll();
-		_pointerInput.DiscardMouseMove();
+		m_pointerInput.DiscardMouseMove();
 		m_viewReveal.Reset();
-		_inputCapture.ResetBrowserFocus();
+		m_inputCapture.ResetBrowserFocus();
 		std::size_t reloaded = 0;
-		for (const auto& manifest : _views.All()) {
-			if (!_presentation.IsInstantiated(manifest.id)) {
+		for (const auto& manifest : m_views.All()) {
+			if (!m_presentation.IsInstantiated(manifest.id)) {
 				continue;
 			}
-			if (manifest.kind == ViewKind::Hud && _presentation.IsOpen(manifest.id)) {
-				_presentation.Close(manifest.id);
-				_viewOpens.QueueHud(manifest.id, _mainTickSerial);
+			if (manifest.kind == ViewKind::Hud && m_presentation.IsOpen(manifest.id)) {
+				m_presentation.Close(manifest.id);
+				m_viewOpens.QueueHud(manifest.id, m_mainTickSerial);
 			}
 			NavigateView(manifest);
 			++reloaded;
@@ -620,44 +620,44 @@ namespace OSFUI
 
 	void Runtime::OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event)
 	{
-		if (_rendererFailureLatched) {
+		if (m_rendererFailureLatched) {
 			return;
 		}
 		API::BridgeApi::Get().SetBridgeAvailability(nullptr);
-		_rendererFailureLatched = true;
-		_rendererFailed = true;
-		_osfSettings.ReportFailure("runtime.renderer", "webview.renderer-failed",
+		m_rendererFailureLatched = true;
+		m_rendererFailed = true;
+		m_osfSettings.ReportFailure("runtime.renderer", "webview.renderer-failed",
 			"The OSF UI browser stopped working",
 			{ { "view", a_event.viewId }, { "stage", a_event.stage }, { "detail", a_event.description }, { "errorCode", a_event.errorCode } });
 		const bool retryableBrowserHostLoss =
-			a_event.stage == "host-connection" && _renderer;
+			a_event.stage == "host-connection" && m_renderer;
 		if (retryableBrowserHostLoss) {
-			_browserHostRecovery.OnRetryableFailure(_nowSeconds);
+			m_browserHostRecovery.OnRetryableFailure(m_nowSeconds);
 			REX::ERROR("Runtime: browser-host connection failed for view '{}' (0x{:08X}): {} - closing the overlay; bounded browser-host recovery is scheduled", a_event.viewId, a_event.errorCode, a_event.description);
-			if (_browserHostRecovery.PhaseValue() ==
+			if (m_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Exhausted) {
 				REX::ERROR("Runtime: automatic browser-host recovery exhausted; the next explicit menu open will start a fresh retry cycle");
 			}
 		} else {
-			_browserHostRecovery.Disable();
+			m_browserHostRecovery.Disable();
 			REX::ERROR("Runtime: renderer failed at '{}' for view '{}' (0x{:08X}): {} - closing the overlay and disabling it for this session", a_event.stage, a_event.viewId, a_event.errorCode, a_event.description);
 		}
 		m_viewRecovery.ClearAll();
 
-		_viewOpens.SuspendMenus();
-		_presentation.CloseActiveMenu();
-		_presentation.SetSuspended(true);
+		m_viewOpens.SuspendMenus();
+		m_presentation.CloseActiveMenu();
+		m_presentation.SetSuspended(true);
 		ApplyViewPresentationPolicy();
 
 		ReconcileFocusMenu();
-		_inputCapture.ReconcileControlLayer(_presentation.DesiredCapture(), IsInputCaptured());
-		SimPause::Apply(_presentation.DesiredPause());
+		m_inputCapture.ReconcileControlLayer(m_presentation.DesiredCapture(), IsInputCaptured());
+		SimPause::Apply(m_presentation.DesiredPause());
 		FreeCursor::Apply(false);
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)
 	{
-		if (a_width == 0 || a_height == 0 || !_renderer) {
+		if (a_width == 0 || a_height == 0 || !m_renderer) {
 			return;
 		}
 		const bool fixedScaleformGeometry =
@@ -667,10 +667,10 @@ namespace OSFUI
 		UiPass::SetExpectedOutputSize(a_width, a_height);
 
 		const ViewSize output{ .width = a_width, .height = a_height };
-		const auto previousCapture = _pointerInput.CaptureSize();
-		const auto previousView = _pointerInput.ViewportSize();
-		const auto observedTarget = _compositor ?
-			_compositor->GetObservedOutputSize() : std::nullopt;
+		const auto previousCapture = m_pointerInput.CaptureSize();
+		const auto previousView = m_pointerInput.ViewportSize();
+		const auto observedTarget = m_compositor ?
+			m_compositor->GetObservedOutputSize() : std::nullopt;
 		const auto observedWidth = observedTarget ? observedTarget->width : 0;
 		const auto observedHeight = observedTarget ? observedTarget->height : 0;
 		const bool captureChanged =
@@ -678,7 +678,7 @@ namespace OSFUI
 			output.height != previousCapture.height;
 		const bool viewportChanged =
 			view.width != previousView.width || view.height != previousView.height;
-		const bool modeChanged = _pointerInput.UpdateFixedScaleformGeometry(fixedScaleformGeometry);
+		const bool modeChanged = m_pointerInput.UpdateFixedScaleformGeometry(fixedScaleformGeometry);
 		if (!captureChanged && !viewportChanged) {
 			if (modeChanged) {
 				REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, handoff={}, client/view {}x{}, last target {}x{})",
@@ -691,23 +691,23 @@ namespace OSFUI
 		}
 
 		const bool visible = IsVisible();
-		if (visible && _compositor) {
-			_compositor->SetVisible(false);
-			_renderer->SetPointerInputEnabled(false);
+		if (visible && m_compositor) {
+			m_compositor->SetVisible(false);
+			m_renderer->SetPointerInputEnabled(false);
 			if (captureChanged) {
 				m_viewReveal.ArmForResize();
 			} else {
 				m_viewReveal.Arm();
 			}
-			_pointerInput.SuspendGeometry();
+			m_pointerInput.SuspendGeometry();
 		}
-		_relativePointer.Cancel();
-		_pointerInput.PublishGeometry(output, view);
+		m_relativePointer.Cancel();
+		m_pointerInput.PublishGeometry(output, view);
 		if (captureChanged) {
-			_renderer->Resize(output.width, output.height);
+			m_renderer->Resize(output.width, output.height);
 		}
 		if (viewportChanged) {
-			_renderer->SetViewport(view.width, view.height);
+			m_renderer->SetViewport(view.width, view.height);
 		}
 		REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, handoff={}, capture {}x{}, viewport {}x{}, last target {}x{})",
 			fixedScaleformGeometry ? "fixed-16:9" : "full-output",
@@ -718,13 +718,13 @@ namespace OSFUI
 
 	void Runtime::UpdateViewReveal()
 	{
-		if (!_initialized || !IsVisible() || !_renderer || !_compositor) {
+		if (!m_initialized || !IsVisible() || !m_renderer || !m_compositor) {
 			return;
 		}
 
-		const auto frame = _renderer->Frames()->Latest();
-		const auto expected = _pointerInput.CaptureSize();
-		const bool outputSizeKnown = _pointerInput.GameClientSizeObserved();
+		const auto frame = m_renderer->Frames()->Latest();
+		const auto expected = m_pointerInput.CaptureSize();
+		const bool outputSizeKnown = m_pointerInput.GameClientSizeObserved();
 		std::optional<ViewRevealGate::FrameObservation> observation;
 		if (frame) {
 			observation = ViewRevealGate::FrameObservation{
@@ -735,11 +735,11 @@ namespace OSFUI
 			};
 		}
 
-		const auto decision = m_viewReveal.Observe(observation, _nowSeconds);
+		const auto decision = m_viewReveal.Observe(observation, m_nowSeconds);
 		if (decision.frameChanged && frame) {
 			if (observation && observation->outputSizeKnown && observation->matchesExpectedSize) {
-				if (const auto active = _presentation.ActiveMenu()) {
-					if (const auto timing = _viewOpens.FinishTiming(*active)) {
+				if (const auto active = m_presentation.ActiveMenu()) {
+					if (const auto timing = m_viewOpens.FinishTiming(*active)) {
 						REX::INFO("Runtime: cold-open timing '{}': {} ms total (request->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)",
 							timing->view, timing->totalMs, timing->instantiateMs, timing->loadMs, timing->presentMs);
 					}
@@ -747,17 +747,17 @@ namespace OSFUI
 			}
 		}
 		if (decision.reveal) {
-			_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
-			_pointerInput.ResumeGeometry();
-			_renderer->SetPointerInputEnabled(true);
-			_pointerInput.QueueMouseMove();
+			m_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
+			m_pointerInput.ResumeGeometry();
+			m_renderer->SetPointerInputEnabled(true);
+			m_pointerInput.QueueMouseMove();
 			return;
 		}
 		if (!decision.timedOut) {
 			return;
 		}
 
-		const auto active = _presentation.ActiveMenu().value_or("<none>");
+		const auto active = m_presentation.ActiveMenu().value_or("<none>");
 		REX::ERROR("Runtime: overlay reveal for '{}' produced no presentable frame in {:.1f}s - closing it and releasing input/pause state", active, decision.heldSeconds);
 		OnRendererFailure({ .stage = "host-connection", .description = "overlay reveal timed out" });
 	}

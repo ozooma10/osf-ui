@@ -14,9 +14,9 @@ namespace OSFUI
 	public:
 		void ObserveLifecycle(bool a_postDataLoadedReady);
 		bool EnsureIntegration(bool a_postDataLoadedReady);
-		bool MenuEventsAvailable() const { return _menuEventsAvailable; }
-		bool IntegrationAttempted() const { return _integrationAttempted; }
-		bool IntegrationAvailable() const { return _integrationAvailable; }
+		bool MenuEventsAvailable() const { return m_menuEventsAvailable; }
+		bool IntegrationAttempted() const { return m_integrationAttempted; }
+		bool IntegrationAvailable() const { return m_integrationAvailable; }
 
 		bool ReconcileSuppression(bool a_wantsCapture, OSFSettingsClient& a_settings);
 		void ReconcileFocusMenu(bool a_wantsCapture, double a_now);
@@ -27,13 +27,13 @@ namespace OSFUI
 		void ReconcileControlLayer(bool a_wantsCapture, bool a_inputCaptured);
 
 	private:
-		bool _menuEventsAttempted{ false };
-		bool _menuEventsAvailable{ false };
-		bool _integrationAttempted{ false };
-		bool _integrationAvailable{ false };
-		bool _focusMenuOpen{ false };
-		double _focusMenuMismatchSince{ -1.0 };
-		bool _browserFocusGranted{ false };
-		std::atomic_bool _captureRequested{ false };  // main -> WndProc
+		bool m_menuEventsAttempted{ false };
+		bool m_menuEventsAvailable{ false };
+		bool m_integrationAttempted{ false };
+		bool m_integrationAvailable{ false };
+		bool m_focusMenuOpen{ false };
+		double m_focusMenuMismatchSince{ -1.0 };
+		bool m_browserFocusGranted{ false };
+		std::atomic_bool m_captureRequested{ false };  // main -> WndProc
 	};
 }

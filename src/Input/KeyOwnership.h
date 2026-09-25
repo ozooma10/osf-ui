@@ -11,8 +11,8 @@ namespace OSFUI
 	public:
 		bool Consume(std::uint32_t a_vk, bool a_down, bool a_capture)
 		{
-			if (a_vk >= _owners.size()) return a_capture;
-			auto& owner = _owners[a_vk];
+			if (a_vk >= m_owners.size()) return a_capture;
+			auto& owner = m_owners[a_vk];
 			if (a_down) {
 				if (owner == Owner::None) owner = a_capture ? Owner::Overlay : Owner::Game;
 				return a_capture || owner == Owner::Overlay;
@@ -22,10 +22,10 @@ namespace OSFUI
 			return consume;
 		}
 
-		void Reset() { _owners.fill(Owner::None); }
+		void Reset() { m_owners.fill(Owner::None); }
 
 	private:
 		enum class Owner : std::uint8_t { None, Game, Overlay };
-		std::array<Owner, 256> _owners{};
+		std::array<Owner, 256> m_owners{};
 	};
 }

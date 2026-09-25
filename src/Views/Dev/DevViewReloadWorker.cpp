@@ -16,36 +16,36 @@ namespace OSFUI
 	}  // namespace
 
 	DevViewReloadWorker::DevViewReloadWorker(std::filesystem::path a_viewsRoot, Refresh a_refresh) :
-		_viewsRoot(std::move(a_viewsRoot)), _refresh(std::move(a_refresh)),
-		_thread([this](std::stop_token stop) { Run(stop); })
+		m_viewsRoot(std::move(a_viewsRoot)), m_refresh(std::move(a_refresh)),
+		m_thread([this](std::stop_token stop) { Run(stop); })
 	{
 	}
 
 	DevViewReloadWorker::~DevViewReloadWorker()
 	{
-		_thread.request_stop();
-		_wake.notify_all();
+		m_thread.request_stop();
+		m_wake.notify_all();
 	}
 
 	void DevViewReloadWorker::SetTargets(std::vector<Target> a_targets)
 	{
 		std::ranges::sort(a_targets, {}, &Target::id);
 		{
-			std::scoped_lock lock(_mutex);
-			if (_targets == a_targets)
+			std::scoped_lock lock(m_mutex);
+			if (m_targets == a_targets)
 				return;
-			_targets = std::move(a_targets);
+			m_targets = std::move(a_targets);
 			// Mark targets dirty before notifying the predicate-based wait.
-			_targetsChanged = true;
+			m_targetsChanged = true;
 		}
-		_wake.notify_all();
+		m_wake.notify_all();
 	}
 
 	std::vector<DevViewReloadWorker::Target> DevViewReloadWorker::DrainCompleted()
 	{
-		std::scoped_lock lock(_mutex);
-		auto             completed = std::move(_completed);
-		_completed.clear();
+		std::scoped_lock lock(m_mutex);
+		auto             completed = std::move(m_completed);
+		m_completed.clear();
 		return completed;
 	}
 
@@ -54,12 +54,12 @@ namespace OSFUI
 		while (!a_stop.stop_requested()) {
 			std::vector<Target> targets;
 			{
-				std::unique_lock lock(_mutex);
-				_wake.wait_for(lock, a_stop, kScanInterval, [this] { return _targetsChanged; });
+				std::unique_lock lock(m_mutex);
+				m_wake.wait_for(lock, a_stop, kScanInterval, [this] { return m_targetsChanged; });
 				if (a_stop.stop_requested())
 					return;
-				_targetsChanged = false;
-				targets = _targets;
+				m_targetsChanged = false;
+				targets = m_targets;
 			}
 
 			const auto                      now = std::chrono::steady_clock::now();
@@ -68,10 +68,10 @@ namespace OSFUI
 				watched.insert(target.id);
 				// Settle the whole mod because view entries load sibling hashed assets.
 				const auto fingerprint =
-					DevViewFiles::Fingerprint(_viewsRoot / DevViewFiles::ModFolder(target.id));
+					DevViewFiles::Fingerprint(m_viewsRoot / DevViewFiles::ModFolder(target.id));
 				if (!fingerprint)
 					continue;
-				auto& state = _states[target.id];
+				auto& state = m_states[target.id];
 				if (!state.initialized) {
 					state.fingerprint = *fingerprint;
 					state.initialized = true;
@@ -90,17 +90,17 @@ namespace OSFUI
 				if (!state.pending || now - state.changedAt < kSettleTime || now < state.retryAt) {
 					continue;
 				}
-				if (!_refresh(target.id)) {
+				if (!m_refresh(target.id)) {
 					state.retryAt = now + kRetryDelay;
 					continue;
 				}
 				state.pending = false;
 				{
-					std::scoped_lock lock(_mutex);
-					_completed.push_back(target);
+					std::scoped_lock lock(m_mutex);
+					m_completed.push_back(target);
 				}
 			}
-			std::erase_if(_states, [&](const auto& item) { return !watched.contains(item.first); });
+			std::erase_if(m_states, [&](const auto& item) { return !watched.contains(item.first); });
 		}
 	}
 }  // namespace OSFUI

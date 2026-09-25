@@ -19,11 +19,11 @@ namespace SettingsViewExample
         bool PublishSettings();
         static void OnSettingChanged(const char*, const char* key, void* user) noexcept;
         static void OnHotkey(const char*, const char*, void* user) noexcept;
-        OSFSettings::API::Client _settings;
-        OSFUI::API::Client _views;
-        OSFSettings::API::Subscription _subscription{};
-        std::mutex _publishMutex;
-        bool _attempted{};
-        bool _initialized{};
+        OSFSettings::API::Client m_settings;
+        OSFUI::API::Client m_views;
+        OSFSettings::API::Subscription m_subscription{};
+        std::mutex m_publishMutex;
+        bool m_attempted{};
+        bool m_initialized{};
     };
 }

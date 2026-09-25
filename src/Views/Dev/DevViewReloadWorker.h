@@ -44,14 +44,14 @@ namespace OSFUI
 
 		void Run(std::stop_token a_stop);
 
-		std::filesystem::path                  _viewsRoot;
-		Refresh                                _refresh;
-		std::mutex                             _mutex;
-		std::condition_variable_any            _wake;
-		std::vector<Target>                    _targets;
-		bool                                   _targetsChanged{ false };  // guarded by _mutex
-		std::vector<Target>                    _completed;
-		std::unordered_map<std::string, State> _states;
-		std::jthread                           _thread;
+		std::filesystem::path                  m_viewsRoot;
+		Refresh                                m_refresh;
+		std::mutex                             m_mutex;
+		std::condition_variable_any            m_wake;
+		std::vector<Target>                    m_targets;
+		bool                                   m_targetsChanged{ false };  // guarded by m_mutex
+		std::vector<Target>                    m_completed;
+		std::unordered_map<std::string, State> m_states;
+		std::jthread                           m_thread;
 	};
 }  // namespace OSFUI

@@ -82,14 +82,14 @@ namespace OSFUI
 		// Drop the gate, queued events, and deferred requests owned by the view.
 		void OnViewDestroyed(std::string_view a_viewId);
 
-		void SetHelloHook(HelloHook a_hook) { _onHello = std::move(a_hook); }
-		void SetProtocolFaultSink(ProtocolFaultSink a_sink) { _protocolFaultSink = std::move(a_sink); }
+		void SetHelloHook(HelloHook a_hook) { m_onHello = std::move(a_hook); }
+		void SetProtocolFaultSink(ProtocolFaultSink a_sink) { m_protocolFaultSink = std::move(a_sink); }
 
 		// Main thread: expire overdue deferred requests with no-response.
 		void Tick(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
 		// Source view of the in-flight message, or empty outside dispatch.
-		[[nodiscard]] std::string_view CurrentSource() const { return _currentSource; }
+		[[nodiscard]] std::string_view CurrentSource() const { return m_currentSource; }
 
 		// Set a_viewFault only when the view caused the reported runtime fault.
 		void ReportProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
@@ -132,26 +132,26 @@ namespace OSFUI
 		// Fold settlement into the in-flight message's completion trace.
 		void NoteTracedReply(std::string_view a_what);
 
-		SendFn                                            _send;
-		std::unordered_map<std::string, SendHandler>      _sends;
-		std::unordered_map<std::string, RequestHandler>   _requests;
-		FallbackProbe                                      _fallbackProbe;
-		FallbackHandler                                    _fallbackSend;
-		FallbackHandler                                    _fallbackRequest;
-		std::unordered_map<std::string, Gate>             _gates;    // view id -> event gate
-		std::unordered_map<std::string, Pending>          _pending;  // runtime token -> deferred request
-		std::uint64_t                                     _nextDeferToken{ 1 };
-		HelloHook                                         _onHello;
-		ProtocolFaultSink                                  _protocolFaultSink;
+		SendFn                                            m_send;
+		std::unordered_map<std::string, SendHandler>      m_sends;
+		std::unordered_map<std::string, RequestHandler>   m_requests;
+		FallbackProbe                                      m_fallbackProbe;
+		FallbackHandler                                    m_fallbackSend;
+		FallbackHandler                                    m_fallbackRequest;
+		std::unordered_map<std::string, Gate>             m_gates;    // view id -> event gate
+		std::unordered_map<std::string, Pending>          m_pending;  // runtime token -> deferred request
+		std::uint64_t                                     m_nextDeferToken{ 1 };
+		HelloHook                                         m_onHello;
+		ProtocolFaultSink                                  m_protocolFaultSink;
 
-		std::string _currentSource;     // source view of the in-flight message (reply target)
-		std::string _currentRequestId;  // correlation id of the in-flight request ("" = none)
-		std::string _currentName;       // endpoint name of the in-flight message
-		bool        _settled{ false };  // the in-flight request was answered, rejected or deferred
-		bool        _inMessage{ false };  // inside HandleWebMessage dispatch (arms trace folding)
-		bool        _sendDelivered{ false };  // one-way completions are trace detail; faults/requests stay debug
-		std::string _trace;               // what went back while _inMessage
+		std::string m_currentSource;     // source view of the in-flight message (reply target)
+		std::string m_currentRequestId;  // correlation id of the in-flight request ("" = none)
+		std::string m_currentName;       // endpoint name of the in-flight message
+		bool        m_settled{ false };  // the in-flight request was answered, rejected or deferred
+		bool        m_inMessage{ false };  // inside HandleWebMessage dispatch (arms trace folding)
+		bool        m_sendDelivered{ false };  // one-way completions are trace detail; faults/requests stay debug
+		std::string m_trace;               // what went back while m_inMessage
 
-		std::unordered_set<std::string> _warnedUnknownEndpoints;  // warn-once-per-name log dedupe
+		std::unordered_set<std::string> m_warnedUnknownEndpoints;  // warn-once-per-name log dedupe
 	};
 }

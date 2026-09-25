@@ -36,6 +36,6 @@ namespace OSFUI
 
 	private:
 		// Canonical lowercase mod id -> bounded entries in insertion order.
-		std::unordered_map<std::string, std::vector<Entry>> _mods;
+		std::unordered_map<std::string, std::vector<Entry>> m_mods;
 	};
 }

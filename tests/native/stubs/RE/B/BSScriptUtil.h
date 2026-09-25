@@ -22,15 +22,15 @@ namespace RE
 	public:
 		BSFixedString() = default;
 		BSFixedString(const char* a_str) :
-			_str(a_str ? a_str : "") {}
+			m_str(a_str ? a_str : "") {}
 		BSFixedString(const std::string& a_str) :
-			_str(a_str) {}
+			m_str(a_str) {}
 
-		[[nodiscard]] const char* c_str() const noexcept { return _str.c_str(); }
-		[[nodiscard]] bool        empty() const noexcept { return _str.empty(); }
+		[[nodiscard]] const char* c_str() const noexcept { return m_str.c_str(); }
+		[[nodiscard]] bool        empty() const noexcept { return m_str.empty(); }
 
 	private:
-		std::string _str;
+		std::string m_str;
 	};
 
 	template <class T>
@@ -39,14 +39,14 @@ namespace RE
 	public:
 		BSTSmartPointer() = default;
 		explicit BSTSmartPointer(std::shared_ptr<T> a_ptr) :
-			_ptr(std::move(a_ptr)) {}
+			m_ptr(std::move(a_ptr)) {}
 
-		[[nodiscard]] T*            get() const noexcept { return _ptr.get(); }
-		[[nodiscard]] T*            operator->() const noexcept { return _ptr.get(); }
-		[[nodiscard]] explicit      operator bool() const noexcept { return _ptr != nullptr; }
+		[[nodiscard]] T*            get() const noexcept { return m_ptr.get(); }
+		[[nodiscard]] T*            operator->() const noexcept { return m_ptr.get(); }
+		[[nodiscard]] explicit      operator bool() const noexcept { return m_ptr != nullptr; }
 
 	private:
-		std::shared_ptr<T> _ptr;
+		std::shared_ptr<T> m_ptr;
 	};
 
 	template <class T>
@@ -88,93 +88,93 @@ namespace RE
 		public:
 			Variable& operator=(std::nullptr_t)
 			{
-				_str.clear();
-				_type = "none";
-				_isList = false;
-				_object = {};
-				_inner.reset();
+				m_str.clear();
+				m_type = "none";
+				m_isList = false;
+				m_object = {};
+				m_inner.reset();
 				return *this;
 			}
 			Variable& operator=(const BSFixedString& a_str)
 			{
-				_str = a_str.c_str();
-				_type = "string";
-				_isList = false;
+				m_str = a_str.c_str();
+				m_type = "string";
+				m_isList = false;
 				return *this;
 			}
 			Variable& operator=(std::int32_t a_value)
 			{
-				_str = std::to_string(a_value);
-				_type = "int";
-				_isList = false;
+				m_str = std::to_string(a_value);
+				m_type = "int";
+				m_isList = false;
 				return *this;
 			}
 			Variable& operator=(float a_value)
 			{
-				_str = std::to_string(a_value);
-				_type = "float";
-				_isList = false;
+				m_str = std::to_string(a_value);
+				m_type = "float";
+				m_isList = false;
 				return *this;
 			}
 			Variable& operator=(bool a_value)
 			{
-				_str = a_value ? "true" : "false";
-				_type = "bool";
-				_isList = false;
+				m_str = a_value ? "true" : "false";
+				m_type = "bool";
+				m_isList = false;
 				return *this;
 			}
 			Variable& operator=(BSTSmartPointer<Object> a_object)
 			{
-				_object = std::move(a_object);
-				_type = "object";
-				_isList = false;
+				m_object = std::move(a_object);
+				m_type = "object";
+				m_isList = false;
 				return *this;
 			}
 			Variable& operator=(Variable* a_value)
 			{
-				_inner.reset(a_value);
-				_type = "var";
-				_isList = false;
+				m_inner.reset(a_value);
+				m_type = "var";
+				m_isList = false;
 				return *this;
 			}
 
 			template <class T>
 			[[nodiscard]] bool is() const noexcept
 			{
-				if constexpr (std::same_as<T, std::nullptr_t>) return _type == "none";
-				if constexpr (std::same_as<T, BSFixedString>) return _type == "string";
-				if constexpr (std::same_as<T, std::int32_t> || std::same_as<T, std::uint32_t>) return _type == "int";
-				if constexpr (std::same_as<T, float>) return _type == "float";
-				if constexpr (std::same_as<T, bool>) return _type == "bool";
-				if constexpr (std::same_as<T, Object>) return _type == "object";
-				if constexpr (std::same_as<T, Variable>) return _type == "var";
+				if constexpr (std::same_as<T, std::nullptr_t>) return m_type == "none";
+				if constexpr (std::same_as<T, BSFixedString>) return m_type == "string";
+				if constexpr (std::same_as<T, std::int32_t> || std::same_as<T, std::uint32_t>) return m_type == "int";
+				if constexpr (std::same_as<T, float>) return m_type == "float";
+				if constexpr (std::same_as<T, bool>) return m_type == "bool";
+				if constexpr (std::same_as<T, Object>) return m_type == "object";
+				if constexpr (std::same_as<T, Variable>) return m_type == "var";
 				return false;
 			}
 
-			[[nodiscard]] const std::string& String() const noexcept { return _str; }
-			[[nodiscard]] const std::string& Type() const noexcept { return _type; }
+			[[nodiscard]] const std::string& String() const noexcept { return m_str; }
+			[[nodiscard]] const std::string& Type() const noexcept { return m_type; }
 
-			[[nodiscard]] bool                             IsList() const noexcept { return _isList; }
-			[[nodiscard]] const std::vector<std::string>&  List() const noexcept { return _list; }
-			[[nodiscard]] const std::vector<std::string>&  ListTypes() const noexcept { return _listTypes; }
-			[[nodiscard]] const BSTSmartPointer<Object>& ObjectValue() const noexcept { return _object; }
-			[[nodiscard]] const Variable* InnerValue() const noexcept { return _inner.get(); }
+			[[nodiscard]] bool                             IsList() const noexcept { return m_isList; }
+			[[nodiscard]] const std::vector<std::string>&  List() const noexcept { return m_list; }
+			[[nodiscard]] const std::vector<std::string>&  ListTypes() const noexcept { return m_listTypes; }
+			[[nodiscard]] const BSTSmartPointer<Object>& ObjectValue() const noexcept { return m_object; }
+			[[nodiscard]] const Variable* InnerValue() const noexcept { return m_inner.get(); }
 			void SetList(std::vector<std::string> a_list, std::vector<std::string> a_types = {})
 			{
-				_list = std::move(a_list);
-				_listTypes = std::move(a_types);
-				_type = "array";
-				_isList = true;
+				m_list = std::move(a_list);
+				m_listTypes = std::move(a_types);
+				m_type = "array";
+				m_isList = true;
 			}
 
 		private:
-			std::string              _str;
-			std::string              _type{ "none" };
-			std::vector<std::string> _list;
-			std::vector<std::string> _listTypes;
-			BSTSmartPointer<Object>  _object;
-			std::shared_ptr<Variable> _inner;
-			bool                     _isList{ false };
+			std::string              m_str;
+			std::string              m_type{ "none" };
+			std::vector<std::string> m_list;
+			std::vector<std::string> m_listTypes;
+			BSTSmartPointer<Object>  m_object;
+			std::shared_ptr<Variable> m_inner;
+			bool                     m_isList{ false };
 		};
 
 		inline void PackVariable(Variable& a_var, const std::vector<BSFixedString>& a_values)

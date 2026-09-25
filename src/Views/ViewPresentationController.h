@@ -53,9 +53,9 @@ namespace OSFUI
 	private:
 		[[nodiscard]] const InstantiatedView* FindInstantiated(std::string_view a_id) const;
 
-		std::unordered_map<std::string, InstantiatedView> _instantiated;
-		std::optional<std::string>                        _activeMenu;
-		std::unordered_set<std::string>                   _hudShown;
-		bool _suspended{ false };
+		std::unordered_map<std::string, InstantiatedView> m_instantiated;
+		std::optional<std::string>                        m_activeMenu;
+		std::unordered_set<std::string>                   m_hudShown;
+		bool m_suspended{ false };
 	};
 }

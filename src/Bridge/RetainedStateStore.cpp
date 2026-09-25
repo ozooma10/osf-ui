@@ -11,16 +11,16 @@ namespace OSFUI
 			return false;
 		}
 		const auto folded = StringUtil::ToLowerAscii(a_mod);
-		auto       it = _mods.find(folded);
-		if (it == _mods.end()) {
+		auto       it = m_mods.find(folded);
+		if (it == m_mods.end()) {
 			// Check capacity before creating a caller-supplied mod bucket.
-			if (_mods.size() >= kMaxMods) {
+			if (m_mods.size() >= kMaxMods) {
 				REX::WARN("RetainedStateStore: holding state for the maximum {} mods — "
 						  "'{}.{}' is delivered but not retained",
 					kMaxMods, a_mod, a_key);
 				return false;
 			}
-			it = _mods.emplace(folded, std::vector<Entry>{}).first;
+			it = m_mods.emplace(folded, std::vector<Entry>{}).first;
 		}
 		auto&      entries = it->second;
 		const auto wanted = StringUtil::ToLowerAscii(a_key);
@@ -45,16 +45,16 @@ namespace OSFUI
 
 	const std::vector<RetainedStateStore::Entry>* RetainedStateStore::Find(std::string_view a_mod) const
 	{
-		const auto it = _mods.find(StringUtil::ToLowerAscii(a_mod));
-		return it == _mods.end() ? nullptr : &it->second;
+		const auto it = m_mods.find(StringUtil::ToLowerAscii(a_mod));
+		return it == m_mods.end() ? nullptr : &it->second;
 	}
 
 	void RetainedStateStore::ClearSessionScoped()
 	{
-		for (auto it = _mods.begin(); it != _mods.end();) {
+		for (auto it = m_mods.begin(); it != m_mods.end();) {
 			auto& entries = it->second;
 			std::erase_if(entries, [](const Entry& a_entry) { return a_entry.sessionScoped; });
-			it = entries.empty() ? _mods.erase(it) : std::next(it);
+			it = entries.empty() ? m_mods.erase(it) : std::next(it);
 		}
 	}
 }

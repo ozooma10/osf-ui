@@ -19,7 +19,7 @@ namespace osfui::wv2
 	{
 	public:
 		CallGuard(Pipe& a_owner, CallKind a_kind) :
-			_owner(&a_owner), _kind(a_kind)
+			m_owner(&a_owner), m_kind(a_kind)
 		{}
 		~CallGuard() { Release(); }
 		CallGuard(const CallGuard&) = delete;
@@ -27,39 +27,39 @@ namespace osfui::wv2
 
 		void Release()
 		{
-			if (_owner) {
-				_owner->EndCall(_kind);
-				_owner = nullptr;
+			if (m_owner) {
+				m_owner->EndCall(m_kind);
+				m_owner = nullptr;
 			}
 		}
 
 	private:
-		Pipe* _owner;
-		CallKind _kind;
+		Pipe* m_owner;
+		CallKind m_kind;
 	};
 
 	bool Pipe::BeginCall(CallKind a_kind)
 	{
-		std::scoped_lock lock(_stateMutex);
-		if (_closing) return false;
+		std::scoped_lock lock(m_stateMutex);
+		if (m_closing) return false;
 		switch (a_kind) {
 		case CallKind::Open:
-			if (_opening || _pipe != INVALID_HANDLE_VALUE) return false;
-			_opening = true;
+			if (m_opening || m_pipe != INVALID_HANDLE_VALUE) return false;
+			m_opening = true;
 			break;
 		case CallKind::Accept:
-			if (_accepting || _connected || _pipe == INVALID_HANDLE_VALUE) return false;
-			_accepting = true;
+			if (m_accepting || m_connected || m_pipe == INVALID_HANDLE_VALUE) return false;
+			m_accepting = true;
 			break;
 		case CallKind::Read:
-			if (_readerActive || !_connected) return false;
-			_readerActive = true;
+			if (m_readerActive || !m_connected) return false;
+			m_readerActive = true;
 			break;
 		case CallKind::Write:
-			if (!_connected) return false;
+			if (!m_connected) return false;
 			break;
 		}
-		++_activeCalls;
+		++m_activeCalls;
 		return true;
 	}
 
@@ -67,44 +67,44 @@ namespace osfui::wv2
 	{
 		bool idle = false;
 		{
-			std::scoped_lock lock(_stateMutex);
-			if (a_kind == CallKind::Open) _opening = false;
-			if (a_kind == CallKind::Accept) _accepting = false;
-			if (a_kind == CallKind::Read) _readerActive = false;
-			if (_activeCalls > 0) --_activeCalls;
-			idle = _activeCalls == 0;
+			std::scoped_lock lock(m_stateMutex);
+			if (a_kind == CallKind::Open) m_opening = false;
+			if (a_kind == CallKind::Accept) m_accepting = false;
+			if (a_kind == CallKind::Read) m_readerActive = false;
+			if (m_activeCalls > 0) --m_activeCalls;
+			idle = m_activeCalls == 0;
 		}
-		if (idle) _idle.notify_all();
+		if (idle) m_idle.notify_all();
 	}
 
 	void Pipe::PrepareForOpen()
 	{
-		std::scoped_lock lifecycleLock(_lifecycleMutex);
+		std::scoped_lock lifecycleLock(m_lifecycleMutex);
 		CloseLocked();
 		{
-			std::scoped_lock stateLock(_stateMutex);
-			_closing = false;
+			std::scoped_lock stateLock(m_stateMutex);
+			m_closing = false;
 		}
-		std::scoped_lock errorLock(_errorMutex);
-		_lastError.clear();
+		std::scoped_lock errorLock(m_errorMutex);
+		m_lastError.clear();
 	}
 
 	void Pipe::SetError(const char* a_where, DWORD a_code)
 	{
-		std::scoped_lock lock(_errorMutex);
-		_lastError = std::string(a_where) + " failed (" + std::to_string(a_code) + ")";
+		std::scoped_lock lock(m_errorMutex);
+		m_lastError = std::string(a_where) + " failed (" + std::to_string(a_code) + ")";
 	}
 
 	bool Pipe::IsCreated() const
 	{
-		std::scoped_lock lock(_stateMutex);
-		return !_closing && _pipe != INVALID_HANDLE_VALUE;
+		std::scoped_lock lock(m_stateMutex);
+		return !m_closing && m_pipe != INVALID_HANDLE_VALUE;
 	}
 
 	bool Pipe::IsOpen() const
 	{
-		std::scoped_lock lock(_stateMutex);
-		return !_closing && _connected;
+		std::scoped_lock lock(m_stateMutex);
+		return !m_closing && m_connected;
 	}
 
 	std::optional<std::uint32_t> Pipe::ClientProcessId()
@@ -112,9 +112,9 @@ namespace osfui::wv2
 		DWORD pid = 0;
 		DWORD error = ERROR_SUCCESS;
 		{
-			std::scoped_lock lock(_stateMutex);
-			if (_closing || !_connected) return std::nullopt;
-			if (!::GetNamedPipeClientProcessId(_pipe, &pid)) error = ::GetLastError();
+			std::scoped_lock lock(m_stateMutex);
+			if (m_closing || !m_connected) return std::nullopt;
+			if (!::GetNamedPipeClientProcessId(m_pipe, &pid)) error = ::GetLastError();
 		}
 		if (error != ERROR_SUCCESS) {
 			SetError("GetNamedPipeClientProcessId", error);
@@ -128,9 +128,9 @@ namespace osfui::wv2
 		DWORD pid = 0;
 		DWORD error = ERROR_SUCCESS;
 		{
-			std::scoped_lock lock(_stateMutex);
-			if (_closing || !_connected) return std::nullopt;
-			if (!::GetNamedPipeServerProcessId(_pipe, &pid)) error = ::GetLastError();
+			std::scoped_lock lock(m_stateMutex);
+			if (m_closing || !m_connected) return std::nullopt;
+			if (!::GetNamedPipeServerProcessId(m_pipe, &pid)) error = ::GetLastError();
 		}
 		if (error != ERROR_SUCCESS) {
 			SetError("GetNamedPipeServerProcessId", error);
@@ -141,26 +141,26 @@ namespace osfui::wv2
 
 	bool Pipe::IsClosing() const
 	{
-		std::scoped_lock lock(_stateMutex);
-		return _closing;
+		std::scoped_lock lock(m_stateMutex);
+		return m_closing;
 	}
 
 	std::string Pipe::LastErrorText() const
 	{
-		std::scoped_lock lock(_errorMutex);
-		return _lastError;
+		std::scoped_lock lock(m_errorMutex);
+		return m_lastError;
 	}
 
 	bool Pipe::PublishOpenHandles(HANDLE a_pipe, HANDLE a_readEvent,
 		HANDLE a_writeEvent, bool a_connected)
 	{
 		{
-			std::scoped_lock lock(_stateMutex);
-			if (!_closing) {
-				_pipe = a_pipe;
-				_readEvent = a_readEvent;
-				_writeEvent = a_writeEvent;
-				_connected = a_connected;
+			std::scoped_lock lock(m_stateMutex);
+			if (!m_closing) {
+				m_pipe = a_pipe;
+				m_readEvent = a_readEvent;
+				m_writeEvent = a_writeEvent;
+				m_connected = a_connected;
 				return true;
 			}
 		}
@@ -230,12 +230,12 @@ namespace osfui::wv2
 		DWORD error = ERROR_SUCCESS;
 		bool ready = false;
 		{
-			std::scoped_lock lock(_stateMutex);
-			if (!_closing && _pipe != INVALID_HANDLE_VALUE) {
+			std::scoped_lock lock(m_stateMutex);
+			if (!m_closing && m_pipe != INVALID_HANDLE_VALUE) {
 				ready = true;
-				pipe = _pipe;
-				ov.hEvent = _readEvent;
-				::ResetEvent(_readEvent);
+				pipe = m_pipe;
+				ov.hEvent = m_readEvent;
+				::ResetEvent(m_readEvent);
 				if (::ConnectNamedPipe(pipe, &ov)) {
 					connected = true;
 				} else {
@@ -271,9 +271,9 @@ namespace osfui::wv2
 
 		bool published = false;
 		{
-			std::scoped_lock lock(_stateMutex);
-			if (!_closing && _pipe == pipe) {
-				_connected = true;
+			std::scoped_lock lock(m_stateMutex);
+			if (!m_closing && m_pipe == pipe) {
+				m_connected = true;
 				published = true;
 			}
 		}
@@ -350,11 +350,11 @@ namespace osfui::wv2
 			DWORD got = 0;
 			DWORD error = ERROR_SUCCESS;
 			{
-				std::scoped_lock lock(_stateMutex);
-				if (_closing || _pipe == INVALID_HANDLE_VALUE) return false;
-				pipe = _pipe;
-				ov.hEvent = _readEvent;
-				::ResetEvent(_readEvent);
+				std::scoped_lock lock(m_stateMutex);
+				if (m_closing || m_pipe == INVALID_HANDLE_VALUE) return false;
+				pipe = m_pipe;
+				ov.hEvent = m_readEvent;
+				::ResetEvent(m_readEvent);
 				if (!::ReadFile(pipe, a_buffer + done, a_bytes - done, &got, &ov)) {
 					error = ::GetLastError();
 				}
@@ -426,7 +426,7 @@ namespace osfui::wv2
 		buffer[3] = static_cast<std::uint8_t>((length >> 24) & 0xFF);
 		std::memcpy(buffer.data() + 4, a_payload.data(), a_payload.size());
 
-		std::scoped_lock writeLock(_writeMutex);
+		std::scoped_lock writeLock(m_writeMutex);
 		std::uint32_t done = 0;
 		while (done < buffer.size()) {
 			OVERLAPPED ov{};
@@ -434,11 +434,11 @@ namespace osfui::wv2
 			DWORD wrote = 0;
 			DWORD error = ERROR_SUCCESS;
 			{
-				std::scoped_lock stateLock(_stateMutex);
-				if (_closing || _pipe == INVALID_HANDLE_VALUE) return WriteResult::Disconnected;
-				pipe = _pipe;
-				ov.hEvent = _writeEvent;
-				::ResetEvent(_writeEvent);
+				std::scoped_lock stateLock(m_stateMutex);
+				if (m_closing || m_pipe == INVALID_HANDLE_VALUE) return WriteResult::Disconnected;
+				pipe = m_pipe;
+				ov.hEvent = m_writeEvent;
+				::ResetEvent(m_writeEvent);
 				if (!::WriteFile(pipe, buffer.data() + done,
 						static_cast<DWORD>(buffer.size() - done), &wrote, &ov)) {
 					error = ::GetLastError();
@@ -469,19 +469,19 @@ namespace osfui::wv2
 		HANDLE readEvent = nullptr;
 		HANDLE writeEvent = nullptr;
 		{
-			std::unique_lock stateLock(_stateMutex);
-			_closing = true;
-			if (_pipe != INVALID_HANDLE_VALUE) {
-				::CancelIoEx(_pipe, nullptr);
+			std::unique_lock stateLock(m_stateMutex);
+			m_closing = true;
+			if (m_pipe != INVALID_HANDLE_VALUE) {
+				::CancelIoEx(m_pipe, nullptr);
 			}
-			_idle.wait(stateLock, [this] { return _activeCalls == 0; });
-			pipe = std::exchange(_pipe, INVALID_HANDLE_VALUE);
-			readEvent = std::exchange(_readEvent, nullptr);
-			writeEvent = std::exchange(_writeEvent, nullptr);
-			_opening = false;
-			_accepting = false;
-			_readerActive = false;
-			_connected = false;
+			m_idle.wait(stateLock, [this] { return m_activeCalls == 0; });
+			pipe = std::exchange(m_pipe, INVALID_HANDLE_VALUE);
+			readEvent = std::exchange(m_readEvent, nullptr);
+			writeEvent = std::exchange(m_writeEvent, nullptr);
+			m_opening = false;
+			m_accepting = false;
+			m_readerActive = false;
+			m_connected = false;
 		}
 		if (pipe != INVALID_HANDLE_VALUE) ::CloseHandle(pipe);
 		if (readEvent) ::CloseHandle(readEvent);
@@ -490,7 +490,7 @@ namespace osfui::wv2
 
 	void Pipe::Close()
 	{
-		std::scoped_lock lifecycleLock(_lifecycleMutex);
+		std::scoped_lock lifecycleLock(m_lifecycleMutex);
 		CloseLocked();
 	}
 }

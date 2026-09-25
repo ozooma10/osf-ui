@@ -47,34 +47,34 @@ namespace osfui::wv2
 			const auto bit = MouseButtonBit(a_button);
 			if (a_down)
 			{
-				_pressed |= bit;
+				m_pressed |= bit;
 			}
 			else
 			{
-				_pressed &= static_cast<SyntheticMouseButtonMask>(~bit);
+				m_pressed &= static_cast<SyntheticMouseButtonMask>(~bit);
 			}
 		}
 
 		[[nodiscard]] bool IsPressed(SyntheticMouseButton a_button) const noexcept
 		{
-			return (_pressed & MouseButtonBit(a_button)) != 0;
+			return (m_pressed & MouseButtonBit(a_button)) != 0;
 		}
 
 		[[nodiscard]] SyntheticMouseButtonMask Pressed() const noexcept
 		{
-			return _pressed;
+			return m_pressed;
 		}
 
 		// A non-zero result means the host crossed an input boundary without seeing the matching synthetic button-up. 
 		// The caller must deliver forced releases to WebView2 before abandoning the old view/controller.
 		[[nodiscard]] SyntheticMouseButtonMask TakePressed() noexcept
 		{
-			const auto pressed = _pressed;
-			_pressed = 0;
+			const auto pressed = m_pressed;
+			m_pressed = 0;
 			return pressed;
 		}
 
 	private:
-		SyntheticMouseButtonMask _pressed{0};
+		SyntheticMouseButtonMask m_pressed{0};
 	};
 }
