@@ -93,8 +93,6 @@ namespace OSFUI
 	void Runtime::Tick(double a_deltaSeconds)
 	{
 		if (!_initialized) return;
-		// Flush even while inert or before any renderer exists (including startup failures).
-		_osfSettings.RetryDiagnostics();
 		if (!_osfSettings.Available()) return;
 		++_mainTickSerial;
 		_uptime += a_deltaSeconds;

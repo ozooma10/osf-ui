@@ -45,9 +45,6 @@ int main()
         "dependency acquisition is dispatched at the Slim SDK lifecycle point");
     Check(frame.find("_retainedState.Set") < frame.find("if (_bridge)"),
         "owner state is retained before a lazy browser exists");
-    const auto tick = frame.substr(frame.find("void Runtime::Tick"));
-    Check(tick.find("_osfSettings.RetryDiagnostics()") < tick.find("!_osfSettings.Available()"),
-        "diagnostics retry even while the renderer is absent or UI is inert");
     const auto policy = runtime.substr(runtime.find("void Runtime::ApplyViewPresentationPolicy()"));
     Check(policy.find("ReconcileInputSuppression()") < policy.find("SetInputTargetView"),
         "hotkeys are blocked before the browser receives input focus");

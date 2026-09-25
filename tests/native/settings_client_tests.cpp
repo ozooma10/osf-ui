@@ -44,7 +44,6 @@ int main()
         CHECK(client.Initialize());
         CHECK(client.DeveloperMode() && client.HighRefreshCapture());
         settings.values["developerMode"] = false;
-        client.RetryDiagnostics();
         CHECK(client.DeveloperMode()); // Startup-only, no live subscription.
         CHECK(settings.reads == 2 && !settings.changed);
     }
@@ -127,51 +126,23 @@ int main()
         CHECK(client.Initialize());
         const std::string id = "view.load-failed:demo/panel";
         const nlohmann::json context{{"view", "demo/panel"}, {"detail", "C:/private/technical.log"}};
-        diagnostics.reportStatus = Status::InternalError;
         client.ReportFailure(id, "view.load-failed", "ERR_CONNECTION_REFUSED", context);
-        CHECK(!diagnostics.Has(id));
-        diagnostics.reportStatus = Status::Ok;
-        client.RetryDiagnostics();
         CHECK(diagnostics.Has(id));
         // Known codes get fixed user-facing text; technical message and context stay in the log.
         CHECK(diagnostics.Get(id).title == "A mod WebView could not load");
         CHECK(diagnostics.Get(id).impact.find("demo/panel") != std::string::npos);
         CHECK(diagnostics.Get(id).impact.find("private") == std::string::npos);
-        const auto count = diagnostics.reports;
-        client.ReportFailure(id, "view.load-failed", "ERR_CONNECTION_REFUSED", context);
-        client.RetryDiagnostics();
-        CHECK(diagnostics.reports == count); // Unchanged issue text is not re-reported.
-        // A rejected update keeps the last accepted text until the retry succeeds.
-        diagnostics.reportStatus = Status::InternalError;
         client.ReportFailure(id, "view.load-retrying", "ERR_CONNECTION_REFUSED", context);
-        CHECK(diagnostics.Get(id).severity == OSFSettings::API::Diagnostics::Severity::Error);
-        diagnostics.reportStatus = Status::Ok;
-        client.RetryDiagnostics();
         CHECK(diagnostics.Get(id).severity == OSFSettings::API::Diagnostics::Severity::Warning);
-        // A retry sweep must preserve other pending failures and other mods' reports.
+        // Clearing one issue preserves other issues and other mods' reports.
         diagnostics.Report({.modId = "other", .id = "keep", .title = "Keep me"});
         client.ReportFailure("startup.renderer", "webview.renderer-init", "Browser unavailable");
-        diagnostics.clearStatus = Status::InternalError;
         client.ClearFailure(id);
-        CHECK(diagnostics.Has(id));
-        diagnostics.clearStatus = Status::Ok;
-        client.RetryDiagnostics();
         CHECK(!diagnostics.Has(id));
         CHECK(diagnostics.Has("startup.renderer"));
         CHECK(diagnostics.issues.contains({"other", "keep"}));
-        diagnostics.clearStatus = Status::InternalError;
         client.ClearFailure("startup.renderer");
-        CHECK(diagnostics.Has("startup.renderer"));
-        diagnostics.clearStatus = Status::Ok;
-        client.RetryDiagnostics();
         CHECK(!diagnostics.Has("startup.renderer"));
-        diagnostics.reportStatus = Status::InternalError;
-        client.ReportFailure(id, "view.load-failed", "ERR_CONNECTION_REFUSED", context);
-        client.ClearFailure(id);
-        const auto clearCount = diagnostics.clears;
-        client.RetryDiagnostics();
-        CHECK(diagnostics.clears == clearCount); // Never clear a report that was not accepted.
-        diagnostics.reportStatus = Status::Ok;
         const std::string longId(200, 'x');
         client.ReportFailure(longId, "test", "Long identity");
         CHECK(diagnostics.Has(longId)); // Slim does not impose the former 64-byte limit.

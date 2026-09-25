@@ -16,17 +16,17 @@ namespace OSFUI
 
 	bool OSFSettingsClient::Initialize()
 	{
-		const bool settingsAvailable = _settings.Init();
-		const bool diagnosticsAvailable = _diagnostics.Init();
-		_available = settingsAvailable && _settings.IsReady() && diagnosticsAvailable;
-		if (!_available) {
+		const bool settingsAvailable = m_settings.Init();
+		const bool diagnosticsAvailable = m_diagnostics.Init();
+		m_available = settingsAvailable && m_settings.IsReady() && diagnosticsAvailable;
+		if (!m_available) {
 			REX::ERROR("OSF UI requires ready OSF Settings Slim services (settings ABI 1.0 and diagnostics ABI 1.0); settings={}, ready={}, diagnostics={}",
-				settingsAvailable, _settings.IsReady(), diagnosticsAvailable);
+				settingsAvailable, m_settings.IsReady(), diagnosticsAvailable);
 			ReportFailure("dependency", "dependency.settings-unavailable", "OSF UI cannot start without compatible OSF Settings services");
 			return false;
 		}
-		ReadStartupBool("developerMode", _developerMode);
-		ReadStartupBool("highRefreshCapture", _highRefreshCapture);
+		ReadStartupBool("developerMode", m_developerMode);
+		ReadStartupBool("highRefreshCapture", m_highRefreshCapture);
 		ClearFailure("dependency");
 		return true;
 	}
@@ -36,7 +36,7 @@ namespace OSFUI
 		OSFSettings::API::Launcher::Client launcher;
 		if (!launcher.Init()) return; // Optional; direct view opens still work with older Settings.
 		for (const auto& view : a_views) {
-			if (view.kind != ViewKind::Menu || view.launcherMod.empty() || (view.debugOnly && !_developerMode)) continue;
+			if (view.kind != ViewKind::Menu || view.launcherMod.empty() || (view.debugOnly && !m_developerMode)) continue;
 			const auto result = launcher.Register({
 				.modId = view.launcherMod.c_str(), .id = view.id.c_str(), .modTitle = view.launcherModTitle.c_str(),
 				.title = view.title.c_str(), .description = view.description.c_str(),
@@ -51,25 +51,25 @@ namespace OSFUI
 
 	std::string OSFSettingsClient::Language()
 	{
-		if (!_language.empty() || !_available || !_settings.Has(OSFSettings::API::kLanguageVersion)) {
-			return _language;
+		if (!m_language.empty() || !m_available || !m_settings.Has(OSFSettings::API::kLanguageVersion)) {
+			return m_language;
 		}
 		std::string language;
-		const auto status = _settings.GetLanguage(language);
+		const auto status = m_settings.GetLanguage(language);
 		if (status == Status::NotReady) {
-			return _language;  // translations not loaded yet; ask again later
+			return m_language;  // translations not loaded yet; ask again later
 		}
 		if (Check(status, "read language")) {
-			_language = std::move(language);
-			REX::INFO("OSF Settings reports game language '{}'", _language);
+			m_language = std::move(language);
+			REX::INFO("OSF Settings reports game language '{}'", m_language);
 		}
-		return _language;
+		return m_language;
 	}
 
 	void OSFSettingsClient::ReadStartupBool(const char* a_key, bool& a_value)
 	{
 		a_value = false;
-		const auto status = _settings.GetBool("osfui", a_key, &a_value);
+		const auto status = m_settings.GetBool("osfui", a_key, &a_value);
 		if (status == Status::Ok) return;
 		a_value = false;
 		REX::WARN("OSF Settings read failed for osfui/{}: status {}; using false until restart", a_key, static_cast<unsigned>(status));
@@ -77,17 +77,16 @@ namespace OSFUI
 			std::format("{} is disabled for this session.", a_key),
 			"Reinstall OSF UI's osfui.json settings schema and restart Starfield." };
 		const auto id = std::string("settings.") + a_key;
-		_desired.insert_or_assign(id, issue);
 		Report(id, issue);
 	}
 
 	bool OSFSettingsClient::Check(Status a_status, std::string a_operation)
 	{
 		if (a_status == Status::Ok) {
-			_failedOperations.erase(a_operation);
+			m_failedOperations.erase(a_operation);
 			return true;
 		}
-		if (_failedOperations.insert(a_operation).second) {
+		if (m_failedOperations.insert(a_operation).second) {
 			REX::WARN("OSF Settings {} failed: status {}; will retry", a_operation, static_cast<unsigned>(a_status));
 		}
 		return false;
@@ -95,25 +94,13 @@ namespace OSFUI
 
 	void OSFSettingsClient::Report(std::string_view a_id, const IssueText& a_issue)
 	{
-		if (!_diagnostics) return;
+		if (!m_diagnostics) return;
 		const auto id = std::string(a_id);
-		const auto existing = _reported.find(id);
-		if (existing != _reported.end() && existing->second == a_issue) return;
 		const OSFSettings::API::Diagnostics::Issue issue{
 			.modId = "osfui", .id = id.c_str(), .severity = a_issue.severity,
 			.title = a_issue.title.c_str(), .impact = a_issue.impact.c_str(), .nextSteps = a_issue.nextSteps.c_str()
 		};
-		if (Check(_diagnostics.Report(issue), "report " + id)) _reported.insert_or_assign(id, a_issue);
-	}
-
-	bool OSFSettingsClient::Clear(std::string_view a_id)
-	{
-		const auto id = std::string(a_id);
-		_failedOperations.erase("report " + id);
-		if (!_reported.contains(id)) return true;
-		if (!Check(_diagnostics.Clear("osfui", id.c_str()), "clear " + id)) return false;
-		_reported.erase(id);
-		return true;
+		m_diagnostics.Report(issue);
 	}
 
 	OSFSettingsClient::IssueText OSFSettingsClient::Describe(std::string_view a_code, std::string_view a_message, const nlohmann::json& a_context)
@@ -143,46 +130,35 @@ namespace OSFUI
 		} else {
 			REX::WARN("OSF UI health {} [{}]: {} {}", a_id, a_code, a_message, Json::Dump(a_context));
 		}
-		const auto id = std::string(a_id);
-		_desired.insert_or_assign(id, issue);
-		Report(id, issue);
+		Report(a_id, issue);
 	}
 
 	void OSFSettingsClient::ClearFailure(std::string_view a_id)
 	{
-		_desired.erase(std::string(a_id));
-		Clear(a_id);
-	}
-
-	void OSFSettingsClient::RetryDiagnostics()
-	{
-		if (!_diagnostics) return;
-		for (const auto& [id, issue] : _desired) Report(id, issue);
-		// Copy IDs before erasing; a failed clear must remain cached for a later retry.
-		std::vector<std::string> stale;
-		for (const auto& [id, issue] : _reported) if (!_desired.contains(id)) stale.push_back(id);
-		for (const auto& id : stale) Clear(id);
+		if (!m_diagnostics) return;
+		const auto id = std::string(a_id);
+		m_diagnostics.Clear("osfui", id.c_str());
 	}
 
 	bool OSFSettingsClient::AcquireInputSuppression()
 	{
-		if (_hotkeyBlock) return true;
-		if (!_available) return false;
+		if (m_hotkeyBlock) return true;
+		if (!m_available) return false;
 		OSFSettings::API::HotkeyBlock block{};
-		const auto status = _settings.AcquireHotkeyBlock(&block);
+		const auto status = m_settings.AcquireHotkeyBlock(&block);
 		if (!Check(status, "acquire hotkey block") || !block) return false;
-		_hotkeyBlock = block;
+		m_hotkeyBlock = block;
 		ClearFailure("input.hotkey-block");
 		return true;
 	}
 
 	bool OSFSettingsClient::ReleaseInputSuppression()
 	{
-		if (!_hotkeyBlock) return true;
-		const auto status = _settings.ReleaseHotkeyBlock(_hotkeyBlock);
+		if (!m_hotkeyBlock) return true;
+		const auto status = m_settings.ReleaseHotkeyBlock(m_hotkeyBlock);
 		if (status != Status::UnknownHotkeyBlock && !Check(status, "release hotkey block")) return false;
-		_hotkeyBlock = 0;
-		_failedOperations.erase("release hotkey block");
+		m_hotkeyBlock = 0;
+		m_failedOperations.erase("release hotkey block");
 		return true;
 	}
 }
