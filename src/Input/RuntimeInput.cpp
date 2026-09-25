@@ -1,27 +1,18 @@
 #include "Runtime/Runtime.h"
 
-#include "Input/AbsoluteMouseMapping.h"
-
-#include <algorithm>
-#include <optional>
-
-#include "Core/Log.h"
-#include "Input/ControlLayer.h"
-#include "Input/FocusMenu.h"
 #include "Wv2Messages.h"
 
 namespace OSFUI
 {
-    namespace
-    {
-        constexpr std::uint32_t kVkEscape{ 0x1B };
-        constexpr std::uint32_t kVkF12{ 0x7B };
-    }
+	namespace
+	{
+		constexpr std::uint32_t kVkEscape{ 0x1B };
+		constexpr std::uint32_t kVkF12{ 0x7B };
+	}
 
-    
 	bool Runtime::IsInputCaptured() const
 	{
-		return _initialized && _captureInput.load() && m_visible.load();
+		return _initialized && _inputCapture.CaptureRequested() && m_visible.load();
 	}
 
 	bool Runtime::OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key)
@@ -48,190 +39,43 @@ namespace OSFUI
 	void Runtime::OnGameWindowActivation(bool a_active)
 	{
 		if (_renderer) _renderer->SetWindowActive(a_active);
-		if (!a_active) {
-			if (_relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
-				_relativePointerStop.store(RelativePointerStop::kCancel, std::memory_order_release);
-			}
-		}
+		if (!a_active) _relativePointer.RequestCancel();
 	}
 
 	void Runtime::OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
 	{
-		if (!IsInputCaptured() || !_renderer || a_clientW <= 0 || a_clientH <= 0) {
-			return;
-		}
-
-		const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
-		const auto mapped = MapAbsoluteMouseToView(
-			a_clientX, a_clientY, a_clientW, a_clientH,
-			view.width, view.height);
-		_cursorX.store(mapped.x, std::memory_order_relaxed);
-		_cursorY.store(mapped.y, std::memory_order_relaxed);
-		_cursorInsideView.store(mapped.inside, std::memory_order_relaxed);
-		if (_viewGeometryReady.load(std::memory_order_acquire)) {
-			QueueMouseMove();
-		}
+		if (!IsInputCaptured() || !_renderer) return;
+		_pointerInput.UpdateAbsolute(a_clientX, a_clientY, a_clientW, a_clientH);
 	}
 
 	bool Runtime::OnGameWindowMouseRelative(int a_dx, int a_dy)
 	{
-		if (!_relativePointerActive.load(std::memory_order_acquire)) {
-			return false;
-		}
-		if (a_dx != 0) {
-			_relativePointerDx.fetch_add(static_cast<float>(a_dx), std::memory_order_relaxed);
-		}
-		if (a_dy != 0) {
-			_relativePointerDy.fetch_add(static_cast<float>(a_dy), std::memory_order_relaxed);
-		}
-		return true;
-	}
-
-	void Runtime::QueueMouseMove()
-	{
-		const auto x = static_cast<std::uint32_t>(static_cast<int>(_cursorX.load(std::memory_order_relaxed)));
-		const auto y = static_cast<std::uint32_t>(static_cast<int>(_cursorY.load(std::memory_order_relaxed)));
-		_pendingMouseMove.store((static_cast<std::uint64_t>(x) << 32) | y);
+		return _relativePointer.AccumulateMotion(a_dx, a_dy);
 	}
 
 	void Runtime::OnGameWindowMouseButton(int a_button, bool a_down)
 	{
-		if (!IsInputCaptured() || !_renderer) {
-			return;
+		if (!IsInputCaptured() || !_renderer) return;
+		// Always forward releases, including while geometry is suspended.
+		if (!a_down || _pointerInput.CanSendPointer()) {
+			const auto cursor = _pointerInput.CursorPosition();
+			_renderer->InjectMouseButton(cursor.x, cursor.y, a_button, a_down);
 		}
-		if (!a_down || (_viewGeometryReady.load(std::memory_order_acquire) &&
-			_cursorInsideView.load(std::memory_order_relaxed))) {
-			_renderer->InjectMouseButton(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_button, a_down);
-		}
-		if (a_button == 0 && !a_down && _relativePointerActive.exchange(false, std::memory_order_acq_rel)) {
-			_relativePointerStop.store(RelativePointerStop::kEnd, std::memory_order_release);
-		}
+		if (a_button == 0 && !a_down) _relativePointer.RequestEnd();
 	}
 
 	void Runtime::OnGameWindowMouseWheel(int a_wheelDelta)
 	{
-		if (!IsInputCaptured() || !_renderer) {
-			return;
-		}
-		if (_relativePointerActive.load(std::memory_order_acquire)) {
-			// Match DOM WheelEvent.deltaY: positive scrolls down/toward the user, opposite Win32's positive WHEEL_DELTA direction.
-			_relativePointerWheel.fetch_add(-static_cast<float>(a_wheelDelta) / 120.0f, std::memory_order_relaxed);
-			return;
-		}
-		if (!_viewGeometryReady.load(std::memory_order_acquire)) {
-			return;
-		}
-		if (!_cursorInsideView.load(std::memory_order_relaxed)) {
-			return;
-		}
-		_renderer->InjectPhysicalMouseWheel(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), a_wheelDelta);
-	}
-
-	bool Runtime::BeginRelativePointerCapture(std::string_view a_viewId)
-	{
-		if (_relativePointerActive.load(std::memory_order_acquire) && _relativePointerView == a_viewId) {
-			return true;
-		}
-		if (!_relativePointerView.empty()) {
-			FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
-		}
-		_relativePointerDx.store(0.0f, std::memory_order_relaxed);
-		_relativePointerDy.store(0.0f, std::memory_order_relaxed);
-		_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
-		_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
-		_relativePointerView = a_viewId;
-		_relativePointerActive.store(true, std::memory_order_release);
-		if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kBegin)) {
-			_relativePointerActive.store(false, std::memory_order_release);
-			_relativePointerView.clear();
-			return false;
-		}
-		return true;
-	}
-
-	void Runtime::EndRelativePointerCapture(std::string_view a_viewId)
-	{
-		if (!_relativePointerView.empty() && _relativePointerView == a_viewId) {
-			FinishRelativePointerCapture(API::RelativePointerPhase::kEnd);
-		}
-	}
-
-	void Runtime::CancelRelativePointerCapture(std::string_view a_viewId)
-	{
-		if (_relativePointerView.empty() || (!a_viewId.empty() && _relativePointerView != a_viewId)) {
-			return;
-		}
-		FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
-	}
-
-	void Runtime::FinishRelativePointerCapture(API::RelativePointerPhase a_phase)
-	{
-		if (_relativePointerView.empty()) {
-			return;
-		}
-		_relativePointerActive.store(false, std::memory_order_release);
-		_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
-		const float dx = _relativePointerDx.exchange(0.0f, std::memory_order_acq_rel);
-		const float dy = _relativePointerDy.exchange(0.0f, std::memory_order_acq_rel);
-		const float wheel = _relativePointerWheel.exchange(0.0f, std::memory_order_acq_rel);
-		if (dx != 0.0f || dy != 0.0f || wheel != 0.0f) {
-			API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kUpdate, dx, dy, wheel);
-		}
-		API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, a_phase);
-		_relativePointerView.clear();
-		// A WndProc packet that observed the old active edge can finish its atomic
-		// add after the exchanges above. Never let that tail leak into a later owner.
-		_relativePointerDx.store(0.0f, std::memory_order_relaxed);
-		_relativePointerDy.store(0.0f, std::memory_order_relaxed);
-		_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
-	}
-
-	void Runtime::DrainRelativePointerCapture()
-	{
-		if (_relativePointerView.empty()) {
-			_relativePointerDx.store(0.0f, std::memory_order_relaxed);
-			_relativePointerDy.store(0.0f, std::memory_order_relaxed);
-			_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
-			_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
-			return;
-		}
-		if (!API::BridgeApi::Get().HasRelativePointer(_relativePointerView)) {
-			_relativePointerActive.store(false, std::memory_order_release);
-			_relativePointerView.clear();
-			_relativePointerDx.store(0.0f, std::memory_order_relaxed);
-			_relativePointerDy.store(0.0f, std::memory_order_relaxed);
-			_relativePointerWheel.store(0.0f, std::memory_order_relaxed);
-			_relativePointerStop.store(RelativePointerStop::kNone, std::memory_order_release);
-			return;
-		}
-		const float dx = _relativePointerDx.exchange(0.0f, std::memory_order_acq_rel);
-		const float dy = _relativePointerDy.exchange(0.0f, std::memory_order_acq_rel);
-		const float wheel = _relativePointerWheel.exchange(0.0f, std::memory_order_acq_rel);
-		if (dx != 0.0f || dy != 0.0f || wheel != 0.0f) {
-			if (!API::BridgeApi::Get().DispatchRelativePointer(_relativePointerView, API::RelativePointerPhase::kUpdate, dx, dy, wheel)) {
-				_relativePointerActive.store(false, std::memory_order_release);
-				_relativePointerView.clear();
-				return;
-			}
-		}
-		const auto stop = _relativePointerStop.exchange(RelativePointerStop::kNone, std::memory_order_acq_rel);
-		if (stop == RelativePointerStop::kEnd) {
-			FinishRelativePointerCapture(API::RelativePointerPhase::kEnd);
-		} else if (stop == RelativePointerStop::kCancel) {
-			FinishRelativePointerCapture(API::RelativePointerPhase::kCancel);
-		}
+		if (!IsInputCaptured() || !_renderer) return;
+		if (_relativePointer.AccumulateWheel(a_wheelDelta)) return;
+		if (!_pointerInput.CanSendPointer()) return;
+		const auto cursor = _pointerInput.CursorPosition();
+		_renderer->InjectPhysicalMouseWheel(cursor.x, cursor.y, a_wheelDelta);
 	}
 
 	bool Runtime::ReconcileInputSuppression()
 	{
-		if (!_presentation.DesiredCapture()) {
-			// Retry failed releases after the close edge, including cancellation and renderer failure.
-			_osfSettings.ReleaseInputSuppression();
-			return true;
-		}
-		if (_osfSettings.AcquireInputSuppression()) return true;
-		_osfSettings.ReportFailure("input.hotkey-block", "input.hotkey-block",
-			"The WebView cannot capture input because OSF hotkeys could not be blocked");
+		if (_inputCapture.ReconcileSuppression(_presentation.DesiredCapture(), _osfSettings)) return true;
 		_viewOpens.SuspendMenus();
 		_presentation.CloseActiveMenu();
 		return false;
@@ -240,41 +84,7 @@ namespace OSFUI
 	void Runtime::ReconcileFocusMenu()
 	{
 		if (!ReconcileInputSuppression()) ApplyViewPresentationPolicy();
-		const bool wantOpen = _presentation.DesiredCapture();
-		if (wantOpen != _focusMenuOpen) {
-			_focusMenuOpen = wantOpen;
-			_focusMenuMismatchSince = -1.0;  // fresh request: full grace window
-			if (wantOpen) {
-				FocusMenu::Open();
-			} else {
-				FocusMenu::Close();
-			}
-			return;
-		}
-
-		if (!FocusMenu::IsRegistered()) {
-			return;
-		}
-		const bool engineOpen = FocusMenu::IsOpenInEngine();
-		if (engineOpen == wantOpen) {
-			_focusMenuMismatchSince = -1.0;
-			return;
-		}
-		constexpr double kHealSeconds = 1.0;
-		if (_focusMenuMismatchSince < 0.0) {
-			_focusMenuMismatchSince = _uptime;
-			return;
-		}
-		if (_uptime - _focusMenuMismatchSince < kHealSeconds) {
-			return;
-		}
-		REX::WARN("FocusMenu: engine state diverged from requested (want {}, engine {}) for {:.1f}s; re-sending {} (watchdog)", wantOpen ? "open" : "closed", wantOpen ? "closed" : "open", _uptime - _focusMenuMismatchSince, wantOpen ? "kShow" : "kHide");
-		_focusMenuMismatchSince = -1.0;  // re-arm: another full window before the next retry
-		if (wantOpen) {
-			FocusMenu::Open();
-		} else {
-			FocusMenu::Close();
-		}
+		_inputCapture.ReconcileFocusMenu(_presentation.DesiredCapture(), _uptime);
 	}
 
 	void Runtime::RouteGamepadInput(double a_deltaSeconds)
@@ -331,14 +141,9 @@ namespace OSFUI
 
 		applyAction(frame.navigationAction);
 		if (frame.wheelDelta != 0) {
-			_renderer->InjectMouseWheel(static_cast<int>(_cursorX.load(std::memory_order_relaxed)), static_cast<int>(_cursorY.load(std::memory_order_relaxed)), frame.wheelDelta);
+			const auto cursor = _pointerInput.CursorPosition();
+			_renderer->InjectMouseWheel(cursor.x, cursor.y, frame.wheelDelta);
 		}
-	}
-
-	void Runtime::ReconcileControlLayer()
-	{
-		ControlLayer::Apply(_presentation.DesiredCapture());
-		FocusMenu::SetGamepadCapture(IsInputCaptured());
 	}
 
 }

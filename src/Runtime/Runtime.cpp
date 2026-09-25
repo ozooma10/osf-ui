@@ -7,15 +7,10 @@
 #include "Composite/UiPass.h"
 #include "Core/Log.h"
 #include "Core/Version.h"
-#include "Input/ControlLayer.h"
-#include "Input/FocusMenu.h"
 #include "Input/FreeCursor.h"
 #include "Input/HardwareCursor.h"
 #include "Input/MenuEventSink.h"
-#include "Input/OverlayInputHook.h"
 #include "Input/SimPause.h"
-#include "Input/UiLayoutGuard.h"
-#include "Input/XInputPoller.h"
 #include "Core/Paths.h"
 #include "Core/Ids.h"
 #include "Render/WebView2HostWebRenderer.h"
@@ -50,10 +45,7 @@ namespace OSFUI
 		const auto initialWidth = kDefaultViewWidth;
 		const auto initialHeight = kDefaultViewHeight;
 
-		_captureSize.store(PackViewSize({ initialWidth, initialHeight }));
-		_viewSize.store(PackViewSize({ initialWidth, initialHeight }));
-		_cursorX = initialWidth * 0.5f;
-		_cursorY = initialHeight * 0.5f;
+		_pointerInput.Initialize({ initialWidth, initialHeight });
 
 		WebView2HostConfig rendererConfig{
 			.width = initialWidth,
@@ -228,27 +220,6 @@ namespace OSFUI
 		API::Papyrus::Install();
 	}
 
-	bool Runtime::EnsureCaptureIntegration()
-	{
-		if (_captureIntegrationInitialized) return _captureIntegrationAvailable;
-		if (!_postDataLoadedReady.load(std::memory_order_acquire)) return false;
-		_captureIntegrationInitialized = true;
-		if (!UiLayoutGuard::VerifyUiLayout()) {
-			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
-			return false;
-		}
-		const bool menuEventsInstalled = _menuEventsAvailable;
-		const bool focusMenuRegistered = FocusMenu::Register();
-		const bool inputInstalled = OverlayInputHook::Install();
-		_captureIntegrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
-		if (!_captureIntegrationAvailable) {
-			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
-			return false;
-		}
-		REX::INFO("Runtime: lazy web-input hook installed above OSF Settings input handling");
-		return true;
-	}
-
 	void Runtime::EnqueuePresentationRequest(ViewPresentationRequest a_req)
 	{
 		m_viewRequests.Enqueue(a_req);
@@ -324,7 +295,7 @@ namespace OSFUI
 	{
 		for (const auto& request : a_requests) {
 			if (!request.active) {
-				EndRelativePointerCapture(request.view);
+				_relativePointer.End(request.view);
 				continue;
 			}
 
@@ -336,7 +307,7 @@ namespace OSFUI
 				}
 				continue;
 			}
-			if (!BeginRelativePointerCapture(request.view) && _bridge) {
+			if (!_relativePointer.Begin(request.view) && _bridge) {
 				_bridge->ReportProtocolFault(request.view, "pointer-capture-unavailable",
 					"the native owner did not register a relative pointer handler", {}, false);
 			}
@@ -383,11 +354,11 @@ namespace OSFUI
 		if (_presentation.IsOpen(a_id) ||
 			_viewOpens.Contains(a_id)) return false;
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
-		if (requiresCaptureIntegration && !_captureIntegrationInitialized) {
-			EnsureCaptureIntegration();
+		if (requiresCaptureIntegration && !_inputCapture.IntegrationAttempted()) {
+			_inputCapture.EnsureIntegration(_postDataLoadedReady.load(std::memory_order_acquire));
 		}
-		if (requiresCaptureIntegration && _captureIntegrationInitialized &&
-			!_captureIntegrationAvailable) {
+		if (requiresCaptureIntegration && _inputCapture.IntegrationAttempted() &&
+			!_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
 			_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable",
 				"The view requires web input, but input integration is unavailable", { { "view", a_id } });
@@ -430,18 +401,18 @@ namespace OSFUI
 		const auto* manifest = _views.Find(a_id);
 		if (!manifest || !_presentation.IsInstantiated(a_id)) return Readiness::Missing;
 		if (manifest->kind == ViewKind::Menu && manifest->capturesInput) {
-			if (!_captureIntegrationInitialized) return Readiness::WaitingForInput;
-			if (!_captureIntegrationAvailable) return Readiness::InputUnavailable;
+			if (!_inputCapture.IntegrationAttempted()) return Readiness::WaitingForInput;
+			if (!_inputCapture.IntegrationAvailable()) return Readiness::InputUnavailable;
 		}
 		return m_viewLoads.GetState(a_id) == ViewLoadState::Finished ? Readiness::Ready : Readiness::Loading;
 	}
 
 	void Runtime::DrivePendingOpen()
 	{
-		const bool menusAllowed = _menuEventsAvailable && !MenuEventSink::TransitionOpen();
-		if (!_rendererFailed && menusAllowed && !_captureIntegrationInitialized && _viewOpens.PendingMenu()) {
+		const bool menusAllowed = _inputCapture.MenuEventsAvailable() && !MenuEventSink::TransitionOpen();
+		if (!_rendererFailed && menusAllowed && !_inputCapture.IntegrationAttempted() && _viewOpens.PendingMenu()) {
 			const auto* manifest = _views.Find(*_viewOpens.PendingMenu());
-			if (manifest && manifest->capturesInput) EnsureCaptureIntegration();
+			if (manifest && manifest->capturesInput) _inputCapture.EnsureIntegration(_postDataLoadedReady.load(std::memory_order_acquire));
 		}
 		const auto ready = _viewOpens.TakeReady(_mainTickSerial, !_rendererFailed, menusAllowed,
 			[this](std::string_view a_id) { return ViewOpenReadiness(a_id); });
@@ -495,7 +466,7 @@ namespace OSFUI
 			_presentation.CloseActiveMenu();
 		}
 
-		if (_presentation.DesiredCapture() && !_captureIntegrationAvailable) {
+		if (_presentation.DesiredCapture() && !_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: closing a requested menu because required input integration is unavailable");
 			_viewOpens.SuspendMenus();
 			_presentation.CloseActiveMenu();
@@ -528,29 +499,26 @@ namespace OSFUI
 		}
 
 		const bool desiredCapture = _presentation.DesiredCapture();
-		if (!_relativePointerView.empty() && (!desiredCapture || !active || *active != _relativePointerView)) {
-			CancelRelativePointerCapture();
-		}
-		const bool captureChanged = _captureInput.exchange(desiredCapture) != desiredCapture;
-		if (captureChanged) OverlayInputHook::RequestStateRefresh();
+		_relativePointer.ReconcileOwner(desiredCapture && active ? *active : std::string_view{});
+		_inputCapture.PublishCapture(desiredCapture);
 
 		const bool visible = _presentation.DesiredVisible();
 		const bool wasVisible = m_visible.exchange(visible);
 		if (visible && !wasVisible) {
 			_renderer->SetPointerInputEnabled(false);
 		}
-		ReconcileInputFocus();
+		_inputCapture.ReconcileBrowserFocus(_renderer.get(), m_visible.load(), _presentation.ActiveMenu().has_value());
 		if (!visible) {
 			_renderer->SetPointerInputEnabled(true);
 		}
 		if (_compositor) {
 			if (visible && !wasVisible) {
 				m_viewReveal.Arm();
-				_viewGeometryReady.store(false, std::memory_order_release);
+				_pointerInput.SuspendGeometry();
 			} else {
 				if (!visible) {
 					m_viewReveal.Cancel();  // closed while a reveal was still pending
-					_viewGeometryReady.store(true, std::memory_order_release);
+					_pointerInput.ResumeGeometry();
 				}
 				if (!m_viewReveal.Pending()) {
 					_compositor->SetVisible(visible);
@@ -560,13 +528,10 @@ namespace OSFUI
 
 		if (visible) {
 			if (!wasVisible) {
-				const auto view = UnpackViewSize(_viewSize.load(std::memory_order_acquire));
-				_cursorX = view.width * 0.5f;
-				_cursorY = view.height * 0.5f;
-				_cursorInsideView.store(true, std::memory_order_release);
+				_pointerInput.CenterCursor();
 			}
-			if (active && _viewGeometryReady.load(std::memory_order_acquire)) {
-				QueueMouseMove();  // flushed by Tick's once-per-frame move injection
+			if (active && _pointerInput.GeometryReady()) {
+				_pointerInput.QueueMouseMove();  // flushed by Tick's once-per-frame move injection
 			}
 		}
 
@@ -589,28 +554,10 @@ namespace OSFUI
 			}
 		}
 		if (visible != wasVisible) {
-			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _captureInput.load());
+			REX::INFO("Runtime: overlay visibility -> {} (capture={})", visible, _inputCapture.CaptureRequested());
 		}
 
 		BroadcastViewsData();
-	}
-
-	void Runtime::ReconcileInputFocus()
-	{
-		if (!_renderer) {
-			return;
-		}
-		const auto active = _presentation.ActiveMenu();
-		const bool wantsCapture = m_visible.load() && _captureInput.load() && active.has_value();
-		// Grant browser input only after the menu stack admits the input-owning
-		// sentinel. In forwarded mode this grant does not transfer OS focus.
-		const bool focusMenuReady = !wantsCapture || (FocusMenu::IsRegistered() && FocusMenu::IsOpenInEngine());
-		const bool want = wantsCapture && focusMenuReady;
-		if (want == _inputFocusGranted) {
-			return;
-		}
-		_inputFocusGranted = want;
-		_renderer->SetInputFocus(want);
 	}
 
 	bool Runtime::IsVisible() const
@@ -647,12 +594,12 @@ namespace OSFUI
 			return;
 		}
 
-		CancelRelativePointerCapture();
+		_relativePointer.Cancel();
 		m_viewRecovery.ClearAll();
 		m_viewInputGrants.ResetAll();
-		_pendingMouseMove.store(kNoPendingMouseMove);
+		_pointerInput.DiscardMouseMove();
 		m_viewReveal.Reset();
-		_inputFocusGranted = false;
+		_inputCapture.ResetBrowserFocus();
 		std::size_t reloaded = 0;
 		for (const auto& manifest : _views.All()) {
 			if (!_presentation.IsInstantiated(manifest.id)) {
@@ -703,7 +650,7 @@ namespace OSFUI
 		ApplyViewPresentationPolicy();
 
 		ReconcileFocusMenu();
-		ReconcileControlLayer();
+		_inputCapture.ReconcileControlLayer(_presentation.DesiredCapture(), IsInputCaptured());
 		SimPause::Apply(_presentation.DesiredPause());
 		FreeCursor::Apply(false);
 	}
@@ -720,10 +667,8 @@ namespace OSFUI
 		UiPass::SetExpectedOutputSize(a_width, a_height);
 
 		const ViewSize output{ .width = a_width, .height = a_height };
-		const auto previousCapture = UnpackViewSize(
-			_captureSize.load(std::memory_order_acquire));
-		const auto previousView = UnpackViewSize(
-			_viewSize.load(std::memory_order_acquire));
+		const auto previousCapture = _pointerInput.CaptureSize();
+		const auto previousView = _pointerInput.ViewportSize();
 		const auto observedTarget = _compositor ?
 			_compositor->GetObservedOutputSize() : std::nullopt;
 		const auto observedWidth = observedTarget ? observedTarget->width : 0;
@@ -733,8 +678,7 @@ namespace OSFUI
 			output.height != previousCapture.height;
 		const bool viewportChanged =
 			view.width != previousView.width || view.height != previousView.height;
-		const bool modeChanged = fixedScaleformGeometry != _fixedScaleformGeometry;
-		_fixedScaleformGeometry = fixedScaleformGeometry;
+		const bool modeChanged = _pointerInput.UpdateFixedScaleformGeometry(fixedScaleformGeometry);
 		if (!captureChanged && !viewportChanged) {
 			if (modeChanged) {
 				REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, handoff={}, client/view {}x{}, last target {}x{})",
@@ -755,13 +699,10 @@ namespace OSFUI
 			} else {
 				m_viewReveal.Arm();
 			}
-			_viewGeometryReady.store(false, std::memory_order_release);
+			_pointerInput.SuspendGeometry();
 		}
-		CancelRelativePointerCapture();
-		_pendingMouseMove.store(kNoPendingMouseMove, std::memory_order_release);
-		_cursorInsideView.store(false, std::memory_order_release);
-		_captureSize.store(PackViewSize(output), std::memory_order_release);
-		_viewSize.store(PackViewSize(view), std::memory_order_release);
+		_relativePointer.Cancel();
+		_pointerInput.PublishGeometry(output, view);
 		if (captureChanged) {
 			_renderer->Resize(output.width, output.height);
 		}
@@ -782,8 +723,8 @@ namespace OSFUI
 		}
 
 		const auto frame = _renderer->Frames()->Latest();
-		const auto expected = UnpackViewSize(_captureSize.load(std::memory_order_acquire));
-		const bool outputSizeKnown = _gameClientSizeObserved.load(std::memory_order_acquire);
+		const auto expected = _pointerInput.CaptureSize();
+		const bool outputSizeKnown = _pointerInput.GameClientSizeObserved();
 		std::optional<ViewRevealGate::FrameObservation> observation;
 		if (frame) {
 			observation = ViewRevealGate::FrameObservation{
@@ -807,9 +748,9 @@ namespace OSFUI
 		}
 		if (decision.reveal) {
 			_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
-			_viewGeometryReady.store(true, std::memory_order_release);
+			_pointerInput.ResumeGeometry();
 			_renderer->SetPointerInputEnabled(true);
-			QueueMouseMove();
+			_pointerInput.QueueMouseMove();
 			return;
 		}
 		if (!decision.timedOut) {

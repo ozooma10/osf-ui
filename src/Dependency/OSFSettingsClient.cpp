@@ -20,8 +20,7 @@ namespace OSFUI
 		const bool diagnosticsAvailable = m_diagnostics.Init();
 		m_available = settingsAvailable && m_settings.IsReady() && diagnosticsAvailable;
 		if (!m_available) {
-			REX::ERROR("OSF UI requires ready OSF Settings Slim services (settings ABI 1.0 and diagnostics ABI 1.0); settings={}, ready={}, diagnostics={}",
-				settingsAvailable, m_settings.IsReady(), diagnosticsAvailable);
+			REX::ERROR("OSF UI requires ready OSF Settings Slim services (settings ABI 1.0 and diagnostics ABI 1.0); settings={}, ready={}, diagnostics={}", settingsAvailable, m_settings.IsReady(), diagnosticsAvailable);
 			ReportFailure("dependency", "dependency.settings-unavailable", "OSF UI cannot start without compatible OSF Settings services");
 			return false;
 		}

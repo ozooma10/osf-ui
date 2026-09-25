@@ -4,7 +4,6 @@
 #include "Input/FreeCursor.h"
 #include "Input/SimPause.h"
 #include "Input/MenuEventSink.h"
-#include "Input/UiLayoutGuard.h"
 #include "Input/OverlayInputHook.h"
 
 namespace OSFUI
@@ -12,13 +11,10 @@ namespace OSFUI
 	void Runtime::ProcessLifecycleWork()
 	{
 		if (_dataLoadedInitPending.exchange(false, std::memory_order_acq_rel)) InitializeDataLoadedState();
-		if (_postDataLoadedReady.load(std::memory_order_acquire) && !_menuEventsAttempted) {
-			_menuEventsAttempted = true;
-			_menuEventsAvailable = UiLayoutGuard::VerifyUiLayout() && MenuEventSink::Install();
-		}
+		_inputCapture.ObserveLifecycle(_postDataLoadedReady.load(std::memory_order_acquire));
 		DriveBrowserHostRecovery();
 		if (MenuEventSink::TransitionOpen()) _viewOpens.SuspendMenus();
-		if (_presentation.SetSuspended(!_menuEventsAvailable || MenuEventSink::TransitionOpen() || _rendererFailed)) {
+		if (_presentation.SetSuspended(!_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || _rendererFailed)) {
 			ApplyViewPresentationPolicy();
 		}
 	}
@@ -56,8 +52,8 @@ namespace OSFUI
 	void Runtime::ReconcileFrameState(double a_deltaSeconds)
 	{
 		ReconcileFocusMenu();
-		ReconcileInputFocus();
-		ReconcileControlLayer();
+		_inputCapture.ReconcileBrowserFocus(_renderer.get(), m_visible.load(), _presentation.ActiveMenu().has_value());
+		_inputCapture.ReconcileControlLayer(_presentation.DesiredCapture(), IsInputCaptured());
 		SimPause::Apply(_presentation.DesiredPause());
 		FreeCursor::Apply(_presentation.DesiredCapture());
 		RouteGamepadInput(a_deltaSeconds);
@@ -70,17 +66,15 @@ namespace OSFUI
 		DriveDevTools();
 		PumpDevViewReload();
 		if (const auto clientSize = OverlayInputHook::GameWindowClientSize()) {
-			_gameClientSizeObserved.store(true, std::memory_order_release);
+			_pointerInput.ObserveGameClientSize();
 			OnOutputResized(clientSize->width, clientSize->height);
-		} else if (!_gameClientSizeObserved.load(std::memory_order_acquire) && _compositor) {
+		} else if (!_pointerInput.GameClientSizeObserved() && _compositor) {
 			if (const auto targetSize = _compositor->GetObservedOutputSize()) {
 				OnOutputResized(targetSize->width, targetSize->height);
 			}
 		}
-		if (const auto packed = _pendingMouseMove.exchange(kNoPendingMouseMove);
-			packed != kNoPendingMouseMove) {
-			_renderer->InjectMouseMove(static_cast<int>(packed >> 32),
-				static_cast<int>(packed & 0xFFFF'FFFFull));
+		if (const auto move = _pointerInput.TakeMouseMove()) {
+			_renderer->InjectMouseMove(move->x, move->y);
 		}
 		if (_compositor) {
 			_compositor->Update(); // retire reads and adopt rings even while hidden
@@ -105,7 +99,7 @@ namespace OSFUI
 		ApplyPresentationRequests(localRequests.presentation, bridgeBatch.presentation);
 		ReconcileFrameState(a_deltaSeconds);
 		ProcessRendererFrame(a_deltaSeconds);
-		DrainRelativePointerCapture();
+		_relativePointer.Drain();
 		if (!_lastShownView.empty()) {
 			API::BridgeApi::Get().DispatchViewLifecycle(
 				_lastShownView, API::ViewLifecyclePhase::kFrame);
