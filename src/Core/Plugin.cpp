@@ -1,62 +1,82 @@
 #include "Core/Plugin.h"
 
-#include "Core/NativeMainThreadQueue.h"
 #include "Core/Version.h"
+#include "REL/Trampoline.h"
 #include "Runtime/Runtime.h"
+
+#include <array>
+#include <cstring>
 
 namespace OSFUI::Plugin
 {
 	namespace
 	{
-		class FrameTickTask final : public SFSE::ITaskDelegate
+		// Starfield 1.16.244: UI::UpdateMenus calls UI_AdvanceActiveMenus from exactly one of two
+		// mutually exclusive sites per frame, on the game main thread. Hooking both gives a once-per-frame
+		// main-thread pump with no SFSE worker hop. Same design as CruiseFromStarmap's UiPostAdvanceHook.
+		constexpr std::array<std::ptrdiff_t, 2> kAdvanceCallSites{ 0x228, 0x2A1 };
+		constexpr auto                          kIdleTickInterval = std::chrono::milliseconds(100);
+		constexpr double                        kMaxDeltaSeconds = 0.1;
+
+		using AdvanceFn = void* (*)(void*, void*, void*, void*);
+
+		AdvanceFn                                            g_advance{ nullptr };
+		std::optional<std::chrono::steady_clock::time_point> g_lastTick;
+		std::chrono::steady_clock::time_point                g_nextIdleTick{};
+
+		void OnUiFrame()
 		{
-		public:
-			void Run() override
-			{
-				const auto now = std::chrono::steady_clock::now();
-				const auto nowTicks = now.time_since_epoch().count();
-				if (!Runtime::Get().IsVisible() && nowTicks < m_nextIdleTick.load(std::memory_order_relaxed)) {
-					return;
-				}
-				m_nextIdleTick.store((now + kIdleTickInterval).time_since_epoch().count(), std::memory_order_relaxed);
-				// At most one tick may be queued or running. If main thread stalls, shed redundant notifications
-				if (m_tickPending.exchange(true, std::memory_order_acq_rel)) {
-					return;
-				}
-				const auto result = NativeMainThreadQueue::Post([this]() { RunTickOnMain(); }, "FrameTick.RuntimeTick", [this]() { m_tickPending.store(false, std::memory_order_release); });
-				if (result == NativeMainThreadQueue::PostResult::Unavailable) {
-					m_tickPending.store(false, std::memory_order_release);
-				}
+			const auto now = std::chrono::steady_clock::now();
+			if (!Runtime::Get().IsVisible() && now < g_nextIdleTick) {
+				return;
 			}
+			g_nextIdleTick = now + kIdleTickInterval;
 
-			void Destroy() override {}
+			double dt = g_lastTick ? std::chrono::duration<double>(now - *g_lastTick).count() : 0.0;
+			g_lastTick = now;
+			dt = std::clamp(dt, 0.0, kMaxDeltaSeconds);
+			Runtime::Get().Tick(dt);
+		}
 
-		private:
-			void RunTickOnMain()
-			{
-				const auto now = std::chrono::steady_clock::now();
-				double dt = 0.0;
-				if (m_lastMainTick) {
-					dt = std::chrono::duration<double>(now - *m_lastMainTick).count();
-				}
-				m_lastMainTick = now;
-				dt = std::clamp(dt, 0.0, 0.1);
-
-				try {
-					Runtime::Get().Tick(dt);
-				} catch (const std::exception& e) {
-					REX::ERROR("FrameTick: Runtime::Tick threw '{}';", e.what());
-				} catch (...) {
-					REX::ERROR("FrameTick: Runtime::Tick threw an unknown exception;");
-				}
-				m_tickPending.store(false, std::memory_order_release);
+		void* AdvanceThunk(void* a_ui, void* a_functor1, void* a_functor2, void* a_arg4)
+		{
+			void* result = g_advance(a_ui, a_functor1, a_functor2, a_arg4);
+			try {
+				OnUiFrame();
+			} catch (const std::exception& e) {
+				REX::ERROR("FrameTick: Runtime::Tick threw '{}'", e.what());
+			} catch (...) {
+				REX::ERROR("FrameTick: Runtime::Tick threw an unknown exception");
 			}
+			return result;
+		}
 
-			static constexpr auto                                 kIdleTickInterval = std::chrono::milliseconds(100);
-			std::atomic_bool                                      m_tickPending{ false };
-			std::optional<std::chrono::steady_clock::time_point>  m_lastMainTick;
-			std::atomic<std::chrono::steady_clock::duration::rep> m_nextIdleTick{ 0 };
-		};
+		std::uintptr_t DecodeCallTarget(std::uintptr_t a_site)
+		{
+			if (*reinterpret_cast<const std::uint8_t*>(a_site) != 0xE8) {
+				return 0;
+			}
+			std::int32_t rel{};
+			std::memcpy(&rel, reinterpret_cast<const void*>(a_site + 1), sizeof(rel));
+			return a_site + 5 + rel;
+		}
+
+		bool InstallUiFrameHook()
+		{
+			const auto base = RE::ID::UI::UpdateMenus.address();
+			const auto target = DecodeCallTarget(base + kAdvanceCallSites[0]);
+			if (!target || target != DecodeCallTarget(base + kAdvanceCallSites[1])) {
+				REX::ERROR("FrameTick: UI_AdvanceActiveMenus call sites in UI::UpdateMenus do not match the expected layout; frame tick unavailable");
+				return false;
+			}
+			// Call whatever target is there now so hooks from other plugins on the same sites stay chained.
+			g_advance = reinterpret_cast<AdvanceFn>(target);
+			for (const auto offset : kAdvanceCallSites) {
+				REL::GetTrampoline().write_call<5>(base + offset, &AdvanceThunk);
+			}
+			REX::INFO("FrameTick: installed on both UI_AdvanceActiveMenus call sites in UI::UpdateMenus");
+			return true;
+		}
 
 		void OnSFSEMessage(SFSE::MessagingInterface::Message* a_msg)
 		{
@@ -106,9 +126,9 @@ namespace OSFUI::Plugin
 			}
 		}
 
-		if (const auto* tasks = SFSE::GetTaskInterface()) {
-			static FrameTickTask s_frameTick;
-			tasks->AddPermanentTask(&s_frameTick);
+		if (!InstallUiFrameHook()) {
+			REX::ERROR("{}: frame tick hook unavailable; plugin load aborted", kPluginName);
+			return false;
 		}
 
 		return true;
