@@ -47,10 +47,13 @@ namespace OSFUI
 		}
 	}
 
-	std::string OSFSettingsClient::Language()
+	std::optional<std::string> OSFSettingsClient::Language()
 	{
-		if (!m_language.empty() || !m_available || !m_settings.Has(OSFSettings::API::kLanguageVersion)) {
-			return m_language;
+		if (m_language) return m_language;
+		if (!m_available) return std::nullopt;
+		if (!m_settings.Has(OSFSettings::API::kLanguageVersion)) {
+			m_language = std::string{};
+			return m_language;  // Older Settings uses the browser default without waiting.
 		}
 		std::string language;
 		const auto status = m_settings.GetLanguage(language);
@@ -59,7 +62,7 @@ namespace OSFUI
 		}
 		if (Check(status, "read language")) {
 			m_language = std::move(language);
-			REX::INFO("OSF Settings reports game language '{}'", m_language);
+			REX::INFO("OSF Settings reports game language '{}'", *m_language);
 		}
 		return m_language;
 	}

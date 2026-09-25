@@ -12,8 +12,8 @@ namespace OSFUI
 	class InputCaptureController
 	{
 	public:
-		void ObserveLifecycle(bool a_postDataLoadedReady);
-		bool EnsureIntegration(bool a_postDataLoadedReady);
+		// First main-thread tick after kPostPostDataLoad, before processing view requests.
+		bool Initialize();
 		bool MenuEventsAvailable() const { return m_menuEventsAvailable; }
 		bool IntegrationAttempted() const { return m_integrationAttempted; }
 		bool IntegrationAvailable() const { return m_integrationAvailable; }
@@ -27,7 +27,6 @@ namespace OSFUI
 		void ReconcileControlLayer(bool a_wantsCapture, bool a_inputCaptured);
 
 	private:
-		bool m_menuEventsAttempted{ false };
 		bool m_menuEventsAvailable{ false };
 		bool m_integrationAttempted{ false };
 		bool m_integrationAvailable{ false };

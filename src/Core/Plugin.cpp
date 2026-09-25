@@ -53,13 +53,9 @@ namespace OSFUI::Plugin
 					REX::INFO("Plugin: SFSE message kPostLoad");
 					Runtime::Get().OnPostLoad();
 					break;
-				case SFSE::MessagingInterface::kPostDataLoad:
-					REX::INFO("Plugin: SFSE message kPostDataLoad");
-					Runtime::Get().OnDataLoaded();
-					break;
 				case SFSE::MessagingInterface::kPostPostDataLoad:
 					REX::INFO("Plugin: SFSE message kPostPostDataLoad");
-					Runtime::Get().OnPostDataLoaded();
+					Runtime::Get().OnPostPostDataLoad();
 					break;
 			}
 		}
@@ -82,7 +78,7 @@ namespace OSFUI::Plugin
 			return false;
 		}
 		if (!API::Papyrus::InstallBindHook()) {
-			REX::WARN("{}: Papyrus bind hook unavailable; natives bind on data load instead", kPluginName);
+			REX::WARN("{}: Papyrus bind hook unavailable; natives bind on the first UI tick after data load instead", kPluginName);
 		}
 
 		return true;

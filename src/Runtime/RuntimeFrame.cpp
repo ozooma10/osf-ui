@@ -10,10 +10,9 @@ namespace OSFUI
 {
 	void Runtime::ProcessLifecycleWork()
 	{
-		if (m_dataLoadedInitPending.exchange(false, std::memory_order_acq_rel)) {
-			InitializeDataLoadedState();
+		if (m_engineIntegrationPending.exchange(false, std::memory_order_acq_rel)) {
+			InitializeEngineIntegration();
 		}
-		m_inputCapture.ObserveLifecycle(m_postDataLoadedReady.load(std::memory_order_acquire));
 		if (MenuEventSink::TransitionOpen()) {
 			m_viewOpens.SuspendMenus();
 		}

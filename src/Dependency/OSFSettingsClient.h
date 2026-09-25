@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -18,8 +19,8 @@ namespace OSFUI
 		void RegisterLaunchers(std::span<const ViewManifest> a_views);
 		[[nodiscard]] bool Available() const { return m_available; }
 		[[nodiscard]] bool DeveloperMode() const { return m_developerMode; }
-		// Game language code from OSF Settings, lower-cased ("en", "de", "ptbr"). Empty until the game's translations load; independent of service readiness. Each call retries until Settings reports it, then it is cached.
-		[[nodiscard]] std::string Language();
+		// An empty value selects the browser default for Settings without language support.
+		[[nodiscard]] std::optional<std::string> Language();
 		// Known codes get their user-facing text and severity from Describe; a_message titles anything else.
 		void ReportFailure(std::string_view a_id, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_context = nlohmann::json::object());
 		void ClearFailure(std::string_view a_id);
@@ -43,7 +44,7 @@ namespace OSFUI
 		OSFSettings::API::Diagnostics::Client m_diagnostics;
 		bool m_available{};
 		bool m_developerMode{};
-		std::string m_language;
+		std::optional<std::string> m_language;
 		OSFSettings::API::HotkeyBlock m_hotkeyBlock{};
 		std::unordered_set<std::string> m_failedOperations;
 	};

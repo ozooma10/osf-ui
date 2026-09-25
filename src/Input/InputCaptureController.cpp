@@ -11,24 +11,23 @@
 
 namespace OSFUI
 {
-	bool InputCaptureController::EnsureIntegration(bool a_postDataLoadedReady)
+	bool InputCaptureController::Initialize()
 	{
 		if (m_integrationAttempted) return m_integrationAvailable;
-		if (!a_postDataLoadedReady) return false;
 		m_integrationAttempted = true;
 		if (!UiLayoutGuard::VerifyUiLayout()) {
 			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
 			return false;
 		}
-		const bool menuEventsInstalled = m_menuEventsAvailable;
+		m_menuEventsAvailable = MenuEventSink::Install();
 		const bool focusMenuRegistered = FocusMenu::Register();
 		const bool inputInstalled = OverlayInputHook::Install();
-		m_integrationAvailable = menuEventsInstalled && focusMenuRegistered && inputInstalled;
+		m_integrationAvailable = m_menuEventsAvailable && focusMenuRegistered && inputInstalled;
 		if (!m_integrationAvailable) {
 			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
 			return false;
 		}
-		REX::INFO("Runtime: lazy web-input hook installed above OSF Settings input handling");
+		REX::INFO("Runtime: game UI input integration prepared before view demand");
 		return true;
 	}
 
@@ -100,14 +99,6 @@ namespace OSFUI
 		}
 		m_browserFocusGranted = want;
 		a_renderer->SetInputFocus(want);
-	}
-
-	void InputCaptureController::ObserveLifecycle(bool a_postDataLoadedReady)
-	{
-		if (a_postDataLoadedReady && !m_menuEventsAttempted) {
-			m_menuEventsAttempted = true;
-			m_menuEventsAvailable = UiLayoutGuard::VerifyUiLayout() && MenuEventSink::Install();
-		}
 	}
 
 	void InputCaptureController::PublishCapture(bool a_wantsCapture)

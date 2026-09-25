@@ -1,5 +1,25 @@
 # Runtime presentation ordering
 
+Startup has three phases:
+
+1. `Plugin::OnLoad` initializes paths, discovers manifests, publishes the view
+   catalog, constructs bridge endpoints, and installs the frame and VM binding hooks.
+2. SFSE `kPostLoad` acquires OSF Settings, applies startup configuration, registers
+   launchers, prepares the renderer/compositor and render hooks, then queues startup
+   HUDs. Preparation does not launch the browser process or load pages.
+3. SFSE `kPostPostDataLoad` signals work for the next UI tick. Before processing
+   requests, that tick installs Papyrus session sinks (and fallback native binding),
+   menu events, the focus menu, and window input integration. Native binding normally
+   happens earlier from the VM construction hook. No separate `kPostDataLoad` handler
+   is needed; both SFSE data notifications are dispatched consecutively.
+
+The renderer starts the browser host only when a view is demanded and the game
+language is available. Language is resolved on the main thread immediately before
+launch, then remains fixed for that host. A pending or failed language read retries
+on subsequent ticks; Settings versions without language support use the browser
+default. Renderer preparation failure leaves views unavailable for the session;
+browser process failures after launch retain their existing recovery policy.
+
 The game main thread owns desired presentation through `ViewPresentationController`.
 Native API calls, browser endpoints, hotkeys, and relative-pointer ownership edges
 share `BridgeApi::ViewRequests()`. Its mutex defines FIFO enqueue order, including

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+#include <optional>
+
 #include "Input/CursorShape.h"
 #include "Render/SharedTextureTransport.h"
 #include "Views/ViewManifest.h"
@@ -14,7 +17,7 @@ namespace OSFUI
 		std::uint32_t width{ kDefaultViewWidth };
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
-		std::string   language;  // game language code; empty keeps the WebView2 default
+		std::function<std::optional<std::string>()> resolveLanguage;
 		std::filesystem::path dataDir;
 	};
 

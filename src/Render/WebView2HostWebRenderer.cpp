@@ -210,6 +210,7 @@ namespace OSFUI
 		};
 
 		WebView2HostConfig    config;
+		std::string          language;  // Resolved before Start; immutable while the worker runs.
 		std::filesystem::path viewsRoot, mappedViewsRoot, userData;
         // Serialize initial and dev-refresh writes to the real-path mirror.
         std::mutex            viewsMirrorMutex;
@@ -838,7 +839,7 @@ namespace OSFUI
 					.height = height,
 					.userDataDir = ToUtf8(userData.native()),
 					.devMode = config.devMode,
-					.language = config.language,
+					.language = language,
 					.adapterLuidLow = adapterLuidLow,
 					.adapterLuidHigh = adapterLuidHigh,
 				}));
@@ -1373,7 +1374,14 @@ namespace OSFUI
 				std::scoped_lock lock(m_impl->stateMutex);
 				wantsView = !m_impl->views.empty();
 			}
-			if (wantsView) m_impl->Start();
+			if (wantsView) {
+				const auto language = m_impl->config.resolveLanguage ?
+					m_impl->config.resolveLanguage() : std::optional<std::string>{ std::string{} };
+				if (language) {
+					m_impl->language = *language;
+					m_impl->Start();
+				}
+			}
 		}
 		// Tick-thread drain also runs while hidden. The consumer releases unused frames immediately and recorded frames only after their final GPU read.
 		const auto released = m_impl->frames->TakeReleases();

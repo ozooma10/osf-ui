@@ -22,6 +22,7 @@ int main()
         CHECK(!client.Initialize());
         CHECK(!client.Available());
         CHECK(!client.AcquireInputSuppression());
+        CHECK(!client.Language());
     }
     for (int scenario = 0; scenario < 4; ++scenario) {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
@@ -63,9 +64,12 @@ int main()
         Install(&settings, &diagnostics);
         OSFSettingsClient client;
         CHECK(client.Initialize());
-        CHECK(client.Language().empty());
+        CHECK(!client.Language());
+        CHECK(!client.Language()); // Pending language must not be cached as the default.
+        CHECK(settings.languageReads == 2);
         settings.languageStatus = Status::Ok;
         CHECK(client.Language() == "en"); // Retried once the game's translations have loaded.
+        CHECK(settings.languageReads == 3);
         CHECK(!diagnostics.Has("settings.language"));
     }
     {
@@ -74,7 +78,18 @@ int main()
         settingsVersion = 0x00010000; // OSF Settings older than ABI 1.1.
         OSFSettingsClient client;
         CHECK(client.Initialize());
-        CHECK(client.Language().empty() && settings.languageReads == 0);
+        CHECK(client.Language() == "" && settings.languageReads == 0);
+    }
+    {
+        SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
+        settings.languageStatus = Status::InternalError;
+        Install(&settings, &diagnostics);
+        OSFSettingsClient client;
+        CHECK(client.Initialize());
+        CHECK(!client.Language());
+        settings.languageStatus = Status::Ok;
+        settings.language = "de";
+        CHECK(client.Language() == "de"); // A failed read cannot lock in the browser default.
     }
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;

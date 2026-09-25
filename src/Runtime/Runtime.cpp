@@ -51,7 +51,7 @@ namespace OSFUI
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = m_developerMode,
-			.language = m_osfSettings.Language(),
+			.resolveLanguage = [this] { return m_osfSettings.Language(); },
 			.dataDir = Paths::DataDir(),
 		};
 
@@ -120,7 +120,7 @@ namespace OSFUI
 			EnqueueOpenView(manifest.id);
 			++queued;
 		}
-		REX::INFO("Runtime: queued {} manifest-selected HUD view(s) for lazy startup", queued);
+		REX::INFO("Runtime: queued {} manifest-selected HUD view(s) for startup", queued);
     }
 
     bool Runtime::Initialize()
@@ -134,6 +134,7 @@ namespace OSFUI
 			return false;
 		}
 		LoadStartupContent();
+		InitializeBridge();
 
 		m_initialized = true;
 		REX::INFO("Runtime: add-on loaded; waiting for SFSE kPostLoad before acquiring OSF Settings");
@@ -153,30 +154,26 @@ namespace OSFUI
 		m_developerMode = m_osfSettings.DeveloperMode();
 		Log::SetDebugLogging(m_developerMode);
 		m_osfSettings.RegisterLaunchers(m_views.All());
+		if (!InitializeWebRuntime()) {
+			REX::ERROR("Runtime: web runtime preparation failed; views are unavailable this session");
+			return;
+		}
 		InitializeStartupViews();
 
-		REX::INFO("Runtime: lightweight add-on ready; WebView2 will initialize on first view demand");
+		REX::INFO("Runtime: add-on prepared; browser host will start on view demand once language is ready");
 	}
 
-	bool Runtime::EnsureWebRuntime()
+	bool Runtime::InitializeWebRuntime()
 	{
-		if (m_webRuntimeReady) return true;
-		if (m_webRuntimeInitializing || !m_osfSettings.Available()) return false;
-		m_webRuntimeInitializing = true;
-		struct ResetInitializing final {
-			bool& flag;
-			~ResetInitializing() { flag = false; }
-		} resetInitializing{ m_webRuntimeInitializing };
-		if (!m_renderer && !InitializeRenderer()) {
+		if (!InitializeRenderer()) {
 			m_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "WebView2 renderer failed to initialize");
 			return false;
 		}
 		WireRendererLifecycleCallbacks();
-		if (!m_compositor && !InitializeCompositor()) {
+		if (!InitializeCompositor()) {
 			m_osfSettings.ReportFailure("startup.compositor", "webview.compositor-init", "D3D12 compositor failed to initialize");
 			return false;
 		}
-		InitializeBridge();
 		m_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (m_bridge) m_bridge->HandleWebMessage(a_viewId, a_json);
 		});
@@ -193,24 +190,22 @@ namespace OSFUI
 		m_osfSettings.ClearFailure("startup.compositor");
 		m_osfSettings.ClearFailure("startup.draw-path");
 		m_webRuntimeReady = true;
-		REX::INFO("Runtime: lazy WebView2 runtime initialized");
+		REX::INFO("Runtime: web runtime prepared without launching the browser host");
 		return true;
 	}
 
-	void Runtime::OnDataLoaded()
+	void Runtime::OnPostPostDataLoad()
 	{
-		m_dataLoadedInitPending.store(true, std::memory_order_release);
+		m_engineIntegrationPending.store(true, std::memory_order_release);
 	}
 
-	void Runtime::OnPostDataLoaded()
+	void Runtime::InitializeEngineIntegration()
 	{
-		m_postDataLoadedReady.store(true, std::memory_order_release);
-	}
-
-	void Runtime::InitializeDataLoadedState()
-	{
-		REX::DEBUG("Runtime: consuming kPostDataLoad work on the main-thread tick");
+		REX::DEBUG("Runtime: consuming kPostPostDataLoad work on the main-thread tick");
 		API::Papyrus::Install();
+		if (!m_inputCapture.Initialize()) {
+			m_osfSettings.ReportFailure("startup.input", "input.unavailable", "Game UI input integration failed");
+		}
 	}
 
 	void Runtime::EnqueuePresentationRequest(ViewPresentationRequest a_req)
@@ -317,8 +312,8 @@ namespace OSFUI
 		}
 		a_id = manifest->id;
 		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return;
-		if (!EnsureWebRuntime()) {
-			REX::WARN("Runtime: cannot open '{}' — lazy WebView runtime initialization failed", a_id);
+		if (!m_webRuntimeReady) {
+			REX::WARN("Runtime: cannot open '{}' — web runtime preparation failed", a_id);
 			return;
 		}
 		// Require both installation and the lazy render-worker self-test before allowing input capture.
@@ -345,9 +340,6 @@ namespace OSFUI
 		if (m_presentation.IsOpen(a_id) ||
 			m_viewOpens.Contains(a_id)) return;
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
-		if (requiresCaptureIntegration && !m_inputCapture.IntegrationAttempted()) {
-			m_inputCapture.EnsureIntegration(m_postDataLoadedReady.load(std::memory_order_acquire));
-		}
 		if (requiresCaptureIntegration && m_inputCapture.IntegrationAttempted() &&
 			!m_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
@@ -393,10 +385,6 @@ namespace OSFUI
 	void Runtime::DrivePendingOpen()
 	{
 		const bool menusAllowed = m_inputCapture.MenuEventsAvailable() && !MenuEventSink::TransitionOpen();
-		if (m_browserHostRecovery.IsAvailable() && menusAllowed && !m_inputCapture.IntegrationAttempted() && m_viewOpens.PendingMenu()) {
-			const auto* manifest = m_views.Find(*m_viewOpens.PendingMenu());
-			if (manifest && manifest->capturesInput) m_inputCapture.EnsureIntegration(m_postDataLoadedReady.load(std::memory_order_acquire));
-		}
 		const auto ready = m_viewOpens.TakeReady(m_browserHostRecovery.IsAvailable(), menusAllowed,
 			[this](std::string_view a_id) { return ViewOpenReadiness(a_id); });
 		for (const auto& id : ready) {

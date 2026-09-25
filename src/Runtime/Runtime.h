@@ -44,8 +44,7 @@ namespace OSFUI
 		// SFSE lifecycle and main-thread frame entry points.
 		bool Initialize();
 		void OnPostLoad();
-		void OnDataLoaded();
-		void OnPostDataLoaded();
+		void OnPostPostDataLoad();
 		void Update();
 
 		// Published state, safe to query from the window-message thread.
@@ -73,10 +72,10 @@ namespace OSFUI
 	private:
 		Runtime() = default;
 
-		// Startup and lazy initialization.
+		// Independent setup, peer services, then main-thread engine integration.
 		void LoadStartupContent();
-		void InitializeDataLoadedState();
-		bool EnsureWebRuntime();
+		void InitializeEngineIntegration();
+		bool InitializeWebRuntime();
 		bool InitializeRenderer();
 		void WireRendererLifecycleCallbacks();
 		bool InitializeCompositor();
@@ -161,14 +160,12 @@ namespace OSFUI
 		// Startup and frame lifecycle.
 		bool m_initialized{ false };
 		bool m_postLoadAttempted{ false };
-		bool m_webRuntimeInitializing{ false };
 		bool m_webRuntimeReady{ false };
 		bool m_developerMode{ false };       // startup-latched; changes apply next launch
 		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
 		double m_nowSeconds{ 0.0 };
 		// SFSE lifecycle producer -> main-thread consumer.
-		std::atomic_bool m_dataLoadedInitPending{ false };
-		std::atomic_bool m_postDataLoadedReady{ false };
+		std::atomic_bool m_engineIntegrationPending{ false };
 
 		// View lifecycle and presentation.
 		ViewPresentationController m_presentation;
