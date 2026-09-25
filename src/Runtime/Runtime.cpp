@@ -115,9 +115,6 @@ namespace OSFUI
     {
 		std::size_t queued = 0;
 		for (const auto& manifest : m_views.All()) {
-			if (manifest.kind != ViewKind::Hud) {
-				continue;
-			}
 			if (!HudAutoStartEligible(manifest)) {
 				continue;
 			}
@@ -222,35 +219,41 @@ namespace OSFUI
 
 	void Runtime::EnqueuePresentationRequest(ViewPresentationRequest a_req)
 	{
-		m_viewRequests.Enqueue(a_req);
+		API::BridgeApi::Get().ViewRequests().Enqueue(a_req);
 	}
 
 	void Runtime::EnqueueOpenView(std::string a_viewId)
 	{
-		m_viewRequests.EnqueueOpen(std::move(a_viewId));
+		API::BridgeApi::Get().ViewRequests().EnqueueView(std::move(a_viewId), true);
+	}
+
+	void Runtime::EnqueueCloseView(std::string a_viewId)
+	{
+		API::BridgeApi::Get().ViewRequests().EnqueueView(std::move(a_viewId), false);
 	}
 
 	void Runtime::EnqueueRelativePointerCapture(std::string a_viewId, bool a_active)
 	{
-		m_viewRequests.EnqueueRelativePointer(std::move(a_viewId), a_active);
+		API::BridgeApi::Get().ViewRequests().EnqueueRelativePointer(std::move(a_viewId), a_active);
 	}
 
 
-	void Runtime::ApplyPresentationRequests(
-		const std::vector<ViewRequestQueue::Operation>& a_local,
-		const std::vector<API::BridgeApi::ViewPresentationRequest>& a_plugin)
+	void Runtime::ApplyPresentationRequests(const std::vector<ViewRequestQueue::Operation>& a_requests)
 	{
-		if (a_local.empty() && a_plugin.empty()) {
-			return;
-		}
-		for (const auto& operation : a_local) {
+		for (const auto& operation : a_requests) {
 			if (const auto* pointer = std::get_if<ViewRequestQueue::RelativePointerRequest>(&operation)) {
-				ApplyViewPresentationPolicy();
-				ApplyRelativePointerRequests({ *pointer });
+				// Pointer ownership observes all preceding presentation requests.
+				CommitPresentation();
+				ApplyRelativePointerRequest(*pointer);
 				continue;
 			}
-			if (const auto* open = std::get_if<ViewRequestQueue::OpenRequest>(&operation)) {
-				BeginViewOpen(open->view, "on demand", open->requestedAt);
+			if (const auto* view = std::get_if<ViewRequestQueue::ViewRequest>(&operation)) {
+				if (view->open) {
+					PrepareViewOpen(view->view, "on demand", view->requestedAt);
+				} else {
+					m_viewOpens.Cancel(view->view);
+					m_presentation.Close(view->view);
+				}
 				continue;
 			}
 			switch (std::get<ViewPresentationRequest>(operation)) {
@@ -261,8 +264,11 @@ namespace OSFUI
 				} else if (active) {
 					m_viewOpens.CancelTiming(*active);
 					if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
-						BeginViewOpen(*target, "for native back navigation");
+						PrepareViewOpen(*target, "for native back navigation");
 					} else if (m_viewInputGrants.OwnsBackAction(*active) && m_renderer) {
+						// Deliver Back to the menu selected by preceding requests.
+						CommitPresentation();
+						if (m_presentation.ActiveMenu() != active) continue;
 						constexpr std::uint32_t kVkEscape = 0x1B;
 						m_renderer->InjectKeyEvent(kVkEscape, true);
 						m_renderer->InjectKeyEvent(kVkEscape, false);
@@ -280,41 +286,30 @@ namespace OSFUI
 				break;
 			}
 		}
-		for (const auto& r : a_plugin) {
-			if (r.open) {
-				BeginViewOpen(r.view, "on demand", r.requestedAt);
-			} else {
-				m_viewOpens.Cancel(r.view);
-				m_presentation.Close(r.view);
-			}
-		}
-		ApplyViewPresentationPolicy();
 	}
 
-	void Runtime::ApplyRelativePointerRequests(const std::vector<ViewRequestQueue::RelativePointerRequest>& a_requests)
+	void Runtime::ApplyRelativePointerRequest(const ViewRequestQueue::RelativePointerRequest& a_request)
 	{
-		for (const auto& request : a_requests) {
-			if (!request.active) {
-				m_relativePointer.End(request.view);
-				continue;
-			}
+		if (!a_request.active) {
+			m_relativePointer.End(a_request.view);
+			return;
+		}
 
-			const auto active = m_presentation.ActiveMenu();
-			if (!IsInputCaptured() || !active || *active != request.view || !m_presentation.IsOpen(request.view)) {
-				if (m_bridge) {
-					m_bridge->ReportProtocolFault(request.view, "pointer-capture-forbidden",
-						"only the visible input-owning menu can capture relative pointer input");
-				}
-				continue;
+		const auto active = m_presentation.ActiveMenu();
+		if (!IsInputCaptured() || !active || *active != a_request.view || !m_presentation.IsOpen(a_request.view)) {
+			if (m_bridge) {
+				m_bridge->ReportProtocolFault(a_request.view, "pointer-capture-forbidden",
+					"only the visible input-owning menu can capture relative pointer input");
 			}
-			if (!m_relativePointer.Begin(request.view) && m_bridge) {
-				m_bridge->ReportProtocolFault(request.view, "pointer-capture-unavailable",
-					"the native owner did not register a relative pointer handler", {}, false);
-			}
+			return;
+		}
+		if (!m_relativePointer.Begin(a_request.view) && m_bridge) {
+			m_bridge->ReportProtocolFault(a_request.view, "pointer-capture-unavailable",
+				"the native owner did not register a relative pointer handler", {}, false);
 		}
 	}
 
-	bool Runtime::BeginViewOpen(std::string_view a_id, std::string_view a_reason,
+	void Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason,
 		std::optional<ViewOpenCoordinator::Clock::time_point> a_requestedAt)
 	{
 		const auto* manifest = m_views.Find(a_id);
@@ -322,20 +317,20 @@ namespace OSFUI
 			REX::WARN("Runtime: cannot open '{}' — no discovered view has that id", a_id);
 			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.not-found",
 				"The requested OSF UI view is not installed", { { "view", a_id } });
-			return false;
+			return;
 		}
 		a_id = manifest->id;
-		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return false;
+		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return;
 		if (!EnsureWebRuntime()) {
 			REX::WARN("Runtime: cannot open '{}' — lazy WebView runtime initialization failed", a_id);
-			return false;
+			return;
 		}
 		// Require both installation and the lazy render-worker self-test before allowing input capture.
 		if (!UiPass::DrawEnabled()) {
 			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable", a_id);
 			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.draw-path-unavailable",
 				"The view cannot open because the UI draw path is unavailable", { { "view", a_id } });
-			return false;
+			return;
 		}
 		if (m_rendererFailed) {
 			if (m_browserHostRecovery.RequestManualRetry(m_nowSeconds)) {
@@ -349,10 +344,10 @@ namespace OSFUI
 				REX::WARN("Runtime: cannot open '{}' - the web renderer needs a game restart or "
 					"the repair described in the log", a_id);
 			}
-			return false;
+			return;
 		}
 		if (m_presentation.IsOpen(a_id) ||
-			m_viewOpens.Contains(a_id)) return false;
+			m_viewOpens.Contains(a_id)) return;
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
 		if (requiresCaptureIntegration && !m_inputCapture.IntegrationAttempted()) {
 			m_inputCapture.EnsureIntegration(m_postDataLoadedReady.load(std::memory_order_acquire));
@@ -362,37 +357,29 @@ namespace OSFUI
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
 			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable",
 				"The view requires web input, but input integration is unavailable", { { "view", a_id } });
-			return false;
+			return;
 		}
 
-		const auto preflight = API::BridgeApi::Get().RunViewOpenPreflight(a_id);
-		if (preflight == API::BridgeApi::ViewOpenPreflightResult::kDenied) {
-			REX::WARN("Runtime: native view-open preflight denied '{}'; current presentation retained", a_id);
-			return false;
-		}
-		const bool requiresStateBarrier = preflight == API::BridgeApi::ViewOpenPreflightResult::kAllowed;
-		if (requiresStateBarrier) {
-			REX::DEBUG("Runtime: native view-open preflight allowed '{}'; holding presentation through the next main tick", a_id);
-		}
+		// Creation stays hidden until CommitPresentation applies this intent.
 
 		if (manifest->kind == ViewKind::Menu &&
 			m_viewLoads.GetState(a_id) != ViewLoadState::Finished) {
 			m_viewOpens.BeginTiming(a_id, m_presentation.IsInstantiated(a_id), a_requestedAt);
 		}
-		if (!m_presentation.IsInstantiated(a_id) && !InstantiateView(*manifest, a_reason)) {
+		if (!InstantiateView(*manifest, a_reason)) {
 			m_viewOpens.CancelTiming(a_id);
-			return false;
+			return;
 		}
 
 		if (manifest->kind == ViewKind::Hud) {
-			m_viewOpens.QueueHud(a_id, m_mainTickSerial + (requiresStateBarrier ? 1 : 0));
-			return true;
+			m_viewOpens.QueueHud(a_id);
+			return;
 		}
-		if (m_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id), requiresStateBarrier, m_mainTickSerial, a_requestedAt)) {
-			return m_presentation.Open(a_id);
+		if (m_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id), a_requestedAt)) {
+			m_presentation.Open(a_id);
+			return;
 		}
-		REX::DEBUG("Runtime: holding open of '{}' until its load, input integration and retained-state barrier are ready", a_id);
-		return true;
+		REX::DEBUG("Runtime: holding open of '{}' until its load and input integration are ready", a_id);
 	}
 
 	ViewOpenCoordinator::Readiness Runtime::ViewOpenReadiness(std::string_view a_id) const
@@ -414,22 +401,19 @@ namespace OSFUI
 			const auto* manifest = m_views.Find(*m_viewOpens.PendingMenu());
 			if (manifest && manifest->capturesInput) m_inputCapture.EnsureIntegration(m_postDataLoadedReady.load(std::memory_order_acquire));
 		}
-		const auto ready = m_viewOpens.TakeReady(m_mainTickSerial, !m_rendererFailed, menusAllowed,
+		const auto ready = m_viewOpens.TakeReady(!m_rendererFailed, menusAllowed,
 			[this](std::string_view a_id) { return ViewOpenReadiness(a_id); });
-		bool changed = false;
 		for (const auto& id : ready) {
-			changed = m_presentation.Open(id) || changed;
+			m_presentation.Open(id);
 			REX::DEBUG("Runtime: open prerequisites completed; opening '{}'", id);
 		}
-		if (changed) ApplyViewPresentationPolicy();
 	}
 
-	void Runtime::DrainViewRegistrations(std::vector<std::string> a_ids)
+	void Runtime::DrainViewRegistrations(const std::vector<std::string>& a_ids)
 	{
 		if (a_ids.empty()) {
 			return;
 		}
-		bool catalogChanged = false;
 		for (const auto& id : a_ids) {
 			// Do not re-register instantiated views and discard their page state.
 			if (m_presentation.IsInstantiated(id)) {
@@ -442,15 +426,11 @@ namespace OSFUI
 				continue;
 			}
 			if (HudAutoStartEligible(*m)) {
-				catalogChanged = BeginViewOpen(id, "via plugin RegisterView openOnStart") || catalogChanged;
+				PrepareViewOpen(id, "via plugin RegisterView openOnStart");
 			} else {
 				// Discovery catalogues the view; registration validates intent without creating the page.
 				REX::DEBUG("Runtime: plugin RegisterView('{}') accepted; creation deferred until first open", id);
 			}
-		}
-		if (catalogChanged) {
-			ApplyViewPresentationPolicy();     // openOnStart / z-band changes take effect now
-			BroadcastViewsData();
 		}
 	}
 
@@ -474,6 +454,10 @@ namespace OSFUI
 
 		// Block OSF hotkeys before publishing browser visibility or input capture.
 		ReconcileInputSuppression();
+		if (!m_presentation.TakeChanged()) {
+			ReconcileFrameState();
+			return;
+		}
 
 		const auto layers = m_presentation.DesiredLayers();
 		for (const auto& layer : layers) {
@@ -507,7 +491,6 @@ namespace OSFUI
 		if (visible && !wasVisible) {
 			m_renderer->SetPointerInputEnabled(false);
 		}
-		m_inputCapture.ReconcileBrowserFocus(m_renderer.get(), m_visible.load(), m_presentation.ActiveMenu().has_value());
 		if (!visible) {
 			m_renderer->SetPointerInputEnabled(true);
 		}
@@ -535,6 +518,8 @@ namespace OSFUI
 			}
 		}
 
+		// Engine capture and pause are settled before notifying native owners.
+		ReconcileFrameState();
 		const std::string shown = (visible && active) ? *active : std::string();
 		if (shown != m_lastShownView) {
 			const std::string previous = m_lastShownView;
@@ -607,14 +592,13 @@ namespace OSFUI
 			}
 			if (manifest.kind == ViewKind::Hud && m_presentation.IsOpen(manifest.id)) {
 				m_presentation.Close(manifest.id);
-				m_viewOpens.QueueHud(manifest.id, m_mainTickSerial);
+				m_viewOpens.QueueHud(manifest.id);
 			}
 			NavigateView(manifest);
 			++reloaded;
 		}
 
-		ApplyViewPresentationPolicy();
-		BroadcastViewsData();
+		m_presentation.Invalidate(); // the replacement host needs the complete policy
 		REX::INFO("Runtime: replayed {} instantiated view(s) to the replacement browser host; menus stay closed and requested HUDs await load", reloaded);
 	}
 
@@ -647,12 +631,8 @@ namespace OSFUI
 		m_viewOpens.SuspendMenus();
 		m_presentation.CloseActiveMenu();
 		m_presentation.SetSuspended(true);
+		// Failure is an immediate release boundary, with no new opens or state drain.
 		ApplyViewPresentationPolicy();
-
-		ReconcileFocusMenu();
-		m_inputCapture.ReconcileControlLayer(m_presentation.DesiredCapture(), IsInputCaptured());
-		SimPause::Apply(m_presentation.DesiredPause());
-		FreeCursor::Apply(false);
 	}
 
 	void Runtime::OnOutputResized(std::uint32_t a_width, std::uint32_t a_height)

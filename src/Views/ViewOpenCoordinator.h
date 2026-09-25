@@ -6,14 +6,13 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace OSFUI
 {
-	// Main-thread only. Owns unpresented open requests and their timing, using
-	// canonical manifest ids. Runtime owns preflight callbacks, instantiation and
-	// presentation; this class never calls the engine, browser or native plugins.
+	// Main-thread only. Owns unpresented open requests and their timing, using canonical manifest ids.
+	// Runtime owns instantiation and presentation; this class never calls the engine, browser or native plugins.
 	class ViewOpenCoordinator
 	{
 	public:
@@ -31,24 +30,19 @@ namespace OSFUI
 		// Begin before instantiation so its duration belongs to this open request.
 		// Repeated requests preserve the first timestamp. Invalid/future timestamps
 		// use a_now; callers can pass a clock explicitly for deterministic tests.
-		void BeginTiming(std::string_view a_view, bool a_instantiated,
-			std::optional<Clock::time_point> a_requestedAt = std::nullopt,
-			Clock::time_point a_now = Clock::now());
+		void BeginTiming(std::string_view a_view, bool a_instantiated, std::optional<Clock::time_point> a_requestedAt = std::nullopt, Clock::time_point a_now = Clock::now());
 		void OnInstantiated(std::string_view a_view, Clock::time_point a_now = Clock::now());
 		void OnLoad(std::string_view a_view, bool a_failed, Clock::time_point a_now = Clock::now());
 		std::optional<Timing> FinishTiming(std::string_view a_view, Clock::time_point a_now = Clock::now());
 		void CancelTiming(std::string_view a_view);
 
-		// Call after preflight and instantiation succeed. Replaces only the pending
+		// Call after instantiation succeeds. Replaces only the pending
 		// menu, leaving the currently presented menu and HUD requests untouched.
-		// Returns true when this menu can be presented immediately.
-		bool QueueMenu(std::string_view a_view, Readiness a_readiness, bool a_stateBarrier,
-			std::uint64_t a_tick, std::optional<Clock::time_point> a_requestedAt = std::nullopt,
-			Clock::time_point a_now = Clock::now());
+		// Returns true when desired presentation can select this menu immediately.
+		bool QueueMenu(std::string_view a_view, Readiness a_readiness, std::optional<Clock::time_point> a_requestedAt = std::nullopt, Clock::time_point a_now = Clock::now());
 		// HUDs always pass through the load gate, including startup and host recovery.
-		void QueueHud(std::string_view a_view, std::uint64_t a_readyTick);
-		std::vector<std::string> TakeReady(std::uint64_t a_tick, bool a_hostReady, bool a_menusAllowed,
-			const std::function<Readiness(std::string_view)>& a_readiness);
+		void QueueHud(std::string_view a_view);
+		std::vector<std::string> TakeReady(bool a_hostReady, bool a_menusAllowed, const std::function<Readiness(std::string_view)>& a_readiness);
 
 		bool CancelMenu();
 		void SuspendMenus(); // host loss/game transition: also discard active-menu timing
@@ -63,8 +57,7 @@ namespace OSFUI
 			std::optional<Clock::time_point> instantiatedAt, loadedAt;
 		};
 		std::optional<std::string> m_menu;
-		std::uint64_t m_menuReadyTick{ 0 };
-		std::unordered_map<std::string, std::uint64_t> m_huds;
+		std::unordered_set<std::string> m_huds;
 		std::optional<ColdOpenTiming> m_timing;
 	};
 }

@@ -1,19 +1,26 @@
 #include "Views/ViewPresentationController.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace OSFUI
 {
 	void ViewPresentationController::AddInstantiated(const InstantiatedView& a_view)
 	{
 		m_instantiated[a_view.id] = a_view;
+		m_changed = true;
 	}
 
 	bool ViewPresentationController::RemoveInstantiated(std::string_view a_id)
 	{
 		const bool changed = Close(a_id);
-		m_instantiated.erase(std::string(a_id));
+		if (m_instantiated.erase(std::string(a_id))) m_changed = true;
 		return changed;
+	}
+
+	bool ViewPresentationController::TakeChanged()
+	{
+		return std::exchange(m_changed, false);
 	}
 
 	const ViewPresentationController::InstantiatedView* ViewPresentationController::FindInstantiated(std::string_view a_id) const
@@ -42,13 +49,16 @@ namespace OSFUI
 		const std::string id(a_id);
 
 		if (view->kind == ViewKind::Hud) {
-			return m_hudShown.insert(id).second;  // false if already shown
+			const bool added = m_hudShown.insert(id).second;
+			m_changed = m_changed || added;
+			return added;
 		}
 
 		if (m_activeMenu && *m_activeMenu == id) {
 			return false;
 		}
 		m_activeMenu = id;
+		m_changed = true;
 		return true;
 	}
 
@@ -56,10 +66,12 @@ namespace OSFUI
 	{
 		const std::string id(a_id);
 		if (m_hudShown.erase(id) > 0) {
+			m_changed = true;
 			return true;
 		}
 		if (m_activeMenu && *m_activeMenu == id) {
 			m_activeMenu.reset();
+			m_changed = true;
 			return true;
 		}
 		return false;
@@ -71,12 +83,14 @@ namespace OSFUI
 			return false;
 		}
 		m_activeMenu.reset();
+		m_changed = true;
 		return true;
 	}
 
 	void ViewPresentationController::CloseAll()
 	{
 		// Clear menus and HUDs so transitions cannot leave the overlay visible.
+		m_changed = m_changed || m_activeMenu.has_value() || !m_hudShown.empty();
 		m_activeMenu.reset();
 		m_hudShown.clear();
 	}
@@ -85,6 +99,7 @@ namespace OSFUI
 	{
 		if (m_suspended == a_suspended) return false;
 		m_suspended = a_suspended;
+		m_changed = true;
 		if (m_suspended) m_activeMenu.reset();
 		return true;
 	}

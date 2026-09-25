@@ -6,11 +6,12 @@ void OSFUI::ViewRequestQueue::Enqueue(ViewPresentationRequest a_request)
     m_presentation.push_back(a_request);
 }
 
-void OSFUI::ViewRequestQueue::EnqueueOpen(std::string a_viewId)
+void OSFUI::ViewRequestQueue::EnqueueView(std::string a_viewId, bool a_open)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_presentation.emplace_back(OpenRequest{
+    m_presentation.emplace_back(ViewRequest{
         .view = std::move(a_viewId),
+        .open = a_open,
         .requestedAt = std::chrono::steady_clock::now(),
     });
 }
@@ -24,12 +25,11 @@ void OSFUI::ViewRequestQueue::EnqueueRelativePointer(std::string a_viewId, bool 
     });
 }
 
-OSFUI::ViewRequestQueue::Batch OSFUI::ViewRequestQueue::Take()
+std::vector<OSFUI::ViewRequestQueue::Operation> OSFUI::ViewRequestQueue::Take()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    Batch batch;
-
-    batch.presentation.swap(m_presentation);
+    std::vector<Operation> batch;
+    batch.swap(m_presentation);
 
     return batch;
 }

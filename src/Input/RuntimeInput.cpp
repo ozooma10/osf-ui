@@ -73,17 +73,15 @@ namespace OSFUI
 		m_renderer->InjectPhysicalMouseWheel(cursor.x, cursor.y, a_wheelDelta);
 	}
 
-	bool Runtime::ReconcileInputSuppression()
+	void Runtime::ReconcileInputSuppression()
 	{
-		if (m_inputCapture.ReconcileSuppression(m_presentation.DesiredCapture(), m_osfSettings)) return true;
+		if (m_inputCapture.ReconcileSuppression(m_presentation.DesiredCapture(), m_osfSettings)) return;
 		m_viewOpens.SuspendMenus();
 		m_presentation.CloseActiveMenu();
-		return false;
 	}
 
 	void Runtime::ReconcileFocusMenu()
 	{
-		if (!ReconcileInputSuppression()) ApplyViewPresentationPolicy();
 		m_inputCapture.ReconcileFocusMenu(m_presentation.DesiredCapture(), m_nowSeconds);
 	}
 

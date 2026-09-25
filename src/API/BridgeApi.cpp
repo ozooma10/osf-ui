@@ -120,38 +120,6 @@ namespace OSFUI::API
 		return true;
 	}
 
-	bool BridgeApi::RegisterViewOpenPreflight(const char* a_viewId,
-		ViewOpenPreflightFn a_handler, void* a_user) noexcept
-	{
-		if (!a_viewId || !a_handler || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
-		std::lock_guard lock(m_mutex);
-		return m_viewOpenPreflights.emplace(StringUtil::ToLowerAscii(a_viewId),
-			ViewOpenPreflightRegistration{ a_handler, a_user }).second;
-	}
-
-	void BridgeApi::UnregisterViewOpenPreflight(const char* a_viewId) noexcept
-	{
-		if (!a_viewId) return;
-		std::lock_guard dispatchLock(m_callbackDispatchMutex);
-		std::lock_guard lock(m_mutex);
-		m_viewOpenPreflights.erase(StringUtil::ToLowerAscii(a_viewId));
-	}
-
-	BridgeApi::ViewOpenPreflightResult BridgeApi::RunViewOpenPreflight(std::string_view a_viewId)
-	{
-		std::lock_guard dispatchLock(m_callbackDispatchMutex);
-		ViewOpenPreflightRegistration registration;
-		{
-			std::lock_guard lock(m_mutex);
-			const auto found = m_viewOpenPreflights.find(StringUtil::ToLowerAscii(a_viewId));
-			if (found == m_viewOpenPreflights.end()) return ViewOpenPreflightResult::kNoHandler;
-			registration = found->second;
-		}
-		const std::string view(a_viewId);
-		return registration.fn(view.c_str(), registration.user) ?
-			ViewOpenPreflightResult::kAllowed : ViewOpenPreflightResult::kDenied;
-	}
-
 	bool BridgeApi::RegisterViewLifecycle(const char* a_viewId,
 		ViewLifecycleFn a_handler, void* a_user) noexcept
 	{
@@ -237,12 +205,9 @@ namespace OSFUI::API
 	{
 		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(m_mutex);
-		const auto* id = FindIdCaseInsensitive(
-			a_open ? m_knownViews : m_instantiatedViews, a_viewId);
+		const auto* id = FindIdCaseInsensitive(m_knownViews, a_viewId);
 		if (!id) return false;
-		m_pendingViewPresentationRequests.push_back({ *id, a_open,
-			std::chrono::steady_clock::now() });
-		MarkPending(kPendingPresentation);
+		m_viewRequests.EnqueueView(*id, a_open);
 		return true;
 	}
 
@@ -287,16 +252,25 @@ namespace OSFUI::API
 
 	BridgeApi::PendingBatch BridgeApi::TakePendingBatch()
 	{
-		constexpr auto frameBits = kPendingPresentation | kPendingState |
-			kPendingViewRegistrations;
-		const auto reasons = m_pending.fetch_and(~frameBits, std::memory_order_acq_rel);
 		PendingBatch batch;
+		batch.presentation = m_viewRequests.Take();
+		constexpr auto frameBits = kPendingState | kPendingViewRegistrations;
+		const auto reasons = m_pending.fetch_and(~frameBits, std::memory_order_acq_rel);
 		if (!(reasons & frameBits)) return batch;
 		std::lock_guard lock(m_mutex);
-		batch.presentation.swap(m_pendingViewPresentationRequests);
 		batch.state.swap(m_pendingStateOps);
 		batch.viewRegistrations.swap(m_pendingViewRegs);
 		return batch;
+	}
+
+	std::vector<BridgeApi::ViewStateOp> BridgeApi::TakePendingState()
+	{
+		const auto reasons = m_pending.fetch_and(~kPendingState, std::memory_order_acq_rel);
+		std::vector<ViewStateOp> state;
+		if (!(reasons & kPendingState)) return state;
+		std::lock_guard lock(m_mutex);
+		state.swap(m_pendingStateOps);
+		return state;
 	}
 
 	void BridgeApi::RespondThunk(std::uint64_t token, const char* json) noexcept

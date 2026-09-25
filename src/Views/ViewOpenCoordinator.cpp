@@ -54,34 +54,32 @@ namespace OSFUI
 		if (m_timing && m_timing->view == a_view) m_timing.reset();
 	}
 
-	bool ViewOpenCoordinator::QueueMenu(std::string_view a_view, Readiness a_readiness, bool a_stateBarrier,
-		std::uint64_t a_tick, std::optional<Clock::time_point> a_requestedAt, Clock::time_point a_now)
+	bool ViewOpenCoordinator::QueueMenu(std::string_view a_view, Readiness a_readiness,
+		std::optional<Clock::time_point> a_requestedAt, Clock::time_point a_now)
 	{
 		if (Contains(a_view)) return false;
 		CancelMenu();
-		if (!a_stateBarrier && a_readiness == Readiness::Ready) return true;
+		if (a_readiness == Readiness::Ready) return true;
 		BeginTiming(a_view, true, a_requestedAt, a_now);
 		m_menu = a_view;
-		m_menuReadyTick = a_tick + (a_stateBarrier ? 1 : 0);
 		return false;
 	}
 
-	void ViewOpenCoordinator::QueueHud(std::string_view a_view, std::uint64_t a_readyTick)
+	void ViewOpenCoordinator::QueueHud(std::string_view a_view)
 	{
-		m_huds.try_emplace(std::string(a_view), a_readyTick);
+		m_huds.emplace(a_view);
 	}
 
-	std::vector<std::string> ViewOpenCoordinator::TakeReady(std::uint64_t a_tick, bool a_hostReady, bool a_menusAllowed,
+	std::vector<std::string> ViewOpenCoordinator::TakeReady(bool a_hostReady, bool a_menusAllowed,
 		const std::function<Readiness(std::string_view)>& a_readiness)
 	{
 		std::vector<std::string> ready;
 		for (auto it = m_huds.begin(); it != m_huds.end();) {
-			if (it->second > a_tick) { ++it; continue; }
-			const auto state = a_readiness(it->first);
+			const auto state = a_readiness(*it);
 			if (state == Readiness::Missing) {
 				it = m_huds.erase(it);
 			} else if (a_hostReady && state == Readiness::Ready) {
-				ready.push_back(it->first);
+				ready.push_back(*it);
 				it = m_huds.erase(it);
 			} else {
 				++it;
@@ -91,7 +89,7 @@ namespace OSFUI
 		const auto state = a_readiness(*m_menu);
 		if (state == Readiness::Missing || state == Readiness::InputUnavailable) {
 			CancelMenu();
-		} else if (a_tick >= m_menuReadyTick && state == Readiness::Ready) {
+		} else if (state == Readiness::Ready) {
 			ready.push_back(std::move(*m_menu));
 			m_menu.reset(); // timing remains until the first presentable frame
 		}

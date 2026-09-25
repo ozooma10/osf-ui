@@ -46,11 +46,29 @@ int main()
     CHECK(api.RequestMenu("acme/panel", true));
     CHECK(!api.RequestMenu("missing/panel", true));
     auto presentation = api.TakePendingBatch().presentation;
-    CHECK(presentation.size() == 1 && presentation[0].view == "acme/panel" && presentation[0].open);
+    CHECK(presentation.size() == 1);
+    const auto& opened = std::get<ViewRequestQueue::ViewRequest>(presentation.at(0));
+    CHECK(opened.view == "acme/panel" && opened.open);
+
+    // Native, browser and input producers share one FIFO, including closes of
+    // views that an earlier queued open has not instantiated yet.
+    api.ViewRequests().EnqueueView("acme/hud", true);
+    CHECK(api.RequestMenu("ACME/PANEL", true));
+    api.ViewRequests().Enqueue(ViewPresentationRequest::Back);
+    CHECK(api.RequestMenu("acme/panel", false));
+    CHECK(!api.RequestMenu("missing/panel", false));
+    auto mixed = api.TakePendingBatch().presentation;
+    CHECK(mixed.size() == 4);
+    CHECK(std::get<ViewRequestQueue::ViewRequest>(mixed.at(0)).view == "acme/hud");
+    CHECK(std::get<ViewRequestQueue::ViewRequest>(mixed.at(1)).view == "acme/panel");
+    CHECK(std::get<ViewPresentationRequest>(mixed.at(2)) == ViewPresentationRequest::Back);
+    CHECK(!std::get<ViewRequestQueue::ViewRequest>(mixed.at(3)).open);
+    CHECK(api.TakePendingBatch().presentation.empty());
 
     API::Client client;
     CHECK(client.Attach(&api));
     CHECK(client.Attach(&api, API::kVersion + 1)); // Minor bumps stay compatible.
+    CHECK(!API::Supports(API::kVersion, API::kVersion + 0x00010000u)); // Runtime rejects incompatible majors.
     CHECK(!client.Attach(&api, API::kVersion + 0x00010000u)); // Major bumps detach.
     CHECK(!client && client.Version() == 0);
 
@@ -63,6 +81,31 @@ int main()
     CHECK(!api.SetViewState("acme", "status", "{bad"));
     auto state = api.TakePendingBatch().state;
     CHECK(state.size() == 1 && state[0].mod == "acme" && state[0].key == "status");
+
+    // Draining state preserves publication order and leaves requests and
+    // registrations queued for the next batch.
+    CHECK(api.SetViewState("acme", "status", R"({"revision":1})"));
+    CHECK(api.SetViewState("acme", "status", R"({"revision":2})"));
+    CHECK(api.RequestMenu("acme/hud", true));
+    api.ViewRequests().Enqueue(ViewPresentationRequest::Back);
+    CHECK(api.RegisterView("acme/hud"));
+    auto pendingState = api.TakePendingState();
+    CHECK(pendingState.size() == 2);
+    if (pendingState.size() == 2) {
+        CHECK(pendingState[0].value["revision"] == 1);
+        CHECK(pendingState[1].value["revision"] == 2); // Newest publication wins.
+    }
+    CHECK(api.TakePendingState().empty());
+    auto afterState = api.TakePendingBatch();
+    CHECK(afterState.state.empty());
+    CHECK(afterState.presentation.size() == 2);
+    CHECK(std::get<ViewRequestQueue::ViewRequest>(afterState.presentation.at(0)).view == "acme/hud");
+    CHECK(std::get<ViewPresentationRequest>(afterState.presentation.at(1)) == ViewPresentationRequest::Back);
+    CHECK(afterState.viewRegistrations == std::vector<std::string>{ "acme/hud" });
+    // An empty state drain must not swallow a subsequent publication.
+    CHECK(api.SetViewState("acme", "status", R"({"revision":3})"));
+    auto laterState = api.TakePendingBatch().state;
+    CHECK(laterState.size() == 1 && laterState[0].value["revision"] == 3);
 
     CHECK(api.RegisterRelativePointer("acme/panel", &Pointer, nullptr));
     CHECK(!api.RegisterRelativePointer("acme/panel", &Pointer, nullptr));

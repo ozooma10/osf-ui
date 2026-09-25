@@ -193,23 +193,15 @@ namespace OSFUI
     void Runtime::RegisterPlatformEndpoints(MessageBridge& a_bridge)
 	{
 		a_bridge.RegisterSend("close", [this](const nlohmann::json&, MessageBridge& a_b) {
-			const std::string source(a_b.CurrentSource());
-			if (m_viewOpens.Cancel(source)) {
-				return;
-			}
-			if (m_presentation.Close(source)) {
-				ApplyViewPresentationPolicy();
-			}
+			EnqueueCloseView(std::string(a_b.CurrentSource()));
 		});
 		a_bridge.RegisterSend("setVisible", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
 			const std::string src(a_b.CurrentSource());
 			const bool visible = Json::Get(a_p, "visible", false);
-			if (!visible) {
-				m_viewOpens.Cancel(src);
-			}
-			const bool changed = visible ? BeginViewOpen(src) : m_presentation.Close(src);
-			if (changed) {
-				ApplyViewPresentationPolicy();
+			if (visible) {
+				EnqueueOpenView(src);
+			} else {
+				EnqueueCloseView(src);
 			}
 		});
 		a_bridge.RegisterRequest("menu.open", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
@@ -237,17 +229,13 @@ namespace OSFUI
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			if (const auto* manifest = m_views.Find(id)) {
-				id = manifest->id;
-			}
-			bool cancelled = false;
-			cancelled = m_viewOpens.Cancel(id);
-			if (m_presentation.Close(id)) {
-				ApplyViewPresentationPolicy();
-			} else if (!cancelled && !m_presentation.IsInstantiated(id)) {
-				a_b.Reject("unknown-view", "view is not instantiated");
+			const auto* manifest = m_views.Find(id);
+			if (!manifest) {
+				a_b.Reject("unknown-view", "view was not discovered");
 				return;
 			}
+			// Accept a close even if an earlier open in the inbox has not created it.
+			EnqueueCloseView(manifest->id);
 			a_b.Respond(nlohmann::json::object());
 		});
 		a_bridge.RegisterRequest("setViewHidden", [this](const nlohmann::json& a_p, MessageBridge& a_b) {
@@ -255,24 +243,17 @@ namespace OSFUI
 			if (id.empty()) {
 				id = std::string(a_b.CurrentSource());
 			}
-			if (const auto* manifest = m_views.Find(id)) {
-				id = manifest->id;
-			}
-			if (!m_presentation.IsInstantiated(id)) {
-				a_b.Reject("unknown-view", "not an instantiated view");
+			const auto* manifest = m_views.Find(id);
+			if (!manifest) {
+				a_b.Reject("unknown-view", "view was not discovered");
 				return;
 			}
 
 			const bool hidden = Json::Get(a_p, "hidden", false);
-			bool changed = false;
 			if (hidden) {
-				m_viewOpens.Cancel(id);
-				changed = m_presentation.Close(id);
+				EnqueueCloseView(manifest->id);
 			} else {
-				changed = BeginViewOpen(id);
-			}
-			if (changed) {
-				ApplyViewPresentationPolicy();
+				EnqueueOpenView(manifest->id);
 			}
 			a_b.Respond(nlohmann::json::object());
 		});

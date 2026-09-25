@@ -33,8 +33,6 @@ namespace OSFUI::API
 		kCancel,  // Capture or view ownership was lost.
 	};
 	using RelativePointerFn = void (*)(const char* viewId, RelativePointerPhase phase, float dx, float dy, float wheel, void* context) noexcept;
-	// Synchronous allow/deny before a view opens; false blocks the pending open.
-	using ViewOpenPreflightFn = bool (*)(const char* viewId, void* context) noexcept;
 	// Menu presentation for an exact view.
 	enum class ViewLifecyclePhase : std::uint32_t
 	{
@@ -96,7 +94,7 @@ namespace OSFUI::API
 		virtual void SetReadyCallback(ReadyFn callback, void* context) noexcept = 0;
 
 		// Views are qualified "mod/view" IDs, matched case-insensitively.
-		// Opens a discovered view or closes an instantiated one; false when the view is unknown or not in that state.
+		// Queues an open or close for a discovered view; false when the view is unknown. Closing also cancels a queued/loading open. Repeated closes are harmless.
 		virtual bool RequestMenu(const char* viewId, bool open) noexcept = 0;
 		// Loads and registers a shipped view folder. Repeated calls are safe; false for an invalid view or mod ID.
 		virtual bool RegisterView(const char* viewId) noexcept = 0;
@@ -105,8 +103,6 @@ namespace OSFUI::API
 		// Unregister accepts unknown views and cancels any active relative-pointer capture.
 		virtual bool RegisterRelativePointer(const char* viewId, RelativePointerFn callback, void* context) noexcept = 0;
 		virtual void UnregisterRelativePointer(const char* viewId) noexcept = 0;
-		virtual bool RegisterViewOpenPreflight(const char* viewId, ViewOpenPreflightFn callback, void* context) noexcept = 0;
-		virtual void UnregisterViewOpenPreflight(const char* viewId) noexcept = 0;
 		virtual bool RegisterViewLifecycle(const char* viewId, ViewLifecycleFn callback, void* context) noexcept = 0;
 		virtual void UnregisterViewLifecycle(const char* viewId) noexcept = 0;
 
@@ -189,14 +185,6 @@ namespace OSFUI::API
 		void UnregisterRelativePointer(const char* viewId) const noexcept
 		{
 			if (m_api) m_api->UnregisterRelativePointer(viewId);
-		}
-		bool RegisterViewOpenPreflight(const char* viewId, ViewOpenPreflightFn callback, void* context) const noexcept
-		{
-			return m_api && m_api->RegisterViewOpenPreflight(viewId, callback, context);
-		}
-		void UnregisterViewOpenPreflight(const char* viewId) const noexcept
-		{
-			if (m_api) m_api->UnregisterViewOpenPreflight(viewId);
 		}
 		bool RegisterViewLifecycle(const char* viewId, ViewLifecycleFn callback, void* context) const noexcept
 		{

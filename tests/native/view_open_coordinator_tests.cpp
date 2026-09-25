@@ -23,15 +23,15 @@ namespace
 			presentation.AddInstantiated({ a_id, a_kind, a_kind == OSFUI::ViewKind::Menu, false, 0 });
 			readiness.emplace(std::move(a_id), Readiness::Loading);
 		}
-		void Menu(std::string_view a_id, std::uint64_t a_tick = 10, bool a_barrier = false)
+		void Menu(std::string_view a_id)
 		{
-			if (opens.QueueMenu(a_id, readiness.at(std::string(a_id)), a_barrier, a_tick, start, start)) {
+			if (opens.QueueMenu(a_id, readiness.at(std::string(a_id)), start, start)) {
 				presentation.Open(a_id);
 			}
 		}
-		std::vector<std::string> Tick(std::uint64_t a_tick, bool a_host = true, bool a_menus = true)
+		std::vector<std::string> CommitReady(bool a_host = true, bool a_menus = true)
 		{
-			auto ready = opens.TakeReady(a_tick, a_host, a_menus, [&](std::string_view a_id) {
+			auto ready = opens.TakeReady(a_host, a_menus, [&](std::string_view a_id) {
 				const auto it = readiness.find(std::string(a_id));
 				return it == readiness.end() ? Readiness::Missing : it->second;
 			});
@@ -43,42 +43,40 @@ namespace
 
 int main()
 {
-	// Opening a cold menu preserves the old menu until load, input and the
-	// native retained-state barrier have all completed. Duplicate opens don't
-	// postpone the barrier; readiness alone cannot bypass it in the same tick.
+	// Opening a cold menu preserves the old menu until load and input are ready.
+	// Duplicate opens leave the request pending without changing presentation.
 	{
 		Fixture f;
 		f.Add("mod/old"); f.Add("mod/new");
 		f.presentation.Open("mod/old");
-		f.Menu("mod/new", 10, true);
-		f.readiness["mod/new"] = Readiness::Ready;
-		CHECK(f.Tick(10).empty());
-		f.Menu("mod/new", 100, true);
+		f.Menu("mod/new");
+		CHECK(f.CommitReady().empty());
+		f.Menu("mod/new");
 		f.readiness["mod/new"] = Readiness::WaitingForInput;
-		CHECK(f.Tick(11).empty());
+		CHECK(f.CommitReady().empty());
 		CHECK(f.presentation.ActiveMenu() == "mod/old");
 		f.readiness["mod/new"] = Readiness::Ready;
-		CHECK(f.Tick(11, false).empty());
-		CHECK(f.Tick(11, true, false).empty());
-		CHECK(f.Tick(11) == std::vector<std::string>{ "mod/new" });
+		CHECK(f.CommitReady(false).empty());
+		CHECK(f.CommitReady(true, false).empty());
+		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/new" });
 		CHECK(f.presentation.ActiveMenu() == "mod/new");
-		CHECK(f.Tick(12).empty());
+		CHECK(f.CommitReady().empty());
 	}
 
-	// A warm menu without preflight opens immediately and supersedes an old
+	// A warm menu selects desired presentation immediately and supersedes an old
 	// pending request, but leaves unrelated deferred HUDs intact.
 	{
 		Fixture f;
 		f.Add("mod/slow"); f.Add("mod/warm"); f.Add("mod/hud", OSFUI::ViewKind::Hud);
 		f.Menu("mod/slow");
-		f.opens.QueueHud("mod/hud", 10);
+		f.opens.QueueHud("mod/hud");
 		f.readiness["mod/warm"] = Readiness::Ready;
 		f.Menu("mod/warm");
 		CHECK(f.presentation.ActiveMenu() == "mod/warm");
 		f.readiness["mod/slow"] = Readiness::Ready;
-		CHECK(f.Tick(11).empty());
+		CHECK(f.CommitReady().empty());
 		f.readiness["mod/hud"] = Readiness::Ready;
-		CHECK(f.Tick(12) == std::vector<std::string>{ "mod/hud" });
+		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/hud" });
 		CHECK(f.presentation.ActiveMenu() == "mod/warm");
 	}
 
@@ -94,13 +92,28 @@ int main()
 		CHECK(f.presentation.ActiveMenu() == "mod/old");
 		f.Menu("mod/a"); f.Menu("mod/b");
 		f.readiness["mod/a"] = Readiness::Ready;
-		CHECK(f.Tick(11).empty());
+		CHECK(f.CommitReady().empty());
 		f.readiness["mod/b"] = Readiness::Ready;
-		CHECK(f.Tick(12) == std::vector<std::string>{ "mod/b" });
+		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/b" });
 		f.readiness["mod/a"] = Readiness::Loading;
 		f.Menu("mod/a");
 		CHECK(f.opens.Cancel(*f.opens.PendingMenu()));
-		CHECK(f.Tick(13).empty());
+		CHECK(f.CommitReady().empty());
+	}
+
+	// Warm selection is visible to the next request before browser presentation
+	// is committed. Back/close can cancel it without a late load reopening it.
+	{
+		Fixture f;
+		f.Add("mod/old"); f.Add("mod/warm");
+		f.presentation.Open("mod/old");
+		f.readiness["mod/warm"] = Readiness::Ready;
+		f.Menu("mod/warm");
+		CHECK(!f.opens.PendingMenu());
+		CHECK(f.presentation.ActiveMenu() == "mod/warm");
+		CHECK(f.presentation.CloseActiveMenu());
+		CHECK(f.CommitReady().empty());
+		CHECK(!f.presentation.DesiredVisible());
 	}
 
 	// Failed menu loads cancel intent. HUDs survive failure and host recovery,
@@ -108,15 +121,15 @@ int main()
 	{
 		Fixture f;
 		f.Add("mod/menu"); f.Add("mod/hud", OSFUI::ViewKind::Hud);
-		f.Menu("mod/menu"); f.opens.QueueHud("mod/hud", 11);
+		f.Menu("mod/menu"); f.opens.QueueHud("mod/hud");
 		f.opens.OnLoad("mod/menu", true); f.opens.OnLoad("mod/hud", true);
 		f.readiness["mod/menu"] = Readiness::Ready;
-		CHECK(f.Tick(11).empty());
+		CHECK(f.CommitReady().empty());
 		f.opens.SuspendMenus();
 		f.presentation.SetSuspended(true);
 		f.readiness["mod/hud"] = Readiness::Ready;
-		CHECK(f.Tick(12, false).empty());
-		CHECK(f.Tick(13, true, false) == std::vector<std::string>{ "mod/hud" });
+		CHECK(f.CommitReady(false).empty());
+		CHECK(f.CommitReady(true, false) == std::vector<std::string>{ "mod/hud" });
 		CHECK(!f.presentation.ActiveMenu());
 		CHECK(f.presentation.IsOpen("mod/hud"));
 		CHECK(!f.presentation.DesiredVisible());
@@ -124,20 +137,22 @@ int main()
 		CHECK(f.presentation.DesiredVisible());
 	}
 
-	// HUD preflight waits a tick even for an already loaded document. Explicit
-	// close and close-all remove deferred work so late loads cannot reopen it.
+	// Ready HUDs commit without a tick delay. Explicit close and close-all
+	// remove deferred work so late loads cannot reopen it.
 	{
 		Fixture f;
 		f.Add("mod/menu"); f.Add("mod/hud", OSFUI::ViewKind::Hud);
 		f.readiness["mod/hud"] = Readiness::Ready;
-		f.opens.QueueHud("mod/hud", 11);
-		CHECK(f.Tick(10).empty());
+		f.opens.QueueHud("mod/hud");
+		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/hud" });
+		f.presentation.Close("mod/hud");
+		f.opens.QueueHud("mod/hud");
 		CHECK(f.opens.Cancel("mod/hud"));
-		CHECK(f.Tick(11).empty());
-		f.Menu("mod/menu"); f.opens.QueueHud("mod/hud", 12);
+		CHECK(f.CommitReady().empty());
+		f.Menu("mod/menu"); f.opens.QueueHud("mod/hud");
 		f.opens.Clear(); f.presentation.CloseAll();
 		f.readiness["mod/menu"] = Readiness::Ready;
-		CHECK(f.Tick(12).empty());
+		CHECK(f.CommitReady().empty());
 		CHECK(!f.presentation.DesiredVisible());
 	}
 
@@ -147,16 +162,16 @@ int main()
 		Fixture f;
 		f.Add("mod/menu"); f.Menu("mod/menu");
 		f.readiness["mod/menu"] = failure;
-		CHECK(f.Tick(11).empty());
+		CHECK(f.CommitReady().empty());
 		f.readiness["mod/menu"] = Readiness::Ready;
-		CHECK(f.Tick(12).empty());
-		f.Menu("mod/menu", 12);
+		CHECK(f.CommitReady().empty());
+		f.Menu("mod/menu");
 		CHECK(f.presentation.IsOpen("mod/menu"));
 	}
 	{
 		Fixture f;
-		f.opens.QueueHud("mod/removed", 10);
-		CHECK(f.Tick(10).empty());
+		f.opens.QueueHud("mod/removed");
+		CHECK(f.CommitReady().empty());
 		CHECK(!f.opens.Contains("mod/removed"));
 	}
 
@@ -167,10 +182,10 @@ int main()
 		opens.BeginTiming("mod/menu", false, start, start + 10ms);
 		opens.BeginTiming("mod/menu", true, start + 15ms, start + 15ms);
 		opens.OnInstantiated("mod/menu", start + 30ms);
-		CHECK(!opens.QueueMenu("mod/menu", Readiness::Loading, true, 10, start, start + 40ms));
+		CHECK(!opens.QueueMenu("mod/menu", Readiness::Loading, start, start + 40ms));
 		opens.OnLoad("mod/other", false, start + 50ms);
 		opens.OnLoad("mod/menu", false, start + 90ms);
-		CHECK(opens.TakeReady(11, true, true, [](auto) { return Readiness::Ready; }).size() == 1);
+		CHECK(opens.TakeReady(true, true, [](auto) { return Readiness::Ready; }).size() == 1);
 		CHECK(!opens.FinishTiming("mod/other", start + 100ms));
 		const auto timing = opens.FinishTiming("mod/menu", start + 110ms);
 		CHECK(timing.has_value());

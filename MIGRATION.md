@@ -10,6 +10,8 @@ OSF UI 2.0 is only a WebView host, JavaScript bridge, compositor, and web-input 
 - The HTML Settings and Keybindings views, F10, Pause/Main Menu injection, deep links, and the default Settings view ID
 - Manifest `hub`, `targetVersion`, catalog, and view-policy fields
 - Automatic Settings data in the JavaScript bridge
+- Native view-open preflight callbacks. Prepare mod state before requesting a menu,
+  or initialize through browser requests after opening.
 
 ## Replace with
 
@@ -22,6 +24,10 @@ OSF UI 2.0 is only a WebView host, JavaScript bridge, compositor, and web-input 
 | Opening a view from a hotkey | Register a callback hotkey with OSF Settings and call `Client::RequestMenu` from it ([example](examples/settings-view/README.md)) |
 
 Always pass explicit qualified view IDs. Settings Papyrus APIs, actions, and localization are not part of this release.
+
+Rebuild native consumers against the current `OSFUI.h`. Removing the preflight
+slots changes the `IUI` vtable. The API version remains 1.0, so version negotiation
+does not detect consumers built against the previous layout.
 
 ## Paths
 

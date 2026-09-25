@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include "OSFUI.h"
+#include "Views/ViewRequestQueue.h"
 
 namespace OSFUI
 {
@@ -29,8 +30,6 @@ namespace OSFUI::API
 		bool          RegisterSend(const char* a_name, SendFn a_handler, void* a_user) noexcept override;
 		bool          RegisterRelativePointer(const char* a_viewId, RelativePointerFn a_handler, void* a_user) noexcept override;
 		void          UnregisterRelativePointer(const char* a_viewId) noexcept override;
-		bool          RegisterViewOpenPreflight(const char* a_viewId, ViewOpenPreflightFn a_handler, void* a_user) noexcept override;
-		void          UnregisterViewOpenPreflight(const char* a_viewId) noexcept override;
 		bool          RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) noexcept override;
 		void          UnregisterViewLifecycle(const char* a_viewId) noexcept override;
 		bool          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) noexcept override;
@@ -39,12 +38,8 @@ namespace OSFUI::API
 		void          SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) noexcept override;
 		bool          RegisterView(const char* a_viewId) noexcept override;
-		struct ViewPresentationRequest
-		{
-			std::string                           view;
-			bool                                  open{ true };
-			std::chrono::steady_clock::time_point requestedAt;
-		};
+		// Shared internal inbox for native, browser, and game-input requests.
+		ViewRequestQueue& ViewRequests() { return m_viewRequests; }
 		void SetViewCatalog(const std::vector<std::string>& a_viewIds);
 		void SetViewInstantiated(std::string_view a_viewId, bool a_instantiated);
 
@@ -56,11 +51,13 @@ namespace OSFUI::API
 		};
 		struct PendingBatch
 		{
-			std::vector<ViewPresentationRequest> presentation;
+			std::vector<ViewRequestQueue::Operation> presentation;
 			std::vector<ViewStateOp>              state;
 			std::vector<std::string>              viewRegistrations;
 		};
 		[[nodiscard]] PendingBatch TakePendingBatch();
+		// Consume callback-published state without taking newly queued requests.
+		[[nodiscard]] std::vector<ViewStateOp> TakePendingState();
 
 		bool ClaimPapyrusEndpoint(std::string_view a_name);
 		void ReleasePapyrusEndpoint(std::string_view a_name);
@@ -70,15 +67,6 @@ namespace OSFUI::API
 		// Main-thread relative-pointer dispatch.
 		[[nodiscard]] bool HasRelativePointer(std::string_view a_viewId);
 		bool DispatchRelativePointer(std::string_view a_viewId, RelativePointerPhase a_phase, float a_dx = 0.0f, float a_dy = 0.0f, float a_wheel = 0.0f);
-
-		enum class ViewOpenPreflightResult
-		{
-			kNoHandler,
-			kAllowed,
-			kDenied,
-		};
-		// Pre-presentation dispatch.
-		[[nodiscard]] ViewOpenPreflightResult RunViewOpenPreflight(std::string_view a_viewId);
 
 		// Menu lifecycle dispatch.
 		bool DispatchViewLifecycle(const std::string& a_viewId, ViewLifecyclePhase a_phase);
@@ -98,11 +86,6 @@ namespace OSFUI::API
 		{
 			RelativePointerFn fn{ nullptr };
 			void*             user{ nullptr };
-		};
-		struct ViewOpenPreflightRegistration
-		{
-			ViewOpenPreflightFn fn{ nullptr };
-			void*               user{ nullptr };
 		};
 		struct ViewLifecycleRegistration
 		{
@@ -149,9 +132,8 @@ namespace OSFUI::API
 		enum Pending : std::uint32_t
 		{
 			kPendingPump = 1u << 0,
-			kPendingPresentation = 1u << 1,
-			kPendingState = 1u << 2,
-			kPendingViewRegistrations = 1u << 3,
+			kPendingState = 1u << 1,
+			kPendingViewRegistrations = 1u << 2,
 		};
 		void MarkPending(std::uint32_t a_bits) noexcept
 		{
@@ -166,12 +148,11 @@ namespace OSFUI::API
 		std::unordered_map<std::string, Registration>        m_sends;             // strict RegisterSend set
 		std::unordered_map<std::string, RequestRegistration> m_requests;          // desired request set
 		std::unordered_map<std::string, RelativePointerRegistration> m_relativePointers;  // exact view owner, first-wins
-		std::unordered_map<std::string, ViewOpenPreflightRegistration> m_viewOpenPreflights;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewLifecycleRegistration> m_viewLifecycles;  // exact view owner, first-wins
 		std::unordered_map<std::uint64_t, InflightRequest> m_inflightRequests;
 		std::uint64_t                                 m_nextRequestToken{ 1 };
 		std::vector<PendingSend>                       m_pendingSends;
-		std::vector<ViewPresentationRequest>          m_pendingViewPresentationRequests;  // Drained by Runtime.
+		ViewRequestQueue                              m_viewRequests;
 		std::unordered_set<std::string>               m_knownViews;         // boot-discovered qualified view ids
 		std::unordered_set<std::string>               m_instantiatedViews;  // views with an instantiated document
 		bool                                          m_viewCatalogReady{ false };

@@ -10,27 +10,39 @@ namespace OSFUI
 {
 	void Runtime::ProcessLifecycleWork()
 	{
-		if (m_dataLoadedInitPending.exchange(false, std::memory_order_acq_rel)) InitializeDataLoadedState();
-		m_inputCapture.ObserveLifecycle(m_postDataLoadedReady.load(std::memory_order_acquire));
-		if (MenuEventSink::TransitionOpen()) m_viewOpens.SuspendMenus();
-		if (m_presentation.SetSuspended(!m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || m_rendererFailed)) {
-			ApplyViewPresentationPolicy();
+		if (m_dataLoadedInitPending.exchange(false, std::memory_order_acq_rel)) {
+			InitializeDataLoadedState();
 		}
+		m_inputCapture.ObserveLifecycle(m_postDataLoadedReady.load(std::memory_order_acquire));
+		if (MenuEventSink::TransitionOpen()) {
+			m_viewOpens.SuspendMenus();
+		}
+		m_presentation.SetSuspended(!m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || m_rendererFailed);
 	}
 
-	void Runtime::ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus,
-		std::vector<API::BridgeApi::ViewStateOp> a_bridgeState)
+	void Runtime::ProcessBackendState(const API::Papyrus::PendingBatch& a_papyrus, const std::vector<API::BridgeApi::ViewStateOp>& a_bridgeState)
 	{
 		// Retain owner state before the first WebView exists; its greeting will replay it.
-		if (a_papyrus.sessionReset) m_retainedState.ClearSessionScoped();
+		if (a_papyrus.sessionReset) {
+			m_retainedState.ClearSessionScoped();
+		}
 		for (const auto& state : a_papyrus.states) {
 			m_retainedState.Set(state.mod, state.key, state.value, true);
 			PublishModState(state.mod, state.key, state.value);
 		}
-		for (auto& op : a_bridgeState) {
+		ApplyNativeState(a_bridgeState);
+	}
+
+	void Runtime::ApplyNativeState(const std::vector<API::BridgeApi::ViewStateOp>& a_state)
+	{
+		for (const auto& op : a_state) {
 			m_retainedState.Set(op.mod, op.key, op.value, false);
 			PublishModState(op.mod, op.key, op.value);
 		}
+	}
+
+	void Runtime::ProcessBackendMessages(const API::Papyrus::PendingBatch& a_papyrus)
+	{
 		if (m_bridge) {
 			for (const auto& event : a_papyrus.events) {
 				const auto targets = InstantiatedViewsOfMod(event.mod);
@@ -54,7 +66,23 @@ namespace OSFUI
 		m_inputCapture.ReconcileControlLayer(m_presentation.DesiredCapture(), IsInputCaptured());
 		SimPause::Apply(m_presentation.DesiredPause());
 		FreeCursor::Apply(m_presentation.DesiredCapture());
-		RouteGamepadInput();
+	}
+
+	void Runtime::CommitPresentation()
+	{
+		// Ready callbacks may publish state while this batch is prepared.
+		// Consume only that state: callback-enqueued requests belong to the next batch.
+		ApplyNativeState(API::BridgeApi::Get().TakePendingState());
+		m_presentation.SetSuspended(!m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || m_rendererFailed);
+		DrivePendingOpen();
+		ApplyViewPresentationPolicy();
+	}
+
+	void Runtime::ProcessRendererNotifications()
+	{
+		// Install pending native endpoints before incoming pages can call them.
+		API::BridgeApi::Get().PumpMainThread();
+		if (m_renderer) m_renderer->DrainNotifications();
 	}
 
 	void Runtime::ProcessRendererFrame()
@@ -76,30 +104,35 @@ namespace OSFUI
 		if (m_compositor) {
 			m_compositor->Update(); // retire reads and adopt rings even while hidden
 		}
-		m_renderer->Update();
-		// A response queued during a stall must be observed before its deadline expires.
-		// Recovery may restart the renderer only after notification callbacks have returned.
-		DriveBrowserHostRecovery();
-		DriveRecovery();
-		DrivePendingOpen();
+		m_renderer->Update(); // starts a newly demanded host in this update
 		UpdateViewReveal();
 	}
 
 	void Runtime::Update()
 	{
-		if (!m_initialized) return;
-		if (!m_osfSettings.Available()) return;
-		++m_mainTickSerial;
+		if (!m_initialized || !m_osfSettings.Available()) return;
 		const auto now = std::chrono::steady_clock::now();
 		m_nowSeconds = std::chrono::duration<double>(now.time_since_epoch()).count();
 		ProcessLifecycleWork();
+		// Browser handlers enqueue alongside native calls and hotkeys. Drain them
+		// before taking the single finite request batch for this update.
+		ProcessRendererNotifications();
 		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
-		DrainViewRegistrations(std::move(bridgeBatch.viewRegistrations));
-		auto localRequests = m_viewRequests.Take();
 		auto papyrusBatch = API::Papyrus::TakePendingBatch();
-		ProcessBackendQueues(std::move(papyrusBatch), std::move(bridgeBatch.state));
-		ApplyPresentationRequests(localRequests.presentation, bridgeBatch.presentation);
-		ReconcileFrameState();
+		// Apply captured state before ready callbacks can publish newer values.
+		// Messages still follow view registration.
+		ProcessBackendState(papyrusBatch, bridgeBatch.state);
+		DrainViewRegistrations(bridgeBatch.viewRegistrations);
+		ProcessBackendMessages(papyrusBatch);
+		ApplyPresentationRequests(bridgeBatch.presentation);
+		// Observe queued host responses before deadlines; restart only after its
+		// notification callbacks have returned. Recovery only prepares hidden views.
+		if (m_renderer) {
+			DriveBrowserHostRecovery();
+			DriveRecovery();
+		}
+		CommitPresentation();
+		RouteGamepadInput();
 		ProcessRendererFrame();
 		// Native, Papyrus and browser queues get to settle requests before timeout checks.
 		if (m_bridge) m_bridge->Tick(now);

@@ -55,6 +55,7 @@ namespace OSFUI
 		// Queued requests; applied on the main-thread tick.
 		void EnqueuePresentationRequest(ViewPresentationRequest a_req);
 		void EnqueueOpenView(std::string a_viewId);
+		void EnqueueCloseView(std::string a_viewId);
 		// Browser transport threads only enqueue this ownership edge; Runtime applies
 		// it beside presentation work so every native callback stays on the game main thread.
 		void EnqueueRelativePointerCapture(std::string a_viewId, bool a_active);
@@ -84,20 +85,21 @@ namespace OSFUI
 
 		// Frame stages (RuntimeFrame.cpp).
 		void ProcessLifecycleWork();
-		void ProcessBackendQueues(API::Papyrus::PendingBatch a_papyrus,
-			std::vector<API::BridgeApi::ViewStateOp> a_bridgeState);
+		void ProcessBackendState(const API::Papyrus::PendingBatch& a_papyrus,
+			const std::vector<API::BridgeApi::ViewStateOp>& a_bridgeState);
+		void ApplyNativeState(const std::vector<API::BridgeApi::ViewStateOp>& a_state);
+		void ProcessBackendMessages(const API::Papyrus::PendingBatch& a_papyrus);
 		void ReconcileFrameState();
+		void CommitPresentation();
+		void ProcessRendererNotifications();
 		void ProcessRendererFrame();
 
 		// View requests, presentation and output geometry.
-		void ApplyPresentationRequests(
-			const std::vector<ViewRequestQueue::Operation>& a_local,
-			const std::vector<API::BridgeApi::ViewPresentationRequest>& a_plugin);
-		bool BeginViewOpen(std::string_view a_id, std::string_view a_reason = "on demand",
-			std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);
+		void ApplyPresentationRequests(const std::vector<ViewRequestQueue::Operation>& a_requests);
+		void PrepareViewOpen(std::string_view a_id, std::string_view a_reason = "on demand", std::optional<std::chrono::steady_clock::time_point> a_requestedAt = std::nullopt);
 		void DrivePendingOpen();
 		ViewOpenCoordinator::Readiness ViewOpenReadiness(std::string_view a_id) const;
-		void DrainViewRegistrations(std::vector<std::string> a_ids);
+		void DrainViewRegistrations(const std::vector<std::string>& a_ids);
 		void ApplyViewPresentationPolicy();
 		void OnOutputResized(std::uint32_t a_width, std::uint32_t a_height);
 		void UpdateViewReveal();
@@ -119,13 +121,13 @@ namespace OSFUI
 
 		// Input policy and routing (Input/RuntimeInput.cpp).
 		// Runtime applies presentation failure policy around capture reconciliation.
-		bool ReconcileInputSuppression();
+		void ReconcileInputSuppression();
 		void ReconcileFocusMenu();
 		// Poll XInput and deliver events to the active document (`ui.gamepad` events).
 		void RouteGamepadInput();
 
 		// Relative-pointer session; callbacks run on the main-thread tick.
-		void ApplyRelativePointerRequests(const std::vector<ViewRequestQueue::RelativePointerRequest>& a_requests);
+		void ApplyRelativePointerRequest(const ViewRequestQueue::RelativePointerRequest& a_request);
 
 		// Bridge endpoints, retained state and protocol lifecycle (Bridge/RuntimeBridge.cpp).
 		void RegisterPlatformEndpoints(MessageBridge& a_bridge);
@@ -163,7 +165,6 @@ namespace OSFUI
 		bool m_webRuntimeReady{ false };
 		bool m_developerMode{ false };       // startup-latched; changes apply next launch
 		bool m_highRefreshCapture{ false };  // startup-latched explicit 240 Hz opt-in
-		std::uint64_t m_mainTickSerial{ 0 };
 		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
 		double m_nowSeconds{ 0.0 };
 		// SFSE lifecycle producer -> main-thread consumer.
@@ -178,8 +179,6 @@ namespace OSFUI
 		ViewRecoveryTracker m_viewRecovery;
 		std::string m_lastShownView;
 		std::atomic_bool m_visible{ false };  // main -> WndProc/frame-event producer
-		// Mutex-protected producer queue; only the main thread takes/applies batches.
-		ViewRequestQueue m_viewRequests;
 
 		// Browser-host recovery.
 		BrowserHostRecovery m_browserHostRecovery;

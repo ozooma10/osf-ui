@@ -33,6 +33,11 @@ namespace OSFUI
 		bool SetSuspended(bool a_suspended);          // retain HUD intent, close menus
 		void CloseAll();                              // close the menu and every shown HUD
 
+		// Runtime consumes changes at a presentation boundary. Idle ticks still
+		// reconcile engine input, but do not rebuild layers or resend view state.
+		bool TakeChanged();
+		void Invalidate() { m_changed = true; } // replay policy after host replacement
+
 		// Derived desired state — read on the main thread after any change.
 		[[nodiscard]] bool DesiredVisible() const;  // any HUD shown || any menu open
 		[[nodiscard]] bool DesiredCapture() const;  // active menu && capturesInput
@@ -57,5 +62,6 @@ namespace OSFUI
 		std::optional<std::string>                        m_activeMenu;
 		std::unordered_set<std::string>                   m_hudShown;
 		bool m_suspended{ false };
+		bool m_changed{ false };
 	};
 }

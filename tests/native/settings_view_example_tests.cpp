@@ -42,7 +42,9 @@ int main()
     settings.hotkey("osfui-example", "openPanel", settings.hotkeyUser);
     auto open = api.TakePendingBatch();
     CHECK(open.state.size() == 1 && open.state[0].value == true);
-    CHECK(open.presentation.size() == 1 && open.presentation[0].view == SettingsViewExample::kViewId && open.presentation[0].open);
+    CHECK(open.presentation.size() == 1);
+    const auto& requested = std::get<OSFUI::ViewRequestQueue::ViewRequest>(open.presentation.at(0));
+    CHECK(requested.view == SettingsViewExample::kViewId && requested.open);
     settings.readStatus["showDetails"] = OSFSettings::API::Status::UnknownSetting;
     settings.hotkey("osfui-example", "openPanel", settings.hotkeyUser);
     CHECK(api.TakePendingBatch().presentation.empty());

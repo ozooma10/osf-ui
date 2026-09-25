@@ -31,6 +31,32 @@ namespace
 
 int main()
 {
+	// A commit consumes accumulated changes. No-op requests do not trigger new
+	// effects, but removing a hidden view or replacing host state must do so.
+	{
+		ViewPresentationController controller;
+		assert(!controller.TakeChanged());
+		controller.AddInstantiated(Menu("a/menu"));
+		assert(controller.TakeChanged());
+		assert(!controller.TakeChanged());
+		controller.Open("a/menu");
+		controller.Open("a/menu");
+		assert(controller.TakeChanged());
+		controller.Open("a/menu");
+		controller.Close("a/unknown");
+		controller.SetSuspended(false);
+		assert(!controller.TakeChanged());
+		controller.CloseAll();
+		assert(controller.TakeChanged());
+		controller.CloseAll();
+		assert(!controller.TakeChanged());
+		controller.RemoveInstantiated("a/menu");
+		assert(controller.TakeChanged());
+		controller.Invalidate();
+		assert(controller.TakeChanged());
+		assert(!controller.TakeChanged());
+	}
+
 	// Unknown ids: every transition refuses, nothing changes.
 	{
 		ViewPresentationController controller;

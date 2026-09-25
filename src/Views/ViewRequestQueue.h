@@ -17,9 +17,10 @@ namespace OSFUI
     class ViewRequestQueue
     {
     public:
-        struct OpenRequest
+        struct ViewRequest
         {
             std::string                           view;
+            bool                                  open;
             std::chrono::steady_clock::time_point requestedAt;
         };
 
@@ -29,17 +30,13 @@ namespace OSFUI
             bool        active{ false };
         };
 
-        using Operation = std::variant<ViewPresentationRequest, OpenRequest, RelativePointerRequest>;
-
-        struct Batch
-        {
-            std::vector<Operation> presentation;
-        };
+        using Operation = std::variant<ViewPresentationRequest, ViewRequest, RelativePointerRequest>;
 
         void Enqueue(ViewPresentationRequest a_request);
-        void EnqueueOpen(std::string a_viewId);
+        void EnqueueView(std::string a_viewId, bool a_open);
         void EnqueueRelativePointer(std::string a_viewId, bool a_active);
-        Batch Take();
+        // One finite FIFO batch. Callback-enqueued work stays for the next take.
+        std::vector<Operation> Take();
 
     private:
         std::mutex m_mutex;

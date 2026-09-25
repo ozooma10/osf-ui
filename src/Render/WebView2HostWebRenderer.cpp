@@ -1359,6 +1359,11 @@ namespace OSFUI
 		}
 	}
 
+	void WebView2HostWebRenderer::DrainNotifications()
+	{
+		m_impl->DrainNotifications();
+	}
+
 	void WebView2HostWebRenderer::Update()
 	{
 		// Start and initialize the browser host while the overlay remains hidden.
@@ -1371,7 +1376,6 @@ namespace OSFUI
 			}
 			if (wantsView) m_impl->Start();
 		}
-		m_impl->DrainNotifications();
 		// Tick-thread drain also runs while hidden. The consumer releases unused frames immediately and recorded frames only after their final GPU read.
 		const auto released = m_impl->frames->TakeReleases();
 		for (std::uint32_t slot = 0; slot < released.size(); ++slot) {
