@@ -216,14 +216,73 @@ int main()
 		}
 	}
 
+	// A GLOBAL target must name a script the VM can load.
+	vm->unknownScripts.insert("Typo:Sink");
+	CHECK(registerSend(*vm, 0, {}, "Typo:Sink", "t.forms", "typo") == -1);
+	CHECK(registerSend(*vm, 0, {}, "Not a script", "t.forms", "typo") == -1);
+
+	// An instance target is stored as a weak handle and dispatched by handle plus script name.
+	const auto registerSendInstance = vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t,
+		std::monostate, RE::BSTSmartPointer<RE::BSScript::Object>, Str, Str)>("RegisterSend");
+	auto questType = std::make_shared<RE::BSScript::ObjectTypeInfo>();
+	questType->name = Str("MyMod:Bridge");
+	auto quest = std::make_shared<RE::BSScript::Object>();
+	quest->type = RE::BSTSmartPointer<RE::BSScript::ObjectTypeInfo>(questType);
+	quest->handle = 0x1234;
+	const RE::BSTSmartPointer<RE::BSScript::Object> questPtr(quest);
+	CHECK(registerSendInstance(*vm, 0, {}, questPtr, "t.forms", "unbound") == -1);  // not bound to its handle
+	vm->boundObjects[0x1234] = questPtr;
+	CHECK(registerSendInstance(*vm, 0, {}, questPtr, "t.forms", "quest") == 1);
+	vm->calls.clear();
+	CHECK(API::Papyrus::OnViewSend("t.forms", "quest", {}, "caller/view"));
+	CHECK(vm->calls.size() == 1);
+	if (vm->calls.size() == 1) {
+		CHECK(!vm->calls[0].isStatic);
+		CHECK(vm->calls[0].handle == 0x1234);
+		CHECK(vm->calls[0].scriptName == "mymod:bridge");
+		CHECK(vm->calls[0].receiver == nullptr);
+	}
+	// A restarted quest is a new object of the same script and takes the endpoint over.
+	auto restarted = std::make_shared<RE::BSScript::Object>();
+	restarted->type = RE::BSTSmartPointer<RE::BSScript::ObjectTypeInfo>(questType);
+	restarted->handle = 0x5678;
+	const RE::BSTSmartPointer<RE::BSScript::Object> restartedPtr(restarted);
+	vm->boundObjects[0x5678] = restartedPtr;
+	CHECK(registerSendInstance(*vm, 0, {}, restartedPtr, "t.forms", "quest") == 1);
+	vm->calls.clear();
+	CHECK(API::Papyrus::OnViewSend("t.forms", "quest", {}, "caller/view"));
+	CHECK(vm->calls.size() == 1 && vm->calls[0].handle == 0x5678);
+	// Once the VM no longer binds the handle, dispatch fails instead of reaching a dead object.
+	vm->boundObjects.erase(0x5678);
+	CHECK(!API::Papyrus::OnViewSend("t.forms", "quest", {}, "caller/view"));
+
+	// While a world-replacing load is in flight, nothing is dispatched into the VM.
+	RE::SaveLoadEvent::GetEventSource()->Notify(RE::SaveLoadEvent{ RE::SaveLoadEvent::OpType::kQuicksave, RE::SaveLoadEvent::Status::kBegin });
+	CHECK(API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));  // saves do not suspend
+	RE::SaveLoadEvent::GetEventSource()->Notify(RE::SaveLoadEvent{ RE::SaveLoadEvent::OpType::kQuickload, RE::SaveLoadEvent::Status::kBegin });
+	CHECK(!API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));
+	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-suspended") == API::Papyrus::StaticDispatchResult::kVmUnavailable);
+	CHECK(API::Papyrus::DispatchStaticFunction("FormSink", "Ping", {}) == API::Papyrus::StaticDispatchResult::kVmUnavailable);
+	RE::SaveLoadEvent::GetEventSource()->Notify(RE::SaveLoadEvent{ RE::SaveLoadEvent::OpType::kQuickload, RE::SaveLoadEvent::Status::kFailed });
+	CHECK(API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));  // a failed load resumes the old session
+
 	// A load drops queued form identities before they can leak into a new save.
 	CHECK(setStateForms(*vm, 0, {}, "t.forms", "stale", { &keyword }));
+	RE::SaveLoadEvent::GetEventSource()->Notify(RE::SaveLoadEvent{ RE::SaveLoadEvent::OpType::kLoad, RE::SaveLoadEvent::Status::kBegin });
 	RE::TESLoadGameEvent::GetEventSource()->Notify(RE::TESLoadGameEvent{});
 	const auto resetBatch = API::Papyrus::TakePendingBatch();
 	CHECK(resetBatch.states.empty());
 	CHECK(resetBatch.events.empty());
 	CHECK(resetBatch.replies.empty());
 	CHECK(resetBatch.sessionReset);
+	CHECK(!API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));  // registrations gone, session resumed
+	CHECK(registerSend(*vm, 0, {}, "FormSink", "T.Forms", "inspect") == 1);
+	CHECK(API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));
+
+	// Returning to the main menu ends the session the same way.
+	API::Papyrus::OnMainMenuOpened();
+	CHECK(API::Papyrus::TakePendingBatch().sessionReset);
+	CHECK(!API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));
 
 	std::fprintf(stderr, "papyrus_form_tests: %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures;

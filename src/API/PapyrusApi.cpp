@@ -27,15 +27,24 @@ namespace OSFUI::API::Papyrus
 			kRequest,
 		};
 
-		// Registrations live until the next game load; there is no per-entry removal.
+		// Weak receiver identity: a VM object handle plus its lower-cased script name, never a VM pointer or
+		// refcount. A zero handle selects a GLOBAL function on the script. The VM resolves the identity at
+		// dispatch time, so a receiver from a dead session simply fails to dispatch instead of being kept alive.
+		struct Receiver
+		{
+			std::uint64_t handle{ 0 };
+			std::string   script;
+			bool          operator==(const Receiver&) const = default;
+		};
+
+		// Registrations live until the next game load or main-menu return; there is no per-entry removal.
 		struct Entry
 		{
-			Kind                                      kind{ Kind::kSend };
-			RE::BSTSmartPointer<RE::BSScript::Object> receiver;    // instance target (DispatchMethodCall)
-			RE::BSFixedString                         scriptName;  // set => global target (DispatchStaticCall)
-			RE::BSFixedString                         fn;
-			std::string                               modId;
-			std::string                               key;  // exact view endpoint
+			Kind              kind{ Kind::kSend };
+			Receiver          receiver;
+			RE::BSFixedString fn;
+			std::string       modId;
+			std::string       key;  // exact view endpoint
 		};
 
 		// Queue FormIDs, never TESForm pointers; serialize them on the main thread.
@@ -82,6 +91,9 @@ namespace OSFUI::API::Papyrus
 			std::uint64_t                                       nextViewRequest{ 1 };
 			// Raised on game load so Runtime::Tick purges session-scoped retained state.
 			bool                                                sessionReset{ false };
+			// Set while a world-replacing save/load operation is in flight; dispatch into the VM is refused until
+			// the new session is announced (TESLoadGameEvent) or the operation fails.
+			std::atomic_bool                                    suspended{ false };
 		};
 
 		ProcessState& State()
@@ -111,8 +123,8 @@ namespace OSFUI::API::Papyrus
 
 		constexpr std::size_t kMaxEntries = 0xFFFF;
 
-		// Caller holds the process-state lock and supplies exactly one target kind.
-		std::int32_t AddEntry(Kind a_kind, const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver, RE::BSFixedString a_scriptName, std::string_view a_fn, std::string_view a_modId, std::string_view a_key)
+		// Caller holds the process-state lock.
+		std::int32_t AddEntry(Kind a_kind, Receiver a_receiver, std::string_view a_fn, std::string_view a_modId, std::string_view a_key)
 		{
 			if (State().entries.size() >= kMaxEntries) {
 				REX::ERROR("PapyrusApi: callback table full");
@@ -121,15 +133,15 @@ namespace OSFUI::API::Papyrus
 
 			Entry& e = State().entries.emplace_back();
 			e.kind = a_kind;
-			e.receiver = a_receiver;
-			e.scriptName = a_scriptName;
+			e.receiver = std::move(a_receiver);
 			e.fn = RE::BSFixedString(std::string(a_fn).c_str());
 			e.modId = std::string(a_modId);
 			e.key = std::string(a_key);
 
 			const char* signature = a_kind == Kind::kRequest ? "string, Var[], string, string" : "string, Var[], string";
-			REX::DEBUG("PapyrusApi: registered {}{}({}) ({} filter '{}'{}{})",
-				e.scriptName.empty() ? "" : std::string(e.scriptName.c_str()) + ".", e.fn.c_str(), signature,
+			REX::DEBUG("PapyrusApi: registered {}.{}({}) on {} ({} filter '{}'{}{})",
+				e.receiver.script, e.fn.c_str(), signature,
+				e.receiver.handle ? "instance" : "global",
 				a_kind == Kind::kSend ? "send" : "request",
 				e.modId, e.key.empty() ? "" : ".", e.key);
 			return kRegistered;
@@ -187,9 +199,8 @@ namespace OSFUI::API::Papyrus
 		}
 		struct Target
 		{
-			RE::BSTSmartPointer<RE::BSScript::Object> receiver;
-			RE::BSFixedString                         scriptName;
-			RE::BSFixedString                         fn;
+			Receiver          receiver;
+			RE::BSFixedString fn;
 		};
 
 		// Snapshot under the lock and dispatch outside it to permit re-entry.
@@ -208,7 +219,7 @@ namespace OSFUI::API::Papyrus
 				if (!e.key.empty() && !Ids::EqualsCaseInsensitiveAscii(e.key, a_key)) {
 					continue;
 				}
-				targets.emplace_back(e.receiver, e.scriptName, e.fn);
+				targets.emplace_back(e.receiver, e.fn);
 			}
 			return targets;
 		}
@@ -217,10 +228,11 @@ namespace OSFUI::API::Papyrus
 		bool DispatchOne(VM* a_vm, const Target& a_target, Args&& a_args)
 		{
 			const RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> noCallback{};
-			if (!a_target.scriptName.empty()) {
-				return a_vm->DispatchStaticCall(a_target.scriptName, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
+			const RE::BSFixedString script(a_target.receiver.script.c_str());
+			if (a_target.receiver.handle == 0) {
+				return a_vm->DispatchStaticCall(script, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
 			}
-			return a_vm->DispatchMethodCall(a_target.receiver, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
+			return a_vm->DispatchMethodCall(a_target.receiver.handle, script, a_target.fn, std::forward<Args>(a_args), noCallback, 0);
 		}
 
 		auto MakeStaticCallArgs(std::vector<StaticCallArg> a_args)
@@ -237,8 +249,16 @@ namespace OSFUI::API::Papyrus
 			};
 		}
 
+		bool Suspended() noexcept
+		{
+			return State().suspended.load(std::memory_order_acquire);
+		}
+
 		bool DispatchSend(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId)
 		{
+			if (Suspended()) {
+				return false;
+			}
 			const auto targets = CollectTargets(Kind::kSend, a_modId, a_name);
 			if (targets.empty()) {
 				return false;
@@ -254,6 +274,9 @@ namespace OSFUI::API::Papyrus
 
 		StaticDispatchResult DispatchViewRequestTo(const Target& a_target, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken)
 		{
+			if (Suspended()) {
+				return StaticDispatchResult::kVmUnavailable;
+			}
 			auto* vm = VM::GetSingleton();
 			if (!vm) {
 				REX::WARN("PapyrusApi: view request dispatch with no VM");
@@ -483,18 +506,51 @@ namespace OSFUI::API::Papyrus
 			return modId;
 		}
 
-		std::string_view TypeNameOf(const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver)
+		// Papyrus namespaces use ':'; each component is an identifier.
+		bool IsScriptName(std::string_view a_text)
 		{
-			const auto* type = a_receiver ? a_receiver->type.get() : nullptr;
-			const char* name = type ? type->name.c_str() : nullptr;
-			return name ? std::string_view(name) : std::string_view{};
+			bool first = true;
+			for (const char c : a_text) {
+				if (c == ':' && !first) {
+					first = true;
+					continue;
+				}
+				const bool letter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+				if (!letter && (first || c < '0' || c > '9')) return false;
+				first = false;
+			}
+			return !first;
 		}
 
-		// Idempotent per script: re-registering an owned endpoint succeeds, and a new instance of the same script takes it over.
-		std::int32_t RegisterEndpoint(Kind a_kind, const RE::BSTSmartPointer<RE::BSScript::Object>& a_receiver, const RE::BSFixedString& a_script, const RE::BSFixedString& a_modId, const RE::BSFixedString& a_name, std::string_view a_callback, std::string_view a_native)
+		// VM thread. Accept only a live object the VM still binds to its handle under its own script type.
+		std::optional<Receiver> ResolveInstance(PapVM& a_vm, const RE::BSTSmartPointer<RE::BSScript::Object>& a_object)
 		{
-			if (!a_receiver.get() && a_script.empty()) {
-				REX::WARN("PapyrusApi: [content] {} refused — receiver is None or script name is empty", a_native);
+			if (!a_object || !a_object->IsValid() || !a_object->type) return std::nullopt;
+			const auto  handle = a_object->GetHandle();
+			const auto& policy = a_vm.GetObjectHandlePolicy();
+			if (!handle || handle == policy.EmptyHandle() || !policy.IsHandleObjectAvailable(handle)) return std::nullopt;
+			const char* typeName = a_object->type->name.c_str();
+			if (!typeName || !*typeName) return std::nullopt;
+			RE::BSTSmartPointer<RE::BSScript::Object> bound;
+			if (!a_vm.FindBoundObject(handle, typeName, false, bound, true) || bound.get() != a_object.get()) return std::nullopt;
+			return Receiver{ handle, ToLowerAscii(typeName) };
+		}
+
+		// VM thread. A GLOBAL target must name a script the VM can load, so a typo fails here, not at dispatch.
+		std::optional<Receiver> ResolveGlobal(PapVM& a_vm, const RE::BSFixedString& a_script)
+		{
+			const char* name = a_script.c_str();
+			if (!name || !IsScriptName(name)) return std::nullopt;
+			RE::BSTSmartPointer<RE::BSScript::ObjectTypeInfo> type;
+			if (!a_vm.GetScriptObjectType(a_script, type) || !type) return std::nullopt;
+			return Receiver{ 0, ToLowerAscii(name) };
+		}
+
+		// Idempotent per receiver: re-registering an owned endpoint succeeds, and a new instance of the same script takes it over.
+		std::int32_t RegisterEndpoint(Kind a_kind, std::optional<Receiver> a_receiver, const RE::BSFixedString& a_modId, const RE::BSFixedString& a_name, std::string_view a_callback, std::string_view a_native)
+		{
+			if (!a_receiver) {
+				REX::WARN("PapyrusApi: [content] {} refused — receiver is None or not a live script object, or the script name is empty or unknown", a_native);
 				return kErrInvalidTarget;
 			}
 			const auto modId = ValidateModId(a_modId);
@@ -521,47 +577,43 @@ namespace OSFUI::API::Papyrus
 						a_native, qualified, entry.kind == Kind::kSend ? "send" : "request");
 					return kErrConflict;
 				}
-				const bool sameStatic = !a_script.empty() && !entry.scriptName.empty() &&
-				                        Ids::EqualsCaseInsensitiveAscii(entry.scriptName.c_str(), a_script.c_str());
-				const bool sameInstance = a_receiver.get() && entry.receiver.get() == a_receiver.get();
-				if (sameStatic || sameInstance) {
+				if (entry.receiver == *a_receiver) {
 					REX::DEBUG("PapyrusApi: {}('{}') already registered by this script", a_native, qualified);
 					return kRegistered;
 				}
-				// A restarted quest is a new Object of the same script; let it take over instead of being blocked by its dead predecessor.
-				if (a_receiver.get() && entry.receiver.get() && !TypeNameOf(a_receiver).empty() &&
-					Ids::EqualsCaseInsensitiveAscii(TypeNameOf(entry.receiver), TypeNameOf(a_receiver))) {
-					entry.receiver = a_receiver;
-					REX::INFO("PapyrusApi: {}('{}') rebound to a new instance of script '{}'", a_native, qualified, TypeNameOf(a_receiver));
+				// A restarted quest is a new object of the same script; let it take over instead of being blocked by its dead predecessor.
+				if (entry.receiver.handle && a_receiver->handle && entry.receiver.script == a_receiver->script) {
+					entry.receiver = std::move(*a_receiver);
+					REX::INFO("PapyrusApi: {}('{}') rebound to a new instance of script '{}'", a_native, qualified, entry.receiver.script);
 					return kRegistered;
 				}
 				REX::WARN("PapyrusApi: [content] {}('{}') refused — endpoint already registered by another script", a_native, qualified);
 				return kErrConflict;
 			}
 			if (!BridgeApi::Get().ClaimPapyrusEndpoint(qualified)) return kErrConflict;
-			const auto result = AddEntry(a_kind, a_receiver, a_script, a_callback, *modId, name);
+			const auto result = AddEntry(a_kind, std::move(*a_receiver), a_callback, *modId, name);
 			if (result != kRegistered) BridgeApi::Get().ReleasePapyrusEndpoint(qualified);
 			return result;
 		}
 
-		std::int32_t RegisterSend(PapVM&, std::uint32_t, std::monostate, RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId, RE::BSFixedString a_name)
+		std::int32_t RegisterSend(PapVM& a_vm, std::uint32_t, std::monostate, RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId, RE::BSFixedString a_name)
 		{
-			return RegisterEndpoint(Kind::kSend, a_receiver, {}, a_modId, a_name, "OnOSFUISend", "RegisterSend");
+			return RegisterEndpoint(Kind::kSend, ResolveInstance(a_vm, a_receiver), a_modId, a_name, "OnOSFUISend", "RegisterSend");
 		}
 
-		std::int32_t RegisterSendStatic(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_script, RE::BSFixedString a_modId, RE::BSFixedString a_name)
+		std::int32_t RegisterSendStatic(PapVM& a_vm, std::uint32_t, std::monostate, RE::BSFixedString a_script, RE::BSFixedString a_modId, RE::BSFixedString a_name)
 		{
-			return RegisterEndpoint(Kind::kSend, {}, a_script, a_modId, a_name, "OnOSFUISend", "RegisterSendStatic");
+			return RegisterEndpoint(Kind::kSend, ResolveGlobal(a_vm, a_script), a_modId, a_name, "OnOSFUISend", "RegisterSendStatic");
 		}
 
-		std::int32_t RegisterRequest(PapVM&, std::uint32_t, std::monostate, RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId, RE::BSFixedString a_name)
+		std::int32_t RegisterRequest(PapVM& a_vm, std::uint32_t, std::monostate, RE::BSTSmartPointer<RE::BSScript::Object> a_receiver, RE::BSFixedString a_modId, RE::BSFixedString a_name)
 		{
-			return RegisterEndpoint(Kind::kRequest, a_receiver, {}, a_modId, a_name, "OnOSFUIRequest", "RegisterRequest");
+			return RegisterEndpoint(Kind::kRequest, ResolveInstance(a_vm, a_receiver), a_modId, a_name, "OnOSFUIRequest", "RegisterRequest");
 		}
 
-		std::int32_t RegisterRequestStatic(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_script, RE::BSFixedString a_modId, RE::BSFixedString a_name)
+		std::int32_t RegisterRequestStatic(PapVM& a_vm, std::uint32_t, std::monostate, RE::BSFixedString a_script, RE::BSFixedString a_modId, RE::BSFixedString a_name)
 		{
-			return RegisterEndpoint(Kind::kRequest, {}, a_script, a_modId, a_name, "OnOSFUIRequest", "RegisterRequestStatic");
+			return RegisterEndpoint(Kind::kRequest, ResolveGlobal(a_vm, a_script), a_modId, a_name, "OnOSFUIRequest", "RegisterRequestStatic");
 		}
 
 		std::optional<std::vector<Value>> ReadPapyrusValues(const std::optional<std::vector<const RE::BSScript::Variable*>>& a_args, std::string_view a_native)
@@ -733,14 +785,13 @@ namespace OSFUI::API::Papyrus
 			return false;
 		}
 
-		// Clear after VM teardown without releasing stale receivers.
-		void ClearRegistrations()
+		// Entries hold no VM references, so clearing them touches nothing the old session owned.
+		void ClearRegistrations(std::string_view a_reason)
 		{
 			std::lock_guard l{ State().lock };
 			const std::size_t dropped = State().entries.size();
 			for (auto& e : State().entries) {
 				BridgeApi::Get().ReleasePapyrusEndpoint(e.modId + "." + e.key);
-				std::construct_at(std::addressof(e.receiver));  // overwrite ptr = null, skip Release
 			}
 			State().entries.clear();
 			// Settle old requests on the main tick and clear session identities.
@@ -755,26 +806,54 @@ namespace OSFUI::API::Papyrus
 			State().sessionReset = true;
 			MarkPending();
 			if (dropped) {
-				REX::INFO("PapyrusApi: cleared {} script registration(s) on game load (session-scoped; scripts re-register)", dropped);
+				REX::INFO("PapyrusApi: cleared {} script registration(s) on {} (session-scoped; scripts re-register)", dropped, a_reason);
 			}
 		}
 
-		// Rebind natives and clear stale registrations before the new session runs.
-		class LoadGameSink final : public RE::BSTEventSink<RE::TESLoadGameEvent>
+		void SetSuspended(bool a_suspended, std::string_view a_reason)
+		{
+			if (State().suspended.exchange(a_suspended, std::memory_order_acq_rel) != a_suspended) {
+				REX::DEBUG("PapyrusApi: dispatch {} ({})", a_suspended ? "suspended" : "resumed", a_reason);
+			}
+		}
+
+		// Session boundaries: refuse VM dispatch while a world-replacing load is in flight, then rebind natives
+		// and clear stale registrations before the new session runs.
+		class SessionSink final :
+			public RE::BSTEventSink<RE::SaveLoadEvent>,
+			public RE::BSTEventSink<RE::TESLoadGameEvent>
 		{
 		public:
-			static LoadGameSink* GetSingleton()
+			static SessionSink* GetSingleton()
 			{
-				static LoadGameSink* const instance = new LoadGameSink;
+				static SessionSink* const instance = new SessionSink;
 				return instance;
+			}
+
+			RE::BSEventNotifyControl ProcessEvent(const RE::SaveLoadEvent& a_event, RE::BSTEventSource<RE::SaveLoadEvent>*) override
+			{
+				using Op = RE::SaveLoadEvent::OpType;
+				using Status = RE::SaveLoadEvent::Status;
+				const bool replacesWorld = a_event.opType == Op::kLoadMostRecent || a_event.opType == Op::kQuickload ||
+				                           a_event.opType == Op::kLoad || a_event.opType == Op::kLoadNamedFile ||
+				                           a_event.opType == Op::kExitSaveToMainMenu || a_event.opType == Op::kExitSaveToDesktop;
+				if (replacesWorld) {
+					if (a_event.status == Status::kBegin) {
+						SetSuspended(true, "load began");
+					} else if (a_event.status == Status::kFailed || a_event.status == Status::kLoadDispatchRefused) {
+						SetSuspended(false, "load failed");
+					}
+				}
+				return RE::BSEventNotifyControl::kContinue;
 			}
 
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESLoadGameEvent&, RE::BSTEventSource<RE::TESLoadGameEvent>*) override
 			{
-				ClearRegistrations();
+				ClearRegistrations("game load");
 				if (!TryBindNatives()) {
 					REX::ERROR("PapyrusApi: could not re-bind native scripts after load (GameVM unavailable)");
 				}
+				SetSuspended(false, "game loaded");
 				return RE::BSEventNotifyControl::kContinue;
 			}
 		};
@@ -788,12 +867,23 @@ namespace OSFUI::API::Papyrus
 		static bool s_sinkInstalled = false;
 		if (!s_sinkInstalled) {
 			if (auto* src = RE::TESLoadGameEvent::GetEventSource()) {
-				src->RegisterSink(LoadGameSink::GetSingleton());
+				src->RegisterSink(SessionSink::GetSingleton());
 				s_sinkInstalled = true;
 			} else {
 				REX::WARN("PapyrusApi: TESLoadGameEvent source null; natives will not re-bind after a game load");
 			}
+			if (auto* src = RE::SaveLoadEvent::GetEventSource()) {
+				src->RegisterSink(SessionSink::GetSingleton());
+			} else {
+				REX::WARN("PapyrusApi: SaveLoadEvent source null; dispatch will not pause while a load is in flight");
+			}
 		}
+	}
+
+	void OnMainMenuOpened()
+	{
+		ClearRegistrations("main menu");
+		SetSuspended(false, "main menu");
 	}
 
 	StaticDispatchResult DispatchStaticFunction(std::string_view a_script,
@@ -801,6 +891,9 @@ namespace OSFUI::API::Papyrus
 	{
 		if (a_script.empty() || a_function.empty()) {
 			return StaticDispatchResult::kTargetRejected;
+		}
+		if (Suspended()) {
+			return StaticDispatchResult::kVmUnavailable;
 		}
 		auto* vm = VM::GetSingleton();
 		if (!vm) {

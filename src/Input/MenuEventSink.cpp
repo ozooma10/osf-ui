@@ -1,5 +1,6 @@
 #include "Input/MenuEventSink.h"
 
+#include "API/PapyrusApi.h"
 #include "Core/Log.h"
 #include "RE/C/ChargenMenu.h"
 
@@ -47,7 +48,10 @@ namespace OSFUI
 		}
 
 		if (name == "LoadingMenu") s_loadingOpen.store(a_event.opening, std::memory_order_release);
-		if (name == "MainMenu") s_mainMenuOpen.store(a_event.opening, std::memory_order_release);
+		if (name == "MainMenu") {
+			const bool wasOpen = s_mainMenuOpen.exchange(a_event.opening, std::memory_order_acq_rel);
+			if (a_event.opening && !wasOpen) API::Papyrus::OnMainMenuOpened();
+		}
 
 		return RE::BSEventNotifyControl::kContinue;
 	}

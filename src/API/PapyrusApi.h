@@ -14,8 +14,12 @@ namespace OSFUI::API::Papyrus
 	// Untrusted script dispatch must reject this trusted platform script.
 	inline constexpr std::string_view kPlatformScriptName = "OSFUI";
 
-	// Main thread and idempotent; binds natives and installs game-load cleanup.
+	// Main thread and idempotent; binds natives and installs the session sinks (load in flight, game loaded).
 	void Install();
+
+	// Any thread. Returning to the main menu ends the script session: registrations, queued state and
+	// pending requests are dropped exactly as on a game load.
+	void OnMainMenuOpened();
 
 	enum class StaticDispatchResult
 	{

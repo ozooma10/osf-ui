@@ -1,6 +1,7 @@
 #pragma once
 
 
+#include <cstdint>
 #include <vector>
 
 namespace RE
@@ -45,5 +46,39 @@ namespace RE
 			static BSTEventSource<TESLoadGameEvent> source;
 			return &source;
 		}
+	};
+
+	struct SaveLoadEvent
+	{
+		enum class OpType : std::uint8_t
+		{
+			kAutosave = 1,
+			kLoadMostRecent = 2,
+			kQuicksave = 3,
+			kQuickload = 4,
+			kManualSave = 5,
+			kLoad = 6,
+			kExitSaveToMainMenu = 7,
+			kExitSaveToDesktop = 8,
+			kLoadNamedFile = 0xB,
+		};
+
+		enum class Status : std::uint8_t
+		{
+			kBegin = 0,
+			kLoadSucceeded = 1,
+			kFailed = 3,
+			kSaveCompleted = 4,
+			kLoadDispatchRefused = 5,
+		};
+
+		static BSTEventSource<SaveLoadEvent>* GetEventSource()
+		{
+			static BSTEventSource<SaveLoadEvent> source;
+			return &source;
+		}
+
+		OpType opType{ OpType::kLoad };
+		Status status{ Status::kBegin };
 	};
 }

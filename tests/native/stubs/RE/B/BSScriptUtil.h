@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -63,6 +64,20 @@ namespace RE
 		{
 			BSTSmartPointer<ObjectTypeInfo> type;
 			TESForm*                        form{ nullptr };
+			std::size_t                     handle{ 0 };
+			bool                            valid{ true };
+
+			[[nodiscard]] bool        IsValid() const noexcept { return valid; }
+			[[nodiscard]] std::size_t GetHandle() { return handle; }
+		};
+
+		struct IObjectHandlePolicy
+		{
+			virtual ~IObjectHandlePolicy() = default;
+			virtual bool        IsHandleObjectAvailable(std::size_t a_handle) const { return !unavailable.contains(a_handle); }
+			virtual std::size_t EmptyHandle() const { return 0; }
+
+			std::set<std::size_t> unavailable;
 		};
 
 		struct IStackCallbackFunctor
@@ -245,8 +260,33 @@ namespace RE
 				return std::any_cast<F>(it->second);
 			}
 
+			[[nodiscard]] const IObjectHandlePolicy& GetObjectHandlePolicy() const { return handlePolicy; }
+			[[nodiscard]] IObjectHandlePolicy&       GetObjectHandlePolicy() { return handlePolicy; }
+
+			// Scripts named in unknownScripts fail to load; everything else resolves to a fresh type.
+			bool GetScriptObjectType(const BSFixedString& a_name, BSTSmartPointer<ObjectTypeInfo>& a_type)
+			{
+				if (unknownScripts.contains(a_name.c_str())) return false;
+				auto type = std::make_shared<ObjectTypeInfo>();
+				type->name = a_name;
+				a_type = BSTSmartPointer<ObjectTypeInfo>(std::move(type));
+				return true;
+			}
+
+			// Objects registered in boundObjects are what the VM binds to a handle.
+			bool FindBoundObject(std::uint64_t a_handle, const char*, bool, BSTSmartPointer<Object>& a_object, bool) const
+			{
+				const auto it = boundObjects.find(a_handle);
+				if (it == boundObjects.end()) return false;
+				a_object = it->second;
+				return true;
+			}
+
 			std::map<std::string, std::any> natives;
 			std::map<std::string, std::vector<std::string>> nativeScripts;
+			IObjectHandlePolicy handlePolicy;
+			std::set<std::string> unknownScripts;
+			std::map<std::uint64_t, BSTSmartPointer<Object>> boundObjects;
 		};
 
 		namespace Internal
@@ -257,8 +297,9 @@ namespace RE
 				struct Call
 				{
 					bool                     isStatic{ false };
-					std::string              scriptName;            // static calls
-					const Object*            receiver{ nullptr };   // method calls
+					std::string              scriptName;            // static and handle-addressed method calls
+					const Object*            receiver{ nullptr };   // object-addressed method calls
+					std::uint64_t            handle{ 0 };           // handle-addressed method calls
 					std::string              fn;
 					std::vector<std::string> args;
 					std::vector<std::string> argTypes;
@@ -278,7 +319,7 @@ namespace RE
 						return false;
 					}
 					auto packed = Resolve(std::forward<Fn>(a_makeArgs));
-					calls.push_back({ true, a_script.c_str(), nullptr, a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
+					calls.push_back({ true, a_script.c_str(), nullptr, 0, a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
 					return true;
 				}
 
@@ -287,7 +328,19 @@ namespace RE
 					const BSTSmartPointer<IStackCallbackFunctor>&, int)
 				{
 					auto packed = Resolve(std::forward<Fn>(a_makeArgs));
-					calls.push_back({ false, "", a_receiver.get(), a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
+					calls.push_back({ false, "", a_receiver.get(), 0, a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
+					return true;
+				}
+
+				template <class Fn>
+				bool DispatchMethodCall(std::uint64_t a_handle, const BSFixedString& a_script, const BSFixedString& a_fn, Fn&& a_makeArgs,
+					const BSTSmartPointer<IStackCallbackFunctor>&, int)
+				{
+					if (!boundObjects.contains(a_handle)) {
+						return false;
+					}
+					auto packed = Resolve(std::forward<Fn>(a_makeArgs));
+					calls.push_back({ false, a_script.c_str(), nullptr, a_handle, a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
 					return true;
 				}
 

@@ -13,7 +13,7 @@ string Function GetVersionString() Global Native
 ;   JavaScript on()       <- EmitEvent
 ;   JavaScript state      <- SetState (retained and replayed)
 ;
-; Registrations and reply tokens are session-scoped, register again after every game load.
+; Registrations and reply tokens are session-scoped: they are cleared on every game load and when the game returns to the main menu, so register again after every game load.
 ;
 ; Scalar values support None, bool, int, float, string, and Form through Papyrus Var; Send/request and event argument lists use Var[] explicitly.
 ;
@@ -23,7 +23,7 @@ string Function GetVersionString() Global Native
 ; Recommended setup: register once per session
 ; =============================================================================
 ;
-; Registrations are cleared on every game load. Put the bridge on a quest that starts with the game, register in OnInit, and register again from OnPlayerLoadGame:
+; Registrations are cleared on every game load and on return to the main menu. Put the bridge on a quest that starts with the game, register in OnInit, and register again from OnPlayerLoadGame:
 ;
 ;   ScriptName MyMod:Bridge extends Quest
 ;
@@ -56,7 +56,7 @@ string Function GetVersionString() Global Native
 ;
 ; Registration results (RegisterSend, RegisterSendStatic, RegisterRequest, RegisterRequestStatic):
 ;    1    registered for this session
-;   -1    akReceiver is None, or asScript is empty
+;   -1    akReceiver is None or not a live script object, or asScript is empty or names no script the VM can load
 ;   -2    asModId is not a valid OSF mod id
 ;   -3    asName is reserved or malformed, or "<asModId>.<asName>" exceeds 128 characters
 ;   -4    the endpoint belongs to a native plugin or another script, or has the other kind (send vs request)
@@ -86,7 +86,7 @@ string Function GetVersionString() Global Native
 ;
 ; Returns 1 when registered, or a negative code (see "Registration results" above).
 int Function RegisterSend(ScriptObject akReceiver, string asModId, string asName) Global Native
-; GLOBAL-function variant. It still must be registered again after game load.
+; GLOBAL-function variant. asScript must name a script the VM can load; it still must be registered again after game load.
 int Function RegisterSendStatic(string asScript, string asModId, string asName) Global Native
 
 
@@ -116,7 +116,7 @@ int Function RegisterSendStatic(string asScript, string asModId, string asName) 
 ;
 ; Returns 1 when registered, or a negative code (see "Registration results" above).
 int Function RegisterRequest(ScriptObject akReceiver, string asModId, string asName) Global Native
-; GLOBAL-function variant. It still must be registered again after game load.
+; GLOBAL-function variant. asScript must name a script the VM can load; it still must be registered again after game load.
 int Function RegisterRequestStatic(string asScript, string asModId, string asName) Global Native
 
 ; Resolve a request with one scalar bridge value.
