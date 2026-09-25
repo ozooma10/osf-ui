@@ -5,5 +5,5 @@
   "groups": {
     "Panel": [{ "key": "showDetails", "label": "Show details", "type": "bool", "default": false }]
   },
-  "hotkeys": [{ "id": "openPanel", "label": "Open example panel", "default": "F6" }]
+  "hotkeys": { "openPanel": { "label": "Open example panel", "default": "F6" } }
 }
