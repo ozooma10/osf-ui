@@ -12,7 +12,4 @@ namespace OSFUI
 	inline constexpr std::uint32_t kOsfuiReleaseVersionPatch = 0;
 
 	inline constexpr const char* kBridgeProtocolVersion = "2.0";
-
-	// Addon data root: Data/SFSE/Plugins/OSF/UI/.
-	inline constexpr const char* kDataFolderName = "OSF/UI";
 }

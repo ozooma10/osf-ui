@@ -3,7 +3,7 @@
 #include "Core/Utf8Path.h"
 #include "Core/Version.h"
 
-#include "Win32Util.h"
+#include "REX/FModule.h"
 
 namespace OSFUI::Paths
 {
@@ -14,18 +14,8 @@ namespace OSFUI::Paths
 
 	bool Initialize()
 	{
-		const auto gamePath = osfui::win32::ModulePath();
-		if (gamePath.empty()) {
-			REX::ERROR("Paths: cannot locate the game executable (Win32 error {})", ::GetLastError());
-			return false;
-		}
-		g_dataDir = gamePath.parent_path() / "Data" / "SFSE" / "Plugins" / kDataFolderName;
-		REX::INFO("Paths: data dir = {}", Utf8Path(g_dataDir));
-
-		std::error_code ec;
-		if (!std::filesystem::exists(g_dataDir, ec)) {
-			REX::WARN("Paths: OSF UI data directory does not exist ({}); no packaged views are available", Utf8Path(g_dataDir));
-		}
+		const std::filesystem::path gamePath{ REX::FModule::GetExecutingModule().GetFileName() };
+		g_dataDir = gamePath.parent_path() / "Data" / "SFSE" / "Plugins" / "OSF" / "UI";
 		return true;
 	}
 
