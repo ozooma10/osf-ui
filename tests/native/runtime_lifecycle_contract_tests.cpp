@@ -29,7 +29,7 @@ int main()
     const auto ids = Read("../../src/Core/Ids.h");
 
     const auto init = runtime.find("bool Runtime::Initialize()");
-    const auto postLoad = runtime.find("void Runtime::OnPostPostLoad()");
+    const auto postLoad = runtime.find("void Runtime::OnPostLoad()");
     const auto lazy = runtime.find("bool Runtime::EnsureWebRuntime()");
     Check(init != std::string::npos && postLoad != std::string::npos && lazy != std::string::npos,
         "runtime entry points exist");
@@ -41,8 +41,8 @@ int main()
         "lightweight initialization does not construct the WebView runtime");
     const auto postLoadBody = runtime.substr(postLoad, lazy - postLoad);
     Check(postLoadBody.find("m_osfSettings.Initialize()") != std::string::npos,
-        "OSF Settings is acquired on SFSE kPostPostLoad");
-    Check(plugin.find("case SFSE::MessagingInterface::kPostPostLoad:") != std::string::npos,
+        "OSF Settings is acquired on SFSE kPostLoad");
+    Check(plugin.find("case SFSE::MessagingInterface::kPostLoad:") != std::string::npos,
         "dependency acquisition is dispatched at the Slim SDK lifecycle point");
     Check(frame.find("m_retainedState.Set") < frame.find("if (m_bridge)"),
         "owner state is retained before a lazy browser exists");

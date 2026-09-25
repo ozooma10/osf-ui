@@ -133,25 +133,25 @@ namespace OSFUI
 		if (!Paths::Initialize()) {
 			return false;
 		}
+		LoadStartupContent();
 
 		m_initialized = true;
-		REX::INFO("Runtime: add-on loaded; waiting for SFSE kPostPostLoad before acquiring OSF Settings");
+		REX::INFO("Runtime: add-on loaded; waiting for SFSE kPostLoad before acquiring OSF Settings");
 		return true;
 	}
 
-	void Runtime::OnPostPostLoad()
+	void Runtime::OnPostLoad()
 	{
-		if (m_postPostLoadAttempted) {
+		if (m_postLoadAttempted) {
 			return;
 		}
-		m_postPostLoadAttempted = true;
+		m_postLoadAttempted = true;
 		if (!m_osfSettings.Initialize()) {
 			REX::ERROR("Runtime: OSF Settings dependency unavailable or ABI-incompatible; OSF UI remains inert");
 			return;
 		}
 		m_developerMode = m_osfSettings.DeveloperMode();
 		Log::SetDebugLogging(m_developerMode);
-		LoadStartupContent();
 		m_osfSettings.RegisterLaunchers(m_views.All());
 		InitializeStartupViews();
 

@@ -97,7 +97,7 @@ namespace OSFSettings::API
         virtual Status AcquireHotkeyBlock(HotkeyBlock* out) noexcept = 0;
         virtual Status ReleaseHotkeyBlock(HotkeyBlock block) noexcept = 0;
 
-        // Exact IDs of a loaded hotkeys declaration without a menu target. Initialize at kPostPostLoad.
+        // Exact IDs of a loaded hotkeys declaration without a menu target. Initialize at kPostLoad.
         virtual Status RegisterHotkey(const char* mod, const char* id, HotkeyFn callback, void* context) noexcept = 0;
 
         virtual Status GetString(const char* mod, const char* key, char* out, std::uint32_t capacity, std::uint32_t* required) noexcept = 0;
@@ -108,7 +108,7 @@ namespace OSFSettings::API
         // Copy retained data in the callback;
         virtual Status ReadRegistry(const char* mod, RegistryFn callback, void* context) noexcept = 0;
 
-        // Register once at kPostPostLoad. Exactly one native OR Papyrus handler per declaration.
+        // Register once at kPostLoad. Exactly one native OR Papyrus handler per declaration.
         virtual Status RegisterAction(const char* mod, const char* id, ActionFn callback, void* context) noexcept = 0;
         // Only the first completion succeeds. Tokens expire on load.
         virtual Status CompleteAction(Invocation invocation, bool succeeded, const char* message) noexcept = 0;
@@ -136,7 +136,7 @@ namespace OSFSettings::API
     class Client
     {
     public:
-        // Acquires and caches the service after SFSE kPostPostLoad.
+        // Acquire at SFSE kPostLoad or later, then verify IsReady() before using the service.
         bool Init(std::uint32_t version = kBaseVersion) noexcept
         {
             std::uint32_t actual{};

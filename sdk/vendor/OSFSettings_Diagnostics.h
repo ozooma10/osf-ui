@@ -49,7 +49,7 @@ namespace OSFSettings::API::Diagnostics
     class Client
     {
     public:
-        // Initialize after SFSE kPostPostLoad, before sharing the client across threads.
+        // Initialize at SFSE kPostLoad or later, before sharing the client across threads.
         bool Init(std::uint32_t version = kBaseVersion) noexcept
         {
             std::uint32_t actual{};

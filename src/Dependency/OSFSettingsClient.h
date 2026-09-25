@@ -18,7 +18,7 @@ namespace OSFUI
 		void RegisterLaunchers(std::span<const ViewManifest> a_views);
 		[[nodiscard]] bool Available() const { return m_available; }
 		[[nodiscard]] bool DeveloperMode() const { return m_developerMode; }
-		// Game language code from OSF Settings, lower-cased ("en", "de", "ptbr"). Empty until known: the game's translations load after kPostPostLoad, so each call retries until Settings reports it, then it is cached.
+		// Game language code from OSF Settings, lower-cased ("en", "de", "ptbr"). Empty until the game's translations load; independent of service readiness. Each call retries until Settings reports it, then it is cached.
 		[[nodiscard]] std::string Language();
 		// Known codes get their user-facing text and severity from Describe; a_message titles anything else.
 		void ReportFailure(std::string_view a_id, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_context = nlohmann::json::object());

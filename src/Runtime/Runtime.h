@@ -43,7 +43,7 @@ namespace OSFUI
 
 		// SFSE lifecycle and main-thread frame entry points.
 		bool Initialize();
-		void OnPostPostLoad();
+		void OnPostLoad();
 		void OnDataLoaded();
 		void OnPostDataLoaded();
 		void Update();
@@ -160,7 +160,7 @@ namespace OSFUI
 
 		// Startup and frame lifecycle.
 		bool m_initialized{ false };
-		bool m_postPostLoadAttempted{ false };
+		bool m_postLoadAttempted{ false };
 		bool m_webRuntimeInitializing{ false };
 		bool m_webRuntimeReady{ false };
 		bool m_developerMode{ false };       // startup-latched; changes apply next launch
