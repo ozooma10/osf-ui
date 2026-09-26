@@ -24,9 +24,9 @@ namespace OSFUI::OverlayInputHook
 		std::atomic<WNDPROC> g_originalProc{ nullptr };
 		std::atomic<WNDPROC> g_gameProc{ nullptr };
 		HWND    g_hwnd{ nullptr };
-		std::atomic_bool g_chainCycleLogged{ false };
 
 		// Window-thread cursor state observes capture edges published by Runtime.
+		bool g_chainCycleLogged{ false };
 		bool g_hwCursorActive{ false };
 		// Absolute raw-input devices report a normalized position rather than a
 		// movement delta. Keep the last client position so relative-pointer owners
@@ -368,7 +368,8 @@ namespace OSFUI::OverlayInputHook
 					reinterpret_cast<std::uintptr_t>(current),
 					reinterpret_cast<std::uintptr_t>(&WndProc),
 					reinterpret_cast<std::uintptr_t>(g_originalProc.load(std::memory_order_acquire)))) {
-				if (!g_chainCycleLogged.exchange(true, std::memory_order_relaxed)) {
+				if (!g_chainCycleLogged) {
+					g_chainCycleLogged = true;
 					REX::WARN("OverlayInputHook: the previously chained WndProc moved back above OSF UI; "
 						"bypassing the circular link and forwarding to Starfield's class WndProc "
 						"(compatibility path for BetterConsole and similar re-hooking overlays)");

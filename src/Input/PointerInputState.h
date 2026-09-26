@@ -9,8 +9,8 @@
 namespace OSFUI
 {
 	// WndProc publishes cursor samples; Runtime publishes geometry and drains moves.
-	// Shared fields retain their atomic publication boundaries. Runtime alone owns
-	// the Scaleform geometry mode and decides when the rendered view is ready.
+	// Runtime geometry bookkeeping relies on ordered, non-overlapping updates.
+	// Fields shared with WndProc retain their atomic publication boundaries.
 	class PointerInputState
 	{
 	public:
@@ -46,14 +46,17 @@ namespace OSFUI
 		void DiscardMouseMove();
 
 	private:
+		// Runtime-owned geometry bookkeeping; no window-thread readers.
+		ViewSize m_captureSize;
+		bool m_gameClientSizeObserved{ false };
+		bool m_fixedScaleformGeometry{ false };
+
+		// Runtime and WndProc share the viewport, cursor and pending motion.
+		std::atomic<std::uint64_t> m_viewSize;
 		std::atomic<float> m_cursorX{ 0.0f };
 		std::atomic<float> m_cursorY{ 0.0f };
 		std::atomic_bool m_insideView{ true };
 		std::atomic_bool m_geometryReady{ true };
-		std::atomic<std::uint64_t> m_captureSize;
-		std::atomic<std::uint64_t> m_viewSize;
-		std::atomic_bool m_gameClientSizeObserved{ false };
-		bool m_fixedScaleformGeometry{ false };
 		static constexpr std::uint64_t kNoPendingMouseMove = ~0ull;
 		std::atomic<std::uint64_t> m_pendingMouseMove{ kNoPendingMouseMove };
 	};

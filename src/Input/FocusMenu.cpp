@@ -10,9 +10,8 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Register, Open and Close run from Runtime::Update; engine input also reads these flags.
-		std::atomic_bool g_registered{ false };
-		std::atomic_bool g_gamepadCapture{ false };
+		bool g_registered{ false };
+		std::atomic_bool g_gamepadCapture{ false }; // Engine input callbacks also read the capture gate.
 
 		const RE::BSFixedString& MenuName()
 		{
@@ -69,7 +68,7 @@ namespace OSFUI
 
 	bool FocusMenu::Register()
 	{
-		if (g_registered.load(std::memory_order_acquire)) {
+		if (g_registered) {
 			return true;
 		}
 		auto* ui = RE::UI::GetSingleton();
@@ -84,19 +83,19 @@ namespace OSFUI
 			REX::ERROR("FocusMenu: RegisterMenu('{}') did not take; focus menu inert", MENU_NAME);
 			return false;
 		}
-		g_registered.store(true, std::memory_order_release);
+		g_registered = true;
 		REX::INFO("FocusMenu: registered '{}' (movie-less GameMenuBase; opens only when the overlay does)", MENU_NAME);
 		return true;
 	}
 
 	bool FocusMenu::IsRegistered()
 	{
-		return g_registered.load(std::memory_order_acquire);
+		return g_registered;
 	}
 
 	bool FocusMenu::IsOpenInEngine()
 	{
-		if (!g_registered.load(std::memory_order_acquire)) {
+		if (!g_registered) {
 			return false;
 		}
 		auto* ui = RE::UI::GetSingleton();
@@ -120,7 +119,7 @@ namespace OSFUI
 
 	void FocusMenu::Open()
 	{
-		if (!g_registered.load(std::memory_order_acquire)) {
+		if (!g_registered) {
 			return;
 		}
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
@@ -133,7 +132,7 @@ namespace OSFUI
 
 	void FocusMenu::Close()
 	{
-		if (!g_registered.load(std::memory_order_acquire)) {
+		if (!g_registered) {
 			return;
 		}
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {

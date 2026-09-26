@@ -285,7 +285,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		bool completionFailureLogged{ false }; // timelineMutex
 
 
-		std::atomic_bool overlayDrawLogged{ false };
+		bool overlayDrawLogged{ false };  // guarded by sharedRing.drawMutex
 
 		~Impl()
 		{
@@ -532,8 +532,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			a_list->DrawInstanced(3, 1, 0, 0);
 
-			const bool firstDraw = !overlayDrawLogged.exchange(true, std::memory_order_relaxed);
-			if (firstDraw) {
+			if (!overlayDrawLogged) {
+				overlayDrawLogged = true;
 				REX::INFO("D3D12Compositor: FIRST UI-PASS OVERLAY DRAW (ring slot {} serial {} -> {}x{} {} selected UI target 0x{:X})",
 					ringSlot, serial, static_cast<std::uint64_t>(desc.Width), desc.Height, UiTargetFormat::Name(rtvFormat), reinterpret_cast<std::uintptr_t>(a_buffer));
 			}

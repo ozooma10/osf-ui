@@ -6,13 +6,13 @@
 namespace OSFUI
 {
 	PointerInputState::PointerInputState() :
-		m_captureSize(PackViewSize({ kDefaultViewWidth, kDefaultViewHeight })),
+		m_captureSize{ kDefaultViewWidth, kDefaultViewHeight },
 		m_viewSize(PackViewSize({ kDefaultViewWidth, kDefaultViewHeight }))
 	{}
 
 	void PointerInputState::Initialize(ViewSize a_size)
 	{
-		m_captureSize.store(PackViewSize(a_size));
+		m_captureSize = a_size;
 		m_viewSize.store(PackViewSize(a_size));
 		m_cursorX = a_size.width * 0.5f;
 		m_cursorY = a_size.height * 0.5f;
@@ -22,7 +22,7 @@ namespace OSFUI
 	{
 		m_pendingMouseMove.store(kNoPendingMouseMove, std::memory_order_release);
 		m_insideView.store(false, std::memory_order_release);
-		m_captureSize.store(PackViewSize(a_capture), std::memory_order_release);
+		m_captureSize = a_capture;
 		m_viewSize.store(PackViewSize(a_view), std::memory_order_release);
 	}
 
@@ -35,17 +35,17 @@ namespace OSFUI
 
 	void PointerInputState::ObserveGameClientSize()
 	{
-		m_gameClientSizeObserved.store(true, std::memory_order_release);
+		m_gameClientSizeObserved = true;
 	}
 
 	bool PointerInputState::GameClientSizeObserved() const
 	{
-		return m_gameClientSizeObserved.load(std::memory_order_acquire);
+		return m_gameClientSizeObserved;
 	}
 
 	ViewSize PointerInputState::CaptureSize() const
 	{
-		return UnpackViewSize(m_captureSize.load(std::memory_order_acquire));
+		return m_captureSize;
 	}
 
 	ViewSize PointerInputState::ViewportSize() const
