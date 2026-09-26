@@ -383,15 +383,18 @@ namespace OSFUI::API
 				m_dirty = false;
 			}
 			if (m_bridgeAvailable.load(std::memory_order_acquire)) {
-				for (auto it = m_pendingSends.begin(); it != m_pendingSends.end();) {
-					if (const auto* canonical = FindIdCaseInsensitive(m_instantiatedViews, it->view)) {
-						it->view = *canonical;
-						sends.push_back(std::move(*it));
-						it = m_pendingSends.erase(it);
-					} else if (m_viewCatalogReady && !FindIdCaseInsensitive(m_knownViews, it->view)) {
-						it = m_pendingSends.erase(it);
-					} else ++it;
+				// Single stable compaction pass: retained sends keep their order.
+				auto kept = m_pendingSends.begin();
+				for (auto& send : m_pendingSends) {
+					if (const auto* canonical = FindIdCaseInsensitive(m_instantiatedViews, send.view)) {
+						send.view = *canonical;
+						sends.push_back(std::move(send));
+					} else if (!m_viewCatalogReady || FindIdCaseInsensitive(m_knownViews, send.view)) {
+						if (&*kept != &send) *kept = std::move(send);
+						++kept;
+					}
 				}
+				m_pendingSends.erase(kept, m_pendingSends.end());
 				replies.swap(m_queuedReplies);
 			}
 		}
