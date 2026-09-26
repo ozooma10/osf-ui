@@ -120,7 +120,6 @@ namespace OSFUI
 		// Input policy and routing (Input/RuntimeInput.cpp).
 		// Runtime applies presentation failure policy around capture reconciliation.
 		void ReconcileInputSuppression();
-		void ReconcileFocusMenu();
 		// Poll XInput and deliver events to the active document (`ui.gamepad` events).
 		void RouteGamepadInput();
 

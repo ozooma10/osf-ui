@@ -44,7 +44,7 @@ namespace OSFUI
 		return false;
 	}
 
-	void InputCaptureController::ReconcileFocusMenu(bool a_wantsCapture, double a_now)
+	void InputCaptureController::ReconcileFocusMenu(bool a_wantsCapture, bool a_engineOpen, double a_now)
 	{
 		const bool wantOpen = a_wantsCapture;
 		if (wantOpen != m_focusMenuOpen) {
@@ -61,8 +61,7 @@ namespace OSFUI
 		if (!FocusMenu::IsRegistered()) {
 			return;
 		}
-		const bool engineOpen = FocusMenu::IsOpenInEngine();
-		if (engineOpen == wantOpen) {
+		if (a_engineOpen == wantOpen) {
 			m_focusMenuMismatchSince = -1.0;
 			return;
 		}
@@ -84,7 +83,7 @@ namespace OSFUI
 	}
 
 	void InputCaptureController::ReconcileBrowserFocus(
-		WebView2HostWebRenderer* a_renderer, bool a_visible, bool a_hasActiveMenu)
+		WebView2HostWebRenderer* a_renderer, bool a_visible, bool a_hasActiveMenu, bool a_focusMenuInEngine)
 	{
 		if (!a_renderer) {
 			return;
@@ -92,7 +91,7 @@ namespace OSFUI
 		const bool wantsCapture = a_visible && CaptureRequested() && a_hasActiveMenu;
 		// Grant browser input only after the menu stack admits the input-owning
 		// sentinel. In forwarded mode this grant does not transfer OS focus.
-		const bool want = wantsCapture && FocusMenu::IsOpenInEngine();
+		const bool want = wantsCapture && a_focusMenuInEngine;
 		if (want == m_browserFocusGranted) {
 			return;
 		}

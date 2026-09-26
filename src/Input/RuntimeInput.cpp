@@ -80,11 +80,6 @@ namespace OSFUI
 		m_presentation.CloseActiveMenu();
 	}
 
-	void Runtime::ReconcileFocusMenu()
-	{
-		m_inputCapture.ReconcileFocusMenu(m_presentation.DesiredCapture(), m_nowSeconds);
-	}
-
 	void Runtime::RouteGamepadInput()
 	{
 		const auto endSession = [this] {

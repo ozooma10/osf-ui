@@ -1,6 +1,7 @@
 #include "Runtime/Runtime.h"
 
 #include "API/PapyrusApi.h"
+#include "Input/FocusMenu.h"
 #include "Input/FreeCursor.h"
 #include "Input/SimPause.h"
 #include "Input/MenuEventSink.h"
@@ -68,8 +69,10 @@ namespace OSFUI
 
 	void Runtime::ReconcileFrameState()
 	{
-		ReconcileFocusMenu();
-		m_inputCapture.ReconcileBrowserFocus(m_renderer.get(), m_visible.load(), m_presentation.ActiveMenu().has_value());
+		// Open/Close only queue UI messages, so one menuArray scan holds for this whole pass.
+		const bool focusMenuInEngine = FocusMenu::IsOpenInEngine();
+		m_inputCapture.ReconcileFocusMenu(m_presentation.DesiredCapture(), focusMenuInEngine, m_nowSeconds);
+		m_inputCapture.ReconcileBrowserFocus(m_renderer.get(), m_visible.load(), m_presentation.ActiveMenu().has_value(), focusMenuInEngine);
 		m_inputCapture.ReconcileControlLayer(m_presentation.DesiredCapture(), IsInputCaptured());
 		SimPause::Apply(m_presentation.DesiredPause());
 		FreeCursor::Apply(m_presentation.DesiredCapture());
