@@ -37,9 +37,10 @@ namespace OSFUI
 		}
 
 		constexpr DWORD kNoSlot = XUSER_MAX_COUNT;
+		constexpr double kDiscoveryIntervalSeconds = 1.0;
 	}
 
-	XInputPoller::State XInputPoller::Poll()
+	XInputPoller::State XInputPoller::Poll(double a_now)
 	{
 		if (m_latchedSlot != kNoSlot) {
 			XINPUT_STATE state{};
@@ -47,6 +48,8 @@ namespace OSFUI
 				return ToState(state);
 			}
 			m_latchedSlot = kNoSlot;  // unplugged; fall through and rescan
+		} else if (a_now < m_nextDiscoveryAt) {
+			return {};
 		}
 
 		XInputPoller::State firstConnected{};
@@ -63,11 +66,14 @@ namespace OSFUI
 				firstConnected = ToState(state);
 			}
 		}
+		// An idle connected pad must stay polled every update so its first press latches it.
+		m_nextDiscoveryAt = firstConnected.connected ? 0.0 : a_now + kDiscoveryIntervalSeconds;
 		return firstConnected;
 	}
 
 	void XInputPoller::Reset()
 	{
 		m_latchedSlot = kNoSlot;
+		m_nextDiscoveryAt = 0.0;
 	}
 }

@@ -18,10 +18,11 @@ namespace OSFUI
 			float         ry{ 0.0f };
 		};
 
-		[[nodiscard]] State Poll();
+		[[nodiscard]] State Poll(double a_now);
 		void Reset();
 
 	private:
 		std::uint32_t m_latchedSlot{ 4 };
+		double        m_nextDiscoveryAt{ 0.0 };  // empty-slot probes are throttled while nothing is connected
 	};
 }

@@ -99,7 +99,7 @@ namespace OSFUI
 		}
 
 		const auto mode = m_viewInputGrants.GamepadModeFor(*active);
-		const auto frame = m_gamepadSession.Update(m_gamepadSource.Poll(), mode, m_nowSeconds);
+		const auto frame = m_gamepadSession.Update(m_gamepadSource.Poll(m_nowSeconds), mode, m_nowSeconds);
 
 		const auto applyAction = [this](GamepadSession::Action a_action) {
 			std::uint32_t key = 0;
