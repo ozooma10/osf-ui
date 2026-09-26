@@ -281,7 +281,7 @@ namespace osfui::wv2
 		return result;
 	}
 	LaunchResult LaunchDetached(const std::wstring& a_exe, const std::wstring& a_args,
-		bool a_preferBroker, const std::atomic_bool* a_cancel)
+		bool a_preferBroker, const std::function<bool()>& a_cancelled)
 	{
 		LaunchResult result;
 		if (!a_preferBroker) {
@@ -311,7 +311,7 @@ namespace osfui::wv2
 				else result.detail = "broker process failed (exit " + std::to_string(code) + ")";
 				break;
 			}
-			if (wait == WAIT_FAILED || (a_cancel && a_cancel->load(std::memory_order_acquire)) ||
+			if (wait == WAIT_FAILED || (a_cancelled && a_cancelled()) ||
 				::GetTickCount64() >= deadline) {
 				// Only this process handle is terminated; never Explorer or the game.
 				::TerminateProcess(process.hProcess, 10);

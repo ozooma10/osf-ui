@@ -250,6 +250,7 @@ namespace OSFUI
 		std::uint32_t        viewportWidth{ 1 }, viewportHeight{ 1 };
 		bool                 pointerInputEnabled{ true };
 
+		// Single source of connection state: Running = connected, Stopping = stop requested, Failed = connection lost (held until RestartAfterFailure).
 		enum class Lifecycle : std::uint8_t
 		{
 			Stopped,
@@ -261,10 +262,8 @@ namespace OSFUI
 
 		osfui::wv2::Pipe pipe;
 		std::thread      worker;
-		std::thread      writer;
+		std::thread      writer;  // Spawned by the worker once connected; joined after the worker.
 		std::atomic<Lifecycle> lifecycle{ Lifecycle::Stopped };
-		std::atomic_bool stopRequested{ false };
-		std::atomic_bool connected{ false }, dead{ false };
 		std::mutex hostProcessMutex;
 		HANDLE     hostProcess{ nullptr };
 
@@ -314,14 +313,10 @@ namespace OSFUI
 
 		static constexpr std::size_t kMaxOutbound = 512;
 		osfui::wv2::BoundedQueue<std::string> outbound{ kMaxOutbound };
-		std::atomic<std::uint64_t> nextOutboundSequence{ 1 };
-		std::mutex writerGateMutex;
-		std::condition_variable writerGate;
-		bool writerReady{ false };
-		std::mutex writtenMutex;
-		std::condition_variable written;
-		std::uint64_t lastWrittenSequence{ 0 };
-		bool writerFailed{ false };
+
+		bool IsRunning() const { return lifecycle.load(std::memory_order_acquire) == Lifecycle::Running; }
+		bool IsStarting() const { return lifecycle.load(std::memory_order_acquire) == Lifecycle::Starting; }
+
 		void SetBrowserHostProcess(HANDLE a_process)
 		{
 			std::scoped_lock lock(hostProcessMutex);
@@ -336,10 +331,16 @@ namespace OSFUI
 
 		void SignalDead(std::string_view a_reason)
 		{
-			connected.store(false, std::memory_order_release);
-			lifecycle.store(Lifecycle::Failed, std::memory_order_release);
-			if (!stopRequested.load(std::memory_order_acquire) &&
-				!dead.exchange(true, std::memory_order_acq_rel)) {
+			// Only a live transport fails; a stop in progress or an earlier failure wins.
+			auto prior = lifecycle.load(std::memory_order_acquire);
+			bool failed = false;
+			while (prior == Lifecycle::Starting || prior == Lifecycle::Running) {
+				if (lifecycle.compare_exchange_weak(prior, Lifecycle::Failed, std::memory_order_acq_rel)) {
+					failed = true;
+					break;
+				}
+			}
+			if (failed) {
 				REX::ERROR("WebView2HostWebRenderer: {}", a_reason);
 				Push(Notify{ .kind = Notify::Kind::Dead });
 			}
@@ -357,13 +358,10 @@ namespace OSFUI
 
 		bool Enqueue(const json& a_msg, bool a_queueBeforeConnect)
 		{
-			std::scoped_lock gateLock(writerGateMutex);
-			if (!a_queueBeforeConnect &&
-				!connected.load(std::memory_order_acquire)) {
+			if (!a_queueBeforeConnect && !IsRunning()) {
 				return false;
 			}
-			const auto result = outbound.Push(Json::Dump(a_msg), CoalesceKey(a_msg),
-				nextOutboundSequence.fetch_add(1, std::memory_order_relaxed));
+			const auto result = outbound.Push(Json::Dump(a_msg), CoalesceKey(a_msg));
 			if (result == decltype(outbound)::PushResult::Full) {
 				SignalDead(std::format(
 					"outbound IPC message queue exceeded {} messages", kMaxOutbound));
@@ -379,33 +377,16 @@ namespace OSFUI
 
 		bool PublishConnected(std::vector<osfui::wv2::BoundedQueue<std::string>::Item> a_bootstrap)
 		{
-			{
-				// Share the lock with shutdown so Stop cannot miss a racing connection.
-				std::scoped_lock lock(writerGateMutex);
-				if (stopRequested.load(std::memory_order_acquire) ||
-					!outbound.Prepend(std::move(a_bootstrap))) {
-					return false;
-				}
-				connected.store(true, std::memory_order_release);
-				lifecycle.store(Lifecycle::Running, std::memory_order_release);
-				writerReady = true;
-			}
-			writerGate.notify_all();
-			return true;
+			// Prepend before Running: a Send that observes Running is ordered after the snapshot.
+			// A concurrent Stop or failure leaves the lifecycle off Starting and closes the queue.
+			if (!outbound.Prepend(std::move(a_bootstrap))) return false;
+			auto expected = Lifecycle::Starting;
+			return lifecycle.compare_exchange_strong(expected, Lifecycle::Running,
+				std::memory_order_acq_rel);
 		}
 
 		void WriterMain()
 		{
-			bool writerActivated = false;
-			{
-				std::unique_lock lock(writerGateMutex);
-				writerGate.wait(lock, [this] {
-					return writerReady || stopRequested.load(std::memory_order_acquire);
-				});
-				writerActivated = writerReady;
-			}
-			if (!writerActivated) return;
-
 			decltype(outbound)::Item item;
 			while (outbound.WaitPop(item)) {
 				const auto result = pipe.WriteMessage(item.value);
@@ -413,22 +394,9 @@ namespace OSFUI
 					REX::WARN("WebView2HostWebRenderer: dropped oversized outbound message");
 				}
 				if (result == osfui::wv2::Pipe::WriteResult::Disconnected) {
-					{
-						std::scoped_lock lock(writtenMutex);
-						writerFailed = true;
-					}
-					written.notify_all();
-					if (!stopRequested.load(std::memory_order_acquire)) {
-						SignalDead("outbound pipe writer failed: " + pipe.LastErrorText());
-					}
+					SignalDead("outbound pipe writer failed: " + pipe.LastErrorText());
 					return;
 				}
-				{
-					std::scoped_lock lock(writtenMutex);
-					lastWrittenSequence =
-						std::max(lastWrittenSequence, item.sequence);
-				}
-				written.notify_all();
 			}
 		}
 
@@ -635,19 +603,7 @@ namespace OSFUI
 					adapterLuidHigh, adapterLuidLow);
 			}
 
-			stopRequested.store(false, std::memory_order_release);
-			connected.store(false, std::memory_order_release);
-			{
-				std::scoped_lock lock(writerGateMutex);
-				writerReady = false;
-			}
-			{
-				std::scoped_lock lock(writtenMutex);
-				lastWrittenSequence = 0;
-				writerFailed = false;
-			}
 			pipe.PrepareForOpen();
-			writer = std::thread([this] { WriterMain(); });
 			worker = std::thread([this] { WorkerMain(); });
 			REX::DEBUG("WebView2HostWebRenderer: starting browser-host transport threads");
 			return true;
@@ -728,7 +684,7 @@ namespace OSFUI
 				SignalDead("could not create the private browser-host pipe: " + pipe.LastErrorText());
 				return;
 			}
-			if (stopRequested.load(std::memory_order_acquire)) return;
+			if (!IsStarting()) return;
 
 			const bool usvfs = ::GetModuleHandleW(L"usvfs_x64.dll") != nullptr;
 			const bool elevated = osfui::win32::IsProcessElevated();
@@ -738,7 +694,7 @@ namespace OSFUI
 			}
 			const auto launchTime = std::filesystem::file_time_type::clock::now();
 			const auto launch = osfui::wv2::LaunchDetached(
-				browserHostExeMirror.native(), args, /*a_preferBroker=*/usvfs, &stopRequested);
+				browserHostExeMirror.native(), args, /*a_preferBroker=*/usvfs, [this] { return !IsStarting(); });
 			if (!launch.ok) {
 				REX::ERROR("WebView2HostWebRenderer: browser-host launch failed [{}]", launch.detail);
 				SignalDead("browser-host launch failed");
@@ -827,9 +783,7 @@ namespace OSFUI
 			using OutItem = osfui::wv2::BoundedQueue<std::string>::Item;
 			std::vector<OutItem> bootstrap;
 			const auto addBootstrap = [&](json a_message) {
-				bootstrap.push_back(OutItem{
-					Json::Dump(a_message), {},
-					nextOutboundSequence.fetch_add(1, std::memory_order_relaxed) });
+				bootstrap.push_back(OutItem{ Json::Dump(a_message) });
 			};
 			{
 				std::scoped_lock lock(stateMutex);
@@ -868,20 +822,16 @@ namespace OSFUI
 				// Setters hold stateMutex through their outbound enqueue. Publishing
 				// under the same lock makes the snapshot and later diffs one order.
 				if (!PublishConnected(std::move(bootstrap))) {
-					if (!stopRequested.load(std::memory_order_acquire)) {
-						SignalDead("connection snapshot exceeded the outbound queue limit");
-					}
+					// No-op when a stop or failure already moved the lifecycle off Starting.
+					SignalDead("connection snapshot exceeded the outbound queue limit");
 					return;
 				}
 			}
 
+			// Stop joins the worker before the writer, so this assignment is visible to it.
+			writer = std::thread([this] { WriterMain(); });
 			ReadLoop();
-			connected.store(false, std::memory_order_release);
-			if (!stopRequested.load(std::memory_order_acquire) &&
-				!dead.load(std::memory_order_acquire)) {
-				SignalDead("browser-host connection ended unexpectedly: " +
-					pipe.LastErrorText());
-			}
+			SignalDead("browser-host connection ended unexpectedly: " + pipe.LastErrorText());
 		}
 		// Inbound (worker thread)
 
@@ -890,7 +840,7 @@ namespace OSFUI
 			std::string payload;
 			auto heartbeatDeadline = ::GetTickCount64() +
 				osfui::wv2::kHeartbeatTimeoutMs;
-			while (!stopRequested.load(std::memory_order_acquire)) {
+			while (IsRunning()) {
 				const auto now = ::GetTickCount64();
 				if (now >= heartbeatDeadline) {
 					REX::ERROR("WebView2HostWebRenderer: browser-host heartbeat expired after {}ms",
@@ -1042,7 +992,7 @@ namespace OSFUI
 					break;
 				case Notify::Kind::Load:
 					// A failed connection cannot certify document load or recovery.
-					if (dead.load(std::memory_order_acquire)) break;
+					if (lifecycle.load(std::memory_order_acquire) == Lifecycle::Failed) break;
 					if (onLoad) {
 						const LoadEvent event{
 							.viewId = value.view,
@@ -1115,62 +1065,25 @@ namespace OSFUI
 
 		// Teardown
 
-		bool RequestShutdown()
-		{
-			std::uint64_t sequence = 0;
-			{
-				std::scoped_lock gateLock(writerGateMutex);
-				if (!connected.exchange(false, std::memory_order_acq_rel)) return false;
-				outbound.Clear();
-				sequence =
-					nextOutboundSequence.fetch_add(1, std::memory_order_relaxed);
-				if (outbound.Push(Json::Dump(ToJson(msg::Shutdown{})), {}, sequence) !=
-					decltype(outbound)::PushResult::Queued) {
-					return false;
-				}
-			}
-			std::unique_lock lock(writtenMutex);
-			return written.wait_for(lock, std::chrono::milliseconds(250), [this, sequence] {
-				return lastWrittenSequence >= sequence || writerFailed;
-			}) && lastWrittenSequence >= sequence;
-		}
-
-		void Stop(bool a_force = false)
+		// The host also exits on its own when the game process ends, so teardown never negotiates: close the transport, then terminate the verified host process.
+		void Stop()
 		{
 			auto prior = lifecycle.load(std::memory_order_acquire);
 			do {
 				if (prior == Lifecycle::Stopped || prior == Lifecycle::Stopping) return;
 			} while (!lifecycle.compare_exchange_weak(prior, Lifecycle::Stopping, std::memory_order_acq_rel));
 
-			stopRequested.store(true, std::memory_order_release);
-			const bool shutdownWritten = RequestShutdown();
-			if (!shutdownWritten && prior == Lifecycle::Running && !a_force) {
-				REX::WARN("WebView2HostWebRenderer: shutdown message was not written "
-						  "within 250ms; closing the transport");
-			}
-
-			outbound.Close();
-			writerGate.notify_all();
 			// Close cancels pipe I/O before joins so the game thread cannot wait indefinitely.
+			outbound.Close();
 			pipe.Close();
 			if (worker.joinable()) worker.join();
 			if (writer.joinable()) writer.join();
 			frames->Disconnect();
-			connected.store(false, std::memory_order_release);
-			{
-				std::scoped_lock lock(writerGateMutex);
-				writerReady = false;
-			}
 
 			if (const HANDLE browserHostProcess = TakeBrowserHostProcess()) {
-				const auto graceMs = a_force ? 250u : 3000u;
-				if (::WaitForSingleObject(browserHostProcess, graceMs) != WAIT_OBJECT_0) {
-					REX::WARN("WebView2HostWebRenderer: verified browser-host pid {} did not exit{}; terminating",
-						::GetProcessId(browserHostProcess),
-						a_force ? " after transport failure" : " in 3s");
-					::TerminateProcess(browserHostProcess, 9);
-					::WaitForSingleObject(browserHostProcess, 1000u);
-				}
+				::TerminateProcess(browserHostProcess, 9);
+				// Termination is asynchronous; the bounded wait lets the host drop its views lease.
+				::WaitForSingleObject(browserHostProcess, 1000u);
 				::CloseHandle(browserHostProcess);
 			}
 
@@ -1197,20 +1110,10 @@ namespace OSFUI
 		}
 		void ResetAfterFailure()
 		{
-			// Never stall the runtime update waiting for a stranded host after pipe failure.
-			Stop(true);
+			Stop();
 
 			const auto discardedOut = outbound.Size();
 			outbound.Reset();
-			{
-				std::scoped_lock lock(writerGateMutex);
-				writerReady = false;
-			}
-			{
-				std::scoped_lock lock(writtenMutex);
-				lastWrittenSequence = 0;
-				writerFailed = false;
-			}
 
 			{
 				std::scoped_lock lock(notifyMutex);
@@ -1219,12 +1122,8 @@ namespace OSFUI
 				droppedWebCount = droppedConsoleCount = droppedLogCount = 0;
 			}
 
-			frames->Disconnect();
-			connected.store(false, std::memory_order_release);
-			dead.store(false, std::memory_order_release);
 			focusRequested.store(false);
 			focusEpoch.store(0);
-			stopRequested.store(false);
 
 			if (discardedOut) {
 				REX::WARN("WebView2HostWebRenderer: discarded {} transient message(s) from "
@@ -1369,7 +1268,7 @@ namespace OSFUI
 	{
 		// Start and initialize the browser host while the overlay remains hidden.
 		if (m_impl->lifecycle.load(std::memory_order_acquire) ==
-			Impl::Lifecycle::Stopped && !m_impl->dead.load()) {
+			Impl::Lifecycle::Stopped) {
 			bool wantsView = false;
 			{
 				std::scoped_lock lock(m_impl->stateMutex);

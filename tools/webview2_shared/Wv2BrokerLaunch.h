@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include <atomic>
+#include <functional>
 
 namespace osfui::wv2
 {
@@ -22,8 +22,7 @@ namespace osfui::wv2
 
 	[[nodiscard]] const char* LaunchMethodName(LaunchMethod a_method);
 
-	[[nodiscard]] LaunchResult LaunchDetached(const std::wstring& a_exe,
-		const std::wstring& a_args, bool a_preferBroker, const std::atomic_bool* a_cancel = nullptr);
+	[[nodiscard]] LaunchResult LaunchDetached(const std::wstring& a_exe, const std::wstring& a_args, bool a_preferBroker, const std::function<bool()>& a_cancelled = {});
 	// Only the disposable launcher process calls COM. Exit code is LaunchMethod or zero.
 	[[nodiscard]] LaunchResult RunLaunchBroker(const std::wstring& a_exe, const std::wstring& a_args);
 }

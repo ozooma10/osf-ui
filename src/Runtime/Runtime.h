@@ -142,6 +142,7 @@ namespace OSFUI
 		nlohmann::json BuildViewsData() const;
 
 		// Ownership: ordinary mutable fields below belong to the runtime tick.
+		// This requires ordered, non-overlapping updates. OS thread affinity is not guaranteed.
 		// Startup initializes paths/catalog/settings before input hooks are installed;
 		// m_initialized, m_developerMode and the renderer pointer then stay stable.
 		// Renderer load/failure callbacks run when its queues drain on that tick.
