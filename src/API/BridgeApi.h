@@ -63,6 +63,10 @@ namespace OSFUI::API
 		void AttachBridge(MessageBridge& a_bridge);
 		void SetBridgeAvailability(bool a_available);
 		void PumpRuntimeCallbacks();
+		void RemoveOwnedEndpoint(const char* a_name, void* a_owner);
+		// Shared reply queue for the frozen native ABI adapter.
+		void RespondRequest(std::uint64_t, const char*) noexcept;
+		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
 
 		// Runtime relative-pointer dispatch.
 		[[nodiscard]] bool HasRelativePointer(std::string_view a_viewId);
@@ -116,8 +120,6 @@ namespace OSFUI::API
 
 		static void RespondThunk(std::uint64_t, const char*) noexcept;
 		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
-		void RespondRequest(std::uint64_t, const char*) noexcept;
-		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
 		void QueueReply(QueuedReply) noexcept;
 		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
 		enum Pending : std::uint32_t
@@ -139,6 +141,7 @@ namespace OSFUI::API
 		std::unordered_map<std::string, Registration>        m_sends;
 		std::unordered_map<std::string, RequestRegistration> m_requests;
 		bool                                          m_dirty{ false };  // endpoint set changed since apply
+		std::vector<std::string> m_removedEndpoints;
 		std::unordered_map<std::string, RelativePointerRegistration> m_relativePointers;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewLifecycleRegistration> m_viewLifecycles;  // exact view owner, first-wins
 		std::vector<QueuedReply>                       m_queuedReplies;

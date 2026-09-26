@@ -7,6 +7,13 @@
 
 namespace OSFUI
 {
+	void ViewManager::AddIfAbsent(ViewManifest a_manifest)
+	{
+		if (Find(a_manifest.id)) return;
+		m_views.push_back(std::move(a_manifest));
+		std::ranges::sort(m_views, {}, &ViewManifest::id);
+	}
+
 	void ViewManager::DiscoverAll(const std::filesystem::path& a_viewsDir)
 	{
 		m_views.clear();

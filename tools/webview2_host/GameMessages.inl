@@ -6,6 +6,7 @@
 				gameTopLevel = reinterpret_cast<HWND>(
 					static_cast<std::uintptr_t>(a_msg.topLevelHwnd));
 				viewsRoot = std::filesystem::path(ToWide(a_msg.viewsPath));
+				legacyViewsRoot = std::filesystem::path(ToWide(a_msg.legacyViewsPath));
 				width = (std::max)(1u, a_msg.width);
 				height = (std::max)(1u, a_msg.height);
 				viewportWidth = width;
@@ -33,6 +34,13 @@
 					return;
 				}
 				std::optional<LUID> requestedAdapter;
+				if (!legacyViewsRoot.empty()) {
+					const auto legacyLease = legacyViewsRoot / OSFUI::ViewCache::kUseLock;
+					if (std::filesystem::exists(legacyLease, leaseEc) && !legacyViewsLease.Open(legacyLease)) {
+						FailHost("legacy-views-lease", HRESULT_FROM_WIN32(::GetLastError()), "could not lease legacy views cache");
+						return;
+					}
+				}
 				if (a_raw.contains("adapterLuidLow") && a_raw.contains("adapterLuidHigh")) {
 					LUID luid{};
 					luid.LowPart = a_msg.adapterLuidLow;
@@ -59,6 +67,7 @@
 				auto* view = FindView(a_msg.id);
 				if (!view) view = &CreateView(a_msg.id);
 				view->logicalHeight = (std::max)(1u, a_msg.logicalHeight);
+				view->legacy = a_msg.legacy;
 				ApplyScale(*view);
 				std::string entry = a_msg.entry;
 				std::ranges::replace(entry, '\\', '/');

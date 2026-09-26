@@ -10,6 +10,7 @@ namespace OSFUI
 	public:
 		// Scan two levels; reject unsafe mod ids while logging other discovery failures.
 		void DiscoverAll(const std::filesystem::path& a_viewsDir);
+		void AddIfAbsent(ViewManifest a_manifest);
 
 		// a_id is the qualified "<modId>/<viewName>" id.
 		[[nodiscard]] const ViewManifest* Find(std::string_view a_id) const;

@@ -361,6 +361,19 @@ namespace OSFUI::API
 		MarkPending(kPendingPump);
 	}
 
+	void BridgeApi::RemoveOwnedEndpoint(const char* a_name, void* a_owner)
+	{
+		std::lock_guard lock(m_mutex);
+		const auto send = m_sends.find(a_name);
+		const auto request = m_requests.find(a_name);
+		if (send != m_sends.end() && send->second.user == a_owner) m_sends.erase(send);
+		else if (request != m_requests.end() && request->second.user == a_owner) m_requests.erase(request);
+		else return;
+		m_removedEndpoints.emplace_back(a_name);
+		m_dirty = true;
+		MarkPending(kPendingPump);
+	}
+
 	void BridgeApi::PumpRuntimeCallbacks()
 	{
 		const auto reasons = m_pending.fetch_and(~kPendingPump, std::memory_order_acq_rel);
@@ -370,10 +383,12 @@ namespace OSFUI::API
 		std::vector<std::pair<std::string, RequestRegistration>> requestsToRegister;
 		std::vector<PendingSend> sends;
 		std::vector<QueuedReply> replies;
+		std::vector<std::string> removed;
 		{
 			std::lock_guard lock(m_mutex);
 			bridge = m_bridge;
 			if (bridge && m_dirty) {
+				removed.swap(m_removedEndpoints);
 				for (const auto& item : m_sends) {
 					sendsToRegister.push_back(item);
 				}
@@ -399,6 +414,7 @@ namespace OSFUI::API
 			}
 		}
 		if (bridge) {
+			for (const auto& name : removed) bridge->RemoveEndpoint(name);
 			for (const auto& [name, registration] : sendsToRegister) {
 				bridge->RegisterSend(name, [name, registration](const nlohmann::json& payload,
 					MessageBridge& source) {

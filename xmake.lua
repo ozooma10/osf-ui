@@ -125,6 +125,17 @@ target("osfui-manifest-tests")
     set_pcxxheader("tests/native/stubs/pch.h")
     add_packages("nlohmann_json")
 
+target("osfui-compat-tests")
+    set_kind("binary")
+    set_default(false)
+    set_rundir(os.projectdir())
+    add_tests("default")
+    add_files("tests/native/compat_v1_tests.cpp", "src/Compat/V1/SettingsCodec.cpp", "src/Compat/V1/KeyNames.cpp",
+        "src/Compat/V1/LegacyViews.cpp", "src/Views/ViewManifest.cpp", "src/Views/ViewManager.cpp", "src/Core/Json.cpp")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk")
+    set_pcxxheader("tests/native/stubs/pch.h")
+    add_packages("nlohmann_json")
+
 target("osfui-shared-frame-tests")
     set_kind("binary")
     set_default(false)

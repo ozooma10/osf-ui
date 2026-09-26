@@ -1,0 +1,40 @@
+# OSF UI 1.6 compatibility
+
+Compatibility ships inside OSF UI and activates automatically. Install the matching OSF Settings build with `OSFSettings_RequestProvidersAPI` (providers ABI 1.0). OSF Settings supplies the menu, validation, current values, launcher, and input dispatch. All old paths, formats, ABI slots, and browser translations live in OSF UI.
+
+The current baseline is the six packages supplied for this migration:
+
+| Mod | Compatibility path |
+| --- | --- |
+| DDC | `OSFUI_RequestBridge` fallback; six schema settings and native reads/subscriptions |
+| Somatic Camera SF | 18 schema settings, JSON change callbacks, named keyboard/mouse bindings |
+| Field.OS AEGIS | 24 schema settings; edits written to the original file polled by its HUD |
+| DevilzDad's Shop + Explorer | Legacy manifest, launcher entry, shared web kit, native request/reply handlers and gamepad events |
+| AISS Companion Log | Runtime schema, F8 key subscription, private menu, native commands/events |
+| Starcade OS | Runtime schema, F9 key subscription, launcher entry, native commands/events, compiled Papyrus `OpenMenu` calls |
+
+## Settings ownership and persistence
+
+OSF UI discovers `Data/SFSE/Plugins/OSFUI/settings/*.json` and accepts runtime `RegisterSettingsSchema` calls. It translates array groups, enum labels, and key names into the normal Settings schema and registers a provider. OSF Settings remains the single live value store. A modern static schema with the same mod ID takes precedence.
+
+Provider edits are saved synchronously before Settings publishes them. OSF UI writes sparse, flat values to `Data/SFSE/Plugins/OSFUI/settings/values/<mod>.json`, including the old version stamps. Unknown saved fields survive. It uses a temporary file and atomic replacement; save failure leaves the live value unchanged. Existing corrupt value files are preserved and their provider is refused with a log message. Discovery does not rewrite value files.
+
+There is no bulk migration into the new Settings values directory. The original USVFS/MO2 paths retain their profile behavior and remain readable by AEGIS. Moving a mod to a modern static schema deliberately changes which persistence path owns it; authors should provide an explicit migration when updating their mod.
+
+Subscriptions replay typed values as per-key JSON on the OSF UI runtime tick. Key values are translated back into old names. The five physical mouse buttons use `MOUSE1` through `MOUSE5`; keyboard keys use the frozen 1.6 vocabulary. A new key with no legacy name is rejected on save rather than silently changing the binding. Key observers respect shared hotkey blocks and gameplay/menu gates; they do not consume the initiating event.
+
+## Views and native calls
+
+The separate `OSFUI_RequestBridge` export returns the frozen ABI 1.7 vtable from the v1.6.0 SDK, accepting requests through 1.7. It never returns the new `IUI` object under that export. New consumers use `OSFUI_RequestAPI`.
+
+Legacy views are discovered only under `Data/SFSE/Plugins/OSFUI/views/<mod>/<view>/`. Modern view IDs win collisions. Old `hub: true` menus join the OSF Settings launcher; private views remain private. Under MO2, the legacy tree gets its own immutable, leased cache visible to the browser host. The DLL and host use protocol 2 and must be deployed together. Legacy assets require restart to refresh, including in developer mode.
+
+The old shared stylesheet and adapted JavaScript helper are shipped at the original `shared/` URLs. The helper preserves `ready`, `available()`, `send`/`emit`, `request`/`call`, event payloads, typed request replies, and gamepad messages over the new transport. `RegisterCommand` supports the baseline's fire-and-forget sends; the old command auto-ack/request-ID injection contract is outside this baseline. The old settings-browser endpoints, Papyrus settings APIs, automatic settings-to-web forwarding, localization catalogs, and later modular 1.x exports are not emulated.
+
+`OSFUI.OpenMenu` and `CloseMenu` remain available to already compiled scripts. Their old default `osfui/settings` target opens/closes OSF Settings. The old HTML Mods/Settings/Keybindings pages are not shipped.
+
+## Verification
+
+The focused native tests use the supplied schemas/manifests and cover translation, sparse values, unknown-field preservation, failed saves, ABI request layout, and modern-view precedence. Provider tests cover ownership, replacement, rollback, mouse bindings, shared blocks, and unsubscribe. The JavaScript test checks transport translation without launching a browser.
+
+Fresh in-game acceptance remains required for each package: edit/reload/persist settings, check AEGIS's polling, exercise F8/F9 and mouse capture, open the two launcher views, request shop results, and launch Starcade from its existing scripts. Static tests and successful deployment do not establish those outcomes.

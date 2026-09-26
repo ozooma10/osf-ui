@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <nlohmann/json_fwd.hpp>
 
 namespace OSFUI
 {
@@ -46,8 +47,10 @@ namespace OSFUI
 
 		// Hide local tools outside restart-latched developer mode.
 		bool debugOnly{ false };
+		bool legacy{ false }; // Uses the isolated OSF UI 1.6 asset root and web facade.
 
 		// Parses a_path; returns std::nullopt and logs on any validation failure.
 		static std::optional<ViewManifest> Load(const std::filesystem::path& a_path);
+		static std::optional<ViewManifest> Parse(const std::filesystem::path& a_path, const nlohmann::json& a_document);
 	};
 }

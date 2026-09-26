@@ -50,6 +50,7 @@ int main()
 		const msg::Init sent{
 			.topLevelHwnd = 0x7FFF'FFFF'FFFF'FFFFull,
 			.viewsPath = "C:/mods/views",
+			.legacyViewsPath = "C:/mods/legacy-views",
 			.width = 2560,
 			.height = 1440,
 			.userDataDir = "C:/users/data",
@@ -63,6 +64,9 @@ int main()
 		Check(got.language == "ptbr", "language survives");
 		Check(msg::FromJson<msg::Init>(json{ { "type", "init" } }).language.empty(), "language defaults to empty");
 		Check(got.viewsPath == sent.viewsPath, "string survives");
+		Check(got.legacyViewsPath == sent.legacyViewsPath, "legacy assets retain their own root");
+		Check(RoundTrip(msg::Navigate{ .id = "acme.mod/panel", .legacy = true }).legacy,
+			"legacy root selection survives navigation and host recovery");
 		Check(got.width == 2560 && got.height == 1440, "u32 survives");
 		Check(got.devMode, "bool survives");
 		Check(got.adapterLuidHigh == 7, "adapter luid survives");

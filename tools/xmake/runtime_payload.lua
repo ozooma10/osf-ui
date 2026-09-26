@@ -19,6 +19,12 @@ local function sync_data(target)
     local uidata = path.join(pluginsdir, "OSF", "UI")
     local views = path.join(uidata, "views")
     local sharedkit = path.join(projectdir, "web")
+    local legacykit = path.join(projectdir, "src", "Compat", "V1", "web")
+    for _, name in ipairs({ "osfui.js", "osfui.css" }) do
+        if not os.isfile(path.join(legacykit, name)) then
+            raise("OSF UI compatibility web asset is missing: " .. name)
+        end
+    end
 
     -- Validate before removing installed views: wildcard copies allow missing sources.
     for _, name in ipairs({ "osfui.js", "osfui.css", "gamepadnav.js" }) do
@@ -33,6 +39,11 @@ local function sync_data(target)
     os.rm(path.join(views, "shared"))
     os.mkdir(path.join(views, "shared"))
     os.cp(path.join(sharedkit, "*"), path.join(views, "shared"))
+
+    -- Own only these legacy shared files; consumer views and value files survive.
+    local legacyshared = path.join(pluginsdir, "OSFUI", "views", "shared")
+    os.mkdir(legacyshared)
+    os.cp(path.join(legacykit, "*"), legacyshared)
 
     copy_if_exists(
         path.join(projectdir, "data", "SFSE", "Plugins", "OSF", "Settings", "schemas", "osfui.json"),
@@ -67,6 +78,7 @@ function deploy(target)
     local files = os.files(path.join(projectdir, "data", "**"))
     table.insert(files, path.join(projectdir, "build", "papyrus", "OSFUI.pex"))
     table.join2(files, os.files(path.join(projectdir, "web", "**")))
+    table.join2(files, os.files(path.join(projectdir, "src", "Compat", "V1", "web", "**")))
     depend.on_changed(function()
         sync_data(target)
         cprint("${dim}deploying owned OSF/UI paths and osfui schema to %s ..", target:installdir())

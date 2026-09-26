@@ -1,10 +1,10 @@
 # Migrating to OSF UI 2.0
 
-OSF UI 2.0 is only a WebView host, JavaScript bridge, compositor, and web-input add-on. Settings, hotkeys, and diagnostics moved to [OSF Settings](https://github.com/ozooma10/osf-settings-slim); install it alongside (settings and diagnostics ABI 1.0). There are no compatibility aliases or adapters.
+OSF UI 2.0 is a WebView host, JavaScript bridge, compositor, and web-input add-on. Settings, hotkeys, and diagnostics moved to [OSF Settings](https://github.com/ozooma10/osf-settings-slim); install it alongside. A built-in [1.6 compatibility adapter](docs/compatibility-v1.md) supports the documented legacy baseline through OSF Settings. New and updated mods should use the current APIs below.
 
 ## Removed
 
-- Exports `OSFUI_RequestBridge`, `OSFUI_RequestSettings`, `OSFUI_RequestDiagnostics`, and `OSFUI_RequestViews`
+- Modular exports `OSFUI_RequestSettings`, `OSFUI_RequestDiagnostics`, and `OSFUI_RequestViews`; `OSFUI_RequestBridge` is retained for the 1.6 adapter
 - Headers `OSFUI_API.h`, `OSFUI_Settings.h`, `OSFUI_Diagnostics.h`, and `OSFUI_Views.h`; the `OSFUI::API::Views` namespace
 - Scripts `OSFUI_Settings.psc` and `OSFUI_View.psc`
 - The HTML Settings and Keybindings views, F10, Pause/Main Menu injection, deep links, and the default Settings view ID
@@ -41,7 +41,7 @@ Move views from `Data/SFSE/Plugins/OSFUI/views/<mod>/<view>/` to `Data/SFSE/Plug
 
 ## Saved values
 
-Not migrated. Re-author schemas for OSF Settings schema v1; values are stored as `{"formatVersion":1,"values":{...}}` under its own data tree.
+Legacy providers retain their original flat value files through the compatibility adapter. When updating a mod, re-author schemas for OSF Settings schema v1 and migrate values explicitly; modern values use `{"formatVersion":1,"values":{...}}` under OSF Settings' own data tree.
 
 ## State
 

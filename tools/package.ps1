@@ -96,6 +96,8 @@ try {
         'SFSE\Plugins\OSF\UI\views\shared\osfui.js',
         'SFSE\Plugins\OSF\UI\views\shared\osfui.css',
         'SFSE\Plugins\OSF\UI\views\shared\gamepadnav.js',
+        'SFSE\Plugins\OSFUI\views\shared\osfui.js',
+        'SFSE\Plugins\OSFUI\views\shared\osfui.css',
         'SFSE\Plugins\OSF\Settings\schemas\osfui.json',
         'Scripts\OSFUI.pex'
     )
@@ -103,7 +105,8 @@ try {
     if ($missing) { Fail ("Missing staged files:`n  " + ($missing -join "`n  ")) }
 
     $forbidden = @(
-        'SFSE\Plugins\OSFUI',
+        'SFSE\Plugins\OSFUI\settings',
+        'SFSE\Plugins\OSFUI\views\osfui',
         'SFSE\Plugins\OSFSettings.dll',
         'SFSE\Plugins\OSFUISettingsExample.dll',
         'SFSE\Plugins\OSF\UI\views\osfui-example',
@@ -118,6 +121,13 @@ try {
         }
     }
     $settingsRoot = Join-Path $StageData 'SFSE\Plugins\OSF\Settings'
+    $legacyRoot = Join-Path $StageData 'SFSE\Plugins\OSFUI'
+    $legacyOwned = @('views\shared\osfui.js', 'views\shared\osfui.css')
+    foreach ($file in Get-ChildItem -LiteralPath $legacyRoot -Recurse -File) {
+        if ([IO.Path]::GetRelativePath($legacyRoot, $file.FullName) -notin $legacyOwned) {
+            Fail "Unexpected legacy compatibility payload: $($file.FullName)"
+        }
+    }
     $ownedSchema = [IO.Path]::GetFullPath((Join-Path $settingsRoot 'schemas\osfui.json'))
     $unexpectedSettings = Get-ChildItem -LiteralPath $settingsRoot -Recurse -File |
         Where-Object { [IO.Path]::GetFullPath($_.FullName) -ne $ownedSchema }
@@ -142,7 +152,7 @@ try {
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
     Write-Host "Created $archive" -ForegroundColor Green
     Write-Host "SHA256 $hash"
-    Write-Host 'Requires OSF Settings Slim (settings ABI 1.0 and diagnostics ABI 1.0), SFSE, and Address Library.'
+    Write-Host 'Requires OSF Settings (settings, diagnostics and providers ABI 1.0), SFSE, and Address Library.'
     }
     finally {
         Pop-Location

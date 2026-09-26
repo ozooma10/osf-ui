@@ -44,6 +44,7 @@ namespace OSFUI
 		// Register or replace an exact endpoint; send and request names are disjoint.
 		void RegisterSend(std::string a_name, SendHandler a_handler);
 		bool RegisterRequest(std::string a_name, RequestHandler a_handler);
+		void RemoveEndpoint(const std::string& a_name);
 
 		// Probe exact candidates supplied by the shared owner-first resolver.
 		void SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request);

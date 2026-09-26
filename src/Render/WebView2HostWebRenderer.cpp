@@ -212,7 +212,8 @@ namespace OSFUI
 
 		WebView2HostConfig    config;
 		std::string          language;  // Resolved before Start; immutable while the worker runs.
-		std::filesystem::path viewsRoot, mappedViewsRoot, userData;
+		std::filesystem::path viewsRoot, mappedViewsRoot, legacyViewsRoot, mappedLegacyViewsRoot, userData;
+		HANDLE legacyViewsCacheLease{ INVALID_HANDLE_VALUE };
         // Serialize initial and dev-refresh writes to the real-path mirror.
         std::mutex            viewsMirrorMutex;
         bool                  usesViewsMirror{ false };
@@ -235,6 +236,7 @@ namespace OSFUI
 		{
 			std::string id;
 			std::string entry;
+			bool legacy{};
 			bool        hidden{ true };
 			int         order{ 0 };
 			// Authoring height defines browser rasterization scale against output height.
@@ -427,6 +429,11 @@ namespace OSFUI
 		{
 			std::scoped_lock mirrorLock(viewsMirrorMutex);
 			mappedViewsRoot = viewsRoot;
+			mappedLegacyViewsRoot = legacyViewsRoot;
+			if (legacyViewsCacheLease != INVALID_HANDLE_VALUE) {
+				::CloseHandle(legacyViewsCacheLease);
+				legacyViewsCacheLease = INVALID_HANDLE_VALUE;
+			}
 			usesViewsMirror = false;
 			removeViewsMirrorOnStop = false;
 			if (viewsCacheLease != INVALID_HANDLE_VALUE) {
@@ -442,6 +449,18 @@ namespace OSFUI
 			}
 
 			const auto localRoot = LocalOsfuiDir();
+			std::error_code legacyError;
+			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
+				std::string error;
+				const auto cache = localRoot / "legacy-views-cache";
+				const auto prepared = ViewCache::Prepare(legacyViewsRoot, cache, kOsfuiReleaseVersion,
+					std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64()), error);
+				if (!prepared) { REX::ERROR("Legacy views cache failed: {}", error); return false; }
+				mappedLegacyViewsRoot = prepared->generation;
+				legacyViewsCacheLease = AcquireViewCacheLease(mappedLegacyViewsRoot);
+				if (legacyViewsCacheLease == INVALID_HANDLE_VALUE) return false;
+				(void)ViewCache::Scavenge(cache, mappedLegacyViewsRoot, CacheGenerationCanBeRemoved);
+			}
 			const auto started = std::chrono::steady_clock::now();
 			if (config.devMode) {
 				const auto mirror = localRoot / std::format("views-dev-{}", ::GetCurrentProcessId());
@@ -788,6 +807,7 @@ namespace OSFUI
 				addBootstrap(ToJson(msg::Init{
 					.topLevelHwnd = reinterpret_cast<std::uint64_t>(gameTopLevel),
 					.viewsPath = ToUtf8(mappedViewsRoot.native()),
+					.legacyViewsPath = ToUtf8(mappedLegacyViewsRoot.native()),
 					.width = width,
 					.height = height,
 					.userDataDir = ToUtf8(userData.native()),
@@ -805,7 +825,7 @@ namespace OSFUI
 				addBootstrap(ToJson(msg::WindowActive{ .active = windowActive }));
 				for (const auto& view : views) {
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
-						.logicalHeight = view.logicalHeight }));
+						.logicalHeight = view.logicalHeight, .legacy = view.legacy }));
 					addBootstrap(ToJson(msg::SetHidden{ .view = view.id,
 						.hidden = view.hidden, .presentationEpoch = presentationEpoch }));
 					addBootstrap(ToJson(msg::SetOrder{ .view = view.id, .order = view.order }));
@@ -1085,6 +1105,10 @@ namespace OSFUI
 			// a mutable per-run mirror and removes it after both host and game leases end.
 			{
 				std::scoped_lock mirrorLock(viewsMirrorMutex);
+				if (legacyViewsCacheLease != INVALID_HANDLE_VALUE) {
+					::CloseHandle(legacyViewsCacheLease);
+					legacyViewsCacheLease = INVALID_HANDLE_VALUE;
+				}
 				if (viewsCacheLease != INVALID_HANDLE_VALUE) {
 					::CloseHandle(viewsCacheLease);
 					viewsCacheLease = INVALID_HANDLE_VALUE;
@@ -1143,6 +1167,7 @@ namespace OSFUI
 		m_impl->config = a_config;
 		REX::INFO("WebView2 input mode: forwarded CDP (Starfield retains native focus)");
 		m_impl->viewsRoot = a_config.dataDir / "views";
+		m_impl->legacyViewsRoot = a_config.dataDir.parent_path().parent_path() / "OSFUI" / "views";
 		m_impl->userData = LocalOsfuiDir() / "WebView2";
 		m_impl->browserHostLog = BrowserHostLogPath();
 		m_impl->browserHostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
@@ -1177,6 +1202,7 @@ namespace OSFUI
 				view->id = a_manifest.id;
 			}
 			view->entry = a_manifest.entry;
+			view->legacy = a_manifest.legacy;
 			view->logicalHeight = logicalHeight;
 			// Default input to the first instantiated view until runtime policy arrives.
 			if (m_impl->inputTargetId.empty()) {
@@ -1184,7 +1210,7 @@ namespace OSFUI
 			}
 			// Re-registering an instantiated view navigates it for dev or crash recovery.
 			m_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
-				.logicalHeight = logicalHeight }));
+				.logicalHeight = logicalHeight, .legacy = a_manifest.legacy }));
 		}
 	}
 

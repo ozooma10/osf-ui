@@ -79,6 +79,7 @@ namespace osfui::wv2::msg
 		static constexpr std::string_view kType = "init";
 		std::uint64_t topLevelHwnd{ 0 };
 		std::string   viewsPath;
+		std::string   legacyViewsPath;
 		std::uint32_t width{ 1 };
 		std::uint32_t height{ 1 };
 		std::string   userDataDir;
@@ -90,6 +91,7 @@ namespace osfui::wv2::msg
 		static constexpr auto kFields = std::tuple{
 			F("topLevelHwnd", &Init::topLevelHwnd),
 			F("viewsPath", &Init::viewsPath),
+			F("legacyViewsPath", &Init::legacyViewsPath),
 			F("width", &Init::width),
 			F("height", &Init::height),
 			F("userDataDir", &Init::userDataDir),
@@ -106,11 +108,13 @@ namespace osfui::wv2::msg
 		std::string id;
 		std::string entry{ "index.html" };
 		std::uint32_t logicalHeight{ kDefaultLogicalHeight };
+		bool legacy{};
 
 		static constexpr auto kFields = std::tuple{
 			F("id", &Navigate::id),
 			F("entry", &Navigate::entry),
 			F("logicalHeight", &Navigate::logicalHeight),
+			F("legacy", &Navigate::legacy),
 		};
 	};
 

@@ -11,6 +11,12 @@ namespace OSFUI
 {
 	std::optional<ViewManifest> ViewManifest::Load(const std::filesystem::path& a_path)
 	{
+		const auto json = Json::ParseFile(a_path);
+		return json ? Parse(a_path, *json) : std::nullopt;
+	}
+
+	std::optional<ViewManifest> ViewManifest::Parse(const std::filesystem::path& a_path, const nlohmann::json& a_document)
+	{
 		// Derive view identity from views/<modId>/<viewName>, never declared fields.
 		const auto viewName = Utf8Path(a_path.parent_path().filename());
 		const auto modId = Utf8Path(a_path.parent_path().parent_path().filename());
@@ -19,8 +25,8 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		const auto json = Json::ParseFile(a_path);
-		if (!json || !json->is_object()) {
+		const auto* json = &a_document;
+		if (!json->is_object()) {
 			REX::ERROR("ViewManifest: [content] {} is not a valid JSON object", Utf8Path(a_path));
 			return std::nullopt;
 		}

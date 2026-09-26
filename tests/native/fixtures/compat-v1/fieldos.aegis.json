@@ -1,0 +1,231 @@
+{
+  "id": "fieldos.aegis",
+  "title": "Field.OS AEGIS",
+  "description": "AEGIS: Adaptive Environmental Guidance & Information System. Choose what the HUD shows and when. Changes apply within a few seconds.",
+  "version": 1,
+  "groups": [
+    {
+      "id": "presets",
+      "label": "Preset",
+      "settings": [
+        {
+          "key": "preset",
+          "label": "Ready-made setup",
+          "type": "enum",
+          "options": ["custom", "full", "standard", "minimal", "explorer", "combat", "immersive"],
+          "optionLabels": [
+            "Custom - use the switches below",
+            "Full - everything on",
+            "Standard - readouts only when needed",
+            "Minimal - simple compass, no extras",
+            "Explorer - compass on top, environment and supplies, no ammo",
+            "Combat - health, ammo and supplies always, simple compass",
+            "Immersive - no compass, only what needs attention"
+          ],
+          "default": "custom",
+          "hint": "Anything except Custom overrides the individual switches below."
+        }
+      ]
+    },
+    {
+      "id": "show",
+      "label": "What to show",
+      "settings": [
+        {
+          "key": "hp",
+          "label": "Health",
+          "type": "enum",
+          "options": ["off", "auto", "always"],
+          "optionLabels": ["Hidden", "Only when needed (combat, injured, just healed)", "Always"],
+          "default": "always",
+          "hint": "The quiet readout keeps a light look; a solid plate appears only when it needs your attention."
+        },
+        {
+          "key": "air",
+          "label": "Oxygen / CO2",
+          "type": "enum",
+          "options": ["off", "auto", "always"],
+          "optionLabels": ["Hidden", "Only when needed (low oxygen, CO2, combat)", "Always"],
+          "default": "always",
+          "hint": "Shows the breathing readout of your suit."
+        },
+        {
+          "key": "ammo",
+          "label": "Ammo",
+          "type": "enum",
+          "options": ["off", "auto", "always"],
+          "optionLabels": ["Hidden", "With a weapon in hand", "Always (also when holstered)"],
+          "default": "auto",
+          "hint": "Magazine and reserve. Hidden while aiming down sights."
+        },
+        {
+          "key": "ammoWhileAiming",
+          "label": "Ammo while aiming",
+          "type": "bool",
+          "default": true,
+          "hint": "Keeps the ammo readout visible when you aim down sights or look through a scope."
+        },
+        {
+          "key": "compass",
+          "label": "Compass",
+          "type": "enum",
+          "options": ["off", "tape", "simple"],
+          "optionLabels": ["Hidden", "Tape with markers", "Simple (nothing scrolls)"],
+          "default": "tape",
+          "hint": "Tape: scrolling heading tape with quest and enemy markers. Simple: heading, one pointer to the nearest objective and enemy side pointers. Try Simple if you notice flicker while turning."
+        },
+        {
+          "key": "compassPosition",
+          "label": "Compass position",
+          "type": "enum",
+          "options": ["bottom", "top"],
+          "optionLabels": ["Bottom, above the readouts", "Top of the screen"],
+          "default": "bottom",
+          "hint": "Moves the compass, its quest marker and its distance to the top centre of the screen."
+        },
+        {
+          "key": "chips",
+          "label": "Status chips",
+          "type": "bool",
+          "default": true,
+          "hint": "Short chips above the compass: afflictions (by body system), radiation and other hazards, hunger and thirst, environmental damage, overload, boostpack, healing, medpack used, health boost."
+        },
+        {
+          "key": "supplies",
+          "label": "Supplies line",
+          "type": "bool",
+          "default": true,
+          "hint": "Carry weight, medpacks (counted from Favorites) and grenades under the instruments."
+        },
+        {
+          "key": "levelXp",
+          "label": "Level and XP line",
+          "type": "bool",
+          "default": false,
+          "hint": "A small line under the supplies row: character level and progress to the next level. Follows the supplies line."
+        },
+        {
+          "key": "starPower",
+          "label": "Starborn power charge",
+          "type": "bool",
+          "default": true,
+          "hint": "A short chip with the charge of your Starborn power while it recharges. Nothing is shown when the power is full or unused."
+        },
+        {
+          "key": "envPanel",
+          "label": "Environment panel (bottom left)",
+          "type": "bool",
+          "default": true,
+          "hint": "System, planet, place, temperature, gravity and air quality."
+        },
+        {
+          "key": "effectsPanel",
+          "label": "Active effects panel (bottom left)",
+          "type": "bool",
+          "default": true,
+          "hint": "Hazards, afflictions and survival-mod effects with their names and warnings."
+        },
+        {
+          "key": "scanReport",
+          "label": "Scan report (scanner only)",
+          "type": "bool",
+          "default": true,
+          "hint": "While the scanner is open: cards with location, conditions, time and funds, suit and vitals, and your profile."
+        },
+        {
+          "key": "clockCredits",
+          "label": "Time and credits line",
+          "type": "bool",
+          "default": true,
+          "hint": "A small line under the quest tracker with the local time and your credits."
+        },
+        {
+          "key": "aiMessages",
+          "label": "AEGIS notices",
+          "type": "bool",
+          "default": true,
+          "hint": "Short informational notices on the right: the game's own alerts (hazards, afflictions) and warnings such as low health, low ammo, extreme cold or heat, low oxygen, suit protection running out, overload, hunger and thirst."
+        },
+        {
+          "key": "vanillaAlerts",
+          "label": "Game alerts and condition icons",
+          "type": "bool",
+          "default": true,
+          "hint": "The game's own condition icons and alert banners (hazards, afflictions, hunger) at the bottom left, drawn by the game itself. The old watch, oxygen ring and readouts stay hidden."
+        },
+        {
+          "key": "questPanel",
+          "label": "Quest tracker (top right)",
+          "type": "bool",
+          "default": true,
+          "hint": "The active quest, its current objective and the distance to the nearest target."
+        }
+      ]
+    },
+    {
+      "id": "when",
+      "label": "When to show it",
+      "settings": [
+        {
+          "key": "thirdPersonCalm",
+          "label": "Calm third person",
+          "type": "bool",
+          "default": true,
+          "hint": "In third person with the weapon holstered only the compass, the quest tracker and important notices stay (critical health, low air, status chips, active effects)."
+        },
+        {
+          "key": "suitOnly",
+          "label": "Only with the suit on",
+          "type": "bool",
+          "default": false,
+          "hint": "Shows the HUD only while your suit is powered and booted (the HUD framework's suitHasBooted state), so it appears with the helmet on. Off by default: if the HUD stays hidden with the suit on, switch this off."
+        },
+        {
+          "key": "showThirdPerson",
+          "label": "Show in third person",
+          "type": "bool",
+          "default": true,
+          "hint": "Off hides the whole HUD while the third-person camera is used."
+        }
+      ]
+    },
+    {
+      "id": "effects",
+      "label": "Active effects panel",
+      "settings": [
+        {
+          "key": "effectsRows",
+          "label": "Rows",
+          "type": "int",
+          "default": 5,
+          "min": 1,
+          "max": 6,
+          "step": 1,
+          "hint": "How many effects the panel lists at most."
+        },
+        {
+          "key": "effectsShow",
+          "label": "List",
+          "type": "enum",
+          "options": ["negative", "all"],
+          "optionLabels": ["Afflictions and debuffs only", "Everything (buffs too)"],
+          "default": "negative",
+          "hint": "All also lists food, drink and other beneficial effects."
+        }
+      ]
+    },
+    {
+      "id": "feedback",
+      "label": "Feedback",
+      "settings": [
+        {
+          "key": "eventPulses",
+          "label": "Short plate flashes",
+          "type": "bool",
+          "default": true,
+          "hint": "A brief solid plate when a weapon is drawn, changed or reloaded and after a burst of damage. Off keeps only the persistent warnings."
+        }
+      ]
+    }
+  ]
+}

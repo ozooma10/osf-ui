@@ -1,0 +1,14 @@
+{
+  "id": "esm-explorer",
+  "title": "DevilzDad's Shop + Explorer",
+  "description": "Browse your loaded Starfield plugins, preview items (if available), and add the items to your inventory - free or for credits.",
+  "entry": "index.html",
+  "hub": true,
+  "targetVersion": "1.0.0",
+  "width": 1600,
+  "height": 900,
+  "transparent": true,
+  "capturesInput": true,
+  "pausesGame": true,
+  "permissions": { "nativeBridge": true, "filesystem": false, "network": false }
+}

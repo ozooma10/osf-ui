@@ -1,0 +1,14 @@
+{
+  "id": "companionlog",
+  "title": "AISS Companion Log",
+  "description": "Browse curated AISS companion profiles and read back past conversations, organized by NPC.",
+  "kind": "menu",
+  "capturesInput": true,
+  "pausesGame": false,
+  "width": 1600,
+  "height": 900,
+  "targetVersion": "1.0.0",
+  "permissions": {
+    "nativeBridge": true
+  }
+}

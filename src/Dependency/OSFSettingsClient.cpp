@@ -20,7 +20,7 @@ namespace OSFUI
 		const bool diagnosticsAvailable = m_diagnostics.Init();
 		m_available = settingsAvailable && m_settings.IsReady() && diagnosticsAvailable;
 		if (!m_available) {
-			REX::ERROR("OSF UI requires ready OSF Settings Slim services (settings ABI 1.0 and diagnostics ABI 1.0); settings={}, ready={}, diagnostics={}", settingsAvailable, m_settings.IsReady(), diagnosticsAvailable);
+			REX::ERROR("OSF UI requires ready OSF Settings services (settings ABI 1.0 and diagnostics ABI 1.0); settings={}, ready={}, diagnostics={}", settingsAvailable, m_settings.IsReady(), diagnosticsAvailable);
 			ReportFailure("dependency", "dependency.settings-unavailable", "OSF UI cannot start without compatible OSF Settings services");
 			return false;
 		}
@@ -51,10 +51,6 @@ namespace OSFUI
 	{
 		if (m_language) return m_language;
 		if (!m_available) return std::nullopt;
-		if (!m_settings.Has(OSFSettings::API::kLanguageVersion)) {
-			m_language = std::string{};
-			return m_language;  // Older Settings uses the browser default without waiting.
-		}
 		std::string language;
 		const auto status = m_settings.GetLanguage(language);
 		if (status == Status::NotReady) {

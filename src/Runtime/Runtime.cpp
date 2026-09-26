@@ -3,6 +3,8 @@
 #include <limits>
 
 #include "API/BridgeApi.h"
+#include "Compat/V1/LegacyBridge.h"
+#include "Compat/V1/LegacyViews.h"
 #include "API/PapyrusApi.h"
 #include "Core/Log.h"
 #include "Core/Version.h"
@@ -26,6 +28,7 @@ namespace OSFUI
 	void Runtime::LoadStartupContent()
 	{
 		m_views.DiscoverAll(Paths::ViewsDir());
+		Compat::V1::DiscoverViews(m_views);
 
 		std::vector<std::string> discoveredViewIds;
 		discoveredViewIds.reserve(m_views.All().size());
@@ -147,6 +150,7 @@ namespace OSFUI
 			return;
 		}
 		m_developerMode = m_osfSettings.DeveloperMode();
+		Compat::V1::Initialize();
 		Log::SetDebugLogging(m_developerMode);
 		m_osfSettings.RegisterLaunchers(m_views.All());
 		if (!InitializeWebRuntime()) {

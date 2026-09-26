@@ -1,0 +1,157 @@
+{
+  "$schema": "https://github.com/ozooma10/osf-ui/blob/main/docs/schema/settings-schema.schema.json",
+  "id": "somaticcamera.sf",
+  "title": "Somatic Camera SF",
+  "description": "Pseudo camera settings for SomaticCameraSF.",
+  "version": 1,
+  "groups": [
+    {
+      "id": "pseudo-fp",
+      "label": "Pseudo First-Person",
+      "settings": [
+        {
+          "key": "iToggleKey",
+          "label": "Toggle Key",
+          "type": "key",
+          "default": "F4"
+        },
+        {
+          "key": "iPresetCycleKey",
+          "label": "Preset Cycle Key",
+          "type": "key",
+          "default": "MOUSE3",
+          "hint": "Cycles camera presets (Normal -> TPP Close -> TPP Far). Default middle mouse. Keyboard keys can be captured here; mouse names (MOUSE1-MOUSE5) map to VK codes."
+        },
+        {
+          "key": "bADSForceFPP",
+          "label": "ADS Force FPP",
+          "type": "bool",
+          "default": true,
+          "hint": "Non-scope aiming in pseudo view forces real first-person. Off = aim stays in third-person/pseudo. Scopes always use the engine. TPP Center presets always stay TPP."
+        },
+        {
+          "key": "bOnlyTPPCenter",
+          "label": "Only TPP Center",
+          "type": "bool",
+          "default": false,
+          "hint": "Pseudo enables straight into TPP Center (Close) and the Normal state is skipped everywhere: activation, cycling (Close<->Far) and resets."
+        },
+        {
+          "key": "fFOV",
+          "label": "Field of View",
+          "type": "float",
+          "min": 10.0,
+          "max": 180.0,
+          "step": 1.0,
+          "default": 97.0
+        },
+        {
+          "key": "bAutoEquipHideHeadSS",
+          "label": "Auto-Equip Hide Head (SS)",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "bAutoEquipHideHead",
+          "label": "Auto-Equip Hide Head",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "bEnableHeadShadowNear",
+          "label": "Hide Head via Near Plane",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "fHeadShadowNear",
+          "label": "Head Shadow Near",
+          "type": "float",
+          "min": 0.0,
+          "max": 0.4,
+          "step": 0.005,
+          "default": 0.12
+        },
+        {
+          "key": "fTPPCloseForward",
+          "label": "TPP Center 1 - Forward",
+          "type": "float",
+          "min": -2.5,
+          "max": -1.0,
+          "step": 0.05,
+          "default": -1.5
+        },
+        {
+          "key": "fTPPCloseUp",
+          "label": "TPP Center 1 - Up",
+          "type": "float",
+          "min": 0.0,
+          "max": 0.2,
+          "step": 0.01,
+          "default": 0.15
+        },
+        {
+          "key": "fTPPFarForward",
+          "label": "TPP Center 2 - Forward",
+          "type": "float",
+          "min": -4.0,
+          "max": -2.5,
+          "step": 0.05,
+          "default": -2.5
+        },
+        {
+          "key": "fTPPFarUp",
+          "label": "TPP Center 2 - Up",
+          "type": "float",
+          "min": 0.2,
+          "max": 0.4,
+          "step": 0.01,
+          "default": 0.25
+        },
+        {
+          "key": "sPadToggleBtn1",
+          "label": "Pad Toggle Button 1",
+          "type": "enum",
+          "options": ["A", "B", "X", "Y", "LB", "RB", "Select", "Start", "LStick", "RStick", "DUp", "DDown", "DLeft", "DRight", "LT", "RT"],
+          "default": "A",
+          "hint": "First button of the gamepad combo that toggles pseudo (with Button 2). Select = Back/View button."
+        },
+        {
+          "key": "sPadToggleBtn2",
+          "label": "Pad Toggle Button 2",
+          "type": "enum",
+          "options": ["A", "B", "X", "Y", "LB", "RB", "Select", "Start", "LStick", "RStick", "DUp", "DDown", "DLeft", "DRight", "LT", "RT"],
+          "default": "Select",
+          "hint": "Second button of the gamepad combo (with Button 1)."
+        },
+        {
+          "key": "fSideOffset",
+          "label": "Side Offset",
+          "type": "float",
+          "min": -0.25,
+          "max": 0.25,
+          "step": 0.01,
+          "default": 0.0
+        },
+        {
+          "key": "fForwardOffset",
+          "label": "Forward Offset",
+          "type": "float",
+          "min": -0.25,
+          "max": 0.25,
+          "step": 0.01,
+          "default": 0.0
+        },
+        {
+          "key": "fUpOffset",
+          "label": "Up Offset",
+          "type": "float",
+          "min": -0.25,
+          "max": 0.25,
+          "step": 0.01,
+          "default": 0.0
+        }
+      ]
+    }
+  ]
+}

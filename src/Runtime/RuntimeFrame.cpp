@@ -1,6 +1,7 @@
 #include "Runtime/Runtime.h"
 
 #include "API/PapyrusApi.h"
+#include "Compat/V1/LegacyBridge.h"
 #include "Input/FocusMenu.h"
 #include "Input/FreeCursor.h"
 #include "Input/SimPause.h"
@@ -89,6 +90,7 @@ namespace OSFUI
 
 	void Runtime::ProcessRendererNotifications()
 	{
+		Compat::V1::Pump();
 		// Install pending native endpoints before incoming pages can call them.
 		API::BridgeApi::Get().PumpRuntimeCallbacks();
 		if (m_renderer) m_renderer->DrainNotifications();

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ozooma10/osf-ui/refs/heads/main/docs/schema/settings-schema.schema.json",
+  "id": "ddc.dynamicdialoguecamera",
+  "title": "DDC",
+  "description": "Dynamic Dialogue Camera",
+  "version": 3,
+  "groups": [
+    {
+      "id": "camera",
+      "label": "Camera",
+      "settings": [
+        {
+          "key": "enabled",
+          "label": "Cinematic dialogue camera",
+          "type": "bool",
+          "default": true,
+          "hint": "Off gives you the game's normal dialogue camera. Applies at once."
+        },
+        {
+          "key": "pacing",
+          "label": "Shot pacing",
+          "type": "enum",
+          "options": [
+            "Calm",
+            "Balanced",
+            "Lively"
+          ],
+          "optionLabels": [
+            "Calm - just a couple of angles",
+            "Balanced",
+            "Lively - dynamic, never jumpy"
+          ],
+          "default": "Balanced",
+          "hint": "Calm: a few long shots, no cut on every line. Balanced: a natural rhythm. Lively: frequent cuts and more camera movement, but never quick back-and-forth."
+        },
+        {
+          "key": "handheld",
+          "label": "Handheld movement",
+          "type": "bool",
+          "default": true,
+          "hint": "A barely visible drift, slow push-ins and a slow move round the speaker. Off gives a locked tripod camera."
+        },
+        {
+          "key": "follow",
+          "label": "Camera follows the speaker",
+          "type": "bool",
+          "default": true,
+          "hint": "On: the camera gently follows the speaker when they move. Off: a locked camera that only re-frames when the speaker moves far."
+        },
+        {
+          "key": "choice",
+          "label": "Show my character while choosing",
+          "type": "bool",
+          "default": true,
+          "hint": "While you pick an answer the camera looks at your character instead of the speaker. Needs your character to be drawn (see the option above)."
+        },
+        {
+          "key": "player",
+          "label": "Show my character in conversations",
+          "type": "bool",
+          "default": true,
+          "hint": "Your character is drawn in the shots of conversations you start in third person, with over-the-shoulder angles. (The game has no animated body when a conversation starts in first person; there your character is not shown.)"
+        }
+      ]
+    }
+  ]
+}

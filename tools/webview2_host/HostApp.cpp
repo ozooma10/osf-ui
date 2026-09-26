@@ -214,8 +214,9 @@ namespace osfui::wv2
 			// Init state from the game.
 			bool                  initialized{ false };
 			HWND                  gameTopLevel{ nullptr };
-			std::filesystem::path viewsRoot, userData;
+			std::filesystem::path viewsRoot, legacyViewsRoot, userData;
 			SharedReadLease       viewsLease;  // released after every WebView member
+			SharedReadLease       legacyViewsLease;
 			std::uint32_t         width{ 1 }, height{ 1 };
 			std::uint32_t         viewportWidth{ 1 }, viewportHeight{ 1 };
 			bool                  devMode{ false };
@@ -249,6 +250,7 @@ namespace osfui::wv2
 				bool pageMessageTooLargeWarned{ false };
 				bool pageMessageFloodWarned{ false };
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
+				bool legacy{};
 				bool          revealPending{ false };
 				std::uint64_t revealDeadline{ 0 };
 				std::string   revealToken;
@@ -787,7 +789,8 @@ namespace osfui::wv2
 					ReportSecurityFailure(a_view, E_NOINTERFACE, "virtual-host mapping API unavailable");
 					return S_OK;
 				}
-				result = webView3->SetVirtualHostNameToFolderMapping(kViewHost.data(), viewsRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
+				const auto& assetRoot = a_view.legacy ? legacyViewsRoot : viewsRoot;
+				result = webView3->SetVirtualHostNameToFolderMapping(kViewHost.data(), assetRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
 				if (FAILED(result)) {
 					ReportSecurityFailure(a_view, result, "OSF UI virtual-host mapping failed");
 					return S_OK;

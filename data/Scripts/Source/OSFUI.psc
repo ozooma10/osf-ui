@@ -174,3 +174,7 @@ bool Function EmitEvent(string asModId, string asName, Var[] akArgs = None) Glob
 ; View ids are always qualified "<modId>/<viewName>". Menu and HUD views are both supported.
 bool Function Open(string asViewId) Global Native
 bool Function Close(string asViewId) Global Native
+
+; OSF UI 1.6 aliases retained for compiled consumer scripts.
+bool Function OpenMenu(string asViewId = "osfui/settings") Global Native
+bool Function CloseMenu(string asViewId = "osfui/settings") Global Native

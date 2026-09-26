@@ -1,4 +1,5 @@
 #include "API/PapyrusApi.h"
+#include "Compat/V1/LegacyBridge.h"
 
 #include "API/BridgeApi.h"
 #include "Core/StringUtil.h"  // ToLowerAscii
@@ -729,6 +730,15 @@ namespace OSFUI::API::Papyrus
 			return BridgeApi::Get().RequestMenu(id.c_str(), false);
 		}
 
+		bool OpenMenu(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_viewId)
+		{
+			return Compat::V1::Bridge().RequestMenu(ToLowerAscii(a_viewId.c_str()).c_str(), true);
+		}
+		bool CloseMenu(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_viewId)
+		{
+			return Compat::V1::Bridge().RequestMenu(ToLowerAscii(a_viewId.c_str()).c_str(), false);
+		}
+
 		void BindNativeMethods(PapVM* a_vm)
 		{
 			a_vm->BindNativeMethod(kPlatformScriptName, "IsAvailable", &IsAvailable, true, false);
@@ -755,6 +765,8 @@ namespace OSFUI::API::Papyrus
 			a_vm->BindNativeMethod(kPlatformScriptName, "EmitEvent", &EmitEvent, true, false);
 			a_vm->BindNativeMethod(kPlatformScriptName, "Open", &Open, true, false);
 			a_vm->BindNativeMethod(kPlatformScriptName, "Close", &Close, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "OpenMenu", &OpenMenu, true, false);
+			a_vm->BindNativeMethod(kPlatformScriptName, "CloseMenu", &CloseMenu, true, false);
 
 			REX::INFO("PapyrusApi: natives bound on script '{}'", kPlatformScriptName);
 		}

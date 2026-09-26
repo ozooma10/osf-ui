@@ -91,6 +91,12 @@ namespace OSFUI
 		return true;
 	}
 
+	void MessageBridge::RemoveEndpoint(const std::string& a_name)
+	{
+		m_sends.erase(a_name);
+		m_requests.erase(a_name);
+	}
+
 	void MessageBridge::SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request)
 	{
 		m_fallbackProbe = std::move(a_probe);

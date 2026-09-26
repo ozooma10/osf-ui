@@ -14,6 +14,7 @@ A web view framework for Starfield.
 <summary>additional topics</summary>
 
 - [Migrating from 1.x](MIGRATION.md)
+- [Built-in 1.6 compatibility](docs/compatibility-v1.md)
 
 </details>
 
