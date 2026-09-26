@@ -36,7 +36,7 @@ namespace OSFUI::API
 	enum class ViewLifecyclePhase : std::uint32_t
 	{
 		kShown,   // Menu became logically presented.
-		kFrame,   // One game-main-thread tick while shown.
+		kFrame,   // One runtime update while shown; not a rendered-frame count.
 		kHidden,  // Menu stopped being presented.
 	};
 	using ViewLifecycleFn = void (*)(const char* viewId, ViewLifecyclePhase phase, void* context) noexcept;
@@ -89,7 +89,7 @@ namespace OSFUI::API
 		// Stores mod-scoped retained state and replays it to fresh documents. valueJson must be valid JSON.
 		// false for an invalid mod ID, empty or overlong key, invalid JSON, or a full pending queue.
 		virtual bool SetViewState(const char* modId, const char* key, const char* valueJson) noexcept = 0;
-		// Replaces the previous callback. A callback installed while ready is invoked once on the next main-thread tick.
+		// Replaces the previous callback. While ready, invokes it once in a subsequent runtime callback pump.
 		virtual void SetReadyCallback(ReadyFn callback, void* context) noexcept = 0;
 
 		// Views are qualified "mod/view" IDs, matched case-insensitively.

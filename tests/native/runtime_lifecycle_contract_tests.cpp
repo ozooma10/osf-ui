@@ -71,7 +71,7 @@ int main()
     Check(engineBody.find("API::Papyrus::Install()") != std::string::npos &&
           engineBody.find("m_inputCapture.Initialize()") != std::string::npos &&
           frame.find("m_engineIntegrationPending.exchange(false") < frame.find("InitializeEngineIntegration()"),
-        "the main-thread lifecycle stage installs session sinks and input before view requests");
+        "the runtime lifecycle stage installs session sinks and input before view requests");
     Check(capture.find("AcquireInputSuppression") != std::string::npos &&
           capture.find("ReleaseInputSuppression") != std::string::npos,
         "focused web menus hold an OSF Settings suppression lease");

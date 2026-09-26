@@ -7,7 +7,7 @@ namespace OSFUI
 	class UiLayoutGuard
 	{
 	public:
-		// Call on the first main-thread tick; no RE::UI access is safe until this passes.
+		// Call on the first runtime tick; no RE::UI access is safe until this passes.
 		static bool VerifyUiLayout();
 	};
 }

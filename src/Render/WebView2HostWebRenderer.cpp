@@ -999,7 +999,7 @@ namespace OSFUI
 			}
 		}
 
-		// Game-thread dispatch
+		// Runtime notification dispatch
 
 		void DrainNotifications()
 		{
@@ -1196,7 +1196,7 @@ namespace OSFUI
 		}
 		void ResetAfterFailure()
 		{
-			// Never stall Starfield's main thread waiting for a stranded host after pipe failure.
+			// Never stall the runtime update waiting for a stranded host after pipe failure.
 			Stop(true);
 
 			const auto discardedOut = outbound.Size();

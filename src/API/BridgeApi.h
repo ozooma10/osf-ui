@@ -62,9 +62,9 @@ namespace OSFUI::API
 		bool ClaimPapyrusEndpoint(std::string_view a_name);
 		void ReleasePapyrusEndpoint(std::string_view a_name);
 		void SetBridgeAvailability(MessageBridge* a_bridge);
-		void PumpMainThread();
+		void PumpRuntimeCallbacks();
 
-		// Main-thread relative-pointer dispatch.
+		// Runtime relative-pointer dispatch.
 		[[nodiscard]] bool HasRelativePointer(std::string_view a_viewId);
 		bool DispatchRelativePointer(std::string_view a_viewId, RelativePointerPhase a_phase, float a_dx = 0.0f, float a_dy = 0.0f, float a_wheel = 0.0f);
 
@@ -158,7 +158,7 @@ namespace OSFUI::API
 		bool                                          m_viewCatalogReady{ false };
 		std::vector<ViewStateOp>                      m_pendingStateOps;    // SetViewState writes, drained by Runtime
 		std::vector<std::string>                      m_pendingViewRegs;    // RegisterView ids, drained by Runtime
-		MessageBridge*                                m_bridge{ nullptr };         // non-owning; set on main thread
+		MessageBridge*                                m_bridge{ nullptr };         // non-owning; set by Runtime
 		MessageBridge*                                m_appliedBridge{ nullptr };  // bridge we last applied to
 		bool                                          m_dirty{ false };            // endpoint set changed since apply
 		ReadyFn                                m_readyCb{ nullptr };

@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
-// Main-thread, latest-wins state replayed to each document owned by the publishing mod.
+// Runtime, latest-wins state replayed to each document owned by the publishing mod.
 
 namespace OSFUI
 {

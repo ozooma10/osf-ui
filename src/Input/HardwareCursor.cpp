@@ -12,7 +12,7 @@ namespace OSFUI::HardwareCursor
 {
 	namespace
 	{
-		// Renderer workers write the shape; the window thread applies it.
+		// Runtime drains renderer notifications and publishes the shape; WndProc applies it.
 		std::atomic<CursorShape> g_shape{ CursorShape::kArrow };
 
 		// Window-message thread only.

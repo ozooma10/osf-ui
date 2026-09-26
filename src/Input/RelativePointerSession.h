@@ -9,12 +9,12 @@
 
 namespace OSFUI
 {
-	// Main owns the session and dispatches native callbacks. WndProc only adds
+	// Runtime owns the session and dispatches native callbacks. WndProc only adds
 	// deltas or requests a stop through the atomic producer methods below.
 	class RelativePointerSession
 	{
 	public:
-		// Main-thread lifecycle.
+		// Runtime lifecycle.
 		bool Begin(std::string_view a_viewId);
 		void End(std::string_view a_viewId);
 		void Cancel(std::string_view a_viewId = {});
@@ -42,6 +42,6 @@ namespace OSFUI
 		std::atomic<float> m_dy{ 0.0f };
 		std::atomic<float> m_wheel{ 0.0f };
 		std::atomic<Stop> m_stop{ Stop::kNone };
-		std::string m_view;  // main-thread only
+		std::string m_view;  // runtime-owned
 	};
 }

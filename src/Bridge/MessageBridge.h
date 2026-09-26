@@ -85,7 +85,7 @@ namespace OSFUI
 		void SetHelloHook(HelloHook a_hook) { m_onHello = std::move(a_hook); }
 		void SetProtocolFaultSink(ProtocolFaultSink a_sink) { m_protocolFaultSink = std::move(a_sink); }
 
-		// Main thread: expire overdue deferred requests with no-response.
+		// Runtime update: expire overdue deferred requests with no-response.
 		void Tick(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
 		// Source view of the in-flight message, or empty outside dispatch.

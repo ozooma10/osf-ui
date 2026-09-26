@@ -55,7 +55,7 @@ namespace OSFUI
 				else m_bridge->RespondTo(reply.deferToken, reply.value);
 			}
 		}
-		API::BridgeApi::Get().PumpMainThread();
+		API::BridgeApi::Get().PumpRuntimeCallbacks();
 	}
 
 	void Runtime::ReconcileFrameState()
@@ -80,7 +80,7 @@ namespace OSFUI
 	void Runtime::ProcessRendererNotifications()
 	{
 		// Install pending native endpoints before incoming pages can call them.
-		API::BridgeApi::Get().PumpMainThread();
+		API::BridgeApi::Get().PumpRuntimeCallbacks();
 		if (m_renderer) m_renderer->DrainNotifications();
 	}
 

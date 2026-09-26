@@ -14,7 +14,7 @@ namespace OSFUI
 			std::uint32_t height{ 0 };
 		};
 
-		// Install once on the first main-thread tick; never un-subclass another overlay's chain.
+		// Install once from the runtime tick; never un-subclass another overlay's chain.
 		bool Install();
 		void RequestStateRefresh();
 		// Subclassed game window's client size, the authority for window-thread platform facts.

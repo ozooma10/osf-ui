@@ -41,7 +41,7 @@ namespace OSFUI
 	public:
 		static Runtime& Get();
 
-		// SFSE lifecycle and main-thread frame entry points.
+		// SFSE lifecycle and post-menu-advance update entry points.
 		bool Initialize();
 		void OnPostLoad();
 		void OnPostPostDataLoad();
@@ -51,12 +51,12 @@ namespace OSFUI
 		bool IsVisible() const;
 		bool IsInputCaptured() const;
 
-		// Queued requests; applied on the main-thread tick.
+		// Queued requests; applied on the runtime tick.
 		void EnqueuePresentationRequest(ViewPresentationRequest a_req);
 		void EnqueueOpenView(std::string a_viewId);
 		void EnqueueCloseView(std::string a_viewId);
 		// Browser transport threads only enqueue this ownership edge; Runtime applies
-		// it beside presentation work so every native callback stays on the game main thread.
+		// it beside presentation work so native callbacks execute in the runtime update.
 		void EnqueueRelativePointerCapture(std::string a_viewId, bool a_active);
 
 		// WndProc input entry points (window-message thread).
@@ -72,7 +72,7 @@ namespace OSFUI
 	private:
 		Runtime() = default;
 
-		// Independent setup, peer services, then main-thread engine integration.
+		// Independent setup, peer services, then runtime engine integration.
 		void LoadStartupContent();
 		void InitializeEngineIntegration();
 		bool InitializeWebRuntime();
@@ -124,7 +124,7 @@ namespace OSFUI
 		// Poll XInput and deliver events to the active document (`ui.gamepad` events).
 		void RouteGamepadInput();
 
-		// Relative-pointer session; callbacks run on the main-thread tick.
+		// Relative-pointer session; callbacks run on the runtime tick.
 		void ApplyRelativePointerRequest(const ViewRequestQueue::RelativePointerRequest& a_request);
 
 		// Bridge endpoints, retained state and protocol lifecycle (Bridge/RuntimeBridge.cpp).
@@ -141,7 +141,7 @@ namespace OSFUI
 		void PumpDevViewReload();
 		nlohmann::json BuildViewsData() const;
 
-		// Ownership: ordinary mutable fields below belong to the main-thread tick.
+		// Ownership: ordinary mutable fields below belong to the runtime tick.
 		// Startup initializes paths/catalog/settings before input hooks are installed;
 		// m_initialized, m_developerMode and the renderer pointer then stay stable.
 		// Renderer load/failure callbacks run when its queues drain on that tick.
@@ -152,7 +152,7 @@ namespace OSFUI
 		std::unique_ptr<D3D12Compositor> m_compositor;
 		std::unique_ptr<MessageBridge> m_bridge;
 		OSFSettingsClient m_osfSettings;
-		// Main owns the worker; its synchronized interface owns cross-thread jobs.
+		// Runtime owns the worker; its synchronized interface owns cross-thread jobs.
 		std::unique_ptr<DevViewReloadWorker> m_devViewReload;
 
 		// Startup and frame lifecycle.
@@ -161,7 +161,7 @@ namespace OSFUI
 		bool m_developerMode{ false };       // startup-latched; changes apply next launch
 		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
 		double m_nowSeconds{ 0.0 };
-		// SFSE lifecycle producer -> main-thread consumer.
+		// SFSE lifecycle producer -> runtime consumer.
 		std::atomic_bool m_engineIntegrationPending{ false };
 
 		// View lifecycle and presentation.
@@ -171,7 +171,7 @@ namespace OSFUI
 		ViewRevealGate m_viewReveal;
 		ViewRecoveryTracker m_viewRecovery;
 		std::string m_lastShownView;
-		std::atomic_bool m_visible{ false };  // main -> WndProc/frame-event producer
+		std::atomic_bool m_visible{ false };  // runtime -> WndProc/frame-event producer
 
 		// Browser-host recovery.
 		BrowserHostRecovery m_browserHostRecovery;
@@ -189,7 +189,7 @@ namespace OSFUI
 		std::unordered_map<std::string, std::uint32_t> m_viewProtocolFaultCounts;
 		std::string m_lastViewsData;
 
-		// Developer tools request (WndProc -> main).
+		// Developer tools request (WndProc -> runtime).
 		std::atomic_bool m_devToolsRequested{ false };
 	};
 }

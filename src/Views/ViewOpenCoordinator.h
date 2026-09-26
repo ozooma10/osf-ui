@@ -11,7 +11,7 @@
 
 namespace OSFUI
 {
-	// Main-thread only. Owns unpresented open requests and their timing, using canonical manifest ids.
+	// Runtime-owned. Owns unpresented open requests and their timing, using canonical manifest ids.
 	// Runtime owns instantiation and presentation; this class never calls the engine, browser or native plugins.
 	class ViewOpenCoordinator
 	{

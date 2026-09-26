@@ -8,7 +8,7 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Main-thread only; balance this owner's free-cursor reference.
+		// Requires ordered UI-phase updates; balance this owner's free-cursor reference.
 		bool g_engaged{ false };
 	}
 

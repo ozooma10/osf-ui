@@ -11,14 +11,14 @@ namespace OSFUI
 	class MenuEventSink final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 	{
 	public:
-		// Register on the first main-thread tick after kPostPostDataLoad.
+		// Register on the first runtime tick after kPostPostDataLoad.
 		static bool Install();
 
 		RE::BSEventNotifyControl ProcessEvent(
 			const RE::MenuOpenCloseEvent& a_event,
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
 
-		// Any-thread semantic edge. Runtime consumes it on the game main thread.
+		// Any-thread semantic edge. Runtime consumes it on the runtime tick.
 		[[nodiscard]] static bool ChargenOpen();
 		[[nodiscard]] static bool TransitionOpen();
 

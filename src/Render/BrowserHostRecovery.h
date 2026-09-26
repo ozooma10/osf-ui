@@ -5,7 +5,7 @@
 
 namespace OSFUI
 {
-	// Main-thread failure state and retry timing; transport ownership stays in the renderer.
+	// Runtime failure state and retry timing; transport ownership stays in the renderer.
 	class BrowserHostRecovery
 	{
 	public:

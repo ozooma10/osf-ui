@@ -8,8 +8,8 @@
 
 namespace OSFUI
 {
-	// WndProc publishes cursor samples; main publishes geometry and drains moves.
-	// Shared fields retain their atomic publication boundaries. Main alone owns
+	// WndProc publishes cursor samples; Runtime publishes geometry and drains moves.
+	// Shared fields retain their atomic publication boundaries. Runtime alone owns
 	// the Scaleform geometry mode and decides when the rendered view is ready.
 	class PointerInputState
 	{
@@ -22,7 +22,7 @@ namespace OSFUI
 			int y;
 		};
 
-		// Main-thread geometry lifecycle.
+		// Runtime geometry lifecycle.
 		void Initialize(ViewSize a_size);
 		void PublishGeometry(ViewSize a_capture, ViewSize a_view);
 		bool UpdateFixedScaleformGeometry(bool a_fixed);
@@ -40,7 +40,7 @@ namespace OSFUI
 		bool GeometryReady() const;
 		bool CanSendPointer() const;
 
-		// Both threads can queue; main drains once per frame or discards on recovery.
+		// WndProc and Runtime can queue; Runtime drains once per update or discards on recovery.
 		void QueueMouseMove();
 		std::optional<Position> TakeMouseMove();
 		void DiscardMouseMove();

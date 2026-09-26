@@ -7,12 +7,12 @@ namespace OSFUI
 	class OSFSettingsClient;
 	class WebView2HostWebRenderer;
 
-	// Main-thread engine integration and focus bookkeeping. Only CaptureRequested
+	// Runtime engine integration and focus bookkeeping. Only CaptureRequested
 	// is queried by WndProc; Runtime retains presentation and failure policy.
 	class InputCaptureController
 	{
 	public:
-		// First main-thread tick after kPostPostDataLoad, before processing view requests.
+		// First runtime tick after kPostPostDataLoad, before processing view requests.
 		bool Initialize();
 		bool MenuEventsAvailable() const { return m_menuEventsAvailable; }
 		bool IntegrationAttempted() const { return m_integrationAttempted; }
@@ -33,6 +33,6 @@ namespace OSFUI
 		bool m_focusMenuOpen{ false };
 		double m_focusMenuMismatchSince{ -1.0 };
 		bool m_browserFocusGranted{ false };
-		std::atomic_bool m_captureRequested{ false };  // main -> WndProc
+		std::atomic_bool m_captureRequested{ false };  // runtime -> WndProc
 	};
 }

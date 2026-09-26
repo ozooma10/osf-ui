@@ -118,12 +118,12 @@ int main()
     CHECK(!api.RegisterSend("acme.increment", &Send, nullptr)); // Duplicate name refused.
     CHECK(!api.RegisterSend("osfui.reserved", &Send, nullptr));
     api.SetBridgeAvailability(&bridge);
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(api.IsReady());
 
     // A subscriber installed after acquisition is still replayed on the game thread.
     api.SetReadyCallback(&Ready, nullptr);
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(g_ready == 1);
 
     bridge.OnViewCreated("acme/panel");
@@ -138,17 +138,17 @@ int main()
     api.SetViewInstantiated("acme/panel", false);
     bridge.OnViewDestroyed("acme/panel");
     api.SetBridgeAvailability(nullptr);
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     g_sent.clear();
     CHECK(api.SendToWeb("acme/panel", "acme.during-recovery", R"({"value":7})"));
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(g_sent.empty());
     CHECK(!api.IsReady());
 
     bridge.OnViewCreated("acme/panel");
     api.SetBridgeAvailability(&bridge);
     api.SetViewInstantiated("acme/panel", true);
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(api.IsReady());
     CHECK(g_sent.empty());
     bridge.HandleWebMessage("acme/panel",
@@ -170,11 +170,11 @@ int main()
     CHECK(!api.HasRelativePointer("acme/panel"));
     g_sent.clear();
     CHECK(api.SendToWeb("ACME/PANEL", "mixed-case", "{}"));
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(g_sent.size() == 1 && g_sent.back()["name"] == "mixed-case");
     g_sent.clear();
     CHECK(api.SendToWeb("acme/panel", "commented-json", R"({/* allowed input */"value":3})"));
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(g_sent.size() == 1 && g_sent.back()["payload"]["value"] == 3);
     g_sent.clear();
     const std::string qualifiedEvent = std::string(64, 'a') + "." + std::string(125, 'b');
@@ -225,13 +225,13 @@ int main()
     CHECK(g_sent.back()["kind"] == "reply" && g_sent.back()["id"] == "q2");
 
     api.SetViewInstantiated("acme/panel", true); // dev reload with the same bridge/view ID
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(g_ready == 3);
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(g_ready == 3);
     api.SetReadyCallback(nullptr, nullptr);
     api.SetBridgeAvailability(nullptr);
-    api.PumpMainThread();
+    api.PumpRuntimeCallbacks();
     CHECK(!api.IsReady());
 
     std::fprintf(stderr, "bridge_api_tests: %d checks, %d failures\n", g_checks, g_failures);

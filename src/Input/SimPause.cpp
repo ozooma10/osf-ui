@@ -9,7 +9,7 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Main-thread only; keep this owner's pause-counter contribution balanced.
+		// Runtime-owned; keep this owner's pause-counter contribution balanced.
 		bool g_engaged{ false };
 
 		// Name the engine's pause-counter bookkeeping records for us.

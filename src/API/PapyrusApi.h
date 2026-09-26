@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -23,7 +22,7 @@ namespace OSFUI::API::Papyrus
 	// GameVM constructor hook (PapyrusBindHook); Install() falls back to it when the hook is absent.
 	void BindNatives(RE::BSScript::IVirtualMachine& a_vm);
 
-	// Main thread and idempotent; binds natives if still unbound and installs the session sinks.
+	// Runtime update and idempotent; binds natives if still unbound and installs the session sinks.
 	void Install();
 
 	// Any thread. Returning to the main menu ends the script session: registrations, queued state and
@@ -79,7 +78,7 @@ namespace OSFUI::API::Papyrus
 		nlohmann::json value;
 	};
 
-	// Drained retained state with lowercase mod id; FormIDs are serialized on the main thread.
+	// Drained retained state with lowercase mod id; FormIDs are serialized in the runtime update.
 	struct ViewState
 	{
 		std::string    mod;

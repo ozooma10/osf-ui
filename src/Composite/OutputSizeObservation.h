@@ -12,7 +12,7 @@ namespace OSFUI
 		std::uint32_t height{ 0 };
 	};
 
-	// Render workers publish the latest engine UI target size; the runtime reads it on the main thread.
+	// Render workers publish the latest engine UI target size; the runtime reads it in the runtime update.
 	class OutputSizeObservation final
 	{
 	public:

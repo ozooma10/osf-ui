@@ -38,7 +38,7 @@ namespace OSFUI
 		bool TakeChanged();
 		void Invalidate() { m_changed = true; } // replay policy after host replacement
 
-		// Derived desired state — read on the main thread after any change.
+		// Derived desired state — read in the runtime update after any change.
 		[[nodiscard]] bool DesiredVisible() const;  // any HUD shown || any menu open
 		[[nodiscard]] bool DesiredCapture() const;  // active menu && capturesInput
 		[[nodiscard]] bool DesiredPause() const;    // active menu && pausesGame

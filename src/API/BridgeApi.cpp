@@ -369,7 +369,7 @@ namespace OSFUI::API
 		MarkPending(kPendingPump);
 	}
 
-	void BridgeApi::PumpMainThread()
+	void BridgeApi::PumpRuntimeCallbacks()
 	{
 		const auto reasons = m_pending.fetch_and(~kPendingPump, std::memory_order_acq_rel);
 		if (!(reasons & kPendingPump)) return;

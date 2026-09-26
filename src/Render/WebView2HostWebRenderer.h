@@ -60,7 +60,7 @@ namespace OSFUI
 		void Resize(std::uint32_t a_width, std::uint32_t a_height);
 		void SetViewport(std::uint32_t a_width, std::uint32_t a_height);
 		void SetPointerInputEnabled(bool a_enabled);
-		// Main thread: callbacks run only here, before Runtime snapshots requests.
+		// Runtime update: callbacks run only here, before Runtime snapshots requests.
 		void DrainNotifications();
 		// Start a demanded host and acknowledge retired frames; does not dispatch callbacks.
 		void Update();

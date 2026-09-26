@@ -47,7 +47,7 @@ namespace OSFUI::API::Papyrus
 			std::string       key;  // exact view endpoint
 		};
 
-		// Queue FormIDs, never TESForm pointers; serialize them on the main thread.
+		// Queue FormIDs, never TESForm pointers; serialize them in the runtime update.
 		struct QueuedState
 		{
 			std::string                               mod;
@@ -57,7 +57,7 @@ namespace OSFUI::API::Papyrus
 			std::optional<std::vector<std::uint32_t>> formIds;
 		};
 
-		// Keep portable values/FormIDs only; serialize forms on the main thread.
+		// Keep portable values/FormIDs only; serialize forms in the runtime update.
 		struct QueuedEvent
 		{
 			std::string        mod;
@@ -362,7 +362,7 @@ namespace OSFUI::API::Papyrus
 				if constexpr (std::same_as<T, std::monostate>) {
 					return nullptr;
 				} else if constexpr (std::same_as<T, FormValue>) {
-					return nullptr;  // materialized separately on the main thread
+					return nullptr;  // materialized separately in the runtime update
 				} else {
 					return a_item;
 				}
@@ -418,7 +418,7 @@ namespace OSFUI::API::Papyrus
 			return mod;
 		}
 
-		// Queue on the VM thread and resolve any form identity on the main thread.
+		// Queue on the VM thread and resolve any form identity in the runtime update.
 		bool EnqueueState(QueuedState a_state)
 		{
 			std::lock_guard l{ State().lock };
@@ -441,7 +441,7 @@ namespace OSFUI::API::Papyrus
 			return EnqueueState(QueuedState{ std::move(*mod), a_key.c_str(), std::move(a_value), std::nullopt, std::nullopt });
 		}
 
-		// Main thread; unknown form types fall back to their numeric value.
+		// Runtime update; unknown form types fall back to their numeric value.
 		std::string FormTypeSignature(RE::FormType a_type)
 		{
 			for (const auto& entry : RE::FORM_ENUM_STRING::GetFormEnumString()) {
@@ -452,7 +452,7 @@ namespace OSFUI::API::Papyrus
 			return std::to_string(static_cast<std::uint32_t>(a_type));
 		}
 
-		// Main thread; missing forms serialize as null to preserve array alignment.
+		// Runtime update; missing forms serialize as null to preserve array alignment.
 		nlohmann::json SerializeForm(std::uint32_t a_formId)
 		{
 			if (a_formId == 0) {

@@ -26,7 +26,7 @@ namespace OSFUI::OverlayInputHook
 		HWND    g_hwnd{ nullptr };
 		std::atomic_bool g_chainCycleLogged{ false };
 
-		// Window-thread cursor state observes capture edges published by the main thread.
+		// Window-thread cursor state observes capture edges published by Runtime.
 		bool g_hwCursorActive{ false };
 		// Absolute raw-input devices report a normalized position rather than a
 		// movement delta. Keep the last client position so relative-pointer owners
@@ -186,7 +186,7 @@ namespace OSFUI::OverlayInputHook
 		{
 			auto& runtime = Runtime::Get();
 
-			// Reconcile the main-thread capture edge on the window thread.
+			// Reconcile the runtime capture edge on the window thread.
 			const bool wantHwCursor = runtime.IsInputCaptured() && ::GetForegroundWindow() == a_hwnd;
 			const bool keyboardCaptured = runtime.IsInputCaptured();
 			if (keyboardCaptured != g_keyboardCaptured) {

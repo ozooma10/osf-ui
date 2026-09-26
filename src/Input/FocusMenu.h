@@ -39,9 +39,9 @@ namespace OSFUI
 		void OnThumbstickEvent(const RE::ThumbstickEvent* a_event) override;
 		void OnButtonEvent(const RE::ButtonEvent* a_event) override;
 
-		// Platform-facing API; call from the game main thread unless noted.
+		// Platform-facing API; call from the post-menu-advance runtime update unless noted.
 
-		// Register idempotently on the first main-thread tick after kPostPostDataLoad.
+		// Register idempotently on the first runtime tick after kPostPostDataLoad.
 		static bool Register();
 
 		// Open or close through UIMessageQueue after registration.
