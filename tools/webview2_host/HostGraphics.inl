@@ -331,18 +331,23 @@
 				return true;
 			}
 
+			// The game allocates epochs monotonically, but reveals and viewport changes complete out of order here.
+			bool AdvancePresentation(std::uint64_t a_epoch)
+			{
+				if (a_epoch <= presentationEpoch) return false;
+				presentationEpoch = a_epoch;
+				return true;
+			}
+
 			bool PromotePresentation(View& a_view)
 			{
-				const auto requested = std::exchange(a_view.pendingPresentationEpoch, 0ull);
-				if (requested == 0 || requested == presentationEpoch) {
-					return false;
-				}
-				presentationEpoch = requested;
-				return true;
+				return AdvancePresentation(std::exchange(a_view.pendingPresentationEpoch, 0ull));
 			}
 
 			bool PromoteChangedPresentation(View& a_view)
 			{
+				// A stale reveal has nothing to drain.
+				if (a_view.pendingPresentationEpoch <= presentationEpoch) return PromotePresentation(a_view);
 				if (framePool) {
 					try {
 						framePool.Recreate(captureDevice,
