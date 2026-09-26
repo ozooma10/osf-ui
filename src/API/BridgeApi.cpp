@@ -1,5 +1,7 @@
 #include "API/BridgeApi.h"
 
+#include <cassert>
+
 #include "Bridge/MessageBridge.h"
 #include "Core/Ids.h"
 #include "Core/Json.h"
@@ -338,14 +340,24 @@ namespace OSFUI::API
 		m_papyrusEndpoints.erase(StringUtil::ToLowerAscii(a_name));
 	}
 
-	void BridgeApi::SetBridgeAvailability(MessageBridge* a_bridge)
+	void BridgeApi::AttachBridge(MessageBridge& a_bridge)
 	{
 		std::lock_guard lock(m_mutex);
-		if (m_bridge != a_bridge) m_readyFired = false;
-		if (!a_bridge) m_appliedBridge = nullptr;
-		m_bridge = a_bridge;
-		m_bridgeAvailable.store(a_bridge != nullptr, std::memory_order_release);
-		if (!a_bridge) m_queuedReplies.clear();  // nothing left to settle them against
+		assert(!m_bridge);
+		m_bridge = &a_bridge;
+		MarkPending(kPendingPump);
+	}
+
+	void BridgeApi::SetBridgeAvailability(bool a_available)
+	{
+		std::lock_guard lock(m_mutex);
+		assert(!a_available || m_bridge);
+		if (m_bridgeAvailable.exchange(a_available, std::memory_order_acq_rel) != a_available) {
+			m_readyFired = false;
+		}
+		if (!a_available) {
+			m_queuedReplies.clear();  // nothing left to settle them against
+		}
 		MarkPending(kPendingPump);
 	}
 
@@ -361,14 +373,16 @@ namespace OSFUI::API
 		{
 			std::lock_guard lock(m_mutex);
 			bridge = m_bridge;
-			if (bridge) {
-				// Endpoints only ever grow, so a resync re-applies the whole set.
-				if (bridge != m_appliedBridge || m_dirty) {
-					for (const auto& item : m_sends) sendsToRegister.push_back(item);
-					for (const auto& item : m_requests) requestsToRegister.push_back(item);
-					m_appliedBridge = bridge;
-					m_dirty = false;
+			if (bridge && m_dirty) {
+				for (const auto& item : m_sends) {
+					sendsToRegister.push_back(item);
 				}
+				for (const auto& item : m_requests) {
+					requestsToRegister.push_back(item);
+				}
+				m_dirty = false;
+			}
+			if (m_bridgeAvailable.load(std::memory_order_acquire)) {
 				for (auto it = m_pendingSends.begin(); it != m_pendingSends.end();) {
 					if (const auto* canonical = FindIdCaseInsensitive(m_instantiatedViews, it->view)) {
 						it->view = *canonical;
@@ -412,7 +426,7 @@ namespace OSFUI::API
 		void* readyUser = nullptr;
 		{
 			std::lock_guard lock(m_mutex);
-			if (m_bridge && !m_readyFired) {
+			if (m_bridgeAvailable.load(std::memory_order_acquire) && !m_readyFired) {
 				m_readyFired = true;
 				ready = m_readyCb;
 				readyUser = m_readyUser;

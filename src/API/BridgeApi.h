@@ -60,7 +60,8 @@ namespace OSFUI::API
 
 		bool ClaimPapyrusEndpoint(std::string_view a_name);
 		void ReleasePapyrusEndpoint(std::string_view a_name);
-		void SetBridgeAvailability(MessageBridge* a_bridge);
+		void AttachBridge(MessageBridge& a_bridge);
+		void SetBridgeAvailability(bool a_available);
 		void PumpRuntimeCallbacks();
 
 		// Runtime relative-pointer dispatch.
@@ -135,8 +136,9 @@ namespace OSFUI::API
 		// Recursive so a callback may unregister or replace itself without deadlocking.
 		std::recursive_mutex                          m_callbackDispatchMutex;
 		std::atomic<std::uint32_t>                    m_pending{ 0 };
-		std::unordered_map<std::string, Registration>        m_sends;             // strict RegisterSend set
-		std::unordered_map<std::string, RequestRegistration> m_requests;          // desired request set
+		std::unordered_map<std::string, Registration>        m_sends;
+		std::unordered_map<std::string, RequestRegistration> m_requests;
+		bool                                          m_dirty{ false };  // endpoint set changed since apply
 		std::unordered_map<std::string, RelativePointerRegistration> m_relativePointers;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewLifecycleRegistration> m_viewLifecycles;  // exact view owner, first-wins
 		std::vector<QueuedReply>                       m_queuedReplies;
@@ -147,9 +149,7 @@ namespace OSFUI::API
 		bool                                          m_viewCatalogReady{ false };
 		std::vector<ViewStateOp>                      m_pendingStateOps;    // SetViewState writes, drained by Runtime
 		std::vector<std::string>                      m_pendingViewRegs;    // RegisterView ids, drained by Runtime
-		MessageBridge*                                m_bridge{ nullptr };         // non-owning; set by Runtime
-		MessageBridge*                                m_appliedBridge{ nullptr };  // bridge we last applied to
-		bool                                          m_dirty{ false };            // endpoint set changed since apply
+		MessageBridge*                                m_bridge{ nullptr };  // non-owning; attached once by Runtime
 		ReadyFn                                m_readyCb{ nullptr };
 		void*                                         m_readyUser{ nullptr };
 		bool                                          m_readyFired{ false };

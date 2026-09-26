@@ -106,6 +106,7 @@ namespace OSFUI
 
 		RegisterPlatformEndpoints(*bridge);
 		m_bridge = std::move(bridge);
+		API::BridgeApi::Get().AttachBridge(*m_bridge);
 	}
 
     void Runtime::InitializeStartupViews()
@@ -557,7 +558,7 @@ namespace OSFUI
 		if (!m_browserHostRecovery.OnFailure(m_nowSeconds, retryableBrowserHostLoss)) {
 			return;
 		}
-		API::BridgeApi::Get().SetBridgeAvailability(nullptr);
+		API::BridgeApi::Get().SetBridgeAvailability(false);
 		m_osfSettings.ReportFailure("runtime.renderer", "webview.renderer-failed",
 			"The OSF UI browser stopped working",
 			{ { "view", a_event.viewId }, { "stage", a_event.stage }, { "detail", a_event.description }, { "errorCode", a_event.errorCode } });

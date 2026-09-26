@@ -9,6 +9,7 @@ namespace
     int g_ready = 0;
     int g_pointer = 0;
     int g_send = 0;
+    int g_request = 0;
 
     void Capture(std::string_view, std::string_view json)
     {
@@ -21,6 +22,11 @@ namespace
         ++g_pointer;
     }
     void Send(const char*, const char*, const char*, void*) noexcept { ++g_send; }
+    void Request(const OSFUI::API::Request& request, void*) noexcept
+    {
+        ++g_request;
+        request.Respond("{}");
+    }
 }
 
 namespace OSFUI::Log
@@ -117,11 +123,21 @@ int main()
     CHECK(api.RegisterSend("acme.increment", &Send, nullptr));
     CHECK(!api.RegisterSend("acme.increment", &Send, nullptr)); // Duplicate name refused.
     CHECK(!api.RegisterSend("osfui.reserved", &Send, nullptr));
-    api.SetBridgeAvailability(&bridge);
+    CHECK(api.RegisterRequest("acme.query", &Request, nullptr));
+    CHECK(!api.RegisterRequest("acme.increment", &Request, nullptr));
+    CHECK(!api.RegisterSend("acme.query", &Send, nullptr));
+    api.SetReadyCallback(&Ready, nullptr);
+    api.PumpRuntimeCallbacks(); // Registrations must survive a pump before attachment.
+    api.AttachBridge(bridge);
+    api.PumpRuntimeCallbacks();
+    CHECK(!api.IsReady() && g_ready == 0);
+    api.SetBridgeAvailability(true);
     api.PumpRuntimeCallbacks();
     CHECK(api.IsReady());
+    CHECK(g_ready == 1);
 
     // A subscriber installed after acquisition is still replayed on the game thread.
+    g_ready = 0;
     api.SetReadyCallback(&Ready, nullptr);
     api.PumpRuntimeCallbacks();
     CHECK(g_ready == 1);
@@ -132,21 +148,42 @@ int main()
     bridge.HandleWebMessage("acme/panel",
         R"({"kind":"send","name":"acme.increment","payload":{"amount":1}})");
     CHECK(g_send == 1);
+    bridge.HandleWebMessage("acme/panel",
+        R"({"kind":"request","name":"acme.query","id":"initial","payload":{}})");
+    api.PumpRuntimeCallbacks();
+    CHECK(g_request == 1 && g_sent.back()["kind"] == "reply");
 
-    // A failed browser host stops draining native sends. Reattaching a replacement
-    // restores availability, but delivery still waits for its document greeting.
+    CHECK(!api.RegisterSend("acme.increment", &Send, nullptr));
+    CHECK(!api.RegisterRequest("acme.query", &Request, nullptr));
+    CHECK(!api.ClaimPapyrusEndpoint("ACME.QUERY"));
+
+    // A failed browser host stops draining native sends. Recovery restores
+    // availability on the same bridge; delivery still waits for the document greeting.
     api.SetViewInstantiated("acme/panel", false);
     bridge.OnViewDestroyed("acme/panel");
-    api.SetBridgeAvailability(nullptr);
+    api.SetBridgeAvailability(false);
     api.PumpRuntimeCallbacks();
     g_sent.clear();
     CHECK(api.SendToWeb("acme/panel", "acme.during-recovery", R"({"value":7})"));
+    CHECK(api.RegisterSend("acme.recovered", &Send, nullptr));
+    CHECK(api.RegisterRequest("acme.recoveredQuery", &Request, nullptr));
     api.PumpRuntimeCallbacks();
     CHECK(g_sent.empty());
     CHECK(!api.IsReady());
+    CHECK(g_ready == 1);
+
+    // Availability changes alone must not replace installed handlers.
+    int existingSend = 0, existingRequest = 0;
+    bridge.RegisterSend("acme.increment", [&](const auto&, auto&) { ++existingSend; });
+    bridge.RegisterRequest("acme.query", [&](const auto&, MessageBridge& source) {
+        ++existingRequest;
+        source.Respond({});
+    });
+    api.SetBridgeAvailability(false);
+    api.PumpRuntimeCallbacks();
 
     bridge.OnViewCreated("acme/panel");
-    api.SetBridgeAvailability(&bridge);
+    api.SetBridgeAvailability(true);
     api.SetViewInstantiated("acme/panel", true);
     api.PumpRuntimeCallbacks();
     CHECK(api.IsReady());
@@ -163,6 +200,16 @@ int main()
 
 
     CHECK(g_ready == 2); // readiness fires again after recreation
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"send","name":"acme.increment","payload":{}})");
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"acme.query","id":"preserved","payload":{}})");
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"send","name":"acme.recovered","payload":{}})");
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"acme.recoveredQuery","id":"recovered","payload":{}})");
+    api.PumpRuntimeCallbacks();
+    CHECK(existingSend == 1 && existingRequest == 1);
+    CHECK(g_send == 2 && g_request == 2);
+    api.SetBridgeAvailability(true);
+    api.PumpRuntimeCallbacks();
+    CHECK(g_ready == 2); // Repeated availability does not replay readiness.
     CHECK(api.RegisterRelativePointer("ACME/PANEL", &Pointer, nullptr));
     CHECK(!api.RegisterRelativePointer("Acme/panel", &Pointer, nullptr));
     CHECK(api.DispatchRelativePointer("acme/panel", API::RelativePointerPhase::kBegin));
@@ -256,7 +303,7 @@ int main()
     api.PumpRuntimeCallbacks();
     CHECK(g_ready == 3);
     api.SetReadyCallback(nullptr, nullptr);
-    api.SetBridgeAvailability(nullptr);
+    api.SetBridgeAvailability(false);
     api.PumpRuntimeCallbacks();
     CHECK(!api.IsReady());
 

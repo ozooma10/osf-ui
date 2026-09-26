@@ -352,7 +352,7 @@
 					try {
 						framePool.Recreate(captureDevice, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, winrt::Windows::Graphics::SizeInt32{ static_cast<std::int32_t>(width), static_cast<std::int32_t>(height) });
 					} catch (const winrt::hresult_error& a_error) {
-						log.Error(std::format("could not drain stale capture frames before presentation epoch {}: {}", ssssssssa_epoch, ToUtf8(a_error.message())));
+						log.Error(std::format("could not drain stale capture frames before presentation epoch {}: {}", a_epoch, ToUtf8(a_error.message())));
 						return false;
 					}
 				}

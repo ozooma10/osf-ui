@@ -38,7 +38,7 @@ namespace OSFUI
 
 		REX::INFO("Runtime: view '{}' instantiated {} ({}, capturesInput={}, pausesGame={})", id, a_reason, a_manifest.kind == ViewKind::Hud ? "hud" : "menu", a_manifest.capturesInput, a_manifest.pausesGame);
 		if (m_bridge) {
-			API::BridgeApi::Get().SetBridgeAvailability(m_bridge.get());
+			API::BridgeApi::Get().SetBridgeAvailability(true);
 		}
 		return true;
 	}
@@ -51,7 +51,7 @@ namespace OSFUI
 		if (!a_failed && m_browserHostRecovery.CanAcceptResponse()) {
 			const auto attempts = m_browserHostRecovery.Attempts();
 			m_browserHostRecovery.OnResponse(m_nowSeconds);
-			API::BridgeApi::Get().SetBridgeAvailability(m_bridge.get());
+			API::BridgeApi::Get().SetBridgeAvailability(true);
 			m_osfSettings.ClearFailure("runtime.renderer");
 			REX::INFO("Runtime: replacement browser host responded on attempt {}; menus remain closed; requested HUDs resume after loading", attempts);
 		}
@@ -136,7 +136,7 @@ namespace OSFUI
 			}
 		}
 		if (!instantiatedViewRemains) {
-			API::BridgeApi::Get().SetBridgeAvailability(nullptr);
+			API::BridgeApi::Get().SetBridgeAvailability(false);
 		}
 		if (m_bridge) {
 			m_bridge->OnViewDestroyed(a_id);
