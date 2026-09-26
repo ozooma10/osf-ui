@@ -1347,7 +1347,7 @@ namespace osfui::wv2
 				viewportWidth = std::clamp((std::max)(1u, a_width), 1u, width);
 				viewportHeight = std::clamp((std::max)(1u, a_height), 1u, height);
 				ApplyViewLayout();
-				AdvancePresentation(a_presentationEpoch);
+				AdvanceChangedPresentation(a_presentationEpoch);
 				log.Info(std::format(
 					"content viewport -> {}x{} inside stable {}x{} capture",
 					viewportWidth, viewportHeight, width, height));
