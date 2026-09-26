@@ -20,7 +20,6 @@ namespace OSFUI::API
 		return (have >> 16) == (need >> 16) && (have & 0xFFFFu) >= (need & 0xFFFFu);
 	}
 
-	// All callbacks run on the game main thread.
 	using SendFn = void (*)(const char* name, const char* payloadJson, const char* sourceViewId, void* context) noexcept;
 	// Runs when a bridge-enabled view becomes available or is recreated.
 	using ReadyFn = void (*)(void* context) noexcept;
