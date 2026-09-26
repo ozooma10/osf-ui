@@ -255,7 +255,6 @@ namespace osfui::wv2
 				bool pageMessageFloodWarned{ false };
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
 				bool          revealPending{ false };
-				bool          hideDeferred{ false };
 				std::uint64_t revealDeadline{ 0 };
 				std::string   revealToken;
 				std::uint64_t pendingPresentationEpoch{ 0 };
@@ -436,16 +435,6 @@ namespace osfui::wv2
 				if (changed) ApplyCaptureCadence();
 			}
 
-			void ApplyDeferredHides()
-			{
-				for (auto& view : views) {
-					if (!view->hideDeferred) continue;
-					view->hideDeferred = false;
-					if (view->visual) view->visual.IsVisible(false);
-					if (view->controller) view->controller->put_IsVisible(FALSE);
-				}
-			}
-
 			void HideView(View& a_view)
 			{
 				if (a_view.hidden && !a_view.revealPending) return;
@@ -456,14 +445,14 @@ namespace osfui::wv2
 				a_view.pendingPresentationEpoch = 0;
 				a_view.revealPending = false;  // cancel an in-flight reveal
 				a_view.revealToken.clear();
-				a_view.hideDeferred = true;    // applied at batch end / reveal end
-				log.Info(std::format("view '{}': hide (deferred to batch end)", a_view.id));
+				if (a_view.visual) a_view.visual.IsVisible(false);
+				if (a_view.controller) a_view.controller->put_IsVisible(FALSE);
+				log.Info(std::format("view '{}': hide", a_view.id));
 			}
 
 			void ShowView(View& a_view)
 			{
 				if (!a_view.hidden) {
-					a_view.hideDeferred = false;
 					log.Info(std::format("view '{}': show — already visible (visual={})",
 						a_view.id, a_view.visual && a_view.visual.IsVisible()));
 					if (PromotePresentation(a_view)) {
@@ -476,17 +465,8 @@ namespace osfui::wv2
 				}
 				a_view.hidden = false;
 				RefreshCaptureVisibility();
-				a_view.hideDeferred = false;
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				ReconcileCdpFocus();
-				if (a_view.visual && a_view.visual.IsVisible()) {
-					log.Info(std::format(
-						"view '{}': show — hide was still deferred, never left the screen", a_view.id));
-					if (PromotePresentation(a_view)) {
-						RepublishLatest();
-					}
-					return;
-				}
 				if (a_view.visual && a_view.webView && a_view.domSeen) {
 					a_view.revealPending = true;
 					a_view.revealToken = NewRevealToken();
@@ -521,7 +501,6 @@ namespace osfui::wv2
 					log.Info(std::format("view '{}': reveal sentinel arrived — showing", a_view.id));
 				}
 				if (a_view.visual && !a_view.hidden) a_view.visual.IsVisible(true);
-				if (!AnyRevealPending()) ApplyDeferredHides();
 				PromoteChangedPresentation(a_view);
 			}
 

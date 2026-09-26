@@ -217,7 +217,6 @@
 				RefreshCaptureVisibility();
 				if (wasInputTarget) inputTarget = views.empty() ? nullptr : views.front().get();
 				ReconcileCdpFocus();
-				if (!AnyRevealPending()) ApplyDeferredHides();
 			}
 
 			void HandleGameMessage(const json& a_msg)
