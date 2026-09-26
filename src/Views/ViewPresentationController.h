@@ -27,10 +27,12 @@ namespace OSFUI
 		bool RemoveInstantiated(std::string_view a_id);
 
 		// State transitions report changes; opening a menu replaces the active one while HUDs accumulate.
+		// Suspension is the single menu admission gate: menus are refused while suspended, HUD intent is kept.
 		bool Open(std::string_view a_id);
 		bool Close(std::string_view a_id);
 		bool CloseActiveMenu();                       // HUDs untouched
 		bool SetSuspended(bool a_suspended);          // retain HUD intent, close menus
+		bool Suspended() const { return m_suspended; }
 		void CloseAll();                              // close the menu and every shown HUD
 
 		// Runtime consumes changes at a presentation boundary. Idle ticks still

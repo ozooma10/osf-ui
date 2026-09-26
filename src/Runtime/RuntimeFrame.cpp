@@ -13,10 +13,11 @@ namespace OSFUI
 		if (m_engineIntegrationPending.exchange(false, std::memory_order_acq_rel)) {
 			InitializeEngineIntegration();
 		}
-		if (MenuEventSink::TransitionOpen()) {
+		// The only menu admission gate; evaluated once per update.
+		const bool suspend = !m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || !m_browserHostRecovery.IsAvailable();
+		if (m_presentation.SetSuspended(suspend) && suspend) {
 			m_viewOpens.SuspendMenus();
 		}
-		m_presentation.SetSuspended(!m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || !m_browserHostRecovery.IsAvailable());
 	}
 
 	void Runtime::ProcessBackendState(const API::Papyrus::PendingBatch& a_papyrus, const std::vector<API::BridgeApi::ViewStateOp>& a_bridgeState)
@@ -72,7 +73,6 @@ namespace OSFUI
 		// Ready callbacks may publish state while this batch is prepared.
 		// Consume only that state: callback-enqueued requests belong to the next batch.
 		ApplyNativeState(API::BridgeApi::Get().TakePendingState());
-		m_presentation.SetSuspended(!m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || !m_browserHostRecovery.IsAvailable());
 		DrivePendingOpen();
 		ApplyViewPresentationPolicy();
 	}

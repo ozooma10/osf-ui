@@ -54,7 +54,7 @@ namespace OSFUI
 			return added;
 		}
 
-		if (m_activeMenu && *m_activeMenu == id) {
+		if (m_suspended || (m_activeMenu && *m_activeMenu == id)) {
 			return false;
 		}
 		m_activeMenu = id;

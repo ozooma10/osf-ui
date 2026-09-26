@@ -354,6 +354,7 @@ namespace OSFUI
 		using Readiness = ViewOpenCoordinator::Readiness;
 		const auto* manifest = m_views.Find(a_id);
 		if (!manifest || !m_presentation.IsInstantiated(a_id)) return Readiness::Missing;
+		if (manifest->kind == ViewKind::Menu && m_presentation.Suspended()) return Readiness::Suspended;
 		if (manifest->kind == ViewKind::Menu && manifest->capturesInput) {
 			if (!m_inputCapture.IntegrationAttempted()) return Readiness::WaitingForInput;
 			if (!m_inputCapture.IntegrationAvailable()) return Readiness::InputUnavailable;
@@ -363,8 +364,7 @@ namespace OSFUI
 
 	void Runtime::DrivePendingOpen()
 	{
-		const bool menusAllowed = m_inputCapture.MenuEventsAvailable() && !MenuEventSink::TransitionOpen();
-		const auto ready = m_viewOpens.TakeReady(m_browserHostRecovery.IsAvailable(), menusAllowed,
+		const auto ready = m_viewOpens.TakeReady(
 			[this](std::string_view a_id) { return ViewOpenReadiness(a_id); });
 		for (const auto& id : ready) {
 			m_presentation.Open(id);

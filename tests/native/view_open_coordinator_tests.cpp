@@ -17,10 +17,12 @@ namespace
 		ViewOpenCoordinator opens;
 		OSFUI::ViewPresentationController presentation;
 		std::unordered_map<std::string, Readiness> readiness;
+		std::unordered_map<std::string, OSFUI::ViewKind> kinds;
 
 		void Add(std::string a_id, OSFUI::ViewKind a_kind = OSFUI::ViewKind::Menu)
 		{
 			presentation.AddInstantiated({ a_id, a_kind, a_kind == OSFUI::ViewKind::Menu, false, 0 });
+			kinds.emplace(a_id, a_kind);
 			readiness.emplace(std::move(a_id), Readiness::Loading);
 		}
 		void Menu(std::string_view a_id)
@@ -29,11 +31,14 @@ namespace
 				presentation.Open(a_id);
 			}
 		}
-		std::vector<std::string> CommitReady(bool a_host = true, bool a_menus = true)
+		// Mirrors Runtime::ViewOpenReadiness: suspension holds menus, never HUDs.
+		std::vector<std::string> CommitReady()
 		{
-			auto ready = opens.TakeReady(a_host, a_menus, [&](std::string_view a_id) {
+			auto ready = opens.TakeReady([&](std::string_view a_id) {
 				const auto it = readiness.find(std::string(a_id));
-				return it == readiness.end() ? Readiness::Missing : it->second;
+				if (it == readiness.end()) return Readiness::Missing;
+				if (kinds.at(it->first) == OSFUI::ViewKind::Menu && presentation.Suspended()) return Readiness::Suspended;
+				return it->second;
 			});
 			for (const auto& id : ready) presentation.Open(id);
 			return ready;
@@ -56,8 +61,11 @@ int main()
 		CHECK(f.CommitReady().empty());
 		CHECK(f.presentation.ActiveMenu() == "mod/old");
 		f.readiness["mod/new"] = Readiness::Ready;
-		CHECK(f.CommitReady(false).empty());
-		CHECK(f.CommitReady(true, false).empty());
+		f.presentation.SetSuspended(true);
+		CHECK(f.CommitReady().empty());
+		CHECK(f.opens.PendingMenu() == "mod/new"); // held, not dropped
+		CHECK(!f.presentation.Open("mod/new")); // suspension refuses menus directly too
+		f.presentation.SetSuspended(false);
 		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/new" });
 		CHECK(f.presentation.ActiveMenu() == "mod/new");
 		CHECK(f.CommitReady().empty());
@@ -128,8 +136,7 @@ int main()
 		f.opens.SuspendMenus();
 		f.presentation.SetSuspended(true);
 		f.readiness["mod/hud"] = Readiness::Ready;
-		CHECK(f.CommitReady(false).empty());
-		CHECK(f.CommitReady(true, false) == std::vector<std::string>{ "mod/hud" });
+		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/hud" });
 		CHECK(!f.presentation.ActiveMenu());
 		CHECK(f.presentation.IsOpen("mod/hud"));
 		CHECK(!f.presentation.DesiredVisible());
@@ -185,7 +192,7 @@ int main()
 		CHECK(!opens.QueueMenu("mod/menu", Readiness::Loading, start, start + 40ms));
 		opens.OnLoad("mod/other", false, start + 50ms);
 		opens.OnLoad("mod/menu", false, start + 90ms);
-		CHECK(opens.TakeReady(true, true, [](auto) { return Readiness::Ready; }).size() == 1);
+		CHECK(opens.TakeReady([](auto) { return Readiness::Ready; }).size() == 1);
 		CHECK(!opens.FinishTiming("mod/other", start + 100ms));
 		const auto timing = opens.FinishTiming("mod/menu", start + 110ms);
 		CHECK(timing.has_value());

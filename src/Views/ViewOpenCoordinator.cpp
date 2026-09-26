@@ -70,22 +70,21 @@ namespace OSFUI
 		m_huds.emplace(a_view);
 	}
 
-	std::vector<std::string> ViewOpenCoordinator::TakeReady(bool a_hostReady, bool a_menusAllowed,
-		const std::function<Readiness(std::string_view)>& a_readiness)
+	std::vector<std::string> ViewOpenCoordinator::TakeReady(const std::function<Readiness(std::string_view)>& a_readiness)
 	{
 		std::vector<std::string> ready;
 		for (auto it = m_huds.begin(); it != m_huds.end();) {
 			const auto state = a_readiness(*it);
 			if (state == Readiness::Missing) {
 				it = m_huds.erase(it);
-			} else if (a_hostReady && state == Readiness::Ready) {
+			} else if (state == Readiness::Ready) {
 				ready.push_back(*it);
 				it = m_huds.erase(it);
 			} else {
 				++it;
 			}
 		}
-		if (!m_menu || !a_hostReady || !a_menusAllowed) return ready;
+		if (!m_menu) return ready;
 		const auto state = a_readiness(*m_menu);
 		if (state == Readiness::Missing || state == Readiness::InputUnavailable) {
 			CancelMenu();

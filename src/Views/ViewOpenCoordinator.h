@@ -17,7 +17,8 @@ namespace OSFUI
 	{
 	public:
 		using Clock = std::chrono::steady_clock;
-		enum class Readiness { Missing, Loading, WaitingForInput, InputUnavailable, Ready };
+		// Suspended: presentation refuses menus right now; the request stays queued.
+		enum class Readiness { Missing, Suspended, Loading, WaitingForInput, InputUnavailable, Ready };
 		struct Timing
 		{
 			std::string view;
@@ -42,7 +43,7 @@ namespace OSFUI
 		bool QueueMenu(std::string_view a_view, Readiness a_readiness, std::optional<Clock::time_point> a_requestedAt = std::nullopt, Clock::time_point a_now = Clock::now());
 		// HUDs always pass through the load gate, including startup and host recovery.
 		void QueueHud(std::string_view a_view);
-		std::vector<std::string> TakeReady(bool a_hostReady, bool a_menusAllowed, const std::function<Readiness(std::string_view)>& a_readiness);
+		std::vector<std::string> TakeReady(const std::function<Readiness(std::string_view)>& a_readiness);
 
 		bool CancelMenu();
 		void SuspendMenus(); // host loss/game transition: also discard active-menu timing

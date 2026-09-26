@@ -175,6 +175,8 @@ int main()
 		assert(controller.IsOpen("a/hud"));
 		assert(!controller.DesiredVisible() && !controller.DesiredCapture() && !controller.DesiredPause());
 		for (const auto& layer : controller.DesiredLayers()) assert(layer.hidden);
+		assert(!controller.Open("a/menu")); // suspended presentation refuses menus
+		assert(!controller.Open("a/hud"));  // HUD intent already retained
 		assert(controller.SetSuspended(false));
 		assert(controller.DesiredVisible() && !controller.ActiveMenu());
 		controller.SetSuspended(true);
