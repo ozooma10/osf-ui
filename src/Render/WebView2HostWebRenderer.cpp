@@ -15,6 +15,7 @@
 #include "Views/Dev/DevViewFiles.h"
 #include "Views/ViewCache.h"
 #include "Core/Json.h"
+#include "Input/BrowserKeyboard.h"
 #include "Input/OverlayInputHook.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -1435,8 +1436,7 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
 	{
-		// Preserve the framework's page-level gamepad navigation independently of physical input.
-		m_impl->Send(ToJson(msg::Key{ .vk = a_vkCode, .down = a_down }));
+		m_impl->Send(ToJson(BrowserNavigationKeyEvent(a_vkCode, a_down)));
 	}
 
 	void WebView2HostWebRenderer::InjectKeyboard(const msg::Keyboard& a_key)

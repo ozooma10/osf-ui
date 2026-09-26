@@ -227,19 +227,7 @@ namespace osfui::wv2::msg
 		};
 	};
 
-	struct Key
-	{
-		static constexpr std::string_view kType = "key";
-		std::uint32_t vk{ 0 };
-		bool          down{ false };
-
-		static constexpr auto kFields = std::tuple{
-			F("vk", &Key::vk),
-			F("down", &Key::down),
-		};
-	};
-
-	// Physical keyboard input, distinct from the framework's synthetic page keys.
+	// Keyboard input delivered through CDP: physical keys and gamepad navigation keys.
 	struct Keyboard
 	{
 		static constexpr std::string_view kType = "keyboard";

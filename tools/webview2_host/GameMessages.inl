@@ -150,17 +150,6 @@
 
 			void HandleMouse(const json& a_msg) { SendMouse(a_msg); }
 
-			void HandleKey(const json& a_raw)
-			{
-				if (!inputTarget || !inputTarget->webView) return;
-				const auto a_msg = msg::FromJson<msg::Key>(a_raw);
-				const auto payload = Json::Dump(json{ { "__osfuiKey", {
-					{ "vk", a_msg.vk },
-					{ "down", a_msg.down },
-				} } });
-				inputTarget->webView->PostWebMessageAsJson(ToWide(payload).c_str());
-			}
-
 			void HandleFrameAck(const json& a_msg)
 			{
 				const auto ack = msg::FromJson<msg::FrameAck>(a_msg);
@@ -245,7 +234,6 @@
 					{ msg::SetInputTarget::kType, &App::HandleSetInputTarget },
 					{ msg::Focus::kType, &App::HandleFocus },
 					{ msg::Mouse::kType, &App::HandleMouse },
-					{ msg::Key::kType, &App::HandleKey },
 					{ msg::Keyboard::kType, &App::HandleKeyboard },
 					{ msg::TextInput::kType, &App::HandleTextInput },
 					{ msg::WindowActive::kType, &App::HandleWindowActive },

@@ -110,4 +110,14 @@ namespace OSFUI
 		}
 		return event;
 	}
+
+	osfui::wv2::msg::Keyboard BrowserNavigationKeyEvent(std::uint32_t a_vk, bool a_down)
+	{
+		osfui::wv2::msg::Keyboard event;
+		event.vk = a_vk;
+		event.down = a_down;
+		event.key = NamedKey(a_vk);
+		event.code = event.key;
+		return event;
+	}
 }
