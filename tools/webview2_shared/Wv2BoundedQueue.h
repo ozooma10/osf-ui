@@ -2,7 +2,6 @@
 
 #include <condition_variable>
 #include <cstddef>
-#include <cstdint>
 #include <deque>
 #include <iterator>
 #include <mutex>
@@ -31,9 +30,8 @@ namespace osfui::wv2
 	public:
 		struct Item
 		{
-			T             value;
-			std::string   coalesceKey;
-			std::uint64_t sequence{ 0 };
+			T           value;
+			std::string coalesceKey;
 		};
 
 		enum class PushResult
@@ -48,20 +46,17 @@ namespace osfui::wv2
 			m_capacity(a_capacity)
 		{}
 
-		PushResult Push(T a_value, std::string a_coalesceKey = {},
-			std::uint64_t a_sequence = 0)
+		PushResult Push(T a_value, std::string a_coalesceKey = {})
 		{
 			std::unique_lock lock(m_mutex);
 			if (m_closed) return PushResult::Closed;
 			if (!a_coalesceKey.empty() && !m_items.empty() &&
 				m_items.back().coalesceKey == a_coalesceKey) {
-				m_items.back() = Item{
-					std::move(a_value), std::move(a_coalesceKey), a_sequence };
+				m_items.back() = Item{ std::move(a_value), std::move(a_coalesceKey) };
 				return PushResult::Coalesced;
 			}
 			if (m_items.size() >= m_capacity) return PushResult::Full;
-			m_items.push_back(Item{
-				std::move(a_value), std::move(a_coalesceKey), a_sequence });
+			m_items.push_back(Item{ std::move(a_value), std::move(a_coalesceKey) });
 			lock.unlock();
 			m_ready.notify_one();
 			return PushResult::Queued;

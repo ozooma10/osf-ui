@@ -27,14 +27,13 @@ int main()
 	CHECK(GameMessageCoalesceKey("postWeb").empty());
 
 	Queue queue(3);
-	CHECK(queue.Push(1, "resize", 1) == Result::Queued);
-	CHECK(queue.Push(2, "resize", 2) == Result::Coalesced);
+	CHECK(queue.Push(1, "resize") == Result::Queued);
+	CHECK(queue.Push(2, "resize") == Result::Coalesced);
 	CHECK(queue.Size() == 1);
 
 	Queue::Item item;
 	CHECK(queue.TryPop(item));
 	CHECK(item.value == 2);
-	CHECK(item.sequence == 2);
 
 	CHECK(queue.Push(10, "mouse.move") == Result::Queued);
 	CHECK(queue.Push(20) == Result::Queued);
@@ -42,16 +41,16 @@ int main()
 	CHECK(queue.Push(40) == Result::Full);
 
 	std::vector<Queue::Item> prefix{
-		{ 1, {}, 1 },
-		{ 2, {}, 2 },
+		{ 1, {} },
+		{ 2, {} },
 	};
 	CHECK(!queue.Prepend(std::move(prefix)));
 	queue.Clear();
 	prefix = {
-		{ 1, {}, 1 },
-		{ 2, {}, 2 },
+		{ 1, {} },
+		{ 2, {} },
 	};
-	CHECK(queue.Push(3, {}, 3) == Result::Queued);
+	CHECK(queue.Push(3) == Result::Queued);
 	CHECK(queue.Prepend(std::move(prefix)));
 	CHECK(queue.TryPop(item) && item.value == 1);
 	CHECK(queue.TryPop(item) && item.value == 2);
