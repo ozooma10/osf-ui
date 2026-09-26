@@ -103,6 +103,6 @@ namespace OSFUI::API::Papyrus
 		bool                           sessionReset{ false };
 	};
 
-	[[nodiscard]] PendingBatch TakePendingBatch(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
+	[[nodiscard]] PendingBatch TakePendingBatch();
 
 }

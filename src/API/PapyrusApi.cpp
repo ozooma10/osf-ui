@@ -70,7 +70,6 @@ namespace OSFUI::API::Papyrus
 			std::string                               token;
 			std::string                               view;
 			std::string                               deferToken;
-			std::chrono::steady_clock::time_point     deadline;
 			bool                                      answered{ false };
 			bool                                      rejected{ false };
 			std::string                               code;
@@ -301,7 +300,6 @@ namespace OSFUI::API::Papyrus
 				pending.token = token;
 				pending.view = a_sourceViewId;
 				pending.deferToken = a_deferToken;
-				pending.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 				State().viewRequests.emplace(token, std::move(pending));
 				MarkPending();
 			}
@@ -961,7 +959,7 @@ namespace OSFUI::API::Papyrus
 		return DispatchViewRequest(a_modId, a_name, a_args, a_sourceViewId, a_deferToken);
 	}
 
-	PendingBatch TakePendingBatch(std::chrono::steady_clock::time_point a_now)
+	PendingBatch TakePendingBatch()
 	{
 		PendingBatch batch;
 		if (!State().pending.exchange(false, std::memory_order_acq_rel)) {
@@ -980,15 +978,12 @@ namespace OSFUI::API::Papyrus
 			batch.sessionReset = State().sessionReset;
 			State().sessionReset = false;
 			for (auto it = State().viewRequests.begin(); it != State().viewRequests.end();) {
-				if (!it->second.answered && a_now < it->second.deadline) {
+				if (!it->second.answered) {
 					++it;
 					continue;
 				}
 				completed.push_back(std::move(it->second));
 				it = State().viewRequests.erase(it);
-			}
-			if (!State().viewRequests.empty()) {
-				MarkPending();
 			}
 		}
 
@@ -1024,11 +1019,7 @@ namespace OSFUI::API::Papyrus
 			ViewReply reply;
 			reply.view = std::move(pending.view);
 			reply.deferToken = std::move(pending.deferToken);
-			if (!pending.answered) {
-				reply.rejected = true;
-				reply.code = "papyrus-timeout";
-				reply.message = "Papyrus did not answer the view request";
-			} else if (pending.rejected) {
+			if (pending.rejected) {
 				reply.rejected = true;
 				reply.code = std::move(pending.code);
 				reply.message = std::move(pending.message);
