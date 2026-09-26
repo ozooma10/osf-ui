@@ -13,8 +13,8 @@ namespace OSFUI
 {
 	bool InputCaptureController::Initialize()
 	{
-		if (m_integrationAttempted) return m_integrationAvailable;
-		m_integrationAttempted = true;
+		if (IntegrationAttempted()) return IntegrationAvailable();
+		m_integrationState = IntegrationState::Failed;
 		if (!UiLayoutGuard::VerifyUiLayout()) {
 			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
 			return false;
@@ -22,11 +22,11 @@ namespace OSFUI
 		m_menuEventsAvailable = MenuEventSink::Install();
 		const bool focusMenuRegistered = FocusMenu::Register();
 		const bool inputInstalled = OverlayInputHook::Install();
-		m_integrationAvailable = m_menuEventsAvailable && focusMenuRegistered && inputInstalled;
-		if (!m_integrationAvailable) {
+		if (!m_menuEventsAvailable || !focusMenuRegistered || !inputInstalled) {
 			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
 			return false;
 		}
+		m_integrationState = IntegrationState::Available;
 		REX::INFO("Runtime: game UI input integration prepared before view demand");
 		return true;
 	}
@@ -92,8 +92,7 @@ namespace OSFUI
 		const bool wantsCapture = a_visible && CaptureRequested() && a_hasActiveMenu;
 		// Grant browser input only after the menu stack admits the input-owning
 		// sentinel. In forwarded mode this grant does not transfer OS focus.
-		const bool focusMenuReady = !wantsCapture || (FocusMenu::IsRegistered() && FocusMenu::IsOpenInEngine());
-		const bool want = wantsCapture && focusMenuReady;
+		const bool want = wantsCapture && FocusMenu::IsOpenInEngine();
 		if (want == m_browserFocusGranted) {
 			return;
 		}
