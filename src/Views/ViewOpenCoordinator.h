@@ -32,7 +32,6 @@ namespace OSFUI
 		std::vector<std::string> TakeReady(const std::function<Readiness(std::string_view)>& a_readiness);
 
 		bool CancelMenu();
-		void SuspendMenus(); // host loss/game transition
 		bool Cancel(std::string_view a_view);
 		void Clear();
 

@@ -1393,10 +1393,9 @@ namespace OSFUI
 			auto* view = m_impl->FindView(a_viewId);
 			if (!view) return;
 			if (view->hidden == a_hidden) return;
-			const bool wasHidden = view->hidden;
 			view->hidden = a_hidden;
 			m_impl->RecomputeAllHidden();
-			if (wasHidden && !a_hidden) {
+			if (!a_hidden) {
 				// Every newly shown view is a new presentation, including menu-to-menu switches where another view kept the overlay visible.
 				++m_impl->presentationEpoch;
 				m_impl->frames->SetPresentation(m_impl->presentationEpoch, !m_impl->allHidden);

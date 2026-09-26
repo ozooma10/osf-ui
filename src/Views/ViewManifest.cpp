@@ -64,8 +64,6 @@ namespace OSFUI
 			return std::nullopt;
 		}
 		manifest.kind = (kindStr == "hud") ? ViewKind::Hud : ViewKind::Menu;
-		// Derive interactivity from active-menu policy; ignore the pre-1.0 manifest field.
-		manifest.menuInputEligible = manifest.kind == ViewKind::Menu;
 		manifest.capturesInput = Json::Get(*json, "capturesInput", manifest.capturesInput);
 		manifest.pausesGame = Json::Get(*json, "pausesGame", manifest.pausesGame);
 		manifest.openOnStart = Json::Get(*json, "openOnStart", manifest.openOnStart);

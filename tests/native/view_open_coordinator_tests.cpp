@@ -130,7 +130,7 @@ int main()
 		f.opens.OnLoadFailed("mod/menu"); f.opens.OnLoadFailed("mod/hud");
 		f.readiness["mod/menu"] = Readiness::Ready;
 		CHECK(f.CommitReady().empty());
-		f.opens.SuspendMenus();
+		f.opens.CancelMenu();
 		f.presentation.SetSuspended(true);
 		f.readiness["mod/hud"] = Readiness::Ready;
 		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/hud" });

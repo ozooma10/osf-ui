@@ -30,7 +30,6 @@ namespace OSFUI
 		// Logical authoring size; the renderer scales CSS pixels to output height.
 		std::uint32_t         width{ kDefaultViewWidth };
 		std::uint32_t         height{ kDefaultViewHeight };
-		bool                  menuInputEligible{ true };  // derived from kind
 
 		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud"
 

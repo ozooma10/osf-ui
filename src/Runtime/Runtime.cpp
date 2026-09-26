@@ -399,7 +399,7 @@ namespace OSFUI
 
 		if (m_presentation.DesiredCapture() && !m_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: closing a requested menu because required input integration is unavailable");
-			m_viewOpens.SuspendMenus();
+			m_viewOpens.CancelMenu();
 			m_presentation.CloseActiveMenu();
 		}
 
@@ -420,7 +420,7 @@ namespace OSFUI
 		if (active) {
 			m_renderer->SetInputTargetView(*active);
 		}
-		// A menu switch is intentionally show-before-hide. The browser host keeps the outgoing visual until the incoming view passes its paint handshake;
+		// Send show requests before hide requests. The browser host hides outgoing views immediately.
 		for (const auto& layer : layers) {
 			if (!layer.hidden) {
 				m_osfSettings.ClearFailure("view." + layer.id);
@@ -574,7 +574,7 @@ namespace OSFUI
 		}
 		m_viewRecovery.ClearAll();
 
-		m_viewOpens.SuspendMenus();
+		m_viewOpens.CancelMenu();
 		m_presentation.CloseActiveMenu();
 		m_presentation.SetSuspended(true);
 		// Failure is an immediate release boundary, with no new opens or state drain.
@@ -598,14 +598,7 @@ namespace OSFUI
 			output.height != previousCapture.height;
 		const bool viewportChanged =
 			view.width != previousView.width || view.height != previousView.height;
-		const bool modeChanged = m_pointerInput.UpdateFixedScaleformGeometry(fixedScaleformGeometry);
 		if (!captureChanged && !viewportChanged) {
-			if (modeChanged) {
-				REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, client/view {}x{})",
-					fixedScaleformGeometry ? "fixed-16:9" : "full-output",
-					MenuEventSink::ChargenOpen(),
-					a_width, a_height);
-			}
 			return;
 		}
 

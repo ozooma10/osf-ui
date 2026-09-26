@@ -25,7 +25,6 @@ namespace OSFUI
 		// Runtime geometry lifecycle.
 		void Initialize(ViewSize a_size);
 		void PublishGeometry(ViewSize a_capture, ViewSize a_view);
-		bool UpdateFixedScaleformGeometry(bool a_fixed);
 		ViewSize CaptureSize() const;
 		ViewSize ViewportSize() const;
 		void SuspendGeometry();
@@ -46,7 +45,6 @@ namespace OSFUI
 	private:
 		// Runtime-owned geometry bookkeeping; no window-thread readers.
 		ViewSize m_captureSize;
-		bool m_fixedScaleformGeometry{ false };
 
 		// Runtime and WndProc share the viewport, cursor and pending motion.
 		std::atomic<std::uint64_t> m_viewSize;

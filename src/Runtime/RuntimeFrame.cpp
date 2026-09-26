@@ -16,7 +16,7 @@ namespace OSFUI
 		// The only menu admission gate; evaluated once per update.
 		const bool suspend = !m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || !m_browserHostRecovery.IsAvailable();
 		if (m_presentation.SetSuspended(suspend) && suspend) {
-			m_viewOpens.SuspendMenus();
+			m_viewOpens.CancelMenu();
 		}
 	}
 

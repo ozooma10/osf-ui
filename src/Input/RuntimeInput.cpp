@@ -76,7 +76,7 @@ namespace OSFUI
 	void Runtime::ReconcileInputSuppression()
 	{
 		if (m_inputCapture.ReconcileSuppression(m_presentation.DesiredCapture(), m_osfSettings)) return;
-		m_viewOpens.SuspendMenus();
+		m_viewOpens.CancelMenu();
 		m_presentation.CloseActiveMenu();
 	}
 

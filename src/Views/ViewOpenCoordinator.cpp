@@ -67,11 +67,6 @@ namespace OSFUI
 		return menu || hud;
 	}
 
-	void ViewOpenCoordinator::SuspendMenus()
-	{
-		m_menu.reset();
-	}
-
 	void ViewOpenCoordinator::Clear()
 	{
 		m_menu.reset();

@@ -26,13 +26,6 @@ namespace OSFUI
 		m_viewSize.store(PackViewSize(a_view), std::memory_order_release);
 	}
 
-	bool PointerInputState::UpdateFixedScaleformGeometry(bool a_fixed)
-	{
-		const bool changed = a_fixed != m_fixedScaleformGeometry;
-		m_fixedScaleformGeometry = a_fixed;
-		return changed;
-	}
-
 	ViewSize PointerInputState::CaptureSize() const
 	{
 		return m_captureSize;
