@@ -38,9 +38,9 @@ int main()
 	queue->Push("new-document-focus", {});
 	complete(true);
 	assert(sent.size() == 4 && sent.back() == "new-document-focus");
-	assert(!queue->Idle()); // the old completion cannot advance the new document
+	assert(completions.size() == 1); // the old completion cannot advance the new document
 	complete(true);
-	assert(queue->Idle());
+	assert(completions.empty());
 	assert(failures == 0);
 
 	queue = std::make_shared<CdpInputQueue>(
@@ -64,7 +64,7 @@ int main()
 		[&] { ++failures; });
 	queue->Push("never-completes", {});
 	queue->CheckTimeout(std::chrono::steady_clock::now() + std::chrono::seconds(6));
-	assert(failures == 3 && queue->Idle());
+	assert(failures == 3);
 	complete(true); // a late completion after timeout cannot restart the queue
 	assert(completions.empty());
 

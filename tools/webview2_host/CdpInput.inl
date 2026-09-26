@@ -59,7 +59,7 @@
 
 			View* CdpInputTarget()
 			{
-				if (!focusGranted || !windowActive || !GameIsForeground() ||
+				if (!focusGranted || !windowActive ||
 					!inputTarget || inputTarget->hidden || !inputTarget->cdpInput) return nullptr;
 				return inputTarget;
 			}

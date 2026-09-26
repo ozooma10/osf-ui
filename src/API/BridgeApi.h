@@ -2,8 +2,7 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
-#include <thread>
+#include <mutex>
 #include <unordered_set>
 
 #include <nlohmann/json.hpp>
@@ -132,8 +131,8 @@ namespace OSFUI::API
 		}
 		std::unordered_set<std::string> m_papyrusEndpoints;
 		std::mutex                                    m_mutex;
-		// Unregister waits for callbacks already dispatched on another thread.
-		// Recursive so a callback may unregister itself without deadlocking.
+		// Unregister and SetReadyCallback wait for callbacks already dispatched on another thread.
+		// Recursive so a callback may unregister or replace itself without deadlocking.
 		std::recursive_mutex                          m_callbackDispatchMutex;
 		std::atomic<std::uint32_t>                    m_pending{ 0 };
 		std::unordered_map<std::string, Registration>        m_sends;             // strict RegisterSend set
@@ -153,11 +152,7 @@ namespace OSFUI::API
 		bool                                          m_dirty{ false };            // endpoint set changed since apply
 		ReadyFn                                m_readyCb{ nullptr };
 		void*                                         m_readyUser{ nullptr };
-		std::condition_variable                       m_readyInvokeCv;
-		bool                                          m_readyInvoking{ false };
-		std::thread::id                               m_readyInvokingThread{};
 		bool                                          m_readyFired{ false };
-		std::uint64_t m_readyRevision{ 0 };
 		std::atomic_bool                              m_bridgeAvailable{ false };
 	};
 }

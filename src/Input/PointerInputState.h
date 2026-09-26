@@ -26,8 +26,6 @@ namespace OSFUI
 		void Initialize(ViewSize a_size);
 		void PublishGeometry(ViewSize a_capture, ViewSize a_view);
 		bool UpdateFixedScaleformGeometry(bool a_fixed);
-		void ObserveGameClientSize();
-		bool GameClientSizeObserved() const;
 		ViewSize CaptureSize() const;
 		ViewSize ViewportSize() const;
 		void SuspendGeometry();
@@ -48,7 +46,6 @@ namespace OSFUI
 	private:
 		// Runtime-owned geometry bookkeeping; no window-thread readers.
 		ViewSize m_captureSize;
-		bool m_gameClientSizeObserved{ false };
 		bool m_fixedScaleformGeometry{ false };
 
 		// Runtime and WndProc share the viewport, cursor and pending motion.

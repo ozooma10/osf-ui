@@ -35,7 +35,6 @@ namespace OSFUI
 		m_viewRecovery.Clear(id);
 		NavigateView(a_manifest);
 		m_presentation.AddInstantiated({ id, a_manifest.kind, a_manifest.capturesInput, a_manifest.pausesGame, a_manifest.order });
-		m_viewOpens.OnInstantiated(id);
 
 		REX::INFO("Runtime: view '{}' instantiated {} ({}, capturesInput={}, pausesGame={})", id, a_reason, a_manifest.kind == ViewKind::Hud ? "hud" : "menu", a_manifest.capturesInput, a_manifest.pausesGame);
 		if (m_bridge) {
@@ -57,7 +56,7 @@ namespace OSFUI
 			REX::INFO("Runtime: replacement browser host responded on attempt {}; menus remain closed; requested HUDs resume after loading", attempts);
 		}
 		m_viewLoads.FinishLoad(id, a_failed);
-		m_viewOpens.OnLoad(id, a_failed);
+		if (a_failed) m_viewOpens.OnLoadFailed(id);
 		if (!a_failed) {
 			if (m_viewRecovery.Clear(id)) {
 				REX::INFO("Runtime: view '{}' recovered ({})", a_viewId, a_url);

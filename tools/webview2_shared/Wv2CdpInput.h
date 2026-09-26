@@ -19,7 +19,6 @@ namespace osfui::wv2
 		using Dispatch = std::function<void(const std::string&, const nlohmann::json&, Completion)>;
 		CdpInputQueue(Dispatch a_dispatch, std::function<void()> a_failure) :
 			m_dispatch(std::move(a_dispatch)), m_failure(std::move(a_failure)) {}
-		bool Idle() const { return m_closed || (!m_busy && m_pending.empty()); }
 		void CheckTimeout(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now())
 		{
 			if (!m_closed && m_busy && a_now - m_started > std::chrono::seconds(5)) Fail();

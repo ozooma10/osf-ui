@@ -92,15 +92,18 @@ int main()
 		PumpUntil([&] { return done; });
 		web->remove_NavigationCompleted(token);
 		bool failed = false;
+		int inFlight = 0;  // the queue dispatches its next command from the previous completion
 		auto queue = std::make_shared<CdpInputQueue>([&](const std::string& method, const nlohmann::json& params, auto complete) {
+			++inFlight;
+			const auto settle = [&inFlight, complete](bool a_ok) { --inFlight; complete(a_ok); };
 			const auto hr = web->CallDevToolsProtocolMethod(Wide(method).c_str(), Wide(params.dump()).c_str(),
-				Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>([complete, method](HRESULT result, LPCWSTR response) {
+				Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>([settle, method](HRESULT result, LPCWSTR response) {
 					if (FAILED(result)) std::wcerr << L"CDP failed: " << Wide(method) << L" hr=" << std::hex << result << L" " << (response ? response : L"") << L'\n';
-					complete(SUCCEEDED(result)); return S_OK;
+					settle(SUCCEEDED(result)); return S_OK;
 				}).Get());
-			if (FAILED(hr)) complete(false);
+			if (FAILED(hr)) settle(false);
 		}, [&] { failed = true; });
-		auto drain = [&] { PumpUntil([&] { return queue->Idle(); }); Require(!failed, "CDP command failed"); };
+		auto drain = [&] { PumpUntil([&] { return inFlight == 0; }); Require(!failed, "CDP command failed"); };
 		auto script = [&](const wchar_t* expression) {
 			std::wstring result;
 			bool finished = false;

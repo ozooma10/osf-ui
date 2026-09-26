@@ -37,7 +37,6 @@ int main()
 	{
 		Check(msg::ToJson(msg::Init{}).at("type") == "init", "init stamps type");
 		Check(msg::ToJson(msg::Shutdown{}).at("type") == "shutdown", "fieldless message stamps type");
-		Check(msg::ToJson(msg::Ready{}).at("type") == "ready", "ready stamps type");
 		Check(msg::SetInputTarget::kType == "setInputTarget", "input target has its own message type");
 		Check(msg::PointerInput::kType == "pointerInput",
 			"pointer-transition state has a stable wire spelling");
@@ -82,10 +81,8 @@ int main()
 		Check(got.view == "acme.mod/panel" && got.order == -12, "negative i32 survives");
 	}
 	{
-		const auto request = RoundTrip(msg::Focus{
-			.focused = true, .epoch = 41, .view = "acme.mod/panel" });
-		Check(request.focused && request.epoch == 41 && request.view == "acme.mod/panel",
-			"focus request preserves desired state, epoch and target");
+		Check(RoundTrip(msg::Focus{ .focused = true }).focused,
+			"focus request preserves desired state");
 	}
 	{
 		Check(!RoundTrip(msg::PointerInput{ .enabled = false }).enabled,

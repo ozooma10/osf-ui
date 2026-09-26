@@ -123,7 +123,6 @@
 				}
 				ringWidth = ringHeight = 0;
 				ringWrite = 0;
-				republishEpoch = 0;
 			}
 
 			bool EnsureProduceFence()
@@ -321,7 +320,6 @@
 				slot.lastSerial = serial;
 				lastSlot = writableSlot;
 				ringWrite = (writableSlot + 1) % kRingSlots;
-				republishEpoch = 0;
 				context4->Signal(produceFence.Get(), serial);
 				context->Flush();
 				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
@@ -362,17 +360,12 @@
 				return PromotePresentation(a_view);
 			}
 
-			void RepublishLatest(bool a_onlyIfPending = false)
+			void RepublishLatest()
 			{
-				const auto epoch = presentationEpoch;
-				if (a_onlyIfPending && (!republishEpoch || republishEpoch != epoch)) {
-					republishEpoch = 0;
-					return;
-				}
 				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) return;
-				republishEpoch = epoch;
 				// Copying from a held slot is read-only. If the source itself is free, publication can reuse its pixels without a self-copy.
-				TryPublishFrame(ring[lastSlot].texture.Get(), ringWidth, ringHeight, epoch);
+				// A full ring keeps these pixels as the pending capture, retried on the next acknowledgement.
+				PublishFrame(ring[lastSlot].texture.Get(), ringWidth, ringHeight, presentationEpoch);
 			}
 
 			View* FindView(std::string_view a_id)

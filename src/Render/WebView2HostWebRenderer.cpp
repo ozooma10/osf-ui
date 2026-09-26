@@ -249,6 +249,8 @@ namespace OSFUI
 		std::uint32_t        width{ 1 }, height{ 1 };
 		std::uint32_t        viewportWidth{ 1 }, viewportHeight{ 1 };
 		bool                 pointerInputEnabled{ true };
+		bool                 focusRequested{ false };
+		bool                 windowActive{ true };  // last WM_SETFOCUS/WM_KILLFOCUS edge; the host trusts this value
 
 		// Single source of connection state: Running = connected, Stopping = stop requested, Failed = connection lost (held until RestartAfterFailure).
 		enum class Lifecycle : std::uint8_t
@@ -266,10 +268,6 @@ namespace OSFUI
 		std::atomic<Lifecycle> lifecycle{ Lifecycle::Stopped };
 		std::mutex hostProcessMutex;
 		HANDLE     hostProcess{ nullptr };
-
-		// Focus grants cross a process boundary; epochs reject stale requests.
-		std::atomic_bool focusRequested{ false };
-		std::atomic<std::uint64_t> focusEpoch{ 0 };
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;
@@ -804,6 +802,7 @@ namespace OSFUI
 					.presentationEpoch = presentationEpoch,
 				}));
 				addBootstrap(ToJson(msg::PointerInput{ .enabled = pointerInputEnabled }));
+				addBootstrap(ToJson(msg::WindowActive{ .active = windowActive }));
 				for (const auto& view : views) {
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
 						.logicalHeight = view.logicalHeight }));
@@ -814,11 +813,7 @@ namespace OSFUI
 				if (!inputTargetId.empty()) {
 					addBootstrap(ToJson(msg::SetInputTarget{ .view = inputTargetId }));
 				}
-				addBootstrap(ToJson(msg::Focus{
-					.focused = focusRequested.load(),
-					.epoch = focusEpoch.load(),
-					.view = inputTargetId,
-				}));
+				addBootstrap(ToJson(msg::Focus{ .focused = focusRequested }));
 				// Setters hold stateMutex through their outbound enqueue. Publishing
 				// under the same lock makes the snapshot and later diffs one order.
 				if (!PublishConnected(std::move(bootstrap))) {
@@ -898,8 +893,6 @@ namespace OSFUI
 					const auto entry = msg::FromJson<msg::Log>(message);
 					Push(Notify{ .kind = Notify::Kind::Log,
 						.text = entry.text, .code = entry.level });
-				} else if (type == msg::Ready::kType || type == msg::Hello::kType) {
-					// informational
 				} else if (type == msg::Bye::kType) {
 					REX::INFO("WebView2HostWebRenderer: browser-host bye ({})",
 						msg::FromJson<msg::Bye>(message).reason);
@@ -1122,8 +1115,10 @@ namespace OSFUI
 				droppedWebCount = droppedConsoleCount = droppedLogCount = 0;
 			}
 
-			focusRequested.store(false);
-			focusEpoch.store(0);
+			{
+				std::scoped_lock lock(stateMutex);
+				focusRequested = false;
+			}
 
 			if (discardedOut) {
 				REX::WARN("WebView2HostWebRenderer: discarded {} transient message(s) from "
@@ -1210,11 +1205,6 @@ namespace OSFUI
 			if (m_impl->inputTargetId == a_id) return;
 			m_impl->inputTargetId = a_id;
 			m_impl->Send(ToJson(msg::SetInputTarget{ .view = std::string(a_id) }));
-			if (m_impl->focusRequested.load()) {
-				const auto epoch = m_impl->focusEpoch.fetch_add(1) + 1;
-				m_impl->Send(ToJson(msg::Focus{
-					.focused = true, .epoch = epoch, .view = std::string(a_id) }));
-			}
 		}
 	}
 
@@ -1323,14 +1313,9 @@ namespace OSFUI
 	}
 	void WebView2HostWebRenderer::SetInputFocus(bool a_focused)
 	{
-		if (a_focused) {
-			m_impl->Start();
-		}
 		std::scoped_lock lock(m_impl->stateMutex);
-		m_impl->focusRequested.store(a_focused);
-		const auto epoch = m_impl->focusEpoch.fetch_add(1) + 1;
-		m_impl->Send(ToJson(msg::Focus{ .focused = a_focused, .epoch = epoch,
-			.view = m_impl->inputTargetId }));
+		m_impl->focusRequested = a_focused;
+		m_impl->Send(ToJson(msg::Focus{ .focused = a_focused }));
 	}
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)
@@ -1348,6 +1333,8 @@ namespace OSFUI
 	}
 	void WebView2HostWebRenderer::SetWindowActive(bool a_active)
 	{
+		std::scoped_lock lock(m_impl->stateMutex);
+		m_impl->windowActive = a_active;
 		m_impl->Send(ToJson(msg::WindowActive{ .active = a_active }));
 	}
 

@@ -12,7 +12,6 @@ void OSFUI::ViewRequestQueue::EnqueueView(std::string a_viewId, bool a_open)
     m_presentation.emplace_back(ViewRequest{
         .view = std::move(a_viewId),
         .open = a_open,
-        .requestedAt = std::chrono::steady_clock::now(),
     });
 }
 

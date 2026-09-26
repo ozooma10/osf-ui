@@ -46,26 +46,11 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 }
 )";
 
-		std::atomic<void*> g_overlay{ nullptr };  // D3D12Compositor::Impl*
-
-		using OverlayDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*);
-		std::atomic<OverlayDrawFn> g_overlayDrawFn{ nullptr };
+		std::atomic<void*> g_overlay{ nullptr };  // D3D12Compositor::Impl*, published once setup succeeds
 
 		using ExecuteCommandListsFn = void (STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
-		using QueueExecutedFn = void (*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
 		std::atomic<ExecuteCommandListsFn> g_origExecuteCommandLists{ nullptr };
-		std::atomic<QueueExecutedFn> g_queueExecutedFn{ nullptr };
 		constexpr std::size_t kExecuteCommandListsSlot = 10;
-
-		void STDMETHODCALLTYPE ExecuteCommandListsThunk(ID3D12CommandQueue* a_queue, const UINT a_count, ID3D12CommandList* const* a_lists) noexcept
-		{
-			if (const auto original = g_origExecuteCommandLists.load(std::memory_order_acquire)) {
-				original(a_queue, a_count, a_lists);
-			}
-			if (const auto notify = g_queueExecutedFn.load(std::memory_order_acquire)) {
-				notify(a_queue, a_count, a_lists);
-			}
-		}
 
 		[[nodiscard]] ID3DBlob* CompileShader(const char* a_src, const char* a_entry, const char* a_target)
 		{
@@ -266,8 +251,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		EngineD3D12   engine{};
 		std::shared_ptr<SharedFrameConsumer> frames;
 
-		OutputSizeObservation outputSize;
-
 		bool setupAttempted{ false };
 		bool setupOk{ false };
 
@@ -289,8 +272,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		~Impl()
 		{
-			g_queueExecutedFn.store(nullptr, std::memory_order_release);
-			g_overlayDrawFn.store(nullptr, std::memory_order_release);
 			g_overlay.store(nullptr, std::memory_order_release);
 			PollCompletions();
 			if (frames->HasReads()) {
@@ -358,13 +339,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 		}
 
-		static void QueueExecutedThunk(
-			ID3D12CommandQueue* a_queue,
-			const UINT a_count,
-			ID3D12CommandList* const* a_lists)
+		static void STDMETHODCALLTYPE ExecuteCommandListsThunk(ID3D12CommandQueue* a_queue, const UINT a_count, ID3D12CommandList* const* a_lists) noexcept
 		{
-			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
-			if (self) {
+			if (const auto original = g_origExecuteCommandLists.load(std::memory_order_acquire)) {
+				original(a_queue, a_count, a_lists);
+			}
+			if (auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire))) {
 				self->OnExecuted(a_queue, a_count, a_lists);
 			}
 		}
@@ -466,23 +446,14 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 
-			g_overlay.store(this, std::memory_order_release);
-			g_queueExecutedFn.store(&Impl::QueueExecutedThunk, std::memory_order_release);
 			if (!InstallQueueHook()) {
-				g_queueExecutedFn.store(nullptr, std::memory_order_release);
-				g_overlay.store(nullptr, std::memory_order_release);
 				REX::ERROR("D3D12Compositor: setup failed; overlay disabled this session");
 				return;
 			}
 			setupOk = true;
-			g_overlayDrawFn.store(&Impl::OverlayDrawThunk, std::memory_order_release);
+			// Nothing is recorded, so nothing needs a completion signal, until this is published.
+			g_overlay.store(this, std::memory_order_release);
 			REX::INFO("D3D12Compositor: UI-pass overlay armed (no IDXGISwapChain::Present hook)");
-		}
-
-		void ObserveOutputSize(const D3D12_RESOURCE_DESC& a_desc)
-		{
-			const auto width = static_cast<std::uint32_t>((std::min)(a_desc.Width, static_cast<std::uint64_t>(UINT32_MAX)));
-			outputSize.Publish(width, a_desc.Height);
 		}
 
 		// Draws the overlay right after ScaleformEnd, while the target is still a render target.
@@ -494,7 +465,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 
 			const auto desc = a_buffer->GetDesc();
-			ObserveOutputSize(desc);
 
 			std::scoped_lock ring(sharedRing.drawMutex);
 			if (!sharedRing.produceFence) return false;
@@ -539,13 +509,6 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			return true;
 		}
-
-		static bool OverlayDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
-		{
-			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
-			return self && self->RecordOverlay(a_list, a_buffer);
-		}
-
 	};
 
 	D3D12Compositor::D3D12Compositor() = default;
@@ -569,8 +532,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
 	{
-		const auto fn = g_overlayDrawFn.load(std::memory_order_acquire);
-		return fn && a_list && a_buffer && fn(a_list, a_buffer);
+		auto* self = static_cast<D3D12Compositor::Impl*>(g_overlay.load(std::memory_order_acquire));
+		return self && a_list && a_buffer && self->RecordOverlay(a_list, a_buffer);
 	}
 
 	void D3D12Compositor::SetVisible(bool a_visible)
@@ -578,10 +541,5 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		if (m_impl) {
 			m_impl->frames->SetVisible(a_visible);
 		}
-	}
-
-	std::optional<OutputSize> D3D12Compositor::GetObservedOutputSize() const
-	{
-		return m_impl ? m_impl->outputSize.Snapshot() : std::nullopt;
 	}
 }

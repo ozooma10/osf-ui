@@ -191,11 +191,8 @@ namespace OSFUI::API
 
 	void BridgeApi::SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept
 	{
-		std::unique_lock lock(m_mutex);
-		if (m_readyInvoking && m_readyInvokingThread != std::this_thread::get_id()) {
-			m_readyInvokeCv.wait(lock, [this] { return !m_readyInvoking; });
-		}
-		++m_readyRevision;
+		std::lock_guard dispatchLock(m_callbackDispatchMutex);
+		std::lock_guard lock(m_mutex);
 		m_readyCb = a_callback;
 		m_readyUser = a_user;
 		m_readyFired = false;
@@ -230,7 +227,6 @@ namespace OSFUI::API
 		if (a_instantiated) {
 			m_instantiatedViews.emplace(id);
 			m_readyFired = false; // includes replacing a document under an existing view ID
-			++m_readyRevision;
 		}
 		else {
 			if (const auto* found = FindIdCaseInsensitive(m_instantiatedViews, id)) {
@@ -345,10 +341,7 @@ namespace OSFUI::API
 	void BridgeApi::SetBridgeAvailability(MessageBridge* a_bridge)
 	{
 		std::lock_guard lock(m_mutex);
-		if (m_bridge != a_bridge) {
-			m_readyFired = false;
-			++m_readyRevision;
-		}
+		if (m_bridge != a_bridge) m_readyFired = false;
 		if (!a_bridge) m_appliedBridge = nullptr;
 		m_bridge = a_bridge;
 		m_bridgeAvailable.store(a_bridge != nullptr, std::memory_order_release);
@@ -365,10 +358,6 @@ namespace OSFUI::API
 		std::vector<std::pair<std::string, RequestRegistration>> requestsToRegister;
 		std::vector<PendingSend> sends;
 		std::vector<QueuedReply> replies;
-		bool fireReady = false;
-		std::uint64_t readyRevision = 0;
-		ReadyFn ready = nullptr;
-		void* readyUser = nullptr;
 		{
 			std::lock_guard lock(m_mutex);
 			bridge = m_bridge;
@@ -388,13 +377,6 @@ namespace OSFUI::API
 					} else if (m_viewCatalogReady && !FindIdCaseInsensitive(m_knownViews, it->view)) {
 						it = m_pendingSends.erase(it);
 					} else ++it;
-				}
-				if (!m_readyFired) {
-					m_readyFired = true;
-					fireReady = true;
-					readyRevision = m_readyRevision;
-					ready = m_readyCb;
-					readyUser = m_readyUser;
 				}
 				replies.swap(m_queuedReplies);
 			}
@@ -424,23 +406,18 @@ namespace OSFUI::API
 				}
 			}
 		}
-		bool invokeReady = false;
-		if (fireReady && ready) {
+		// Decide under the dispatch lock so a replaced or reset callback is never invoked stale.
+		std::lock_guard dispatchLock(m_callbackDispatchMutex);
+		ReadyFn ready = nullptr;
+		void* readyUser = nullptr;
+		{
 			std::lock_guard lock(m_mutex);
-			if (m_readyRevision == readyRevision && m_readyCb == ready && m_readyUser == readyUser) {
-				m_readyInvoking = true;
-				m_readyInvokingThread = std::this_thread::get_id();
-				invokeReady = true;
+			if (m_bridge && !m_readyFired) {
+				m_readyFired = true;
+				ready = m_readyCb;
+				readyUser = m_readyUser;
 			}
 		}
-		if (invokeReady) {
-			ready(readyUser);
-			{
-				std::lock_guard lock(m_mutex);
-				m_readyInvoking = false;
-				m_readyInvokingThread = {};
-			}
-			m_readyInvokeCv.notify_all();
-		}
+		if (ready) ready(readyUser);
 	}
 }

@@ -190,18 +190,13 @@ namespace osfui::wv2::msg
 		};
 	};
 
+	// Applies to the current input target (setInputTarget).
 	struct Focus
 	{
 		static constexpr std::string_view kType = "focus";
-		bool          focused{ false };
-		std::uint64_t epoch{ 0 };
-		std::string   view;
+		bool focused{ false };
 
-		static constexpr auto kFields = std::tuple{
-			F("focused", &Focus::focused),
-			F("epoch", &Focus::epoch),
-			F("view", &Focus::view),
-		};
+		static constexpr auto kFields = std::tuple{ F("focused", &Focus::focused) };
 	};
 
 	struct Mouse
@@ -314,12 +309,6 @@ namespace osfui::wv2::msg
 		std::uint64_t tick{ 0 };
 
 		static constexpr auto kFields = std::tuple{ F("tick", &Heartbeat::tick) };
-	};
-
-	struct Ready
-	{
-		static constexpr std::string_view kType = "ready";
-		static constexpr auto             kFields = std::tuple{};
 	};
 
 	struct Textures

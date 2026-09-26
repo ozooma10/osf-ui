@@ -97,12 +97,7 @@ namespace OSFUI
 		DriveDevTools();
 		PumpDevViewReload();
 		if (const auto clientSize = OverlayInputHook::GameWindowClientSize()) {
-			m_pointerInput.ObserveGameClientSize();
 			OnOutputResized(clientSize->width, clientSize->height);
-		} else if (!m_pointerInput.GameClientSizeObserved() && m_compositor) {
-			if (const auto targetSize = m_compositor->GetObservedOutputSize()) {
-				OnOutputResized(targetSize->width, targetSize->height);
-			}
 		}
 		if (const auto move = m_pointerInput.TakeMouseMove()) {
 			m_renderer->InjectMouseMove(move->x, move->y);

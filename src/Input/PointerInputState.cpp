@@ -33,16 +33,6 @@ namespace OSFUI
 		return changed;
 	}
 
-	void PointerInputState::ObserveGameClientSize()
-	{
-		m_gameClientSizeObserved = true;
-	}
-
-	bool PointerInputState::GameClientSizeObserved() const
-	{
-		return m_gameClientSizeObserved;
-	}
-
 	ViewSize PointerInputState::CaptureSize() const
 	{
 		return m_captureSize;

@@ -13,7 +13,6 @@
 				userData = std::filesystem::path(ToWide(a_msg.userDataDir));
 				devMode = a_msg.devMode;
 				language = a_msg.language;
-				windowActive = GameIsForeground();
 				log.InfoFwd("input mode: forwarded CDP; native focus remains in Starfield");
 				if (userData.empty()) {
 					FailHost("init", E_INVALIDARG, "init without userDataDir");
@@ -125,27 +124,11 @@
 
 			void HandleFocus(const json& a_msg)
 			{
-				const auto request = msg::FromJson<msg::Focus>(a_msg);
-				if (request.epoch < focusEpoch) {
-					log.Info(std::format("stale focus request ignored (epoch {} < {})",
-						request.epoch, focusEpoch));
-					return;
-				}
-				focusEpoch = request.epoch;
-				log.Info(std::format("focus request begin: focused={} epoch={}", request.focused, focusEpoch));
-				if (!request.focused) RecoverAllPressedMouseButtons("focus revoke");
-				focusGranted = request.focused;
-				windowActive = GameIsForeground();
-				if (!request.view.empty()) {
-					if (auto* requestedView = FindView(request.view)) {
-						if (inputTarget && inputTarget != requestedView) {
-							RecoverPressedMouseButtons(*inputTarget, "focus target change");
-						}
-						inputTarget = requestedView;
-					}
-				}
+				const bool focused = msg::FromJson<msg::Focus>(a_msg).focused;
+				if (!focused) RecoverAllPressedMouseButtons("focus revoke");
+				focusGranted = focused;
 				ReconcileCdpFocus();
-				log.Info(std::format("focus request complete: focused={} epoch={}", focusGranted, focusEpoch));
+				log.Info(std::format("focus -> {}", focused));
 			}
 
 			void HandleMouse(const json& a_msg) { SendMouse(a_msg); }
@@ -160,7 +143,6 @@
 				auto& completed = ackedSerials[ack.slot];
 				completed = (std::max)(completed, ack.serial);
 				RetryPendingCapture();
-				RepublishLatest(true);
 			}
 
 			void HandlePostWeb(const json& a_msg)

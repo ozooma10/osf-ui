@@ -21,7 +21,7 @@ int main()
 	CHECK(GameMessageCoalesceKey("mouse", "move") == "mouse.move");
 	CHECK(GameMessageCoalesceKey("mouse", "button").empty());
 	CHECK(GameMessageCoalesceKey("resize") == "resize");
-	CHECK(GameMessageCoalesceKey("relativePointerCapture") == "relativePointerCapture");
+	CHECK(GameMessageCoalesceKey("focus") == "focus");
 	CHECK(GameMessageCoalesceKey("setHidden", {}, "view-a") == "setHidden:view-a");
 	CHECK(GameMessageCoalesceKey("frameAck").empty());
 	CHECK(GameMessageCoalesceKey("postWeb").empty());

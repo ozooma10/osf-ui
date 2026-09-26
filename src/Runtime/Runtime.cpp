@@ -230,7 +230,7 @@ namespace OSFUI
 			}
 			if (const auto* view = std::get_if<ViewRequestQueue::ViewRequest>(&operation)) {
 				if (view->open) {
-					PrepareViewOpen(view->view, "on demand", view->requestedAt);
+					PrepareViewOpen(view->view);
 				} else {
 					m_viewOpens.Cancel(view->view);
 					m_presentation.Close(view->view);
@@ -243,7 +243,6 @@ namespace OSFUI
 				if (m_viewOpens.PendingMenu()) {
 					m_viewOpens.CancelMenu();
 				} else if (active) {
-					m_viewOpens.CancelTiming(*active);
 					if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
 						PrepareViewOpen(*target, "for native back navigation");
 					} else if (m_viewInputGrants.OwnsBackAction(*active) && m_renderer) {
@@ -290,7 +289,7 @@ namespace OSFUI
 		}
 	}
 
-	void Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason, std::optional<ViewOpenCoordinator::Clock::time_point> a_requestedAt)
+	void Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason)
 	{
 		const auto* manifest = m_views.Find(a_id);
 		if (!manifest) {
@@ -329,20 +328,13 @@ namespace OSFUI
 
 		// Creation stays hidden until CommitPresentation applies this intent.
 
-		if (manifest->kind == ViewKind::Menu &&
-			m_viewLoads.GetState(a_id) != ViewLoadState::Finished) {
-			m_viewOpens.BeginTiming(a_id, m_presentation.IsInstantiated(a_id), a_requestedAt);
-		}
-		if (!InstantiateView(*manifest, a_reason)) {
-			m_viewOpens.CancelTiming(a_id);
-			return;
-		}
+		if (!InstantiateView(*manifest, a_reason)) return;
 
 		if (manifest->kind == ViewKind::Hud) {
 			m_viewOpens.QueueHud(a_id);
 			return;
 		}
-		if (m_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id), a_requestedAt)) {
+		if (m_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id))) {
 			m_presentation.Open(a_id);
 			return;
 		}
@@ -599,10 +591,6 @@ namespace OSFUI
 		const ViewSize output{ .width = a_width, .height = a_height };
 		const auto previousCapture = m_pointerInput.CaptureSize();
 		const auto previousView = m_pointerInput.ViewportSize();
-		const auto observedTarget = m_compositor ?
-			m_compositor->GetObservedOutputSize() : std::nullopt;
-		const auto observedWidth = observedTarget ? observedTarget->width : 0;
-		const auto observedHeight = observedTarget ? observedTarget->height : 0;
 		const bool captureChanged =
 			output.width != previousCapture.width ||
 			output.height != previousCapture.height;
@@ -611,10 +599,10 @@ namespace OSFUI
 		const bool modeChanged = m_pointerInput.UpdateFixedScaleformGeometry(fixedScaleformGeometry);
 		if (!captureChanged && !viewportChanged) {
 			if (modeChanged) {
-				REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, client/view {}x{}, last target {}x{})",
+				REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, client/view {}x{})",
 					fixedScaleformGeometry ? "fixed-16:9" : "full-output",
 					MenuEventSink::ChargenOpen(),
-					a_width, a_height, observedWidth, observedHeight);
+					a_width, a_height);
 			}
 			return;
 		}
@@ -634,10 +622,10 @@ namespace OSFUI
 		if (viewportChanged) {
 			m_renderer->SetViewport(view.width, view.height);
 		}
-		REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, capture {}x{}, viewport {}x{}, last target {}x{})",
+		REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, capture {}x{}, viewport {}x{})",
 			fixedScaleformGeometry ? "fixed-16:9" : "full-output",
 			MenuEventSink::ChargenOpen(),
-			a_width, a_height, view.width, view.height, observedWidth, observedHeight);
+			a_width, a_height, view.width, view.height);
 	}
 
 	void Runtime::UpdateViewReveal()
@@ -649,16 +637,10 @@ namespace OSFUI
 		// Every arm site invalidated the cached frame, so any frame present now is fresh.
 		const auto frame = m_renderer->Frames()->Latest();
 		const auto expected = m_pointerInput.CaptureSize();
-		const bool frameReady = frame && m_pointerInput.GameClientSizeObserved() && frame->width == expected.width && frame->height == expected.height;
+		const bool frameReady = frame && frame->width == expected.width && frame->height == expected.height;
 
 		const auto decision = m_viewReveal.Observe(frameReady, m_nowSeconds);
 		if (decision.reveal) {
-			if (const auto active = m_presentation.ActiveMenu()) {
-				if (const auto timing = m_viewOpens.FinishTiming(*active)) {
-					REX::INFO("Runtime: cold-open timing '{}': {} ms total (request->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)", 
-						timing->view, timing->totalMs, timing->instantiateMs, timing->loadMs, timing->presentMs);
-				}
-			}
 			m_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
 			m_pointerInput.ResumeGeometry();
 			m_renderer->SetPointerInputEnabled(true);

@@ -62,9 +62,9 @@ namespace osfui::wv2
 
 		struct Logger
 		{
+			Pipe&         pipe;  // writes are dropped while it is unconnected or closed
 			std::ofstream file;
 			std::mutex    mutex;
-			std::atomic<Pipe*> pipe{ nullptr };  // set once the pipe is up; nulled at teardown
 
 			void Open(const std::filesystem::path& a_path)
 			{
@@ -102,10 +102,7 @@ namespace osfui::wv2
 
 			void Forward(int a_level, const std::string& a_text)
 			{
-				if (auto* target = pipe.load(std::memory_order_acquire)) {
-					target->WriteMessage(Json::Dump(msg::ToJson(
-						msg::Log{ .level = a_level, .text = a_text })));
-				}
+				pipe.WriteMessage(Json::Dump(msg::ToJson(msg::Log{ .level = a_level, .text = a_text })));
 			}
 
 			void Info(const std::string& a_text) { Log(0, a_text); }
@@ -199,15 +196,14 @@ namespace osfui::wv2
 
 		struct App
 		{
-			Logger      log;
 			Pipe        pipe;
+			Logger      log{ pipe };
 			HANDLE      gameProcess{ nullptr };
 			HANDLE      wakeEvent{ nullptr };
 			std::thread reader;
 			std::atomic_bool quit{ false };
 			bool             rendererFatal{ false };  // STA thread only; first failure wins
 			std::string      byeReason;  // overrides the default bye reason (STA thread only)
-			std::uint64_t    gameWindowMissingSince{ 0 };  // STA thread; 0 while HWND is valid
 
 			static constexpr std::size_t kMaxGameMessages = 1024;
 			static constexpr std::size_t kGameMessagesPerDrain = 128;
@@ -224,7 +220,7 @@ namespace osfui::wv2
 			std::uint32_t         viewportWidth{ 1 }, viewportHeight{ 1 };
 			bool                  devMode{ false };
 			std::string           language;  // game language code from init; empty keeps the WebView2 default
-			bool                  windowActive{ true };
+			bool                  windowActive{ true };  // reported by the game (windowActive)
 
 			HWND bootstrapWindow{ nullptr };
 			HWND hostWindow{ nullptr };
@@ -276,7 +272,6 @@ namespace osfui::wv2
 			bool  captureStarted{ false };
 			bool          focusGranted{ false };
 			bool          pointerInputEnabled{ true };
-			std::uint64_t focusEpoch{ 0 };
 			int           capturedMouseX{ 0 }, capturedMouseY{ 0 };
 			std::uint64_t syntheticMouseRecoveryCount{ 0 };
 			static constexpr std::size_t kMaxEgressWarnsPerView = 32;
@@ -314,7 +309,6 @@ namespace osfui::wv2
 			ComPtr<ID3D11Fence> produceFence;
 			std::uint64_t              frameSerial{ 0 };
 			std::uint32_t              lastSlot{ 0 };
-			std::uint64_t              republishEpoch{ 0 };
 			std::uint64_t              presentationEpoch{ 0 };
 			std::array<std::uint64_t, kRingSlots> ackedSerials{};
 			std::uint64_t consumeLagDrops{ 0 };
@@ -831,7 +825,6 @@ namespace osfui::wv2
 				if (!captureStarted) {
 					if (!StartCapture()) return;
 					captureStarted = true;
-					Send(msg::ToJson(msg::Ready{}));
 				}
 				log.InfoFwd(std::format("view '{}': controller ready ({} view(s) hosted)",
 					a_view.id, views.size()));
@@ -956,11 +949,6 @@ namespace osfui::wv2
 				return S_OK;
 			}
 
-			[[nodiscard]] bool GameIsForeground() const
-			{
-				return gameTopLevel && !::IsIconic(gameTopLevel) && ::GetForegroundWindow() == gameTopLevel;
-			}
-
 			void QueueGameFocusRestore()
 			{
 				if (gameTopLevel) {
@@ -989,7 +977,7 @@ namespace osfui::wv2
 					Callback<ICoreWebView2FocusChangedEventHandler>(
 						[this](ICoreWebView2Controller*, ::IUnknown*) -> HRESULT {
 							// Visibility changes can request browser HWND focus unexpectedly.
-							if (GameIsForeground()) QueueGameFocusRestore();
+							if (windowActive) QueueGameFocusRestore();
 							return S_OK;
 						}).Get(), &token);
 				a_view.webView->add_WebMessageReceived(
@@ -1458,7 +1446,7 @@ namespace osfui::wv2
 
 			void SendMouse(const json& a_msg)
 			{
-				if (!focusGranted || !windowActive || !GameIsForeground()) return;
+				if (!focusGranted || !windowActive) return;
 				if (!pointerInputEnabled || !inputTarget || inputTarget->hidden ||
 					!inputTarget->domSeen || !inputTarget->compositionController) return;
 				const auto mouse = msg::FromJson<msg::Mouse>(a_msg);
@@ -1521,7 +1509,6 @@ namespace osfui::wv2
 			void CloseWebResources()
 			{
 				focusGranted = false;
-				focusEpoch = 0;
 				captureClosing = true;
 				if (framePool) {
 					try { framePool.FrameArrived(frameToken); }
@@ -1575,8 +1562,8 @@ namespace osfui::wv2
 				int exitCode = 0;
 				if (CreateWindows() && InitializeComposition()) {
 					const HANDLE waits[2] = { wakeEvent, gameProcess };
-					const auto captureGameExit = [this](DWORD a_waitMs) {
-						if (::WaitForSingleObject(gameProcess, a_waitMs) != WAIT_OBJECT_0) {
+					const auto captureGameExit = [this] {
+						if (::WaitForSingleObject(gameProcess, 0) != WAIT_OBJECT_0) {
 							return false;
 						}
 						DWORD code = 0;
@@ -1593,54 +1580,12 @@ namespace osfui::wv2
 							2, waits, AnyRevealPending() ? 50 : 1000,
 							QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 						if (wait == WAIT_OBJECT_0 + 1) {
-							captureGameExit(0);
+							captureGameExit();
 							break;
 						}
 						if (pipeDead.load()) {
-							if (!captureGameExit(1000)) {
-								log.Info("pipe closed while game remained active — shutting down");
-							}
+							if (!captureGameExit()) log.Info("game pipe closed — shutting down");
 							break;
-						}
-						if (gameTopLevel && !::IsWindow(gameTopLevel)) {
-							const auto now = ::GetTickCount64();
-							if (gameWindowMissingSince == 0) {
-								gameWindowMissingSince = now;
-								log.Warn("game window disappeared before the process/pipe watchers fired");
-							}
-							struct FindCtx { DWORD pid; HWND found; } findCtx{
-								::GetProcessId(gameProcess), nullptr };
-							if (findCtx.pid != 0) {
-								::EnumWindows([](HWND a_hwnd, LPARAM a_param) -> BOOL {
-									auto& ctx = *reinterpret_cast<FindCtx*>(a_param);
-									DWORD pid = 0;
-									::GetWindowThreadProcessId(a_hwnd, &pid);
-									if (pid != ctx.pid || !::IsWindowVisible(a_hwnd) ||
-										::GetWindow(a_hwnd, GW_OWNER) != nullptr) {
-										return TRUE;
-									}
-									ctx.found = a_hwnd;
-									return FALSE;
-								}, reinterpret_cast<LPARAM>(&findCtx));
-							}
-							if (findCtx.found) {
-								log.Warn(std::format(
-									"game window was recreated — re-attached (hwnd={:#x})",
-									reinterpret_cast<std::uintptr_t>(findCtx.found)));
-								gameTopLevel = findCtx.found;
-								gameWindowMissingSince = 0;
-							} else {
-								constexpr std::uint64_t kMissingWindowGraceMs = 3000;
-								if (now - gameWindowMissingSince >= kMissingWindowGraceMs) {
-									if (!captureGameExit(1000)) {
-										log.Info("game window remained absent for 3s while the process "
-												 "handle still appeared active — shutting down");
-									}
-									break;
-								}
-							}
-						} else {
-							gameWindowMissingSince = 0;
 						}
 						DrainGameMessages();
 						TickReveals();
@@ -1661,7 +1606,6 @@ namespace osfui::wv2
 					.reason = !byeReason.empty() ? byeReason
 						: exitCode == 0          ? "shutdown"
 												 : "init-failed" }));
-				log.pipe.store(nullptr, std::memory_order_release);
 				CloseWebResources();
 				if (dispatcher) {
 					try { dispatcher.ShutdownQueueAsync(); }
@@ -1743,7 +1687,6 @@ namespace osfui::wv2
 			return 6;
 		}
 		app.log.Info(std::format("verified pipe server pid {}", *serverPid));
-		app.log.pipe.store(&app.pipe, std::memory_order_release);
 
 		app.gameProcess = ::OpenProcess(
 			PROCESS_DUP_HANDLE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
@@ -1780,7 +1723,6 @@ namespace osfui::wv2
 				.pid = ::GetCurrentProcessId(),
 			}))) {
 			app.log.Error("hello write failed: " + app.pipe.LastErrorText());
-			app.log.pipe.store(nullptr, std::memory_order_release);
 			app.pipe.Close();
 			::CloseHandle(app.gameProcess);
 			::CloseHandle(instanceMutex);
@@ -1791,7 +1733,6 @@ namespace osfui::wv2
 		app.wakeEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
 		if (!app.wakeEvent) {
 			app.log.Error(std::format("CreateEvent(wake) failed (Win32 error {})", ::GetLastError()));
-			app.log.pipe.store(nullptr, std::memory_order_release);
 			app.pipe.Close();
 			::CloseHandle(app.gameProcess);
 			::CloseHandle(instanceMutex);
@@ -1808,7 +1749,6 @@ namespace osfui::wv2
 		if (app.wakeEvent) {
 			::SetEvent(app.wakeEvent);
 		}
-		app.log.pipe.store(nullptr, std::memory_order_release);
 		app.pipe.Close();
 		if (app.reader.joinable()) {
 			app.reader.join();

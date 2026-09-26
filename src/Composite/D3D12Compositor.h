@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Composite/OutputSizeObservation.h"
 #include "Render/SharedTextureTransport.h"
 
 #include <memory>
@@ -23,9 +22,9 @@ namespace OSFUI
 		bool Initialize(std::shared_ptr<SharedFrameConsumer> a_frames);
 		void Update();
 		void SetVisible(bool a_visible);
-		std::optional<OutputSize> GetObservedOutputSize() const;
 
 	private:
+		friend bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList*, ID3D12Resource*);
 		struct Impl;
 		std::unique_ptr<Impl> m_impl;
 	};

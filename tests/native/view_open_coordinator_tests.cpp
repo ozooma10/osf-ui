@@ -6,12 +6,9 @@
 
 using OSFUI::ViewOpenCoordinator;
 using Readiness = ViewOpenCoordinator::Readiness;
-using Clock = ViewOpenCoordinator::Clock;
-using namespace std::chrono_literals;
 
 namespace
 {
-	const auto start = Clock::time_point(1s);
 	struct Fixture
 	{
 		ViewOpenCoordinator opens;
@@ -27,7 +24,7 @@ namespace
 		}
 		void Menu(std::string_view a_id)
 		{
-			if (opens.QueueMenu(a_id, readiness.at(std::string(a_id)), start, start)) {
+			if (opens.QueueMenu(a_id, readiness.at(std::string(a_id)))) {
 				presentation.Open(a_id);
 			}
 		}
@@ -130,7 +127,7 @@ int main()
 		Fixture f;
 		f.Add("mod/menu"); f.Add("mod/hud", OSFUI::ViewKind::Hud);
 		f.Menu("mod/menu"); f.opens.QueueHud("mod/hud");
-		f.opens.OnLoad("mod/menu", true); f.opens.OnLoad("mod/hud", true);
+		f.opens.OnLoadFailed("mod/menu"); f.opens.OnLoadFailed("mod/hud");
 		f.readiness["mod/menu"] = Readiness::Ready;
 		CHECK(f.CommitReady().empty());
 		f.opens.SuspendMenus();
@@ -180,50 +177,6 @@ int main()
 		f.opens.QueueHud("mod/removed");
 		CHECK(f.CommitReady().empty());
 		CHECK(!f.opens.Contains("mod/removed"));
-	}
-
-	// Timing spans enqueue -> instantiation -> load -> first presentable frame,
-	// survives queue completion, ignores other views, and is emitted only once.
-	{
-		ViewOpenCoordinator opens;
-		opens.BeginTiming("mod/menu", false, start, start + 10ms);
-		opens.BeginTiming("mod/menu", true, start + 15ms, start + 15ms);
-		opens.OnInstantiated("mod/menu", start + 30ms);
-		CHECK(!opens.QueueMenu("mod/menu", Readiness::Loading, start, start + 40ms));
-		opens.OnLoad("mod/other", false, start + 50ms);
-		opens.OnLoad("mod/menu", false, start + 90ms);
-		CHECK(opens.TakeReady([](auto) { return Readiness::Ready; }).size() == 1);
-		CHECK(!opens.FinishTiming("mod/other", start + 100ms));
-		const auto timing = opens.FinishTiming("mod/menu", start + 110ms);
-		CHECK(timing.has_value());
-		if (timing) {
-			CHECK(timing->view == "mod/menu");
-			CHECK(timing->totalMs == 110);
-			CHECK(timing->instantiateMs == 30);
-			CHECK(timing->loadMs == 60);
-			CHECK(timing->presentMs == 20);
-		}
-		CHECK(!opens.FinishTiming("mod/menu", start + 120ms));
-	}
-
-	// All cancellation paths retire timing too, even after a menu has left the
-	// pending queue. A failed load cannot leave timing attached to a later open.
-	for (int cancel = 0; cancel < 4; ++cancel) {
-		ViewOpenCoordinator opens;
-		opens.BeginTiming("mod/menu", true, start, start);
-		opens.OnLoad("mod/menu", false, start + 10ms);
-		if (cancel == 0) opens.Cancel("mod/menu");
-		if (cancel == 1) opens.SuspendMenus();
-		if (cancel == 2) opens.Clear();
-		if (cancel == 3) opens.OnLoad("mod/menu", true);
-		CHECK(!opens.FinishTiming("mod/menu", start + 20ms));
-	}
-	for (const auto requested : { Clock::time_point{}, start + 1s }) {
-		ViewOpenCoordinator opens;
-		opens.BeginTiming("mod/menu", true, requested, start);
-		opens.OnLoad("mod/menu", false, start + 10ms);
-		const auto timing = opens.FinishTiming("mod/menu", start + 20ms);
-		CHECK(timing && timing->totalMs == 20);
 	}
 
 	std::printf("view_open_coordinator_tests: %d checks, %d failures\n", g_checks, g_failures);

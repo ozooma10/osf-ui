@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <vector>
 #include <string>
 #include <mutex>
@@ -19,9 +18,8 @@ namespace OSFUI
     public:
         struct ViewRequest
         {
-            std::string                           view;
-            bool                                  open;
-            std::chrono::steady_clock::time_point requestedAt;
+            std::string view;
+            bool        open;
         };
 
         struct RelativePointerRequest
