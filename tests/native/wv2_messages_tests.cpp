@@ -116,13 +116,12 @@ int main()
 			.height = 9,
 			.slots = { 1ull, 2ull, 0xFFFF'FFFF'FFFFull },
 			.produceFence = 111,
-			.keyedMutex = true,
 			.adapterLuidLow = 1,
 			.adapterLuidHigh = 2,
 		};
 		const auto got = RoundTrip(sent);
 		Check(got.slots == sent.slots, "slot handle array survives in order");
-		Check(got.keyedMutex && got.produceFence == sent.produceFence, "produce fence handle and texture mode survive");
+		Check(got.produceFence == sent.produceFence, "produce fence handle survives");
 	}
 	{
 		// Opaque already-serialized payloads must not be re-escaped or reparsed.

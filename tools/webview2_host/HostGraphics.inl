@@ -172,20 +172,10 @@
 				desc.Usage = D3D11_USAGE_DEFAULT;
 				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 				desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
-				ringKeyedMutex = false;
-				auto hr = device->CreateTexture2D(&desc, nullptr, &ring[0].texture);
-				if (FAILED(hr)) {
-					// Some drivers only accept NTHANDLE together with KEYED_MUTEX.
-					desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE |
-						D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-					ringKeyedMutex = true;
-					hr = device->CreateTexture2D(&desc, nullptr, &ring[0].texture);
-					if (FAILED(hr)) {
-						log.Error(std::format(
-							"shared texture creation failed both modes (0x{:08X})",
-							static_cast<unsigned>(hr)));
-						return false;
-					}
+				// No keyed-mutex fallback: the game reads slots without AcquireSync, so a keyed-mutex ring would be read unsynchronized. Fail cleanly instead.
+				if (const auto hr = device->CreateTexture2D(&desc, nullptr, &ring[0].texture); FAILED(hr)) {
+					log.Error(std::format("shared texture creation failed (0x{:08X})", static_cast<unsigned>(hr)));
+					return false;
 				}
 				for (std::uint32_t i = 1; i < kRingSlots; ++i) {
 					if (FAILED(device->CreateTexture2D(&desc, nullptr, &ring[i].texture))) {
@@ -196,10 +186,7 @@
 				}
 				for (auto& slot : ring) {
 					ComPtr<IDXGIResource1> resource;
-					if (FAILED(slot.texture.As(&resource)) ||
-						FAILED(resource->CreateSharedHandle(nullptr,
-							DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
-							nullptr, &slot.localHandle))) {
+					if (FAILED(slot.texture.As(&resource)) || FAILED(resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, &slot.localHandle))) {
 						log.Error("CreateSharedHandle failed");
 						ReleaseRing();
 						return false;
@@ -254,7 +241,6 @@
 					.height = a_height,
 					.slots = std::move(slots),
 					.produceFence = reinterpret_cast<std::uint64_t>(produceRemote),
-					.keyedMutex = ringKeyedMutex,
 					.adapterLuidLow = graphicsAdapterLuid.LowPart,
 					.adapterLuidHigh = static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart),
 				}))) {
@@ -262,9 +248,7 @@
 					ReleaseRing();
 					return false;
 				}
-				log.InfoFwd(std::format(
-					"shared texture ring ready {}x{} ({} slots, keyedMutex={})",
-					a_width, a_height, kRingSlots, ringKeyedMutex));
+				log.InfoFwd(std::format("shared texture ring ready {}x{} ({} slots)", a_width, a_height, kRingSlots));
 				return true;
 			}
 
@@ -335,20 +319,7 @@
 				auto& slot = ring[writableSlot];
 
 				if (slot.texture.Get() != a_source) {
-					if (ringKeyedMutex) {
-						ComPtr<IDXGIKeyedMutex> mutex;
-						if (SUCCEEDED(slot.texture.As(&mutex))) {
-							if (mutex->AcquireSync(0, 50) != S_OK) {
-								return false;  // contended/abandoned; drop this frame
-							}
-							context->CopyResource(slot.texture.Get(), a_source);
-							mutex->ReleaseSync(0);
-						} else {
-							return false;  // keyed-mutex QI unexpectedly failed; drop rather than publish an uncopied slot
-						}
-					} else {
-						context->CopyResource(slot.texture.Get(), a_source);
-					}
+					context->CopyResource(slot.texture.Get(), a_source);
 				}
 
 				const auto serial = ++frameSerial;

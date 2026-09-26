@@ -313,7 +313,6 @@ namespace osfui::wv2
 			std::array<Slot, kRingSlots> ring{};
 			std::uint32_t ringWidth{ 0 }, ringHeight{ 0 };
 			std::uint32_t ringWrite{ 0 };
-			bool          ringKeyedMutex{ false };
 			ComPtr<ID3D11Fence> produceFence;
 			std::uint64_t              frameSerial{ 0 };
 			std::uint32_t              lastSlot{ 0 };
