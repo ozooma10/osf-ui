@@ -194,6 +194,26 @@ int main()
 			CHECK(!state.HasReads());
 		}
 	}
+	// One submission batch: lookup and submit take the whole list span, and unrelated lists in the batch are ignored.
+	{
+		auto state = Open();
+		constexpr std::uintptr_t unrelated = 99;
+		CHECK(Publish(state, 0, 1) == Result::Accepted);
+		CHECK(state.Record(listA, 1, 1).has_value());
+		CHECK(Publish(state, 1, 2) == Result::Accepted);
+		CHECK(state.Record(listB, 1, 2).has_value());
+		const std::uintptr_t none[]{ unrelated, 98 };
+		CHECK(!state.HasRecorded(none));
+		const std::uintptr_t batch[]{ unrelated, listB, listA };
+		CHECK(state.HasRecorded(batch));
+		state.Submitted(batch, queueA, 7);
+		CHECK(!state.HasRecorded());
+		state.Completed(queueA, 6);
+		CHECK(state.HasReads());
+		state.Completed(queueA, 7);
+		CHECK(!state.HasReads());
+		CHECK(state.TakeReleases()[0] == 1); // superseded Current retired with its read; slot 1 stays Current
+	}
 	std::printf("shared_frame_state_tests: %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures ? 1 : 0;
 }

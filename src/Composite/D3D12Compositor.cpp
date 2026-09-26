@@ -15,6 +15,7 @@
 #include <cstring>
 #include <iterator>
 #include <mutex>
+#include <span>
 #include <vector>
 
 #include "Win32Util.h"
@@ -303,16 +304,22 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		void OnExecuted(ID3D12CommandQueue* a_queue, UINT a_count, ID3D12CommandList* const* a_lists)
 		{
-			if (!a_queue || !a_lists || !frames->HasRecorded()) return;
+			if (!a_queue || !a_lists || !a_count || !frames->HasRecorded()) return;
+			// Convert once so the lookup and the submit each take the consumer lock once per batch. Engine batches are small; oversized ones spill to the heap.
+			constexpr UINT kInlineLists = 32;
+			std::array<std::uintptr_t, kInlineLists> inlineLists;
+			std::vector<std::uintptr_t> spilledLists;
+			std::span<std::uintptr_t> lists{ inlineLists.data(), a_count };
+			if (a_count > kInlineLists) {
+				spilledLists.resize(a_count);
+				lists = spilledLists;
+			}
+			std::ranges::transform(std::span{ a_lists, a_count }, lists.begin(), [](ID3D12CommandList* a_list) { return reinterpret_cast<std::uintptr_t>(a_list); });
+
 			std::scoped_lock lock(timelineMutex);
 			// Also retire completed reads while the tick thread is stalled.
 			PollCompletionsLocked();
-			bool hasReads = false;
-			for (UINT i = 0; i < a_count && !hasReads; ++i) {
-				const auto list = reinterpret_cast<std::uintptr_t>(a_lists[i]);
-				hasReads = frames->HasRecorded({ &list, 1 });
-			}
-			if (!hasReads) return;
+			if (!frames->HasRecorded(lists)) return;
 			auto timeline = std::ranges::find_if(timelines, [a_queue](const QueueTimeline& a_value) { return a_value.queue == a_queue; });
 			HRESULT hr = S_OK;
 			if (timeline == timelines.end()) {
@@ -333,10 +340,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				completionFailureLogged = true;
 				REX::ERROR("D3D12Compositor: GPU completion signal failed (hr=0x{:08X}); affected slots remain reserved", static_cast<std::uint32_t>(hr));
 			}
-			for (UINT i = 0; i < a_count; ++i) {
-				const auto list = reinterpret_cast<std::uintptr_t>(a_lists[i]);
-				frames->Submitted({ &list, 1 }, SUCCEEDED(hr) ? reinterpret_cast<std::uintptr_t>(a_queue) : 0, value);
-			}
+			frames->Submitted(lists, SUCCEEDED(hr) ? reinterpret_cast<std::uintptr_t>(a_queue) : 0, value);
 		}
 
 		static void STDMETHODCALLTYPE ExecuteCommandListsThunk(ID3D12CommandQueue* a_queue, const UINT a_count, ID3D12CommandList* const* a_lists) noexcept
