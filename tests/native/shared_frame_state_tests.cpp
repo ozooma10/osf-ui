@@ -63,21 +63,20 @@ int main()
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
-		CHECK(!state.Record(listA, true, 1, 0)); // producer not finished
-		CHECK(!state.Record(listA, false, 1, 1)); // wait for region boundary
-		CHECK(state.Record(listA, true, 1, 1).has_value());
+		CHECK(!state.Record(listA, 1, 0)); // producer not finished
+		CHECK(state.Record(listA, 1, 1).has_value());
 		Submit(state, listA, queueA, 1);
 		state.Completed(queueA, 1);
 		CHECK(!state.HasReads());
 		NoReleases(state);
-		CHECK(state.Record(listB, false, 1, 1).has_value());
+		CHECK(state.Record(listB, 1, 1).has_value());
 		CHECK(Publish(state, 1, 2) == Result::Accepted);
 		CHECK(Publish(state, 2, 3) == Result::Accepted);
 		CHECK(state.TakeReleases()[1] == 2);
 		CHECK(Publish(state, 3, 4) == Result::Accepted);
 		CHECK(state.TakeReleases()[2] == 3);
 		CHECK(Publish(state, 0, 5) == Result::Invalid); // Current is still reserved
-		CHECK(state.Record(listA, true, 1, 4)->sharedSlot == 3);
+		CHECK(state.Record(listA, 1, 4)->sharedSlot == 3);
 		NoReleases(state); // old Current is retiring, listB is not submitted yet
 		Submit(state, listB, queueA, 2);
 		state.Completed(queueA, 1);
@@ -92,11 +91,11 @@ int main()
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
-		CHECK(state.Record(listA, true, 1, 1).has_value());
-		CHECK(state.Record(listA, false, 1, 1).has_value()); // duplicate in one list
-		CHECK(state.Record(listB, false, 1, 1).has_value());
+		CHECK(state.Record(listA, 1, 1).has_value());
+		CHECK(state.Record(listA, 1, 1).has_value()); // duplicate in one list
+		CHECK(state.Record(listB, 1, 1).has_value());
 		state.SetVisible(false);
-		CHECK(!state.Record(12, true, 1, 1));
+		CHECK(!state.Record(12, 1, 1));
 		Submit(state, listB, queueB, 10);
 		state.Completed(queueB, 10);
 		NoReleases(state);
@@ -115,9 +114,9 @@ int main()
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
-		CHECK(state.Record(listA, true, 1, 1).has_value());
+		CHECK(state.Record(listA, 1, 1).has_value());
 		CHECK(Publish(state, 1, 2) == Result::Accepted);
-		CHECK(state.Record(listA, true, 1, 2).has_value());
+		CHECK(state.Record(listA, 1, 2).has_value());
 		state.SetVisible(false);
 		Submit(state, listA, queueA, 1);
 		NoReleases(state);
@@ -131,17 +130,17 @@ int main()
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 100) == Result::Accepted);
-		CHECK(state.Record(listA, true, 1, 100).has_value());
+		CHECK(state.Record(listA, 1, 100).has_value());
 		state.Disconnect();
 		state.BeginRing(Ring(2));
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
 		CHECK(state.HasReads());
-		CHECK(!state.Record(listB, true, 1, 100));
+		CHECK(!state.Record(listB, 1, 100));
 		Submit(state, listA, queueA, 5);
 		state.Completed(queueA, 5);
 		CHECK(!state.HasReads());
 		NoReleases(state);
-		CHECK(state.Record(listB, true, 2, 1).has_value());
+		CHECK(state.Record(listB, 2, 1).has_value());
 		state.SetVisible(false);
 		Submit(state, listB, 0, 0); // failed queue signal retains the slot
 		state.Completed(queueA, 100);
@@ -155,7 +154,7 @@ int main()
 		auto state = Open();
 		for (std::uint32_t slot = 0; slot < 4; ++slot) {
 			CHECK(Publish(state, slot, slot + 1) == Result::Accepted);
-			CHECK(state.Record(listA + slot, true, 1, slot + 1).has_value());
+			CHECK(state.Record(listA + slot, 1, slot + 1).has_value());
 			Submit(state, listA + slot, queueA, slot + 1);
 		}
 		NoReleases(state);
@@ -180,7 +179,7 @@ int main()
 			busy[slot] = serial;
 			state.SetVisible(true);
 			CHECK(Publish(state, slot, serial) == Result::Accepted);
-			if (serial % 3) CHECK(state.Record(listA, true, 1, serial).has_value());
+			if (serial % 3) CHECK(state.Record(listA, 1, serial).has_value());
 			state.SetVisible(false);
 			if (serial % 3) {
 				NoReleases(state);

@@ -4,7 +4,6 @@
 
 #include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
-#include "Composite/UiPass.h"
 #include "Core/Log.h"
 #include "Core/Version.h"
 #include "Input/FreeCursor.h"
@@ -291,27 +290,18 @@ namespace OSFUI
 		}
 	}
 
-	void Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason,
-		std::optional<ViewOpenCoordinator::Clock::time_point> a_requestedAt)
+	void Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason, std::optional<ViewOpenCoordinator::Clock::time_point> a_requestedAt)
 	{
 		const auto* manifest = m_views.Find(a_id);
 		if (!manifest) {
 			REX::WARN("Runtime: cannot open '{}' — no discovered view has that id", a_id);
-			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.not-found",
-				"The requested OSF UI view is not installed", { { "view", a_id } });
+			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.not-found", "The requested OSF UI view is not installed", { { "view", a_id } });
 			return;
 		}
 		a_id = manifest->id;
 		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return;
 		if (!m_webRuntimeReady) {
 			REX::WARN("Runtime: cannot open '{}' — web runtime preparation failed", a_id);
-			return;
-		}
-		// Require both installation and the lazy render-worker self-test before allowing input capture.
-		if (!UiPass::DrawEnabled()) {
-			REX::WARN("Runtime: cannot open '{}' — the Scaleform UI draw path is unavailable", a_id);
-			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.draw-path-unavailable",
-				"The view cannot open because the UI draw path is unavailable", { { "view", a_id } });
 			return;
 		}
 		if (!m_browserHostRecovery.IsAvailable()) {
@@ -323,8 +313,7 @@ namespace OSFUI
 				BrowserHostRecovery::Phase::AwaitingResponse) {
 				REX::WARN("Runtime: cannot open '{}' yet - the browser host is recovering", a_id);
 			} else {
-				REX::WARN("Runtime: cannot open '{}' - the web renderer needs a game restart or "
-					"the repair described in the log", a_id);
+				REX::WARN("Runtime: cannot open '{}' - the web renderer needs a game restart or the repair described in the log", a_id);
 			}
 			return;
 		}
@@ -334,8 +323,7 @@ namespace OSFUI
 		if (requiresCaptureIntegration && m_inputCapture.IntegrationAttempted() &&
 			!m_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
-			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable",
-				"The view requires web input, but input integration is unavailable", { { "view", a_id } });
+			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable", "The view requires web input, but input integration is unavailable", { { "view", a_id } });
 			return;
 		}
 
@@ -413,12 +401,6 @@ namespace OSFUI
 	{
 		if (!m_renderer) {
 			return;
-		}
-		
-		if (!UiPass::DrawEnabled() && m_presentation.ActiveMenu()) {
-			REX::WARN("Runtime: closing a requested menu because the Scaleform UI draw path is unavailable");
-			m_viewOpens.SuspendMenus();
-			m_presentation.CloseActiveMenu();
 		}
 
 		if (m_presentation.DesiredCapture() && !m_inputCapture.IntegrationAvailable()) {
@@ -610,11 +592,9 @@ namespace OSFUI
 		if (a_width == 0 || a_height == 0 || !m_renderer) {
 			return;
 		}
-		const bool fixedScaleformGeometry =
-			MenuEventSink::ChargenOpen() && UiPass::UsesScaleformEnd();
+		const bool fixedScaleformGeometry = MenuEventSink::ChargenOpen();
 		const auto view = ViewSizeForOutput(
 			{ .width = a_width, .height = a_height }, fixedScaleformGeometry);
-		UiPass::SetExpectedOutputSize(a_width, a_height);
 
 		const ViewSize output{ .width = a_width, .height = a_height };
 		const auto previousCapture = m_pointerInput.CaptureSize();
@@ -631,10 +611,9 @@ namespace OSFUI
 		const bool modeChanged = m_pointerInput.UpdateFixedScaleformGeometry(fixedScaleformGeometry);
 		if (!captureChanged && !viewportChanged) {
 			if (modeChanged) {
-				REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, handoff={}, client/view {}x{}, last target {}x{})",
+				REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, client/view {}x{}, last target {}x{})",
 					fixedScaleformGeometry ? "fixed-16:9" : "full-output",
 					MenuEventSink::ChargenOpen(),
-					UiPass::UsesScaleformEnd() ? "ScaleformEnd" : "post-composite",
 					a_width, a_height, observedWidth, observedHeight);
 			}
 			return;
@@ -659,10 +638,9 @@ namespace OSFUI
 		if (viewportChanged) {
 			m_renderer->SetViewport(view.width, view.height);
 		}
-		REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, handoff={}, capture {}x{}, viewport {}x{}, last target {}x{})",
+		REX::INFO("Runtime: Scaleform geometry mode -> {} (ChargenMenu={}, capture {}x{}, viewport {}x{}, last target {}x{})",
 			fixedScaleformGeometry ? "fixed-16:9" : "full-output",
 			MenuEventSink::ChargenOpen(),
-			UiPass::UsesScaleformEnd() ? "ScaleformEnd" : "post-composite",
 			a_width, a_height, view.width, view.height, observedWidth, observedHeight);
 	}
 

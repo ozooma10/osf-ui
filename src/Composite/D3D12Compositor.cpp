@@ -48,7 +48,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		std::atomic<void*> g_overlay{ nullptr };  // D3D12Compositor::Impl*
 
-		using OverlayDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*, bool);
+		using OverlayDrawFn = bool (*)(ID3D12GraphicsCommandList*, ID3D12Resource*);
 		std::atomic<OverlayDrawFn> g_overlayDrawFn{ nullptr };
 
 		using ExecuteCommandListsFn = void (STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
@@ -485,9 +485,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			outputSize.Publish(width, a_desc.Height);
 		}
 
-		// Draws the overlay right after Scaleform finishes (for Luma, just before its final barrier). The target is still a render target when this runs. 
-		// Anything that draws afterwards has to set its own render target, viewport and scissor. Only call this from these two places.
-		[[nodiscard]] bool RecordOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
+		// Draws the overlay right after ScaleformEnd, while the target is still a render target.
+		// Anything that draws afterwards has to set its own render target, viewport and scissor.
+		[[nodiscard]] bool RecordOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
 		{
 			if (!setupOk || !draw.rtvHeap || !a_buffer) {
 				return false;
@@ -503,8 +503,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const auto rtvFormat = UiTargetFormat::ResolveRtv(desc.Format);
 			auto* pso = draw.EnsurePipeline(engine.device, rtvFormat);
 			if (!pso) return false;
-			const auto frame = frames->Record(reinterpret_cast<std::uintptr_t>(a_list),
-				a_firstDrawInRegion, sharedRing.activeGeneration, produced);
+			const auto frame = frames->Record(reinterpret_cast<std::uintptr_t>(a_list), sharedRing.activeGeneration, produced);
 			if (!frame) return false;
 			const auto ringSlot = frame->sharedSlot;
 			const auto serial = frame->frameIndex;
@@ -541,10 +540,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		static bool OverlayDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
+		static bool OverlayDrawThunk(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
 		{
 			auto* self = static_cast<Impl*>(g_overlay.load(std::memory_order_acquire));
-			return self && self->RecordOverlay(a_list, a_buffer, a_firstDrawInRegion);
+			return self && self->RecordOverlay(a_list, a_buffer);
 		}
 
 	};
@@ -568,10 +567,10 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		if (m_impl->setupOk) m_impl->EnsureSharedRing();
 	}
 
-	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
+	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
 	{
 		const auto fn = g_overlayDrawFn.load(std::memory_order_acquire);
-		return fn && a_list && a_buffer && fn(a_list, a_buffer, a_firstDrawInRegion);
+		return fn && a_list && a_buffer && fn(a_list, a_buffer);
 	}
 
 	void D3D12Compositor::SetVisible(bool a_visible)

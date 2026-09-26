@@ -82,10 +82,10 @@ namespace OSFUI
 		std::optional<FrameBufferView> Latest() const { return m_latest; }
 
 		// Reserve a read before the caller writes any GPU commands. Failure leaves selection unchanged. A list can read several frames; each is retained.
-		std::optional<FrameBufferView> Record(std::uintptr_t a_list, bool a_first, std::uint64_t a_activeGeneration, std::uint64_t a_produced)
+		std::optional<FrameBufferView> Record(std::uintptr_t a_list, std::uint64_t a_activeGeneration, std::uint64_t a_produced)
 		{
 			if (!m_visible || !a_list) return std::nullopt;
-			const bool promote = a_first && m_pending && m_pending->view.ringGeneration == a_activeGeneration && m_pending->view.frameIndex <= a_produced;
+			const bool promote = m_pending && m_pending->view.ringGeneration == a_activeGeneration && m_pending->view.frameIndex <= a_produced;
 			const auto& selected = promote ? m_pending : m_current;
 			if (!selected || selected->view.ringGeneration != a_activeGeneration) return std::nullopt;
 			if (!std::ranges::any_of(m_reads, [&](const Read& a_read) {

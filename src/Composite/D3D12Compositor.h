@@ -12,7 +12,7 @@ namespace OSFUI
 {
 	class SharedFrameConsumer;
 	// Records the webview2 overlay quad into the UI pass target selected by UiPass.
-	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, bool a_firstDrawInRegion);
+	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer);
 
 	class D3D12Compositor final
 	{

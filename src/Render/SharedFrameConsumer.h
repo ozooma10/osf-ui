@@ -38,10 +38,10 @@ namespace OSFUI
 			std::scoped_lock lock(m_mutex);
 			return m_state.Latest();
 		}
-		std::optional<FrameBufferView> Record(std::uintptr_t a_list, bool a_first, std::uint64_t a_generation, std::uint64_t a_produced)
+		std::optional<FrameBufferView> Record(std::uintptr_t a_list, std::uint64_t a_generation, std::uint64_t a_produced)
 		{
 			std::scoped_lock lock(m_mutex);
-			auto result = m_state.Record(a_list, a_first, a_generation, a_produced);
+			auto result = m_state.Record(a_list, a_generation, a_produced);
 			m_hasRecorded.store(m_state.HasRecorded(), std::memory_order_release);
 			return result;
 		}
