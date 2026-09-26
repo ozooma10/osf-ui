@@ -2,7 +2,6 @@
 
 #include <algorithm>
 
-#include "Core/Log.h"
 #include "Views/Dev/DevViewFiles.h"
 
 namespace OSFUI
@@ -27,21 +26,22 @@ namespace OSFUI
 		m_wake.notify_all();
 	}
 
-	void DevViewReloadWorker::SetTargets(std::vector<Target> a_targets)
+	void DevViewReloadWorker::SetMods(std::vector<std::string> a_mods)
 	{
-		std::ranges::sort(a_targets, {}, &Target::id);
+		std::ranges::sort(a_mods);
+		a_mods.erase(std::unique(a_mods.begin(), a_mods.end()), a_mods.end());
 		{
 			std::scoped_lock lock(m_mutex);
-			if (m_targets == a_targets)
+			if (m_mods == a_mods)
 				return;
-			m_targets = std::move(a_targets);
-			// Mark targets dirty before notifying the predicate-based wait.
-			m_targetsChanged = true;
+			m_mods = std::move(a_mods);
+			// Mark mods dirty before notifying the predicate-based wait.
+			m_modsChanged = true;
 		}
 		m_wake.notify_all();
 	}
 
-	std::vector<DevViewReloadWorker::Target> DevViewReloadWorker::DrainCompleted()
+	std::vector<std::string> DevViewReloadWorker::DrainCompleted()
 	{
 		std::scoped_lock lock(m_mutex);
 		auto             completed = std::move(m_completed);
@@ -52,30 +52,28 @@ namespace OSFUI
 	void DevViewReloadWorker::Run(std::stop_token a_stop)
 	{
 		while (!a_stop.stop_requested()) {
-			std::vector<Target> targets;
+			std::vector<std::string> mods;
 			{
 				std::unique_lock lock(m_mutex);
-				m_wake.wait_for(lock, a_stop, kScanInterval, [this] { return m_targetsChanged; });
+				m_wake.wait_for(lock, a_stop, kScanInterval, [this] { return m_modsChanged; });
 				if (a_stop.stop_requested())
 					return;
-				m_targetsChanged = false;
-				targets = m_targets;
+				m_modsChanged = false;
+				mods = m_mods;
 			}
 
-			const auto                      now = std::chrono::steady_clock::now();
-			std::unordered_set<std::string> watched;
-			for (const auto& target : targets) {
-				watched.insert(target.id);
+			const auto now = std::chrono::steady_clock::now();
+			for (const auto& mod : mods) {
 				// Settle the whole mod because view entries load sibling hashed assets.
 				const auto fingerprint =
-					DevViewFiles::Fingerprint(m_viewsRoot / DevViewFiles::ModFolder(target.id));
+					DevViewFiles::Fingerprint(m_viewsRoot / mod);
 				if (!fingerprint)
 					continue;
-				auto& state = m_states[target.id];
+				auto& state = m_states[mod];
 				if (!state.initialized) {
 					state.fingerprint = *fingerprint;
 					state.initialized = true;
-					// A view may first be opened after the source changed while it was
+					// A mod may first be watched after the source changed while it was
 					// unwatched. Refresh the mirror before treating this baseline as current.
 					state.changedAt = now - kSettleTime;
 					state.pending = true;
@@ -90,17 +88,17 @@ namespace OSFUI
 				if (!state.pending || now - state.changedAt < kSettleTime || now < state.retryAt) {
 					continue;
 				}
-				if (!m_refresh(target.id)) {
+				if (!m_refresh(mod)) {
 					state.retryAt = now + kRetryDelay;
 					continue;
 				}
 				state.pending = false;
 				{
 					std::scoped_lock lock(m_mutex);
-					m_completed.push_back(target);
+					m_completed.push_back(mod);
 				}
 			}
-			std::erase_if(m_states, [&](const auto& item) { return !watched.contains(item.first); });
+			std::erase_if(m_states, [&](const auto& item) { return !std::ranges::binary_search(mods, item.first); });
 		}
 	}
 }  // namespace OSFUI

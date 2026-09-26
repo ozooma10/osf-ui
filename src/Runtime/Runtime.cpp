@@ -173,9 +173,10 @@ namespace OSFUI
 			if (m_bridge) m_bridge->HandleWebMessage(a_viewId, a_json);
 		});
 		if (m_developerMode && !m_devViewReload) {
-			m_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_id) {
-				return m_renderer && m_renderer->RefreshViewFiles(a_id);
+			m_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_mod) {
+				return m_renderer && m_renderer->RefreshModFiles(a_mod);
 			});
+			UpdateDevViewReloadMods();
 		}
 		m_osfSettings.ClearFailure("startup.renderer");
 		m_osfSettings.ClearFailure("startup.compositor");

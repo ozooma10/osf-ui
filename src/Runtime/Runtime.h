@@ -138,6 +138,7 @@ namespace OSFUI
 
 		// Developer tools and view diagnostics.
 		void DriveDevTools();
+		void UpdateDevViewReloadMods();
 		void PumpDevViewReload();
 		nlohmann::json BuildViewsData() const;
 

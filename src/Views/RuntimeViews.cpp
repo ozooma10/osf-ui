@@ -7,6 +7,7 @@
 #include "Core/Ids.h"
 #include "Core/Log.h"
 #include "Core/Version.h"
+#include "Views/Dev/DevViewFiles.h"
 
 namespace OSFUI
 {
@@ -35,6 +36,7 @@ namespace OSFUI
 		m_viewRecovery.Clear(id);
 		NavigateView(a_manifest);
 		m_presentation.AddInstantiated({ id, a_manifest.kind, a_manifest.capturesInput, a_manifest.pausesGame, a_manifest.order });
+		UpdateDevViewReloadMods();
 
 		REX::INFO("Runtime: view '{}' instantiated {} ({}, capturesInput={}, pausesGame={})", id, a_reason, a_manifest.kind == ViewKind::Hud ? "hud" : "menu", a_manifest.capturesInput, a_manifest.pausesGame);
 		if (m_bridge) {
@@ -127,6 +129,7 @@ namespace OSFUI
 		if (m_presentation.RemoveInstantiated(a_id)) {
 			ApplyViewPresentationPolicy();  // crash teardown may need to release input/pause now
 		}
+		UpdateDevViewReloadMods();
 		API::BridgeApi::Get().SetViewInstantiated(a_id, false);
 		bool instantiatedViewRemains = false;
 		for (const auto& manifest : m_views.All()) {
@@ -159,25 +162,31 @@ namespace OSFUI
 		m_renderer->OpenDevTools(*active);
 	}
 
+	void Runtime::UpdateDevViewReloadMods()
+	{
+		if (!m_devViewReload) return;
+
+		std::vector<std::string> mods;
+		for (const auto& manifest : m_views.All()) {
+			if (m_presentation.IsInstantiated(manifest.id)) {
+				mods.push_back(DevViewFiles::ModFolder(manifest.id));
+			}
+		}
+		m_devViewReload->SetMods(std::move(mods));
+	}
+
 	void Runtime::PumpDevViewReload()
 	{
 		if (!m_devViewReload) return;
 
-		std::vector<DevViewReloadWorker::Target> targets;
-		for (const auto& manifest : m_views.All()) {
-			if (m_presentation.IsInstantiated(manifest.id)) {
-				targets.push_back({ manifest.id });
-			}
-		}
-		m_devViewReload->SetTargets(std::move(targets));
-
 		bool anyReloaded = false;
-		for (const auto& completed : m_devViewReload->DrainCompleted()) {
-			const auto* manifest = m_views.Find(completed.id);
-			if (!manifest || !m_presentation.IsInstantiated(completed.id)) continue;
-			NavigateView(*manifest);
-			anyReloaded = true;
-			REX::INFO("Runtime: dev reloaded loose view '{}'", completed.id);
+		for (const auto& mod : m_devViewReload->DrainCompleted()) {
+			for (const auto& manifest : m_views.All()) {
+				if (!m_presentation.IsInstantiated(manifest.id) || DevViewFiles::ModFolder(manifest.id) != mod) continue;
+				NavigateView(manifest);
+				anyReloaded = true;
+				REX::INFO("Runtime: dev reloaded loose view '{}'", manifest.id);
+			}
 		}
 		if (anyReloaded) BroadcastViewsData();
 	}

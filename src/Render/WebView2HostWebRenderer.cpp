@@ -506,19 +506,19 @@ namespace OSFUI
 		}
 
         // Refresh the real-path mod mirror before navigating an unhooked browser.
-		bool RefreshViewFiles(std::string_view a_viewId)
+		bool RefreshModFiles(std::string_view a_mod)
 		{
 			if (!config.devMode) return true;
 			std::scoped_lock mirrorLock(viewsMirrorMutex);
 			if (!usesViewsMirror) return true;
 
 			// Mirror the whole mod folder because view entries load sibling hashed assets.
-			const auto modFolder = std::filesystem::path(DevViewFiles::ModFolder(a_viewId));
+			const auto modFolder = std::filesystem::path(a_mod);
 			const auto source = viewsRoot / modFolder;
 			const auto destination = mappedViewsRoot / modFolder;
 			std::string error;
 			if (!DevViewFiles::SyncTree(source, destination, error)) {
-				REX::WARN("WebView2HostWebRenderer: dev reload could not mirror '{}' ({})", a_viewId, error);
+				REX::WARN("WebView2HostWebRenderer: dev reload could not mirror '{}' ({})", a_mod, error);
 				return false;
 			}
 			return true;
@@ -1188,9 +1188,9 @@ namespace OSFUI
 		}
 	}
 
-    bool WebView2HostWebRenderer::RefreshViewFiles(std::string_view a_viewId)
+    bool WebView2HostWebRenderer::RefreshModFiles(std::string_view a_mod)
     {
-        return m_impl && m_impl->RefreshViewFiles(a_viewId);
+        return m_impl && m_impl->RefreshModFiles(a_mod);
     }
 
 	void WebView2HostWebRenderer::SetInputTargetView(std::string_view a_id)

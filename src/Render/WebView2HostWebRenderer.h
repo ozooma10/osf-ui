@@ -55,7 +55,7 @@ namespace OSFUI
 		bool Initialize(const WebView2HostConfig& a_config);
 		void RestartAfterFailure();
 		void CreateOrNavigateView(const ViewManifest& a_manifest);
-		bool RefreshViewFiles(std::string_view a_viewId);
+		bool RefreshModFiles(std::string_view a_mod);
 		void SetInputTargetView(std::string_view a_id);
 		void Resize(std::uint32_t a_width, std::uint32_t a_height);
 		void SetViewport(std::uint32_t a_width, std::uint32_t a_height);
