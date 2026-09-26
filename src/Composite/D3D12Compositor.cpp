@@ -485,12 +485,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			outputSize.Publish(width, a_desc.Height);
 		}
 
-		// Called only at the Scaleform output handoff, after the engine's final draw
-		// and immediately before its RT-to-SRV/COPY_SOURCE barrier. Later passes must
-		// bind their own root signature, PSO, RTV, viewport, scissor and topology.
-		// We intentionally leave those bindings changed; UiPass restores only the
-		// descriptor heaps that the next pass may inherit. This is not a general
-		// mid-pass draw callback and must not be moved to an arbitrary barrier.
+		// Draws the overlay right after Scaleform finishes (for Luma, just before its final barrier). The target is still a render target when this runs. 
+		// Anything that draws afterwards has to set its own render target, viewport and scissor. Only call this from these two places.
 		[[nodiscard]] bool RecordOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const bool a_firstDrawInRegion)
 		{
 			if (!setupOk || !draw.rtvHeap || !a_buffer) {

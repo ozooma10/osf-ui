@@ -3,14 +3,13 @@
 #include "Composite/D3D12Compositor.h"  // RecordOverlayIntoRenderTarget
 #include "Composite/EngineD3D12.h"
 #include "Composite/UiPassPolicy.h"
-#include "Composite/UiPassDirectProbe.h"
-#include "Composite/UiPassStateAudit.h"
 #include "Composite/UiTargetFormat.h"
 #include "Core/Log.h"
 #include "Platform/WindowsPlatform.h"
 
 #include "Composite/D3D12Prologue.h"  // GDI-free <Windows.h> + <d3d12.h>
 
+#include "RE/C/CreationRenderer.h"
 #include "RE/IDs_VTABLE.h"
 #include "REL/THook.h"
 #include "REL/Utility.h"
@@ -19,11 +18,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace OSFUI::UiPass
 {
 	namespace
 	{
+		namespace RCP = RE::CreationRendererPrivate;
+
 		constexpr std::size_t kExecuteSlot = 7;
 
 		using ExecuteHook = REL::THookVFT<void*(void*, void*, void*, void*)>;
@@ -38,7 +40,8 @@ namespace OSFUI::UiPass
 		std::atomic_bool g_ignoredPostCompositeAspectLogged{ false };
 		std::atomic_uint64_t g_expectedOutputSize{ 0 };
 
-		// Hook only the handoff barrier and descriptor heaps.
+		// The ScaleformEnd path draws directly after the native pass and needs no D3D12 hooks. 
+		// Only a proven post-composite owner (Luma) still finds its target at the handoff barrier, so only it hooks barriers and heaps.
 		constexpr std::size_t kSlotResourceBarrier = 26;
 		constexpr std::size_t kSlotSetDescriptorHeaps = 28;
 
@@ -59,7 +62,6 @@ namespace OSFUI::UiPass
 		std::atomic<detail::CommandListHookState> g_hookInstallState{
 			detail::CommandListHookState::Uninitialized
 		};
-		// The lazy hook self-test can disable drawing after Install() succeeds.
 
 		detail::FrameGenerationTargetPolicy g_fgTargetPolicy;
 		std::atomic_bool g_fgLayerOnlyLogged{ false };
@@ -69,6 +71,19 @@ namespace OSFUI::UiPass
 		std::atomic<bool> g_selfTestBarrierSeen{ false };
 		std::atomic<bool> g_selfTestHeapsSeen{ false };
 		std::atomic_bool g_unknownEngineHeapLogged{ false };
+
+		// Direct ScaleformEnd draw. Begin and End of one UI subgraph run in sequence on the same render worker, so the copied handle is per thread.
+		thread_local std::optional<RCP::GraphResourceHandle> tl_beginTarget;
+		std::atomic_bool g_directTargetRejectedLogged{ false };
+
+		[[nodiscard]] bool IsUiRenderTarget(const D3D12_RESOURCE_DESC& a_desc)
+		{
+			return UiTargetFormat::ResolveRtv(a_desc.Format) != DXGI_FORMAT_UNKNOWN &&
+				a_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+				(a_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) &&
+				a_desc.SampleDesc.Count == 1 && a_desc.DepthOrArraySize == 1 &&
+				a_desc.Width >= 256 && a_desc.Height >= 256;
+		}
 
 		void STDMETHODCALLTYPE SetDescriptorHeapsThunk(ID3D12GraphicsCommandList* a_self, const UINT a_num, ID3D12DescriptorHeap* const* a_heaps)
 		{
@@ -86,15 +101,9 @@ namespace OSFUI::UiPass
 			}
 		}
 
-		void STDMETHODCALLTYPE ResourceBarrierThunk(
-			ID3D12GraphicsCommandList* a_self,
-			const UINT a_numBarriers,
-			const D3D12_RESOURCE_BARRIER* a_barriers) noexcept
+		void STDMETHODCALLTYPE ResourceBarrierThunk(ID3D12GraphicsCommandList* a_self, const UINT a_numBarriers, const D3D12_RESOURCE_BARRIER* a_barriers) noexcept
 		{
 			tl_handoffWindow.OnBarrierCall();
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-			if (!tl_inOverlayDraw) DirectProbe::Barrier(a_self, a_numBarriers, a_barriers);
-#endif
 			if (tl_handoffWindow.HandoffArmed() && a_barriers) {
 				for (UINT i = 0; i < a_numBarriers && tl_handoffWindow.HandoffArmed(); ++i) {
 					const auto& barrier = a_barriers[i];
@@ -109,15 +118,11 @@ namespace OSFUI::UiPass
 						continue;
 					}
 					const auto desc = barrier.Transition.pResource->GetDesc();
-					const auto rtvFormat = UiTargetFormat::ResolveRtv(desc.Format);
-					if (rtvFormat == DXGI_FORMAT_UNKNOWN ||
-						desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-						desc.SampleDesc.Count != 1 || desc.DepthOrArraySize != 1 ||
-						desc.Width < 256 || desc.Height < 256) {
+					if (!IsUiRenderTarget(desc)) {
 						continue;
 					}
-					if (g_usePostComposite.load(std::memory_order_acquire) &&
-						rtvFormat != g_postCompositeTargetFormat.load(std::memory_order_acquire)) {
+					const auto rtvFormat = UiTargetFormat::ResolveRtv(desc.Format);
+					if (rtvFormat != g_postCompositeTargetFormat.load(std::memory_order_acquire)) {
 						if (!g_ignoredPostCompositeFormatLogged.exchange(true, std::memory_order_relaxed)) {
 							REX::DEBUG("[UiPass] ignored non-UI post-composite target {}x{} {}; waiting for {}",
 								static_cast<std::uint64_t>(desc.Width), desc.Height,
@@ -134,9 +139,8 @@ namespace OSFUI::UiPass
 					const auto expectedHeight = static_cast<std::uint32_t>(expectedOutput);
 					const bool targetAspectMatchesOutput = detail::PostCompositeTargetMatchesOutputAspect(
 						desc.Width, desc.Height, expectedWidth, expectedHeight);
-					// Native Scaleform menus can use a letterboxed UI layer. Only the
-					// post-composite output must match the swapchain aspect ratio.
-					if (g_usePostComposite.load(std::memory_order_acquire) && !targetAspectMatchesOutput) {
+					// The post-composite output must match the swapchain aspect ratio.
+					if (!targetAspectMatchesOutput) {
 						if (!g_ignoredPostCompositeAspectLogged.exchange(true, std::memory_order_relaxed)) {
 							REX::DEBUG("[UiPass] ignored post-composite target {}x{} with aspect incompatible with output {}x{}; continuing hand-off search",
 								static_cast<std::uint64_t>(desc.Width), desc.Height,
@@ -146,9 +150,6 @@ namespace OSFUI::UiPass
 					}
 					const bool fgTarget = (barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_COPY_SOURCE) != 0 && (barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) == 0;
 					const bool regionFirst = tl_handoffWindow.ConsumeAndReportFirstCandidate();
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-					DirectProbe::Candidate(a_self, barrier.Transition.pResource, fgTarget, regionFirst);
-#endif
 					RecordOverlayAtHandoff(a_self, barrier.Transition.pResource, fgTarget, regionFirst);
 				}
 			}
@@ -231,9 +232,6 @@ namespace OSFUI::UiPass
 				const bool heapsOk =
 					g_selfTestHeapsSeen.load(std::memory_order_relaxed);
 				if (patched && barrierOk && heapsOk) {
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-					StateAudit::Install(vtbl);
-#endif
 					g_selfTestList.store(nullptr, std::memory_order_release);
 					g_hookInstallState.store(
 						detail::CommandListHookState::Ready, std::memory_order_release);
@@ -312,24 +310,13 @@ namespace OSFUI::UiPass
 			// Scope compositor-heap suppression so every exit restores engine tracking.
 			struct OverlayDrawScope
 			{
-				OverlayDrawScope() { tl_inOverlayDraw = true;
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-					StateAudit::Foreign(true);
-#endif
-				}
-				~OverlayDrawScope() { tl_inOverlayDraw = false;
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-					StateAudit::Foreign(false);
-#endif
-				}
+				OverlayDrawScope() { tl_inOverlayDraw = true; }
+				~OverlayDrawScope() { tl_inOverlayDraw = false; }
 			};
 			const bool drew = [&] {
 				const OverlayDrawScope scope;
 				return RecordOverlayIntoRenderTarget(a_list, a_buffer, target.firstDrawInRegion);
 			}();
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-			DirectProbe::DrawResult(drew);
-#endif
 			if (!drew) {
 				// Early-outs occur before the compositor rebinds descriptor heaps.
 				return;
@@ -339,58 +326,93 @@ namespace OSFUI::UiPass
 			}
 		}
 
+		// Runs after the native ScaleformEnd returns, while the UI texture is still
+		// in RENDER_TARGET and before the graph transitions it for its consumer.
+		// The native reset restores heaps and invalidates cached bindings for the
+		// next native state application. The consumer must still bind its own
+		// targets, viewport and scissor.
+		void RecordOverlayAfterEnd(void* a_graph, void* a_io)
+		{
+			const auto handle = std::exchange(tl_beginTarget, std::nullopt);
+			if (!handle || !g_installed.load(std::memory_order_acquire)) {
+				return;
+			}
+
+			// End's own IO entry is not the UI texture: resolve Begin's handle
+			// against End's current pool.
+			auto* context = static_cast<RCP::GraphContext*>(a_graph)->GetOpenCommandContext();
+			auto* pool = static_cast<RCP::PassIO*>(a_io)->pool;
+			if (!context || !context->commandList || !context->commandPool || !pool) {
+				return;
+			}
+			// ID 142968 only rebinds heaps for these command-pool flags. Skip before
+			// touching the list if its reset would leave our descriptor heap bound.
+			const auto poolFlags = *(static_cast<const std::uint8_t*>(context->commandPool) + 0x20);
+			if ((poolFlags & 0xFD) != 0) {
+				return;
+			}
+			const auto* renderTarget = static_cast<RCP::GraphRenderTarget*>(pool->Resolve(*handle));
+			if (!renderTarget || !renderTarget->texture || !renderTarget->texture->resource) {
+				return;
+			}
+			auto* list = reinterpret_cast<ID3D12GraphicsCommandList*>(context->commandList);
+			auto* resource = reinterpret_cast<ID3D12Resource*>(renderTarget->texture->resource);
+			if (const auto desc = resource->GetDesc(); !IsUiRenderTarget(desc)) {
+				if (!g_directTargetRejectedLogged.exchange(true, std::memory_order_relaxed)) {
+					REX::WARN("[UiPass] skipped ScaleformEnd target {}x{} (format {}, dimension {}, flags 0x{:X}); not a drawable UI layer",
+						static_cast<std::uint64_t>(desc.Width), desc.Height, static_cast<unsigned>(desc.Format),
+						static_cast<unsigned>(desc.Dimension), static_cast<unsigned>(desc.Flags));
+				}
+				return;
+			}
+
+			// Each End closes one UI subgraph, so every draw starts a region.
+			if (!RecordOverlayIntoRenderTarget(list, resource, true)) {
+				// Early-outs occur before the compositor rebinds descriptor heaps.
+				return;
+			}
+			context->InvalidateCachedBindingsAndBindHeaps();
+		}
+
 		void* BeginThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-			EnsureDrawHooksInstalled();
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-			DirectProbe::Enter(DirectProbe::Pass::Begin, a_ctx, a_io);
-#endif
-			if (g_usePostComposite.load(std::memory_order_acquire)) {
+			const bool postComposite = g_usePostComposite.load(std::memory_order_acquire);
+			if (postComposite) {
+				EnsureDrawHooksInstalled();
 				// Bound an unfinished post-composite search to the frame that opened it.
 				tl_handoffWindow.Cancel();
 			} else {
-				tl_handoffWindow.Begin();
+				tl_beginTarget.reset();
 			}
 			auto* result = (*g_beginHook)(a_this, a_ctx, a_io, a_r9);
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-			DirectProbe::Leave(DirectProbe::Pass::Begin, a_ctx, a_io, tl_heapList, tl_heapCount, tl_heaps);
-#endif
+			if (!postComposite) {
+				if (const auto* entries = static_cast<RCP::PassIO*>(a_io)->entries) {
+					if (const auto io = entries->GetEntries(); !io.empty()) {
+						tl_beginTarget = io.front().handle;
+					}
+				}
+			}
 			return result;
 		}
 
 		void* EndThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-			DirectProbe::Enter(DirectProbe::Pass::End, a_ctx, a_io);
-#endif
 			void* result = (*g_endHook)(a_this, a_ctx, a_io, a_r9);
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-			DirectProbe::Leave(DirectProbe::Pass::End, a_ctx, a_io, tl_heapList, tl_heapCount, tl_heaps);
-#endif
 			if (!g_usePostComposite.load(std::memory_order_acquire)) {
-				tl_handoffWindow.End();
+				RecordOverlayAfterEnd(a_ctx, a_io);
 			}
 			return result;
 		}
 
 		void* CompositeThunk(void* a_this, void* a_ctx, void* a_io, void* a_r9)
 		{
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-			DirectProbe::Enter(DirectProbe::Pass::Composite, a_ctx, a_io);
-#endif
 			const bool postComposite = g_usePostComposite.load(std::memory_order_acquire);
 			if (postComposite) {
 				// Capture the engine heaps used by the composite, then draw into its
 				// validated UI target after the fixed-aspect transform.
 				tl_handoffWindow.Begin();
-			} else {
-				// The stable ScaleformEnd fallback must not leak into the composite.
-				tl_handoffWindow.Cancel();
 			}
 			void* result = (*g_compositeHook)(a_this, a_ctx, a_io, a_r9);
-#ifdef OSF_UI_PASS_DIRECT_PROBE
-			DirectProbe::Leave(DirectProbe::Pass::Composite, a_ctx, a_io, tl_heapList, tl_heapCount, tl_heaps);
-#endif
 			if (postComposite) {
 				tl_handoffWindow.End();
 			}
@@ -443,7 +465,10 @@ namespace OSFUI::UiPass
 
 	bool DrawEnabled()
 	{
-		return g_installed.load(std::memory_order_acquire) &&
+		if (!g_installed.load(std::memory_order_acquire)) {
+			return false;
+		}
+		return !g_usePostComposite.load(std::memory_order_acquire) ||
 			g_hookInstallState.load(std::memory_order_acquire) != detail::CommandListHookState::Failed;
 	}
 

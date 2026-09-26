@@ -84,8 +84,7 @@ namespace OSFUI
 
 		// Frame stages (RuntimeFrame.cpp).
 		void ProcessLifecycleWork();
-		void ProcessBackendState(const API::Papyrus::PendingBatch& a_papyrus,
-			const std::vector<API::BridgeApi::ViewStateOp>& a_bridgeState);
+		void ProcessBackendState(const API::Papyrus::PendingBatch& a_papyrus, const std::vector<API::BridgeApi::ViewStateOp>& a_bridgeState);
 		void ApplyNativeState(const std::vector<API::BridgeApi::ViewStateOp>& a_state);
 		void ProcessBackendMessages(const API::Papyrus::PendingBatch& a_papyrus);
 		void ReconcileFrameState();
@@ -135,8 +134,7 @@ namespace OSFUI
 		void PublishModState(std::string_view a_mod, std::string_view a_key, const nlohmann::json& a_value);
 		void PublishViewsState(std::string_view a_viewId = {});
 		void OnViewGreeted(std::string_view a_viewId);
-		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code,
-			std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
+		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
 		// Developer tools and view diagnostics.
 		void DriveDevTools();
