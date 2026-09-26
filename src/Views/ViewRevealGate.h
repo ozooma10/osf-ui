@@ -1,53 +1,34 @@
 #pragma once
 
-#include <cstdint>
 #include <optional>
 
 namespace OSFUI
 {
-	// Observes frame metadata to decide when to reveal a presentation or time out.
+	// Holds a presentation hidden until a frame at the expected size arrives, or times out.
+	// Every arm site has already invalidated the cached frame (new epoch, compositor hide, or new ring), so any frame is fresh.
 	class ViewRevealGate
 	{
 	public:
 		static constexpr double kTimeoutSeconds = 3.0;
 		static constexpr double kMaxHeldStepSeconds = 0.25;
 
-		struct FrameObservation
-		{
-			std::uint64_t generation{ 0 };
-			std::uint64_t index{ 0 };
-			bool          outputSizeKnown{ false };
-			bool          matchesExpectedSize{ false };
-		};
-
 		struct Decision
 		{
-			bool   frameChanged{ false };
 			bool   reveal{ false };
 			bool   timedOut{ false };
 			double heldSeconds{ 0.0 };
 		};
 
-		// Arm on closed-to-open edge. Most recent frame remains baseline, so cached content cannot satisfy this presentation.
 		void Arm();
-		// Arm for a live browser-surface resize. A matching frame must also come
-		// from a newer shared-ring generation than the one already observed.
-		void ArmForResize();
 		void Cancel();
-		void Reset();
 
-		Decision Observe(const std::optional<FrameObservation>& a_frame, double a_nowSeconds);
+		Decision Observe(bool a_frameReady, double a_nowSeconds);
 
 		bool Pending() const { return m_pending; }
 
 	private:
 		bool                  m_pending{ false };
-		bool                  m_frameReady{ false };
 		double                m_heldSeconds{ 0.0 };
 		std::optional<double> m_lastPolledAt;
-		std::uint64_t         m_lastObservedGeneration{ 0 };
-		std::uint64_t         m_lastObservedFrame{ 0 };
-		bool                  m_requireNewGeneration{ false };
-		std::uint64_t         m_generationFloor{ 0 };
 	};
 }

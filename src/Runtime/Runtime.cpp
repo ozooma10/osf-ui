@@ -539,7 +539,7 @@ namespace OSFUI
 		m_viewRecovery.ClearAll();
 		m_viewInputGrants.ResetAll();
 		m_pointerInput.DiscardMouseMove();
-		m_viewReveal.Reset();
+		m_viewReveal.Cancel();
 		m_inputCapture.ResetBrowserFocus();
 		std::size_t reloaded = 0;
 		for (const auto& manifest : m_views.All()) {
@@ -623,11 +623,7 @@ namespace OSFUI
 		if (visible && m_compositor) {
 			m_compositor->SetVisible(false);
 			m_renderer->SetPointerInputEnabled(false);
-			if (captureChanged) {
-				m_viewReveal.ArmForResize();
-			} else {
-				m_viewReveal.Arm();
-			}
+			m_viewReveal.Arm();
 			m_pointerInput.SuspendGeometry();
 		}
 		m_relativePointer.Cancel();
@@ -650,31 +646,19 @@ namespace OSFUI
 			return;
 		}
 
+		// Every arm site invalidated the cached frame, so any frame present now is fresh.
 		const auto frame = m_renderer->Frames()->Latest();
 		const auto expected = m_pointerInput.CaptureSize();
-		const bool outputSizeKnown = m_pointerInput.GameClientSizeObserved();
-		std::optional<ViewRevealGate::FrameObservation> observation;
-		if (frame) {
-			observation = ViewRevealGate::FrameObservation{
-				.generation = frame->ringGeneration,
-				.index = frame->frameIndex,
-				.outputSizeKnown = outputSizeKnown,
-				.matchesExpectedSize = frame->width == expected.width && frame->height == expected.height,
-			};
-		}
+		const bool frameReady = frame && m_pointerInput.GameClientSizeObserved() && frame->width == expected.width && frame->height == expected.height;
 
-		const auto decision = m_viewReveal.Observe(observation, m_nowSeconds);
-		if (decision.frameChanged && frame) {
-			if (observation && observation->outputSizeKnown && observation->matchesExpectedSize) {
-				if (const auto active = m_presentation.ActiveMenu()) {
-					if (const auto timing = m_viewOpens.FinishTiming(*active)) {
-						REX::INFO("Runtime: cold-open timing '{}': {} ms total (request->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)",
-							timing->view, timing->totalMs, timing->instantiateMs, timing->loadMs, timing->presentMs);
-					}
+		const auto decision = m_viewReveal.Observe(frameReady, m_nowSeconds);
+		if (decision.reveal) {
+			if (const auto active = m_presentation.ActiveMenu()) {
+				if (const auto timing = m_viewOpens.FinishTiming(*active)) {
+					REX::INFO("Runtime: cold-open timing '{}': {} ms total (request->instantiate {} ms, instantiate->load {} ms, load->presentable-frame {} ms)", 
+						timing->view, timing->totalMs, timing->instantiateMs, timing->loadMs, timing->presentMs);
 				}
 			}
-		}
-		if (decision.reveal) {
 			m_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
 			m_pointerInput.ResumeGeometry();
 			m_renderer->SetPointerInputEnabled(true);

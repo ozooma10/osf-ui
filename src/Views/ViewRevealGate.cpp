@@ -7,66 +7,30 @@ namespace OSFUI
 	void ViewRevealGate::Arm()
 	{
 		m_pending = true;
-		m_frameReady = false;
 		m_heldSeconds = 0.0;
 		m_lastPolledAt.reset();
-		m_requireNewGeneration = false;
-		m_generationFloor = 0;
-	}
-
-	void ViewRevealGate::ArmForResize()
-	{
-		const auto generationFloor = m_lastObservedGeneration;
-		Arm();
-		m_requireNewGeneration = true;
-		m_generationFloor = generationFloor;
 	}
 
 	void ViewRevealGate::Cancel()
 	{
 		m_pending = false;
-		m_frameReady = false;
 		m_heldSeconds = 0.0;
 		m_lastPolledAt.reset();
-		m_requireNewGeneration = false;
-		m_generationFloor = 0;
 	}
 
-	void ViewRevealGate::Reset()
-	{
-		Cancel();
-		m_lastObservedGeneration = 0;
-		m_lastObservedFrame = 0;
-	}
-
-	ViewRevealGate::Decision ViewRevealGate::Observe(const std::optional<FrameObservation>& a_frame, double a_nowSeconds)
+	ViewRevealGate::Decision ViewRevealGate::Observe(bool a_frameReady, double a_nowSeconds)
 	{
 		Decision decision;
-		if (a_frame) {
-			const bool newFrame = a_frame->generation != m_lastObservedGeneration || a_frame->index != m_lastObservedFrame;
-			if (newFrame) {
-				m_lastObservedGeneration = a_frame->generation;
-				m_lastObservedFrame = a_frame->index;
-				decision.frameChanged = true;
-				m_frameReady = m_pending;
-			}
-			if (!m_pending) {
-				return decision;
-			}
-
-			const bool generationReady = !m_requireNewGeneration ||
-				a_frame->generation > m_generationFloor;
-			if (m_frameReady && generationReady &&
-				a_frame->outputSizeKnown && a_frame->matchesExpectedSize) {
-				Cancel();
-				decision.reveal = true;
-				return decision;
-			}
-		} else if (!m_pending) {
+		if (!m_pending) {
+			return decision;
+		}
+		// frame wins before checking timeout. Prevents alt-tab or load hitch from timing out frame that became ready on first resumed tick.
+		if (a_frameReady) {
+			Cancel();
+			decision.reveal = true;
 			return decision;
 		}
 
-		// frame wins before checking timeout. Prevents alt-tab or load hitch from timing out frame that became ready on first resumed tick.
 		if (m_lastPolledAt) {
 			const auto elapsed = std::max(0.0, a_nowSeconds - *m_lastPolledAt);
 			m_heldSeconds += std::min(elapsed, kMaxHeldStepSeconds);
