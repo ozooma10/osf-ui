@@ -158,9 +158,7 @@
 					return;
 				}
 				auto& completed = ackedSerials[ack.slot];
-				auto current = completed.load();
-				while (ack.serial > current &&
-					!completed.compare_exchange_weak(current, ack.serial)) {}
+				completed = (std::max)(completed, ack.serial);
 				RetryPendingCapture();
 				RepublishLatest(true);
 			}

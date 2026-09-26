@@ -33,7 +33,6 @@
 #include <shellapi.h>
 #include <wrl.h>
 #include <wrl/client.h>
-#include <d3d10_1.h>
 #include <d3d11_4.h>
 #include <dxgi1_2.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
@@ -298,11 +297,11 @@ namespace osfui::wv2
 			winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool framePool{ nullptr };
 			winrt::Windows::Graphics::Capture::GraphicsCaptureSession captureSession{ nullptr };
 			winrt::event_token frameToken{};
-			std::atomic_bool   captureClosing{ true };
-			std::atomic_bool   captureHasVisibleView{ false };
+			// Capture callbacks, ring publication and game-message handling share the host STA.
+			bool              captureClosing{ true };
+			bool              captureHasVisibleView{ false };
 			std::uint32_t      captureCadenceHz{ 0 };
 
-			std::mutex ringMutex;
 			struct Slot
 			{
 				ComPtr<ID3D11Texture2D> texture;
@@ -315,12 +314,11 @@ namespace osfui::wv2
 			ComPtr<ID3D11Fence> produceFence;
 			std::uint64_t              frameSerial{ 0 };
 			std::uint32_t              lastSlot{ 0 };
-			std::uint64_t              republishEpoch{ 0 }; // ringMutex
-			std::mutex                 captureEpochMutex;
-			std::atomic<std::uint64_t> presentationEpoch{ 0 };
-			std::array<std::atomic<std::uint64_t>, kRingSlots> ackedSerials{};
+			std::uint64_t              republishEpoch{ 0 };
+			std::uint64_t              presentationEpoch{ 0 };
+			std::array<std::uint64_t, kRingSlots> ackedSerials{};
 			std::uint64_t consumeLagDrops{ 0 };
-			ComPtr<ID3D11Texture2D> pendingCapture; // one owned latest-wins copy, ringMutex
+			ComPtr<ID3D11Texture2D> pendingCapture; // one owned latest-wins copy
 			std::uint64_t pendingCaptureEpoch{ 0 };
 
 			ComPtr<ICoreWebView2Environment> environment;
@@ -430,8 +428,7 @@ namespace osfui::wv2
 			void RefreshCaptureVisibility()
 			{
 				const bool anyVisible = std::ranges::any_of(views, [](const std::unique_ptr<View>& a_view) { return !a_view->hidden; });
-				const bool changed = captureHasVisibleView.exchange(
-					anyVisible, std::memory_order_acq_rel) != anyVisible;
+				const bool changed = std::exchange(captureHasVisibleView, anyVisible) != anyVisible;
 				if (changed) ApplyCaptureCadence();
 			}
 
@@ -1210,7 +1207,7 @@ namespace osfui::wv2
 			void ApplyCaptureCadence()
 			{
 				if (!captureSession) return;
-				const bool visible = captureHasVisibleView.load(std::memory_order_acquire);
+				const bool visible = captureHasVisibleView;
 				const std::uint32_t desiredHz = visible ? 60u : 4u;
 				if (captureCadenceHz == desiredHz) return;
 				try {
@@ -1239,13 +1236,14 @@ namespace osfui::wv2
 
 			bool StartCapture()
 			{
-				captureClosing.store(false);
+				captureClosing = false;
 				try {
 					using namespace winrt::Windows::Graphics;
 					using namespace winrt::Windows::Graphics::Capture;
 					using namespace winrt::Windows::Graphics::DirectX;
 					captureItem = GraphicsCaptureItem::CreateFromVisual(rootVisual);
-					framePool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+					// InitializeComposition creates this STA's dispatcher; Run pumps its messages.
+					framePool = Direct3D11CaptureFramePool::Create(
 						captureDevice, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3,
 						SizeInt32{ static_cast<std::int32_t>(width),
 							static_cast<std::int32_t>(height) });
@@ -1270,18 +1268,13 @@ namespace osfui::wv2
 
 			void OnFrameArrived(const winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool& a_pool)
 			{
-				if (quit.load() || captureClosing.load()) return;
+				if (quit.load() || captureClosing) return;
 				try {
-					decltype(a_pool.TryGetNextFrame()) capturedFrame{ nullptr };
-					std::uint64_t framePresentationEpoch = 0;
-					{
-						std::scoped_lock epochLock(captureEpochMutex);
-						framePresentationEpoch = presentationEpoch.load(std::memory_order_acquire);
-						capturedFrame = a_pool.TryGetNextFrame();
-					}
+					const auto framePresentationEpoch = presentationEpoch;
+					const auto capturedFrame = a_pool.TryGetNextFrame();
 					if (!capturedFrame) return;
 					// Draining keeps the WGC pool current while closed; no surface access, GPU copy, fence signal, serialization, or pipe write is useful without a visible view.
-					if (!captureHasVisibleView.load(std::memory_order_acquire)) return;
+					if (!captureHasVisibleView) return;
 					auto access = capturedFrame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
 					ComPtr<ID3D11Texture2D> source;
 					winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(&source)));
@@ -1366,10 +1359,7 @@ namespace osfui::wv2
 				viewportWidth = std::clamp((std::max)(1u, a_width), 1u, width);
 				viewportHeight = std::clamp((std::max)(1u, a_height), 1u, height);
 				ApplyViewLayout();
-				{
-					std::scoped_lock epochLock(captureEpochMutex);
-					presentationEpoch.store(a_presentationEpoch, std::memory_order_release);
-				}
+				presentationEpoch = a_presentationEpoch;
 				log.Info(std::format(
 					"content viewport -> {}x{} inside stable {}x{} capture",
 					viewportWidth, viewportHeight, width, height));
@@ -1387,7 +1377,6 @@ namespace osfui::wv2
 				viewportHeight = (std::min)(viewportHeight, height);
 				ApplyViewLayout();
 				if (!framePool) return;
-				std::scoped_lock epochLock(captureEpochMutex);
 				try {
 					framePool.Recreate(captureDevice,
 						winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized,
@@ -1527,14 +1516,13 @@ namespace osfui::wv2
 					++drained;
 				}
 				if (gameMessages.Size() != 0) ::SetEvent(wakeEvent);
-				if (!AnyRevealPending()) ApplyDeferredHides();
 			}
 
 			void CloseWebResources()
 			{
 				focusGranted = false;
 				focusEpoch = 0;
-				captureClosing.store(true);
+				captureClosing = true;
 				if (framePool) {
 					try { framePool.FrameArrived(frameToken); }
 					catch (const winrt::hresult_error& e) {
@@ -1552,7 +1540,6 @@ namespace osfui::wv2
 				}
 				captureCadenceHz = 0;
 				if (framePool) {
-					std::scoped_lock epochLock(captureEpochMutex);
 					try { framePool.Close(); }
 					catch (const winrt::hresult_error& e) {
 						log.Warn(std::format("capture-pool close failed (hr=0x{:08X})",
@@ -1561,10 +1548,7 @@ namespace osfui::wv2
 					framePool = nullptr;
 				}
 				captureItem = nullptr;
-				{
-					std::scoped_lock lock(ringMutex);
-					ReleaseRing();
-				}
+				ReleaseRing();
 				for (auto& view : views) {
 					DestroyOneView(*view);
 				}

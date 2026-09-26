@@ -41,8 +41,6 @@
 					log.Error(std::format("D3D11CreateDevice failed (0x{:08X})", static_cast<unsigned>(hr)));
 					return false;
 				}
-				ComPtr<ID3D10Multithread> multithread;
-				if (SUCCEEDED(context.As(&multithread))) multithread->SetMultithreadProtected(TRUE);
 				if (FAILED(device.As(&device5)) || FAILED(context.As(&context4))) {
 					log.Error("ID3D11Device5/DeviceContext4 unavailable (need Win10 1703+) — no shared-fence transport");
 					return false;
@@ -153,7 +151,7 @@
 				return remote;
 			}
 
-			// Capture thread. Returns false when the ring could not be built.
+			// Host STA. Returns false when the ring could not be built.
 			bool EnsureRing(std::uint32_t a_width, std::uint32_t a_height)
 			{
 				if (ring[0].texture && ringWidth == a_width && ringHeight == a_height) {
@@ -252,14 +250,13 @@
 				return true;
 			}
 
-			// Capture thread: publish one captured surface through the ring.
+			// Host STA: publish one captured surface through the ring.
 			void PublishFrame(ID3D11Texture2D* a_source, std::uint32_t a_width,
 				std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
-				std::scoped_lock lock(ringMutex);
 				pendingCaptureEpoch = 0; // a newer capture supersedes any queued pixels
-				if (PublishFrameLocked(a_source, a_width, a_height, a_presentationEpoch)) return;
-				if (captureClosing.load()) return;
+				if (TryPublishFrame(a_source, a_width, a_height, a_presentationEpoch)) return;
+				if (captureClosing) return;
 				// WGC's pool will recycle a_source. Keep one private copy so the final
 				// frame of a short animation can be retried when a slot is acknowledged.
 				D3D11_TEXTURE2D_DESC desc{};
@@ -276,10 +273,8 @@
 
 			void RetryPendingCapture()
 			{
-				std::scoped_lock lock(ringMutex);
 				if (!pendingCapture || !pendingCaptureEpoch) return;
-				if (pendingCaptureEpoch != presentationEpoch.load(std::memory_order_acquire) ||
-					!captureHasVisibleView.load(std::memory_order_acquire)) {
+				if (pendingCaptureEpoch != presentationEpoch || !captureHasVisibleView) {
 					pendingCaptureEpoch = 0;
 					return;
 				}
@@ -289,22 +284,22 @@
 					pendingCaptureEpoch = 0; // a resize superseded these pixels
 					return;
 				}
-				if (PublishFrameLocked(pendingCapture.Get(), desc.Width, desc.Height, pendingCaptureEpoch)) {
+				if (TryPublishFrame(pendingCapture.Get(), desc.Width, desc.Height, pendingCaptureEpoch)) {
 					pendingCaptureEpoch = 0;
 				}
 			}
 
-			// ringMutex held. Acknowledgement means the consumer has stopped using the slot and every GPU read has completed. Current stays reserved.
-			bool PublishFrameLocked(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_presentationEpoch)
+			// Acknowledgement means the consumer has stopped using the slot and every GPU read has completed. Current stays reserved.
+			bool TryPublishFrame(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
-				if (captureClosing.load()) return false;
+				if (captureClosing) return false;
 				if (!EnsureRing(a_width, a_height)) return false;
 
 				auto writableSlot = kRingSlots;
 				for (std::uint32_t offset = 0; offset < kRingSlots; ++offset) {
 					const auto candidate = (ringWrite + offset) % kRingSlots;
 					if (ring[candidate].lastSerial == 0 ||
-						ackedSerials[candidate].load() >= ring[candidate].lastSerial) {
+						ackedSerials[candidate] >= ring[candidate].lastSerial) {
 						writableSlot = candidate;
 						break;
 					}
@@ -341,17 +336,15 @@
 			bool PromotePresentation(View& a_view)
 			{
 				const auto requested = std::exchange(a_view.pendingPresentationEpoch, 0ull);
-				if (requested == 0 ||
-					requested == presentationEpoch.load(std::memory_order_relaxed)) {
+				if (requested == 0 || requested == presentationEpoch) {
 					return false;
 				}
-				presentationEpoch.store(requested, std::memory_order_release);
+				presentationEpoch = requested;
 				return true;
 			}
 
 			bool PromoteChangedPresentation(View& a_view)
 			{
-				std::scoped_lock epochLock(captureEpochMutex);
 				if (framePool) {
 					try {
 						framePool.Recreate(captureDevice,
@@ -371,8 +364,7 @@
 
 			void RepublishLatest(bool a_onlyIfPending = false)
 			{
-				std::scoped_lock lock(ringMutex);
-				const auto epoch = presentationEpoch.load(std::memory_order_relaxed);
+				const auto epoch = presentationEpoch;
 				if (a_onlyIfPending && (!republishEpoch || republishEpoch != epoch)) {
 					republishEpoch = 0;
 					return;
@@ -380,7 +372,7 @@
 				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) return;
 				republishEpoch = epoch;
 				// Copying from a held slot is read-only. If the source itself is free, publication can reuse its pixels without a self-copy.
-				PublishFrameLocked(ring[lastSlot].texture.Get(), ringWidth, ringHeight, epoch);
+				TryPublishFrame(ring[lastSlot].texture.Get(), ringWidth, ringHeight, epoch);
 			}
 
 			View* FindView(std::string_view a_id)
