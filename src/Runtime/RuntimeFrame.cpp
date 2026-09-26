@@ -44,6 +44,10 @@ namespace OSFUI
 	void Runtime::ProcessBackendMessages(const API::Papyrus::PendingBatch& a_papyrus)
 	{
 		if (m_bridge) {
+			// Reject before this batch's replies so an old-session answer queued after the reset finds its token gone.
+			if (a_papyrus.sessionReset) {
+				m_bridge->RejectAll("game-load", "the request was canceled by a game load");
+			}
 			for (const auto& event : a_papyrus.events) {
 				const auto targets = InstantiatedViewsOfMod(event.mod);
 				if (!targets.empty()) {
@@ -52,8 +56,11 @@ namespace OSFUI
 				}
 			}
 			for (const auto& reply : a_papyrus.replies) {
-				if (reply.rejected) m_bridge->RejectTo(reply.deferToken, reply.code, reply.message);
-				else m_bridge->RespondTo(reply.deferToken, reply.value);
+				if (reply.rejected) {
+					m_bridge->RejectTo(reply.token, reply.code, reply.message);
+				} else {
+					m_bridge->RespondTo(reply.token, reply.value);
+				}
 			}
 		}
 		API::BridgeApi::Get().PumpRuntimeCallbacks();

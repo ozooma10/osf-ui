@@ -192,18 +192,25 @@ int main()
 	CHECK(registerRequest(*vm, 0, {}, "FormSink", "T.Forms", "choose") != 0);
 
 	vm->calls.clear();
-	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-form") == API::Papyrus::StaticDispatchResult::kQueued);
+	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", 101) == API::Papyrus::StaticDispatchResult::kQueued);
 	CHECK(vm->calls.size() == 1);
+	// The script's reply token is the bridge token in decimal.
 	std::string token = vm->calls.empty() ? "" : vm->calls[0].args.back();
+	CHECK(token == "101");
 	CHECK(reply(*vm, 0, {}, token, &scalarForm));
+	// Malformed tokens are refused at the native; liveness is the bridge's call.
+	CHECK(!reply(*vm, 0, {}, "p101", &scalarForm));
+	CHECK(!reply(*vm, 0, {}, "0", &scalarForm));
+	CHECK(!reply(*vm, 0, {}, "", &scalarForm));
 	{
 		auto batch = API::Papyrus::TakePendingBatch();
 		CHECK(batch.replies.size() == 1);
+		CHECK(batch.replies.size() == 1 && batch.replies[0].token == 101);
 		CHECK(batch.replies.size() == 1 && batch.replies[0].value["formId"] == keyword.GetFormID());
 	}
 
 	vm->calls.clear();
-	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-forms") == API::Papyrus::StaticDispatchResult::kQueued);
+	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", 102) == API::Papyrus::StaticDispatchResult::kQueued);
 	token = vm->calls.empty() ? "" : vm->calls[0].args.back();
 	CHECK(replyForms(*vm, 0, {}, token, { &keyword, nullptr, &weapon }));
 	{
@@ -261,13 +268,14 @@ int main()
 	CHECK(API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));  // saves do not suspend
 	RE::SaveLoadEvent::GetEventSource()->Notify(RE::SaveLoadEvent{ RE::SaveLoadEvent::OpType::kQuickload, RE::SaveLoadEvent::Status::kBegin });
 	CHECK(!API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));
-	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", "defer-suspended") == API::Papyrus::StaticDispatchResult::kVmUnavailable);
+	CHECK(API::Papyrus::OnViewRequest("t.forms", "choose", {}, "caller/view", 103) == API::Papyrus::StaticDispatchResult::kVmUnavailable);
 	CHECK(API::Papyrus::DispatchStaticFunction("FormSink", "Ping", {}) == API::Papyrus::StaticDispatchResult::kVmUnavailable);
 	RE::SaveLoadEvent::GetEventSource()->Notify(RE::SaveLoadEvent{ RE::SaveLoadEvent::OpType::kQuickload, RE::SaveLoadEvent::Status::kFailed });
 	CHECK(API::Papyrus::OnViewSend("t.forms", "inspect", {}, "caller/view"));  // a failed load resumes the old session
 
-	// A load drops queued form identities before they can leak into a new save.
+	// A load drops queued form identities and old-session answers before they can leak into a new save.
 	CHECK(setStateForms(*vm, 0, {}, "t.forms", "stale", { &keyword }));
+	CHECK(reply(*vm, 0, {}, "104", &scalarForm));
 	RE::SaveLoadEvent::GetEventSource()->Notify(RE::SaveLoadEvent{ RE::SaveLoadEvent::OpType::kLoad, RE::SaveLoadEvent::Status::kBegin });
 	RE::TESLoadGameEvent::GetEventSource()->Notify(RE::TESLoadGameEvent{});
 	const auto resetBatch = API::Papyrus::TakePendingBatch();

@@ -9,6 +9,7 @@ namespace OSFUI::API
 	namespace
 	{
 		constexpr std::size_t kMaxPendingSendsPerView = 64;
+		constexpr std::size_t kMaxQueuedReplies = 256;
 
 		const std::string* FindIdCaseInsensitive(
 			const std::unordered_set<std::string>& a_ids, std::string_view a_wanted)
@@ -232,18 +233,16 @@ namespace OSFUI::API
 			++m_readyRevision;
 		}
 		else {
-			if (const auto* found = FindIdCaseInsensitive(m_instantiatedViews, id))
+			if (const auto* found = FindIdCaseInsensitive(m_instantiatedViews, id)) {
 				m_instantiatedViews.erase(*found);
-			std::erase_if(m_inflightRequests,
-				[&](const auto& item) { return item.second.view == id; });
+			}
 		}
 		MarkPending(kPendingPump);
 	}
 
 	bool BridgeApi::RegisterView(const char* a_viewId) noexcept
 	{
-		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId) ||
-			!Ids::IsValidModId(Ids::ModOf(a_viewId))) return false;
+		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId) || !Ids::IsValidModId(Ids::ModOf(a_viewId))) return false;
 		std::lock_guard lock(m_mutex);
 		m_pendingViewRegs.emplace_back(a_viewId);
 		MarkPending(kPendingViewRegistrations);
@@ -280,38 +279,35 @@ namespace OSFUI::API
 	void BridgeApi::RejectThunk(std::uint64_t token, const char* code,
 		const char* message) noexcept { Get().RejectRequest(token, code, message); }
 
+	// Any thread. Late, duplicate and stale answers are filtered by the bridge on the main thread.
 	void BridgeApi::RespondRequest(std::uint64_t token, const char* json) noexcept
 	{
 		const auto parsed = json ? Json::Parse(json) : std::nullopt;
-		std::lock_guard lock(m_mutex);
-		const auto found = m_inflightRequests.find(token);
-		if (found == m_inflightRequests.end() || found->second.answered) return;
-		found->second.answered = true;
 		if (!parsed) {
-			found->second.rejected = true;
-			found->second.code = "invalid-response";
-			found->second.message = "plugin returned invalid JSON";
-		} else found->second.payloadJson = Json::Dump(*parsed);
-		MarkPending(kPendingPump);
+			QueueReply({ .token = token, .rejected = true, .code = "invalid-response",
+				.message = "plugin returned invalid JSON" });
+		} else {
+			QueueReply({ .token = token, .payloadJson = Json::Dump(*parsed) });
+		}
 	}
 
 	void BridgeApi::RejectRequest(std::uint64_t token, const char* code,
 		const char* message) noexcept
 	{
-		std::lock_guard lock(m_mutex);
-		const auto found = m_inflightRequests.find(token);
-		if (found == m_inflightRequests.end() || found->second.answered) return;
-		found->second.answered = true;
-		found->second.rejected = true;
-		found->second.code = code && code[0] ? code : "plugin-error";
-		found->second.message = message ? message : "";
-		MarkPending(kPendingPump);
+		QueueReply({ .token = token, .rejected = true,
+			.code = code && code[0] ? code : "plugin-error", .message = message ? message : "" });
 	}
 
-	void BridgeApi::DropInflightRequest(std::uint64_t a_token) noexcept
+	void BridgeApi::QueueReply(QueuedReply a_reply) noexcept
 	{
+		if (a_reply.token == 0) return;
 		std::lock_guard lock(m_mutex);
-		m_inflightRequests.erase(a_token);
+		if (m_queuedReplies.size() >= kMaxQueuedReplies) {
+			REX::WARN("BridgeApi: dropped a plugin reply; {} replies already wait for the game thread", kMaxQueuedReplies);
+			return;
+		}
+		m_queuedReplies.push_back(std::move(a_reply));
+		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::DispatchRequest(const std::string& a_name,
@@ -320,17 +316,8 @@ namespace OSFUI::API
 	{
 		const std::string view(a_bridge.CurrentSource());
 		const std::string payload = Json::Dump(a_payload);
-		std::uint64_t token;
-		{
-			std::lock_guard lock(m_mutex);
-			token = m_nextRequestToken++;
-		}
-		const std::string defer = a_bridge.Defer([this, token] { DropInflightRequest(token); });
-		{
-			std::lock_guard lock(m_mutex);
-			m_inflightRequests.emplace(token,
-				InflightRequest{ .view = view, .deferToken = defer });
-		}
+		const auto token = a_bridge.Defer();
+		if (token == 0) return;
 		Request request;
 		request.name = a_name.c_str();
 		request.payloadJson = payload.c_str();
@@ -365,7 +352,7 @@ namespace OSFUI::API
 		if (!a_bridge) m_appliedBridge = nullptr;
 		m_bridge = a_bridge;
 		m_bridgeAvailable.store(a_bridge != nullptr, std::memory_order_release);
-		if (!a_bridge) m_inflightRequests.clear();
+		if (!a_bridge) m_queuedReplies.clear();  // nothing left to settle them against
 		MarkPending(kPendingPump);
 	}
 
@@ -377,7 +364,7 @@ namespace OSFUI::API
 		std::vector<std::pair<std::string, Registration>> sendsToRegister;
 		std::vector<std::pair<std::string, RequestRegistration>> requestsToRegister;
 		std::vector<PendingSend> sends;
-		std::vector<PendingReply> replies;
+		std::vector<QueuedReply> replies;
 		bool fireReady = false;
 		std::uint64_t readyRevision = 0;
 		ReadyFn ready = nullptr;
@@ -409,13 +396,7 @@ namespace OSFUI::API
 					ready = m_readyCb;
 					readyUser = m_readyUser;
 				}
-				for (auto it = m_inflightRequests.begin(); it != m_inflightRequests.end();) {
-					if (!it->second.answered) { ++it; continue; }
-					auto& request = it->second;
-					replies.push_back({ request.deferToken, request.payloadJson,
-						request.rejected, request.code, request.message });
-					it = m_inflightRequests.erase(it);
-				}
+				replies.swap(m_queuedReplies);
 			}
 		}
 		if (bridge) {
@@ -436,8 +417,11 @@ namespace OSFUI::API
 			for (const auto& send : sends)
 				bridge->EmitJson(send.view, send.type, send.payloadJson);
 			for (const auto& reply : replies) {
-				if (reply.rejected) bridge->RejectTo(reply.deferToken, reply.code, reply.message);
-				else bridge->RespondJsonTo(reply.deferToken, reply.payloadJson);
+				if (reply.rejected) {
+					bridge->RejectTo(reply.token, reply.code, reply.message);
+				} else {
+					bridge->RespondJsonTo(reply.token, reply.payloadJson);
+				}
 			}
 		}
 		bool invokeReady = false;

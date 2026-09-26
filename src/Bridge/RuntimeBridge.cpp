@@ -307,13 +307,9 @@ namespace OSFUI
 					a_b.Reject("papyrus-unavailable", "Papyrus request endpoint is no longer available");
 					return;
 				}
-				auto dropToken = std::make_shared<std::string>();
-				const auto token = a_b.Defer([dropToken] { API::Papyrus::DropViewRequest(*dropToken); });
-				*dropToken = token;
-				const auto result = API::Papyrus::OnViewRequest(endpoint.modId, endpoint.name, *args, source, token);
-				if (result == API::Papyrus::StaticDispatchResult::kCapacityReached) {
-					a_b.RejectTo(token, "request-capacity", "too many Papyrus requests are already in flight");
-				} else if (result != API::Papyrus::StaticDispatchResult::kQueued) {
+				const auto token = a_b.Defer();
+				if (token == 0) return;
+				if (API::Papyrus::OnViewRequest(endpoint.modId, endpoint.name, *args, source, token) != API::Papyrus::StaticDispatchResult::kQueued) {
 					a_b.RejectTo(token, "papyrus-unavailable", "Papyrus request endpoint is no longer available");
 				}
 			});

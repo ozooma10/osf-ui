@@ -1,5 +1,7 @@
 #include "Bridge/MessageBridge.h"
 
+#include <atomic>
+
 #include "Core/StringUtil.h"
 #include "Core/Version.h"
 #include "Core/Ids.h"
@@ -20,6 +22,9 @@ namespace OSFUI
 
 		// Bound concurrent deferred requests owned by one view.
 		constexpr std::size_t kMaxPendingRequestsPerView = 64;
+
+		// Process-wide so a late answer can never settle a request on a recreated bridge.
+		std::atomic<std::uint64_t> g_nextDeferToken{ 1 };
 
 		// Keep the runtime deadline longer than the page timer so timeout and no-response stay distinct.
 		constexpr auto kRequestDeadline = std::chrono::seconds(30);
@@ -333,34 +338,33 @@ namespace OSFUI
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
 
-	std::string MessageBridge::Defer(DeferredDropHandler a_onDropped)
+	MessageBridge::DeferToken MessageBridge::Defer()
 	{
 		if (m_currentRequestId.empty() || m_settled) {
 			REX::WARN("MessageBridge: Defer() outside an unsettled request ('{}')", m_currentName);
-			return {};
+			return 0;
 		}
 		m_settled = true;
 		// Use a runtime token because page correlation ids are only document-local.
-		auto token = "d" + std::to_string(m_nextDeferToken++);
+		const DeferToken token = g_nextDeferToken.fetch_add(1, std::memory_order_relaxed);
 		m_pending[token] = Pending{
 			.view = m_currentSource,
 			.requestId = m_currentRequestId,
 			.name = m_currentName,
 			.deadline = std::chrono::steady_clock::now() + kRequestDeadline,
-			.onDropped = std::move(a_onDropped),
 		};
 		NoteTracedReply("deferred");
 		return token;
 	}
 
-	void MessageBridge::RespondTo(std::string_view a_token, const nlohmann::json& a_payload)
+	void MessageBridge::RespondTo(DeferToken a_token, const nlohmann::json& a_payload)
 	{
 		RespondJsonTo(a_token, Json::Dump(a_payload));
 	}
 
-	void MessageBridge::RespondJsonTo(std::string_view a_token, std::string_view a_payloadJson)
+	void MessageBridge::RespondJsonTo(DeferToken a_token, std::string_view a_payloadJson)
 	{
-		const auto it = m_pending.find(std::string(a_token));
+		const auto it = m_pending.find(a_token);
 		if (it == m_pending.end()) {
 			// Never deliver late or duplicate settlements, but keep them visible in logs.
 			REX::DEBUG("MessageBridge: dropped a reply for '{}' — already settled, expired, or its view is gone",
@@ -376,9 +380,9 @@ namespace OSFUI
 		NoteTracedReply("reply");
 	}
 
-	void MessageBridge::RejectTo(std::string_view a_token, std::string_view a_code, std::string_view a_message)
+	void MessageBridge::RejectTo(DeferToken a_token, std::string_view a_code, std::string_view a_message)
 	{
-		const auto it = m_pending.find(std::string(a_token));
+		const auto it = m_pending.find(a_token);
 		if (it == m_pending.end()) {
 			REX::DEBUG("MessageBridge: dropped a '{}' rejection for '{}' — already settled, expired, or its view is gone",
 				a_code, a_token);
@@ -515,19 +519,28 @@ namespace OSFUI
 	void MessageBridge::OnViewDestroyed(std::string_view a_viewId)
 	{
 		m_gates.erase(std::string(a_viewId));
-		// Reap deferred requests whose destination view no longer exists.
-		std::vector<DeferredDropHandler> dropped;
+		// Reap deferred requests whose destination view no longer exists; their late answers are ignored.
 		for (auto it = m_pending.begin(); it != m_pending.end();) {
 			if (it->second.view == a_viewId) {
 				REX::DEBUG("MessageBridge: reaped in-flight request '{}' — view '{}' went away",
 					it->second.name, a_viewId);
-				if (it->second.onDropped) dropped.push_back(std::move(it->second.onDropped));
 				it = m_pending.erase(it);
 			} else {
 				++it;
 			}
 		}
-		for (auto& cleanup : dropped) cleanup();
+	}
+
+	void MessageBridge::RejectAll(std::string_view a_code, std::string_view a_message)
+	{
+		if (m_pending.empty()) return;
+		auto pending = std::exchange(m_pending, {});
+		REX::DEBUG("MessageBridge: rejected {} in-flight request(s) with '{}'", pending.size(), a_code);
+		for (const auto& [_, req] : pending) {
+			if (m_send && !req.view.empty()) {
+				m_send(req.view, EncodeError(req.requestId, a_code, a_message));
+			}
+		}
 	}
 
 	void MessageBridge::Tick(std::chrono::steady_clock::time_point a_now)
@@ -545,7 +558,6 @@ namespace OSFUI
 			}
 		}
 		for (const auto& req : expired) {
-			if (req.onDropped) req.onDropped();
 			REX::WARN("MessageBridge: '{}' from view '{}' missed the {}s OSF UI runtime deadline",
 				req.name, req.view, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count());
 			// Settle with the page's correlation id, not the runtime map token.

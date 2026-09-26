@@ -104,19 +104,10 @@ namespace OSFUI::API
 			RequestFn fn{ nullptr };
 			void* user{ nullptr };
 		};
-		struct InflightRequest
+		// A plugin answer waiting for the main-thread pump; the bridge decides whether it is still live.
+		struct QueuedReply
 		{
-			std::string view;
-			std::string deferToken;  // MessageBridge::Defer()'s token, not the page's request id
-			bool answered{ false };
-			bool rejected{ false };
-			std::string payloadJson;
-			std::string code;
-			std::string message;
-		};
-		struct PendingReply
-		{
-			std::string deferToken;
+			std::uint64_t token{ 0 };  // MessageBridge::Defer()'s token
 			std::string payloadJson;
 			bool        rejected{ false };
 			std::string code;
@@ -127,7 +118,7 @@ namespace OSFUI::API
 		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
 		void RespondRequest(std::uint64_t, const char*) noexcept;
 		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
-		void DropInflightRequest(std::uint64_t) noexcept;
+		void QueueReply(QueuedReply) noexcept;
 		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
 		enum Pending : std::uint32_t
 		{
@@ -149,8 +140,7 @@ namespace OSFUI::API
 		std::unordered_map<std::string, RequestRegistration> m_requests;          // desired request set
 		std::unordered_map<std::string, RelativePointerRegistration> m_relativePointers;  // exact view owner, first-wins
 		std::unordered_map<std::string, ViewLifecycleRegistration> m_viewLifecycles;  // exact view owner, first-wins
-		std::unordered_map<std::uint64_t, InflightRequest> m_inflightRequests;
-		std::uint64_t                                 m_nextRequestToken{ 1 };
+		std::vector<QueuedReply>                       m_queuedReplies;
 		std::vector<PendingSend>                       m_pendingSends;
 		ViewRequestQueue                              m_viewRequests;
 		std::unordered_set<std::string>               m_knownViews;         // boot-discovered qualified view ids

@@ -6,6 +6,7 @@
 #include "Core/Ids.h"  // opaque id safety validation + case-insensitive matching
 
 #include <atomic>
+#include <charconv>
 
 #include "RE/B/BSScriptUtil.h"       // BindNativeMethod marshaling, GameVM, VirtualMachine
 #include "RE/E/Events.h"             // TESLoadGameEvent
@@ -65,12 +66,10 @@ namespace OSFUI::API::Papyrus
 			std::vector<Value> args;
 		};
 
-		struct PendingViewRequest
+		// A script answer waiting for the main-thread pump; the bridge decides whether it is still live.
+		struct QueuedViewReply
 		{
-			std::string                               token;
-			std::string                               view;
-			std::string                               deferToken;
-			bool                                      answered{ false };
+			std::uint64_t                             token{ 0 };  // MessageBridge::Defer()'s token
 			bool                                      rejected{ false };
 			std::string                               code;
 			std::string                               message;
@@ -86,8 +85,7 @@ namespace OSFUI::API::Papyrus
 			std::vector<Entry>                                  entries;
 			std::vector<QueuedState>                            states;
 			std::vector<QueuedEvent>                            events;
-			std::unordered_map<std::string, PendingViewRequest> viewRequests;
-			std::uint64_t                                       nextViewRequest{ 1 };
+			std::vector<QueuedViewReply>                        replies;
 			// Raised on game load so Runtime::Update purges session-scoped retained state.
 			bool                                                sessionReset{ false };
 			// Set while a world-replacing save/load operation is in flight; dispatch into the VM is refused until
@@ -272,7 +270,7 @@ namespace OSFUI::API::Papyrus
 			return DispatchOne(vm, targets.front(), MakeSendArgs(RE::BSFixedString(std::string(a_name).c_str()), a_args, RE::BSFixedString(std::string(a_sourceViewId).c_str())));
 		}
 
-		StaticDispatchResult DispatchViewRequestTo(const Target& a_target, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken)
+		StaticDispatchResult DispatchViewRequestTo(const Target& a_target, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::uint64_t a_deferToken)
 		{
 			if (Suspended()) {
 				return StaticDispatchResult::kVmUnavailable;
@@ -283,36 +281,13 @@ namespace OSFUI::API::Papyrus
 				return StaticDispatchResult::kVmUnavailable;
 			}
 
-			std::string token;
-			{
-				std::lock_guard l{ State().lock };
-				constexpr std::size_t kMaxInflightViewRequests = 256;
-				constexpr std::size_t kMaxInflightPerView = 32;
-				const auto perView = std::ranges::count_if(State().viewRequests, [&](const auto& item) {
-					return item.second.view == a_sourceViewId;
-				});
-				if (State().viewRequests.size() >= kMaxInflightViewRequests || perView >= kMaxInflightPerView) {
-					REX::WARN("PapyrusApi: too many view requests in flight for '{}'", a_sourceViewId);
-					return StaticDispatchResult::kCapacityReached;
-				}
-				token = "p" + std::to_string(State().nextViewRequest++);
-				PendingViewRequest pending;
-				pending.token = token;
-				pending.view = a_sourceViewId;
-				pending.deferToken = a_deferToken;
-				State().viewRequests.emplace(token, std::move(pending));
-				MarkPending();
-			}
-
-			if (!DispatchOne(vm, a_target, MakeRequestArgs(RE::BSFixedString(std::string(a_name).c_str()), a_args, RE::BSFixedString(std::string(a_sourceViewId).c_str()), RE::BSFixedString(token.c_str())))) {
-				std::lock_guard l{ State().lock };
-				State().viewRequests.erase(token);
-				return StaticDispatchResult::kTargetRejected;
-			}
-			return StaticDispatchResult::kQueued;
+			// The script's reply token is the bridge token itself, so nothing is tracked here.
+			const auto token = std::to_string(a_deferToken);
+			return DispatchOne(vm, a_target, MakeRequestArgs(RE::BSFixedString(std::string(a_name).c_str()), a_args, RE::BSFixedString(std::string(a_sourceViewId).c_str()), RE::BSFixedString(token.c_str()))) ?
+				StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
 		}
 
-		StaticDispatchResult DispatchViewRequest(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken)
+		StaticDispatchResult DispatchViewRequest(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::uint64_t a_deferToken)
 		{
 			const auto targets = CollectTargets(Kind::kRequest, a_modId, a_name);
 			return targets.empty() ? StaticDispatchResult::kTargetRejected :
@@ -369,18 +344,35 @@ namespace OSFUI::API::Papyrus
 			}, a_value);
 		}
 
-		bool CompleteViewRequest(const RE::BSFixedString& a_token, nlohmann::json a_value, std::optional<std::uint32_t> a_formId = std::nullopt, std::optional<std::vector<std::uint32_t>> a_formIds = std::nullopt)
+		std::optional<std::uint64_t> ParseReplyToken(const RE::BSFixedString& a_token)
 		{
-			const auto token = ToLowerAscii(a_token.c_str());
+			const std::string_view text = a_token.c_str() ? a_token.c_str() : "";
+			std::uint64_t token = 0;
+			const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), token);
+			if (ec != std::errc{} || end != text.data() + text.size() || token == 0) return std::nullopt;
+			return token;
+		}
+
+		// VM thread. Late, duplicate and stale answers are filtered by the bridge on the main thread.
+		bool QueueViewReply(const RE::BSFixedString& a_token, QueuedViewReply a_reply)
+		{
+			constexpr std::size_t kMaxQueuedReplies = 256;
+			const auto token = ParseReplyToken(a_token);
+			if (!token) return false;
+			a_reply.token = *token;
 			std::lock_guard l{ State().lock };
-			const auto it = State().viewRequests.find(token);
-			if (it == State().viewRequests.end() || it->second.answered) return false;
-			it->second.answered = true;
-			it->second.value = std::move(a_value);
-			it->second.formId = a_formId;
-			it->second.formIds = std::move(a_formIds);
+			if (State().replies.size() >= kMaxQueuedReplies) {
+				REX::WARN("PapyrusApi: dropped a script reply; {} replies already wait for the game thread", kMaxQueuedReplies);
+				return false;
+			}
+			State().replies.push_back(std::move(a_reply));
 			MarkPending();
 			return true;
+		}
+
+		bool CompleteViewRequest(const RE::BSFixedString& a_token, nlohmann::json a_value, std::optional<std::uint32_t> a_formId = std::nullopt, std::optional<std::vector<std::uint32_t>> a_formIds = std::nullopt)
+		{
+			return QueueViewReply(a_token, { .value = std::move(a_value), .formId = a_formId, .formIds = std::move(a_formIds) });
 		}
 
 		bool CompleteViewRequest(const RE::BSFixedString& a_token, const Value& a_value)
@@ -394,16 +386,8 @@ namespace OSFUI::API::Papyrus
 		bool RejectPendingViewRequest(const RE::BSFixedString& a_token,
 			const RE::BSFixedString& a_code, const RE::BSFixedString& a_message)
 		{
-			const auto token = ToLowerAscii(a_token.c_str());
-			std::lock_guard l{ State().lock };
-			const auto it = State().viewRequests.find(token);
-			if (it == State().viewRequests.end() || it->second.answered) return false;
-			it->second.answered = true;
-			it->second.rejected = true;
-			it->second.code = a_code.empty() ? "papyrus-error" : a_code.c_str();
-			it->second.message = a_message.c_str();
-			MarkPending();
-			return true;
+			return QueueViewReply(a_token, { .rejected = true,
+				.code = a_code.empty() ? "papyrus-error" : a_code.c_str(), .message = a_message.c_str() });
 		}
 		// VM thread; normalize BSFixedString casing before validating the target.
 		std::optional<std::string> FoldTarget(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key, std::string_view a_native)
@@ -796,13 +780,8 @@ namespace OSFUI::API::Papyrus
 				BridgeApi::Get().ReleasePapyrusEndpoint(e.modId + "." + e.key);
 			}
 			State().entries.clear();
-			// Settle old requests on the main tick and clear session identities.
-			for (auto& [_, request] : State().viewRequests) {
-				request.answered = true;
-				request.rejected = true;
-				request.code = "game-load";
-				request.message = "Papyrus request was canceled by game load";
-			}
+			// Old-session answers are void; sessionReset makes the main tick reject every in-flight request.
+			State().replies.clear();
 			State().states.clear();
 			State().events.clear();
 			State().sessionReset = true;
@@ -916,12 +895,6 @@ namespace OSFUI::API::Papyrus
 			StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
 	}
 
-	void DropViewRequest(std::string_view a_deferToken)
-	{
-		std::lock_guard l{ State().lock };
-		std::erase_if(State().viewRequests, [&](const auto& item) { return item.second.deferToken == a_deferToken; });
-	}
-
 	ViewEndpoint ResolveViewEndpoint(std::string_view a_sourceModId, std::string_view a_name)
 	{
 		std::lock_guard l{ State().lock };
@@ -954,7 +927,7 @@ namespace OSFUI::API::Papyrus
 	}
 
 	StaticDispatchResult OnViewRequest(std::string_view a_modId, std::string_view a_name,
-		const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken)
+		const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::uint64_t a_deferToken)
 	{
 		return DispatchViewRequest(a_modId, a_name, a_args, a_sourceViewId, a_deferToken);
 	}
@@ -968,7 +941,7 @@ namespace OSFUI::API::Papyrus
 
 		std::vector<QueuedState> states;
 		std::vector<QueuedEvent> events;
-		std::vector<PendingViewRequest> completed;
+		std::vector<QueuedViewReply> completed;
 		{
 			// Clear the hint before locking. A racing producer may be included in this
 			// batch while leaving its bit set, which only causes one harmless extra pass.
@@ -977,14 +950,7 @@ namespace OSFUI::API::Papyrus
 			events.swap(State().events);
 			batch.sessionReset = State().sessionReset;
 			State().sessionReset = false;
-			for (auto it = State().viewRequests.begin(); it != State().viewRequests.end();) {
-				if (!it->second.answered) {
-					++it;
-					continue;
-				}
-				completed.push_back(std::move(it->second));
-				it = State().viewRequests.erase(it);
-			}
+			completed.swap(State().replies);
 		}
 
 		batch.states.reserve(states.size());
@@ -1017,8 +983,7 @@ namespace OSFUI::API::Papyrus
 		batch.replies.reserve(completed.size());
 		for (auto& pending : completed) {
 			ViewReply reply;
-			reply.view = std::move(pending.view);
-			reply.deferToken = std::move(pending.deferToken);
+			reply.token = pending.token;
 			if (pending.rejected) {
 				reply.rejected = true;
 				reply.code = std::move(pending.code);

@@ -34,7 +34,6 @@ namespace OSFUI::API::Papyrus
 		kQueued,
 		kVmUnavailable,
 		kTargetRejected,
-		kCapacityReached,
 	};
 	// Queue a loose-PEX GLOBAL call while preserving JavaScript scalar types.
 	using StaticCallArg = std::variant<std::string, std::int32_t, float, bool>;
@@ -62,16 +61,15 @@ namespace OSFUI::API::Papyrus
 	};
 
 	// A local name is resolved against a_sourceModId first; otherwise the bounded registry is matched against each exact "modId.name" qualified endpoint.
-	void DropViewRequest(std::string_view a_deferToken);
 	[[nodiscard]] ViewEndpoint ResolveViewEndpoint(std::string_view a_sourceModId, std::string_view a_name);
 
 	bool OnViewSend(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId);
-	StaticDispatchResult OnViewRequest(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::string_view a_deferToken);
+	// a_deferToken is MessageBridge::Defer()'s token; the script receives it as its reply token.
+	StaticDispatchResult OnViewRequest(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId, std::uint64_t a_deferToken);
 
 	struct ViewReply
 	{
-		std::string    view;
-		std::string    deferToken;
+		std::uint64_t  token{ 0 };  // MessageBridge::Defer()'s token
 		bool           rejected{ false };
 		std::string    code;
 		std::string    message;

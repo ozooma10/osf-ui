@@ -187,22 +187,48 @@ int main()
     CHECK(api.RegisterSend("acme.refresh", &Send, nullptr));
 
     // A late reply to an old q1 must not settle the new document's q1.
-    std::string oldToken, newToken;
-    unsigned dropped = 0;
+    MessageBridge::DeferToken oldToken = 0, newToken = 0;
     bridge.RegisterRequest("deferred", [&](const auto&, MessageBridge& source) {
-        const auto token = source.Defer([&] { ++dropped; });
-        if (oldToken.empty()) oldToken = token;
+        const auto token = source.Defer();
+        if (oldToken == 0) oldToken = token;
         else newToken = token;
     });
     bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"deferred","id":"q1","payload":{}})");
     bridge.OnViewCreated("acme/panel");
-    CHECK(dropped == 1);
     bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"deferred","id":"q1","payload":{}})");
+    CHECK(oldToken != 0 && newToken != 0 && oldToken != newToken);
     g_sent.clear();
     bridge.RespondTo(oldToken, {{ "old", true }});
     CHECK(g_sent.empty());
     bridge.RespondTo(newToken, {{ "new", true }});
     CHECK(g_sent.size() == 1 && g_sent.back()["payload"]["new"] == true);
+    // Only the first answer counts; the bridge drops the duplicate.
+    bridge.RejectTo(newToken, "late");
+    CHECK(g_sent.size() == 1);
+
+    // RejectAll settles every outstanding request once with the given error.
+    oldToken = newToken = 0;
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"deferred","id":"q2","payload":{}})");
+    bridge.HandleWebMessage("acme/panel", R"({"kind":"request","name":"deferred","id":"q3","payload":{}})");
+    g_sent.clear();
+    bridge.RejectAll("game-load", "canceled");
+    CHECK(g_sent.size() == 2);
+    for (const auto& sent : g_sent) {
+        CHECK(sent["kind"] == "error");
+        CHECK(sent["payload"]["code"] == "game-load");
+    }
+    g_sent.clear();
+    bridge.RespondTo(oldToken, {{ "late", true }});
+    bridge.RespondTo(newToken, {{ "late", true }});
+    CHECK(g_sent.empty());
+
+    // Tokens are process-unique, so a stale answer cannot settle a request on a new bridge.
+    MessageBridge other([](std::string_view, std::string_view) {});
+    MessageBridge::DeferToken otherToken = 0;
+    other.RegisterRequest("deferred", [&](const auto&, MessageBridge& source) { otherToken = source.Defer(); });
+    other.OnViewCreated("acme/panel");
+    other.HandleWebMessage("acme/panel", R"({"kind":"request","name":"deferred","id":"q1","payload":{}})");
+    CHECK(otherToken > newToken);
 
     // Owner-qualified fallback beats a global native endpoint, including kind checks.
     unsigned ownSend = 0, globalSend = 0;

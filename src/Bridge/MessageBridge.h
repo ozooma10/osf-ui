@@ -36,8 +36,8 @@ namespace OSFUI
 
 		// Only faults marked a_viewFault count toward view.protocol-misuse.
 		using ProtocolFaultSink = std::function<void(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)>;
-		// Adapter cleanup invoked only when the bridge drops a deferred request before RespondTo/RejectTo can settle it (deadline or view teardown).
-		using DeferredDropHandler = std::function<void()>;
+		// Process-unique handle for a deferred request; 0 is never issued.
+		using DeferToken = std::uint64_t;
 
 		explicit MessageBridge(SendFn a_send);
 
@@ -55,13 +55,16 @@ namespace OSFUI
 		void Respond(const nlohmann::json& a_payload);
 		// Fail the current request with a stable machine code and human message.
 		void Reject(std::string_view a_code, std::string_view a_message = {});
-		// Returns a process-unique token for bounded deferred settlement, or "" outside an unsettled request.
-		[[nodiscard]] std::string Defer(DeferredDropHandler a_onDropped = {});
+		// Returns a token for bounded deferred settlement, or 0 outside an unsettled request.
+		// The bridge is the only owner of deferred requests; adapters just carry the token.
+		[[nodiscard]] DeferToken Defer();
 
 		// Stale, expired, and duplicate deferred-settlement tokens are ignored.
-		void RespondTo(std::string_view a_token, const nlohmann::json& a_payload);
-		void RespondJsonTo(std::string_view a_token, std::string_view a_payloadJson);
-		void RejectTo(std::string_view a_token, std::string_view a_code, std::string_view a_message = {});
+		void RespondTo(DeferToken a_token, const nlohmann::json& a_payload);
+		void RespondJsonTo(DeferToken a_token, std::string_view a_payloadJson);
+		void RejectTo(DeferToken a_token, std::string_view a_code, std::string_view a_message = {});
+		// Settle every outstanding deferred request with the same error (e.g. a game load).
+		void RejectAll(std::string_view a_code, std::string_view a_message = {});
 
 		// Queue one-shot events until hello to preserve message-before-first-paint delivery.
 		void Emit(std::string_view a_viewId, std::string_view a_name, const nlohmann::json& a_payload);
@@ -102,7 +105,6 @@ namespace OSFUI
 			std::string                           requestId;  // the PAGE's id, echoed on the wire
 			std::string                           name;
 			std::chrono::steady_clock::time_point deadline;
-			DeferredDropHandler                   onDropped;
 		};
 		struct Gate
 		{
@@ -139,8 +141,7 @@ namespace OSFUI
 		FallbackHandler                                    m_fallbackSend;
 		FallbackHandler                                    m_fallbackRequest;
 		std::unordered_map<std::string, Gate>             m_gates;    // view id -> event gate
-		std::unordered_map<std::string, Pending>          m_pending;  // runtime token -> deferred request
-		std::uint64_t                                     m_nextDeferToken{ 1 };
+		std::unordered_map<DeferToken, Pending>           m_pending;  // runtime token -> deferred request
 		HelloHook                                         m_onHello;
 		ProtocolFaultSink                                  m_protocolFaultSink;
 
