@@ -625,7 +625,7 @@ namespace OSFUI
 
 	void Runtime::UpdateViewReveal()
 	{
-		if (!m_initialized || !IsVisible() || !m_renderer || !m_compositor) {
+		if (!m_initialized || !IsVisible() || !m_renderer || !m_compositor || !m_viewReveal.Pending()) {
 			return;
 		}
 
