@@ -201,13 +201,14 @@ namespace OSFUI
 	{
 		struct Notify
 		{
-			enum class Kind { Web, Load, Fatal, Console, Log, Dead };
+			enum class Kind { Web, Load, Fatal, Console, Log, Dead, Back };
 			Kind           kind{ Kind::Web };
 			std::string    view;
 			std::string    text, detail;
 			bool           failed{};
 			int            code{};
 			std::uint32_t  unsignedCode{};
+			std::uint64_t  presentationEpoch{};
 		};
 
 		WebView2HostConfig    config;
@@ -228,6 +229,7 @@ namespace OSFUI
 		LoadHandler             onLoad;
 		FailureHandler          onFailure;
 		CursorChangeHandler     onCursorChange;
+		BackHandler             onBack;
 		// Game-thread only (Drain/setters).
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
@@ -289,7 +291,7 @@ namespace OSFUI
 		void Push(Notify a_value)
 		{
 			std::scoped_lock lock(notifyMutex);
-			if (a_value.kind == Notify::Kind::Web) {
+			if (a_value.kind == Notify::Kind::Web || a_value.kind == Notify::Kind::Back) {
 				if (pendingWebCount >= kMaxPendingWeb) {
 					++droppedWebCount;
 					return;
@@ -884,6 +886,9 @@ namespace OSFUI
 					const auto web = msg::FromJson<msg::WebMessage>(message);
 					Push(Notify{ .kind = Notify::Kind::Web,
 						.view = web.view, .text = web.json });
+				} else if (type == msg::BackUnhandled::kType) {
+					const auto back = msg::FromJson<msg::BackUnhandled>(message);
+					Push(Notify{ .kind = Notify::Kind::Back, .view = back.view, .presentationEpoch = back.presentationEpoch });
 				} else if (type == msg::LoadEvent::kType) {
 					const auto load = msg::FromJson<msg::LoadEvent>(message);
 					Push(Notify{ .kind = Notify::Kind::Load,
@@ -993,6 +998,9 @@ namespace OSFUI
 			}
 			for (auto& value : local) {
 				switch (value.kind) {
+				case Notify::Kind::Back:
+					if (onBack) onBack(value.view, value.presentationEpoch);
+					break;
 				case Notify::Kind::Web:
 					{
 						bool knownView = false;
@@ -1342,6 +1350,24 @@ namespace OSFUI
 		std::scoped_lock lock(m_impl->stateMutex);
 		m_impl->focusRequested = a_focused;
 		m_impl->Send(ToJson(msg::Focus{ .focused = a_focused }));
+	}
+
+	void WebView2HostWebRenderer::SetBackHandler(BackHandler a_handler)
+	{
+		m_impl->onBack = std::move(a_handler);
+	}
+
+	void WebView2HostWebRenderer::RequestBack(std::string_view a_viewId)
+	{
+		std::scoped_lock lock(m_impl->stateMutex);
+		m_impl->Send(ToJson(msg::Back{ .view = std::string(a_viewId), .presentationEpoch = m_impl->presentationEpoch }));
+	}
+
+	bool WebView2HostWebRenderer::IsCurrentInputPresentation(std::string_view a_viewId, std::uint64_t a_epoch) const
+	{
+		std::scoped_lock lock(m_impl->stateMutex);
+		return m_impl->presentationEpoch == a_epoch && m_impl->inputTargetId == a_viewId &&
+			!m_impl->allHidden && m_impl->focusRequested && m_impl->windowActive;
 	}
 
 	void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t a_vkCode, bool a_down)

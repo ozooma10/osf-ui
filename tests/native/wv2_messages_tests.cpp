@@ -33,6 +33,13 @@ namespace
 
 int main()
 {
+	{
+		const auto request = RoundTrip(msg::Back{ .view = "starcade.arcade/launcher", .presentationEpoch = 0xFFFFFFFFFFFFull });
+		const auto reply = RoundTrip(msg::BackUnhandled{ .view = request.view, .presentationEpoch = request.presentationEpoch });
+		Check(reply.view == request.view && reply.presentationEpoch == 0xFFFFFFFFFFFFull,
+			"Back request and reply retain view and presentation identity");
+		Check(msg::Back::kType != msg::BackUnhandled::kType, "Back request and reply have distinct types");
+	}
 	// ---- every message stamps its own type, and the types are distinct.
 	{
 		Check(msg::ToJson(msg::Init{}).at("type") == "init", "init stamps type");

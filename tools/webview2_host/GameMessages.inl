@@ -223,6 +223,7 @@
 					{ msg::Focus::kType, &App::HandleFocus },
 					{ msg::Mouse::kType, &App::HandleMouse },
 					{ msg::Keyboard::kType, &App::HandleKeyboard },
+					{ msg::Back::kType, &App::HandleBack },
 					{ msg::TextInput::kType, &App::HandleTextInput },
 					{ msg::WindowActive::kType, &App::HandleWindowActive },
 					{ msg::FrameAck::kType, &App::HandleFrameAck },

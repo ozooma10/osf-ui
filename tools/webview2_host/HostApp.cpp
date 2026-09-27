@@ -1,5 +1,6 @@
 #include "HostApp.h"
 #include "EmbeddedScripts.h"
+#include "FormControls.h"
 
 #include "Core/Version.h"
 #include "Core/Ids.h"
@@ -824,7 +825,6 @@ namespace osfui::wv2
 				if (quit.load() || a_view.securityReady || !a_view.webView) return;
 				a_view.securityReady = true;
 				InstallEvents(a_view);
-				InstallBridgeShim(a_view);
 				if (!captureStarted) {
 					if (!StartCapture()) return;
 					captureStarted = true;
@@ -838,9 +838,14 @@ namespace osfui::wv2
 			void InstallBridgeShim(View& a_view)
 			{
 				const auto hr = AddDocumentScript(a_view, EmbeddedScript::BridgeShim,
-					[this](const HRESULT a_scriptHr) {
+					[this, id = a_view.id, generation = a_view.generation](const HRESULT a_scriptHr) {
+						auto* view = FindView(id);
+						if (!view || view->generation != generation) return;
 						if (FAILED(a_scriptHr)) {
 							FailHost("bridge-shim", a_scriptHr, "bridge shim installation failed");
+						} else {
+							// Includes form-control styles for every document and iframe.
+							FinishControllerSetup(*view);
 						}
 					});
 				if (FAILED(hr)) {
@@ -940,7 +945,7 @@ namespace osfui::wv2
 							ReportSecurityFailure(*current, a_scriptHr,
 								"egress transport policy installation failed");
 						} else {
-							FinishControllerSetup(*current);
+							InstallBridgeShim(*current);
 						}
 					});
 				if (FAILED(scriptHr)) {

@@ -6,6 +6,25 @@ using namespace osfui::wv2;
 
 int main()
 {
+	{
+		// A browser decision and its input tap must finish before a later key.
+		std::vector<std::string> ordered;
+		CdpInputQueue::Completion finishDecision;
+		int taskFailures = 0;
+		auto tasks = std::make_shared<CdpInputQueue>(
+			[&](const std::string& method, const nlohmann::json&, auto done) { ordered.push_back(method); done(true); },
+			[&] { ++taskFailures; });
+		tasks->PushTask([&](auto done) { ordered.push_back("back"); finishDecision = std::move(done); });
+		tasks->Push("later-key", {});
+		assert(ordered == std::vector<std::string>{ "back" });
+		finishDecision(true);
+		assert((ordered == std::vector<std::string>{ "back", "later-key" }));
+		tasks->PushTask([&](auto done) { finishDecision = std::move(done); });
+		tasks->Push("must-not-run", {});
+		tasks->CheckTimeout(std::chrono::steady_clock::now() + std::chrono::seconds(6));
+		finishDecision(true);
+		assert(taskFailures == 1 && ordered.back() == "later-key");
+	}
 	std::vector<std::string> sent;
 	std::deque<CdpInputQueue::Completion> completions;
 	int failures = 0;

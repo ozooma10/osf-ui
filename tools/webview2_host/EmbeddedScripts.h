@@ -8,6 +8,7 @@ namespace osfui::wv2
 	{
 		BridgeShim,
 		NetworkGuard,
+		FormControls,
 	};
 
 	[[nodiscard]] const std::wstring& GetEmbeddedScript(EmbeddedScript a_script);

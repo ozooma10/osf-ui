@@ -168,6 +168,26 @@ namespace osfui::wv2::msg
 
 #undef OSFUI_WV2_VIEW_ONLY_MESSAGE
 
+	// The host first offers Back to an open in-page select. Only an unhandled request returns to Runtime; the epoch prevents closing a replacement menu.
+	struct Back
+	{
+		static constexpr std::string_view kType = "back";
+		std::string view;
+		std::uint64_t presentationEpoch{};
+		static constexpr auto kFields = std::tuple{
+			F("view", &Back::view), F("presentationEpoch", &Back::presentationEpoch)
+		};
+	};
+	struct BackUnhandled
+	{
+		static constexpr std::string_view kType = "backUnhandled";
+		std::string view;
+		std::uint64_t presentationEpoch{};
+		static constexpr auto kFields = std::tuple{
+			F("view", &BackUnhandled::view), F("presentationEpoch", &BackUnhandled::presentationEpoch)
+		};
+	};
+
 	struct SetHidden
 	{
 		static constexpr std::string_view kType = "setHidden";

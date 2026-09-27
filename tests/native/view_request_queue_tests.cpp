@@ -20,6 +20,18 @@ int main()
 	assert(!std::get<OSFUI::ViewRequestQueue::ViewRequest>(batch[4]).open);
 	assert(queue.Take().empty());
 
+	// Browser Back replies remain ordered with close/reopen requests and keep
+	// their original presentation identity for the runtime's stale-reply check.
+	queue.EnqueueView("acme/first", false);
+	queue.EnqueueBackUnhandled("acme/first", 42);
+	queue.EnqueueView("acme/second", true);
+	const auto backBatch = queue.Take();
+	assert(backBatch.size() == 3);
+	const auto& back = std::get<OSFUI::ViewRequestQueue::BackUnhandled>(backBatch[1]);
+	assert(back.view == "acme/first" && back.presentationEpoch == 42);
+	assert(!std::get<OSFUI::ViewRequestQueue::ViewRequest>(backBatch[0]).open);
+	assert(std::get<OSFUI::ViewRequestQueue::ViewRequest>(backBatch[2]).open);
+
 	// Producers may enqueue during consumption without extending or invalidating
 	// the batch being processed (ready and lifecycle callbacks do this).
 	for (const auto& operation : batch) {

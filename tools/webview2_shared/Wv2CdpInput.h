@@ -16,6 +16,7 @@ namespace osfui::wv2
 	{
 	public:
 		using Completion = std::function<void(bool)>;
+		using Task = std::function<void(Completion)>;
 		using Dispatch = std::function<void(const std::string&, const nlohmann::json&, Completion)>;
 		CdpInputQueue(Dispatch a_dispatch, std::function<void()> a_failure) :
 			m_dispatch(std::move(a_dispatch)), m_failure(std::move(a_failure)) {}
@@ -26,9 +27,17 @@ namespace osfui::wv2
 
 		void Push(std::string a_method, nlohmann::json a_params)
 		{
+			PushTask([dispatch = m_dispatch, method = std::move(a_method), params = std::move(a_params)](Completion done) {
+				dispatch(method, params, std::move(done));
+			});
+		}
+
+		// Browser decisions that precede input share the same ordering, bounds, cancellation and timeout as the CDP commands they guard.
+		void PushTask(Task a_task)
+		{
 			if (m_closed) return;
 			if (m_pending.size() >= 256) { Fail(); return; }
-			m_pending.emplace_back(std::move(a_method), std::move(a_params));
+			m_pending.push_back(std::move(a_task));
 			Pump();
 		}
 
@@ -54,8 +63,7 @@ namespace osfui::wv2
 			m_started = std::chrono::steady_clock::now();
 			// Keep arguments alive even if a synchronous failure closes the queue.
 			const auto command = m_pending.front();
-			const auto dispatch = m_dispatch;
-			dispatch(command.first, command.second, [self = shared_from_this()](bool ok) {
+			command([self = shared_from_this()](bool ok) {
 				if (self->m_closed) return;
 				if (!ok) { self->Fail(); return; }
 				self->m_pending.pop_front();
@@ -65,7 +73,7 @@ namespace osfui::wv2
 		}
 		Dispatch m_dispatch;
 		std::function<void()> m_failure;
-		std::deque<std::pair<std::string, nlohmann::json>> m_pending;
+		std::deque<Task> m_pending;
 		bool m_busy{ false }, m_closed{ false };
 		std::chrono::steady_clock::time_point m_started;
 	};

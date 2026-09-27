@@ -16,6 +16,9 @@ namespace osfui::wv2
 		const unsigned char kNetworkGuard[] = {
 #include "network-guard.js.h"
 		};
+		const unsigned char kFormControls[] = {
+#include "form-controls.js.h"
+		};
 
 		template <std::size_t N>
 		[[nodiscard]] std::wstring LoadScript(const unsigned char (&a_data)[N])
@@ -35,11 +38,13 @@ namespace osfui::wv2
 
 	const std::wstring& GetEmbeddedScript(const EmbeddedScript a_script)
 	{
-		static const auto bridge = LoadScript(kBridgeShim);
+		static const auto controls = LoadScript(kFormControls);
+		static const auto bridge = controls + LoadScript(kBridgeShim);
 		static const auto network = LoadScript(kNetworkGuard);
 		switch (a_script) {
 		case EmbeddedScript::BridgeShim:   return bridge;
 		case EmbeddedScript::NetworkGuard: return network;
+		case EmbeddedScript::FormControls: return controls;
 		}
 		return bridge;
 	}

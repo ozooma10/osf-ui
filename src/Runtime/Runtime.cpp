@@ -176,6 +176,9 @@ namespace OSFUI
 		m_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (m_bridge) m_bridge->HandleWebMessage(a_viewId, a_json);
 		});
+		m_renderer->SetBackHandler([](std::string_view a_viewId, std::uint64_t a_epoch) {
+			API::BridgeApi::Get().ViewRequests().EnqueueBackUnhandled(std::string(a_viewId), a_epoch);
+		});
 		if (m_developerMode && !m_devViewReload) {
 			m_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_mod) {
 				return m_renderer && m_renderer->RefreshModFiles(a_mod);
@@ -243,24 +246,31 @@ namespace OSFUI
 				}
 				continue;
 			}
+			if (const auto* back = std::get_if<ViewRequestQueue::BackUnhandled>(&operation)) {
+				CommitPresentation();
+				const auto active = m_presentation.ActiveMenu();
+				if (m_viewOpens.PendingMenu() || !active || *active != back->view || !m_renderer ||
+					!m_renderer->IsCurrentInputPresentation(back->view, back->presentationEpoch)) continue;
+				if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
+					PrepareViewOpen(*target, "for native back navigation");
+				} else if (m_viewInputGrants.OwnsBackAction(*active)) {
+					constexpr std::uint32_t kVkEscape = 0x1B;
+					m_renderer->InjectKeyEvent(kVkEscape, true);
+					m_renderer->InjectKeyEvent(kVkEscape, false);
+				} else {
+					m_presentation.CloseActiveMenu();
+				}
+				continue;
+			}
 			switch (std::get<ViewPresentationRequest>(operation)) {
 			case ViewPresentationRequest::Back: {
 				const auto active = m_presentation.ActiveMenu();
 				if (m_viewOpens.PendingMenu()) {
 					m_viewOpens.CancelMenu();
 				} else if (active) {
-					if (const auto target = m_viewInputGrants.BackTargetFor(*active)) {
-						PrepareViewOpen(*target, "for native back navigation");
-					} else if (m_viewInputGrants.OwnsBackAction(*active) && m_renderer) {
-						// Deliver Back to the menu selected by preceding requests.
-						CommitPresentation();
-						if (m_presentation.ActiveMenu() != active) continue;
-						constexpr std::uint32_t kVkEscape = 0x1B;
-						m_renderer->InjectKeyEvent(kVkEscape, true);
-						m_renderer->InjectKeyEvent(kVkEscape, false);
-					} else {
-						m_presentation.CloseActiveMenu();
-					}
+					// Both keyboard Escape and controller Back take this path.
+					CommitPresentation();
+					if (m_renderer && m_presentation.ActiveMenu() == active) m_renderer->RequestBack(*active);
 				} else {
 					m_presentation.CloseActiveMenu();
 				}

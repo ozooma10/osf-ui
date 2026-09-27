@@ -4,6 +4,7 @@
 #include <string>
 #include <mutex>
 #include <variant>
+#include <cstdint>
 
 namespace OSFUI
 {
@@ -28,11 +29,18 @@ namespace OSFUI
             bool        active{ false };
         };
 
-        using Operation = std::variant<ViewPresentationRequest, ViewRequest, RelativePointerRequest>;
+        struct BackUnhandled
+        {
+            std::string view;
+            std::uint64_t presentationEpoch{};
+        };
+
+        using Operation = std::variant<ViewPresentationRequest, ViewRequest, RelativePointerRequest, BackUnhandled>;
 
         void Enqueue(ViewPresentationRequest a_request);
         void EnqueueView(std::string a_viewId, bool a_open);
         void EnqueueRelativePointer(std::string a_viewId, bool a_active);
+        void EnqueueBackUnhandled(std::string a_viewId, std::uint64_t a_epoch);
         // One finite FIFO batch. Callback-enqueued work stays for the next take.
         std::vector<Operation> Take();
 

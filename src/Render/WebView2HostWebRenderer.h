@@ -47,6 +47,7 @@ namespace OSFUI
 		using FailureHandler = std::function<void(const FailureEvent& a_event)>;
 		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
+		using BackHandler = std::function<void(std::string_view a_viewId, std::uint64_t a_presentationEpoch)>;
 		// Update drains game-thread callbacks; cursor callbacks run on the transport thread.
 
 		WebView2HostWebRenderer();
@@ -70,6 +71,9 @@ namespace OSFUI
 		void SetLoadHandler(LoadHandler a_handler);
 		void SetFailureHandler(FailureHandler a_handler);
 		void SetCursorChangeHandler(CursorChangeHandler a_handler);
+		void SetBackHandler(BackHandler a_handler);
+		void RequestBack(std::string_view a_viewId);
+		bool IsCurrentInputPresentation(std::string_view a_viewId, std::uint64_t a_epoch) const;
 		void SetInputFocus(bool a_focused);
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down);
 		void InjectKeyboard(const osfui::wv2::msg::Keyboard& a_key);

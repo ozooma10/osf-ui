@@ -75,6 +75,56 @@
 				view->cdpInput->Push("Input.dispatchKeyEvent", CdpKeyParams(key));
 			}
 
+			static void DispatchBackKey(ICoreWebView2* a_web, bool a_down, CdpInputQueue::Completion a_done)
+			{
+				const msg::Keyboard escape{ .vk = VK_ESCAPE, .down = a_down, .key = "Escape", .code = "Escape" };
+				const auto hr = a_web->CallDevToolsProtocolMethod(L"Input.dispatchKeyEvent",
+					ToWide(Json::Dump(CdpKeyParams(escape))).c_str(),
+					Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+						[web = ComPtr<ICoreWebView2>(a_web), a_down, a_done](HRESULT result, LPCWSTR) -> HRESULT {
+							if (SUCCEEDED(result) && a_down) {
+								DispatchBackKey(web.Get(), false, a_done);
+							} else {
+								a_done(SUCCEEDED(result));
+							}
+							return S_OK;
+						}).Get());
+				if (FAILED(hr)) a_done(false);
+			}
+
+			void HandleBack(const json& a_msg)
+			{
+				const auto request = msg::FromJson<msg::Back>(a_msg);
+				auto* view = CdpInputTarget();
+				if (!view || !view->domSeen || view->id != request.view) return;
+				const auto input = view->cdpInput;
+				const auto epoch = presentationEpoch;
+				input->PushTask([this, request, input, epoch, web = view->webView](CdpInputQueue::Completion done) {
+					const auto hr = web->ExecuteScript(kHasOpenSelectScript,
+						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+							[this, request, input, epoch, done](HRESULT result, LPCWSTR value) -> HRESULT {
+								auto* current = CdpInputTarget();
+								// Navigation replaces the input queue. Hide, target changes and
+								// focus loss also invalidate a pending browser decision.
+								if (quit.load() || !current || !current->domSeen || current->id != request.view || current->cdpInput != input || presentationEpoch != epoch) {
+									done(true);
+									return S_OK;
+								}
+								if (FAILED(result) || !value || (std::wstring_view(value) != L"true" && std::wstring_view(value) != L"false")) {
+									done(false);
+								} else if (std::wstring_view(value) == L"true") {
+									// The query and the complete Escape tap are one queued task: later keys cannot overtake the picker dismissal.
+									DispatchBackKey(current->webView.Get(), true, done);
+								} else {
+									Send(msg::ToJson(msg::BackUnhandled{ .view = request.view, .presentationEpoch = request.presentationEpoch }));
+									done(true);
+								}
+								return S_OK;
+							}).Get());
+					if (FAILED(hr)) done(false);
+				});
+			}
+
 			void HandleTextInput(const json& a_msg)
 			{
 				auto* view = CdpInputTarget();
