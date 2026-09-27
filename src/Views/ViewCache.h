@@ -39,14 +39,16 @@ namespace OSFUI::ViewCache
 
 	using CanRemove = std::function<bool(const std::filesystem::path&)>;
 
-	// Content fingerprint of the complete resolved USVFS tree. The salt carries cache-format/runtime compatibility so a release can invalidate old snapshots.
+	// Metadata fingerprint (path, size and modification time of every file) of the resolved USVFS tree; no content is read. The salt carries
+	// cache-format/runtime compatibility so a release can invalidate old snapshots.
 	[[nodiscard]] std::optional<Fingerprint> FingerprintTree(const std::filesystem::path& a_source, std::string_view a_salt, std::string& a_error);
 
 	[[nodiscard]] std::string GenerationName(std::uint64_t a_fingerprint);
 
 	// Reuse a complete immutable generation, or copy into a private staging tree and atomically publish it. Callers serialize this across processes.
+	// An edit that keeps both a file's size and its timestamp is invisible to the fingerprint and reuses the old generation.
 	[[nodiscard]] std::optional<Prepared> Prepare(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error);
 
 	// Remove abandoned staging trees and old generations. The keep generation is never considered; CanRemove lets the Windows caller honor active lease files.
 	[[nodiscard]] ScavengeResult Scavenge(const std::filesystem::path& a_cacheRoot, const std::filesystem::path& a_keep, const CanRemove& a_canRemove = {});
-} 
+}

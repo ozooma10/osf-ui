@@ -1,6 +1,7 @@
 #include "Views/ViewCache.h"
 
 #include <cassert>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 
@@ -48,6 +49,7 @@ int main()
 	const auto first = OSFUI::ViewCache::Prepare(
 		source, cache, "runtime-v1", "first/process", error);
 	assert(first && !first->reused && error.empty());
+	assert(first->generation.filename() == OSFUI::ViewCache::GenerationName(fingerprint->value));
 	assert(Read(first->generation / "shared" / "osfui.js") == "shared-v1");
 	assert(Read(first->generation / "osfui" / "settings" / "index.html") ==
 		"settings-v1");
@@ -61,11 +63,18 @@ int main()
 		source, cache, "runtime-v1", "second", error);
 	assert(again && again->reused && again->generation == first->generation);
 
-	// Same-size content changes publish a different generation even when an archive
-	// or mod manager preserves the file timestamp.
+	// Documented limitation: the fingerprint is metadata only, so a same-size edit whose
+	// timestamp an archive or mod manager preserved still reuses the old generation.
 	const auto preservedTime = fs::last_write_time(source / "shared" / "osfui.js");
 	Write(source / "shared" / "osfui.js", "shared-v2");
 	fs::last_write_time(source / "shared" / "osfui.js", preservedTime);
+	const auto stale = OSFUI::ViewCache::Prepare(
+		source, cache, "runtime-v1", "stale", error);
+	assert(stale && stale->reused && stale->generation == first->generation);
+	assert(Read(stale->generation / "shared" / "osfui.js") == "shared-v1");
+
+	// A timestamp change alone publishes a different generation.
+	fs::last_write_time(source / "shared" / "osfui.js", preservedTime + std::chrono::seconds(5));
 	const auto changed = OSFUI::ViewCache::Prepare(
 		source, cache, "runtime-v1", "third", error);
 	assert(changed && !changed->reused && changed->generation != first->generation);
@@ -114,7 +123,7 @@ int main()
 
 
 	const auto unicodeSource = root / "unicode-source";
-	const auto unicodeName = fs::path(u8"\u9ebb\u96c0/\U0001f3ae.js");
+	const auto unicodeName = fs::path(u8"麻雀/\U0001f3ae.js");
 	Write(unicodeSource / unicodeName, "unicode asset");
 	const auto unicode = OSFUI::ViewCache::Prepare(unicodeSource, cache, "unicode", "utf8", error);
 	assert(unicode && Read(unicode->generation / unicodeName) == "unicode asset");

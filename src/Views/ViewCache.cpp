@@ -14,7 +14,8 @@ namespace OSFUI::ViewCache
 	{
 		constexpr std::uint64_t kFnvOffset = 1469598103934665603ull;
 		constexpr std::uint64_t kFnvPrime = 1099511628211ull;
-		constexpr std::uint64_t kCacheFormat = 1;
+		// 2: generations are identified by file metadata instead of file content.
+		constexpr std::uint64_t kCacheFormat = 2;
 
 		struct FileStamp
 		{
@@ -22,6 +23,7 @@ namespace OSFUI::ViewCache
 			std::filesystem::path relativePath;
 			std::string           relative;
 			std::uintmax_t        size{ 0 };
+			std::int64_t          modified{ 0 };  // file_time_type ticks
 		};
 
 		struct TreeSnapshot
@@ -35,58 +37,12 @@ namespace OSFUI::ViewCache
 			return (a_hash ^ a_value) * kFnvPrime;
 		}
 
-		void MixBytes(std::uint64_t& a_hash, std::span<const char> a_bytes)
-		{
-			for (const unsigned char byte : a_bytes) {
-				a_hash = Mix(a_hash, byte);
-			}
-		}
-
 		void MixText(std::uint64_t& a_hash, std::string_view a_text)
 		{
-			MixBytes(a_hash, { a_text.data(), a_text.size() });
+			for (const unsigned char byte : a_text) {
+				a_hash = Mix(a_hash, byte);
+			}
 			a_hash = Mix(a_hash, 0);
-		}
-
-		template <class Consumer>
-		bool ReadFile(const FileStamp& a_file, Consumer&& a_consumer, std::string& a_error)
-		{
-			std::ifstream stream(a_file.source, std::ios::binary);
-			if (!stream) {
-				a_error = a_file.relative + ": could not read source file";
-				return false;
-			}
-
-			std::array<char, 64 * 1024> buffer;
-			std::uintmax_t bytesRead = 0;
-			const auto capacity = static_cast<std::streamsize>(buffer.size());
-			for (;;) {
-				stream.read(buffer.data(), capacity);
-				const auto count = stream.gcount();
-				if (count > 0 && !a_consumer(std::span<const char>{
-						buffer.data(), static_cast<std::size_t>(count) })) {
-					return false;
-				}
-				bytesRead += static_cast<std::uintmax_t>(count);
-				if (count != capacity) {
-					break;
-				}
-			}
-			if (stream.bad() || !stream.eof() || bytesRead != a_file.size) {
-				a_error = a_file.relative + ": source file changed while fingerprinting";
-				return false;
-			}
-			return true;
-		}
-
-		bool MixFile(std::uint64_t& a_hash, const FileStamp& a_file, std::string& a_error)
-		{
-			return ReadFile(a_file,
-				[&](std::span<const char> a_bytes) {
-					MixBytes(a_hash, a_bytes);
-					return true;
-				},
-				a_error);
 		}
 
 		bool Fail(std::string& a_error, const std::filesystem::path& a_path, const std::error_code& a_ec)
@@ -124,11 +80,14 @@ namespace OSFUI::ViewCache
 
 				const auto size = it->file_size(ec);
 				if (ec) break;
+				const auto modified = it->last_write_time(ec);
+				if (ec) break;
 				a_snapshot.files.push_back({
 					.source = it->path(),
 					.relativePath = relative,
 					.relative = Utf8Path(relative),
 					.size = size,
+					.modified = static_cast<std::int64_t>(modified.time_since_epoch().count()),
 				});
 			}
 			if (ec) {
@@ -139,28 +98,25 @@ namespace OSFUI::ViewCache
 			return true;
 		}
 
-		Fingerprint BeginFingerprint(std::string_view a_salt)
+		// Metadata only: no file content is read.
+		Fingerprint FingerprintSnapshot(const TreeSnapshot& a_snapshot, std::string_view a_salt)
 		{
 			Fingerprint result;
 			result.value = Mix(kFnvOffset, kCacheFormat);
 			MixText(result.value, a_salt);
+			for (const auto& file : a_snapshot.files) {
+				MixText(result.value, file.relative);
+				result.value = Mix(result.value, file.size);
+				result.value = Mix(result.value, static_cast<std::uint64_t>(file.modified));
+				result.bytes += file.size;
+			}
+			result.files = a_snapshot.files.size();
 			return result;
 		}
 
-		std::optional<Fingerprint> FingerprintFiles(const std::vector<FileStamp>& a_files,
-			std::string_view a_salt, std::string& a_error)
+		bool SameFingerprint(const Fingerprint& a_left, const Fingerprint& a_right)
 		{
-			auto result = BeginFingerprint(a_salt);
-			for (const auto& file : a_files) {
-				MixText(result.value, file.relative);
-				result.value = Mix(result.value, file.size);
-				if (!MixFile(result.value, file, a_error)) {
-					return std::nullopt;
-				}
-				result.bytes += file.size;
-			}
-			result.files = a_files.size();
-			return result;
+			return a_left.value == a_right.value && a_left.files == a_right.files && a_left.bytes == a_right.bytes;
 		}
 
 		std::string MarkerText(const Fingerprint& a_fingerprint, std::string_view a_salt)
@@ -179,6 +135,15 @@ namespace OSFUI::ViewCache
 			return content == MarkerText(a_fingerprint, a_salt);
 		}
 
+		bool WriteText(const std::filesystem::path& a_path, std::string_view a_text)
+		{
+			std::ofstream out(a_path, std::ios::binary | std::ios::trunc);
+			if (!out) return false;
+			out << a_text;
+			out.close();
+			return out.good();
+		}
+
 		std::string SafeStagingId(std::string_view a_value)
 		{
 			std::string out;
@@ -192,27 +157,37 @@ namespace OSFUI::ViewCache
 			return out.empty() ? "unknown" : out;
 		}
 
-		bool CopyFileAndMix(std::uint64_t& a_hash, const FileStamp& a_file,
-			const std::filesystem::path& a_destination, std::string& a_error)
+		// Streamed (the copy path already proven under USVFS) so a size change since the snapshot is caught.
+		bool CopyCachedFile(const FileStamp& a_file, const std::filesystem::path& a_destination, std::string& a_error)
 		{
+			std::ifstream source(a_file.source, std::ios::binary);
+			if (!source) {
+				a_error = a_file.relative + ": could not read source file";
+				return false;
+			}
 			std::ofstream destination(a_destination, std::ios::binary | std::ios::trunc);
 			if (!destination) {
 				a_error = a_file.relative + ": could not create cached file";
 				return false;
 			}
 
-			if (!ReadFile(a_file,
-					[&](std::span<const char> a_bytes) {
-						destination.write(a_bytes.data(),
-							static_cast<std::streamsize>(a_bytes.size()));
-						if (!destination) {
-							a_error = a_file.relative + ": could not write cached file";
-							return false;
-						}
-						MixBytes(a_hash, a_bytes);
-						return true;
-					},
-					a_error)) {
+			std::array<char, 64 * 1024> buffer;
+			std::uintmax_t bytesRead = 0;
+			const auto capacity = static_cast<std::streamsize>(buffer.size());
+			for (;;) {
+				source.read(buffer.data(), capacity);
+				const auto count = source.gcount();
+				if (count > 0 && !destination.write(buffer.data(), count)) {
+					a_error = a_file.relative + ": could not write cached file";
+					return false;
+				}
+				bytesRead += static_cast<std::uintmax_t>(count);
+				if (count != capacity) {
+					break;
+				}
+			}
+			if (source.bad() || !source.eof() || bytesRead != a_file.size) {
+				a_error = a_file.relative + ": source file changed while copying";
 				return false;
 			}
 
@@ -224,48 +199,30 @@ namespace OSFUI::ViewCache
 			return true;
 		}
 
-		std::optional<Fingerprint> CopyTreeAndFingerprint(
-			const std::filesystem::path& a_source,
-			const std::filesystem::path& a_destination, std::string_view a_salt,
-			std::string& a_error)
+		bool CopyTree(const TreeSnapshot& a_snapshot, const std::filesystem::path& a_destination, std::string& a_error)
 		{
-			TreeSnapshot snapshot;
-			if (!SnapshotTree(a_source, snapshot, a_error)) {
-				return std::nullopt;
-			}
-
 			std::error_code ec;
 			std::filesystem::create_directories(a_destination, ec);
 			if (ec) {
-				Fail(a_error, a_destination, ec);
-				return std::nullopt;
+				return Fail(a_error, a_destination, ec);
 			}
-			for (const auto& relative : snapshot.directories) {
+			for (const auto& relative : a_snapshot.directories) {
 				std::filesystem::create_directories(a_destination / relative, ec);
 				if (ec) {
-					Fail(a_error, a_destination / relative, ec);
-					return std::nullopt;
+					return Fail(a_error, a_destination / relative, ec);
 				}
 			}
-
-			auto result = BeginFingerprint(a_salt);
-			for (const auto& file : snapshot.files) {
-				MixText(result.value, file.relative);
-				result.value = Mix(result.value, file.size);
-
+			for (const auto& file : a_snapshot.files) {
 				const auto destination = a_destination / file.relativePath;
 				std::filesystem::create_directories(destination.parent_path(), ec);
 				if (ec) {
-					Fail(a_error, destination.parent_path(), ec);
-					return std::nullopt;
+					return Fail(a_error, destination.parent_path(), ec);
 				}
-				if (!CopyFileAndMix(result.value, file, destination, a_error)) {
-					return std::nullopt;
+				if (!CopyCachedFile(file, destination, a_error)) {
+					return false;
 				}
-				result.bytes += file.size;
 			}
-			result.files = snapshot.files.size();
-			return result;
+			return true;
 		}
 	}  // namespace
 
@@ -276,7 +233,7 @@ namespace OSFUI::ViewCache
 		if (!SnapshotTree(a_source, snapshot, a_error)) {
 			return std::nullopt;
 		}
-		return FingerprintFiles(snapshot.files, a_salt, a_error);
+		return FingerprintSnapshot(snapshot, a_salt);
 	}
 
 	std::string GenerationName(std::uint64_t a_fingerprint)
@@ -287,10 +244,11 @@ namespace OSFUI::ViewCache
 	std::optional<Prepared> Prepare(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error)
 	{
 		a_error.clear();
-		const auto fingerprint = FingerprintTree(a_source, a_salt, a_error);
-		if (!fingerprint) {
+		TreeSnapshot snapshot;
+		if (!SnapshotTree(a_source, snapshot, a_error)) {
 			return std::nullopt;
 		}
+		const auto fingerprint = FingerprintSnapshot(snapshot, a_salt);
 
 		std::error_code ec;
 		std::filesystem::create_directories(a_cacheRoot, ec);
@@ -299,9 +257,9 @@ namespace OSFUI::ViewCache
 			return std::nullopt;
 		}
 
-		const auto generation = a_cacheRoot / GenerationName(fingerprint->value);
-		if (IsComplete(generation, *fingerprint, a_salt)) {
-			return Prepared{ generation, *fingerprint, true };
+		const auto generation = a_cacheRoot / GenerationName(fingerprint.value);
+		if (IsComplete(generation, fingerprint, a_salt)) {
+			return Prepared{ generation, fingerprint, true };
 		}
 
 		if (std::filesystem::exists(generation, ec)) {
@@ -327,11 +285,13 @@ namespace OSFUI::ViewCache
 			std::filesystem::remove_all(staging, ignored);
 		};
 
-		const auto copiedFingerprint =
-			CopyTreeAndFingerprint(a_source, staging, a_salt, a_error);
-		if (!copiedFingerprint || copiedFingerprint->value != fingerprint->value ||
-			copiedFingerprint->files != fingerprint->files ||
-			copiedFingerprint->bytes != fingerprint->bytes) {
+		if (!CopyTree(snapshot, staging, a_error)) {
+			cleanupStaging();
+			return std::nullopt;
+		}
+		// A file added, removed or rewritten during the copy changes the metadata; never publish a mixed tree under the old name.
+		const auto after = FingerprintTree(a_source, a_salt, a_error);
+		if (!after || !SameFingerprint(*after, fingerprint)) {
 			if (a_error.empty()) {
 				a_error = "source tree changed while publishing the cache generation";
 			}
@@ -339,42 +299,29 @@ namespace OSFUI::ViewCache
 			return std::nullopt;
 		}
 
-		{
-			std::ofstream lock(staging / kUseLock, std::ios::binary | std::ios::trunc);
-			if (!lock) {
-				a_error = std::string(kUseLock) + ": could not create cache lease file";
-				cleanupStaging();
-				return std::nullopt;
-			}
+		if (!WriteText(staging / kUseLock, {})) {
+			a_error = std::string(kUseLock) + ": could not create cache lease file";
+			cleanupStaging();
+			return std::nullopt;
 		}
-		{
-			std::ofstream marker(staging / kCompleteMarker, std::ios::binary | std::ios::trunc);
-			if (!marker) {
-				a_error = std::string(kCompleteMarker) + ": could not create completion marker";
-				cleanupStaging();
-				return std::nullopt;
-			}
-			marker << MarkerText(*fingerprint, a_salt);
-			if (!marker.good()) {
-				a_error = std::string(kCompleteMarker) + ": could not write completion marker";
-				marker.close();
-				cleanupStaging();
-				return std::nullopt;
-			}
+		if (!WriteText(staging / kCompleteMarker, MarkerText(fingerprint, a_salt))) {
+			a_error = std::string(kCompleteMarker) + ": could not write completion marker";
+			cleanupStaging();
+			return std::nullopt;
 		}
 
 		std::filesystem::rename(staging, generation, ec);
 		if (ec) {
 			// A serialized caller should not race, but accepting an independently published identical generation makes the helper robust on its own.
-			if (IsComplete(generation, *fingerprint, a_salt)) {
+			if (IsComplete(generation, fingerprint, a_salt)) {
 				cleanupStaging();
-				return Prepared{ generation, *fingerprint, true };
+				return Prepared{ generation, fingerprint, true };
 			}
 			Fail(a_error, generation, ec);
 			cleanupStaging();
 			return std::nullopt;
 		}
-		return Prepared{ generation, *fingerprint, false };
+		return Prepared{ generation, fingerprint, false };
 	}
 
 	ScavengeResult Scavenge(const std::filesystem::path& a_cacheRoot, const std::filesystem::path& a_keep, const CanRemove& a_canRemove)
@@ -415,4 +362,4 @@ namespace OSFUI::ViewCache
 		}
 		return result;
 	}
-} 
+}

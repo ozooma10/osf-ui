@@ -453,6 +453,8 @@ namespace OSFUI
 			const auto localRoot = LocalOsfuiDir();
 			std::error_code legacyError;
 			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
+				// Legacy content (bundled games and the like) is the bulk of the cache; its cost must show in the log.
+				const auto legacyStarted = std::chrono::steady_clock::now();
 				std::string error;
 				const auto cache = localRoot / "legacy-views-cache";
 				const auto prepared = ViewCache::Prepare(legacyViewsRoot, cache, kOsfuiReleaseVersion,
@@ -460,8 +462,14 @@ namespace OSFUI
 				if (!prepared) { REX::ERROR("Legacy views cache failed: {}", error); return false; }
 				mappedLegacyViewsRoot = prepared->generation;
 				legacyViewsCacheLease = AcquireViewCacheLease(mappedLegacyViewsRoot);
-				if (legacyViewsCacheLease == INVALID_HANDLE_VALUE) return false;
-				(void)ViewCache::Scavenge(cache, mappedLegacyViewsRoot, CacheGenerationCanBeRemoved);
+				if (legacyViewsCacheLease == INVALID_HANDLE_VALUE) {
+					REX::ERROR("WebView2HostWebRenderer: could not lease legacy views-cache generation '{}' ({})", ToUtf8(mappedLegacyViewsRoot.native()), ::GetLastError());
+					return false;
+				}
+				const auto legacyScavenged = ViewCache::Scavenge(cache, mappedLegacyViewsRoot, CacheGenerationCanBeRemoved);
+				const auto legacyElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - legacyStarted).count();
+				REX::INFO("WebView2HostWebRenderer: USVFS legacy views cache {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s), retained {} generation(s))",
+					prepared->reused ? "reused" : "published", ToUtf8(mappedLegacyViewsRoot.native()), prepared->fingerprint.files, static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), legacyElapsed, legacyScavenged.removed, legacyScavenged.retained);
 			}
 			const auto started = std::chrono::steady_clock::now();
 			if (config.devMode) {
