@@ -56,6 +56,14 @@ int main()
     const auto& opened = std::get<ViewRequestQueue::ViewRequest>(presentation.at(0));
     CHECK(opened.view == "acme/panel" && opened.open);
 
+    // The launcher loading step preloads only catalogued views, case-insensitively like opens.
+    CHECK(api.RequestPreload("ACME/PANEL"));
+    CHECK(!api.RequestPreload("missing/panel"));
+    CHECK(!api.RequestPreload(nullptr));
+    auto preloads = api.TakePendingBatch().presentation;
+    CHECK(preloads.size() == 1);
+    CHECK(std::get<ViewRequestQueue::ViewPreloadRequest>(preloads.at(0)).view == "acme/panel");
+
     // Native, browser and input producers share one FIFO, including closes of
     // views that an earlier queued open has not instantiated yet.
     api.ViewRequests().EnqueueView("acme/hud", true);

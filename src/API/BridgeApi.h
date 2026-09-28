@@ -37,6 +37,8 @@ namespace OSFUI::API
 		void          SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) noexcept override;
 		bool          RegisterView(const char* a_viewId) noexcept override;
+		// Queue a hidden create+load of a known menu view (OSF Settings launcher loading step); not part of the mod ABI.
+		bool          RequestPreload(const char* a_viewId) noexcept;
 		// Shared internal inbox for native, browser, and game-input requests.
 		ViewRequestQueue& ViewRequests() { return m_viewRequests; }
 		void SetViewCatalog(const std::vector<std::string>& a_viewIds);

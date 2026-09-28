@@ -31,20 +31,38 @@ namespace OSFUI
 
 	void OSFSettingsClient::RegisterLaunchers(std::span<const ViewManifest> a_views)
 	{
-		OSFSettings::API::Launcher::Client launcher;
-		if (!launcher.Init()) return; // Optional; direct view opens still work with older Settings.
+		namespace Launcher = OSFSettings::API::Launcher;
+		if (!m_launcher.Init()) return; // Optional; direct view opens still work with older Settings.
 		for (const auto& view : a_views) {
 			if (view.kind != ViewKind::Menu || view.launcherMod.empty() || (view.debugOnly && !m_developerMode)) continue;
-			const auto result = launcher.Register({
+			const auto result = m_launcher.Register({
 				.modId = view.launcherMod.c_str(), .id = view.id.c_str(), .modTitle = view.launcherModTitle.c_str(),
 				.title = view.title.c_str(), .description = view.description.c_str(),
 				.open = [](const char*, const char* id, void*) noexcept {
 					if (!API::BridgeApi::Get().RequestMenu(id, true)) REX::WARN("Launcher could not queue view '{}'", id);
 				}
 			});
-			if (result != OSFSettings::API::Launcher::Status::Ok)
+			if (result != Launcher::Status::Ok) {
 				REX::WARN("Launcher registration for '{}' failed: {}", view.id, static_cast<unsigned>(result));
+				continue;
+			}
+			// Settings keeps its card in a loading state until Runtime reports the hidden view loaded.
+			const auto prepare = m_launcher.SetPrepare(view.launcherMod.c_str(), view.id.c_str(),
+				[](const char*, const char* id, void*) noexcept {
+					if (!API::BridgeApi::Get().RequestPreload(id)) REX::WARN("Launcher could not queue a preload of '{}'", id);
+				});
+			if (prepare != Launcher::Status::Ok)
+				REX::WARN("Launcher loading step for '{}' failed: {}", view.id, static_cast<unsigned>(prepare));
 		}
+	}
+
+	void OSFSettingsClient::ReportLaunchPrepared(std::string_view a_mod, std::string_view a_viewId, bool a_ready, std::string_view a_reason)
+	{
+		namespace Launcher = OSFSettings::API::Launcher;
+		if (!m_launcher) return;  // no launcher service: nothing is waiting
+		const std::string mod(a_mod), id(a_viewId), reason(a_reason);
+		const auto status = m_launcher.ReportPrepared(mod.c_str(), id.c_str(), a_ready, reason.c_str());
+		if (status != Launcher::Status::Ok) REX::WARN("Launcher readiness report for '{}' failed: {}", id, static_cast<unsigned>(status));
 	}
 
 	std::optional<std::string> OSFSettingsClient::Language()

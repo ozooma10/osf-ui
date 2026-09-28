@@ -11,6 +11,8 @@ namespace OSFSettings::API::Launcher
     // established UI/runtime lane. The provider owns closing; there is no return session.
     // Strings have callback lifetime.
     using OpenFn = void (*)(const char* modId, const char* id, void* context) noexcept;
+    // Settings stays open with the card loading until ReportPrepared, then closes and calls open. Return promptly; strings have callback lifetime.
+    using PrepareFn = void (*)(const char* modId, const char* id, void* context) noexcept;
     struct Destination
     {
         const char* modId{};
@@ -27,6 +29,10 @@ namespace OSFSettings::API::Launcher
         // Metadata is copied. Native callback code/context must live until process exit.
         virtual Status Register(const Destination&) noexcept = 0;
         virtual Status SetAvailable(const char* modId, const char* id, bool available, const char* reason) noexcept = 0;
+        // callback (open) destinations only. A null prepare removes the loading step.
+        virtual Status SetPrepare(const char* modId, const char* id, PrepareFn prepare, void* context) noexcept = 0;
+        // ends the loading step; Ignored when Settings is no longer waiting (the player backed out).
+        virtual Status ReportPrepared(const char* modId, const char* id, bool ready, const char* reason) noexcept = 0;
     protected:
         ~ILauncher() = default;
     };
@@ -48,6 +54,10 @@ namespace OSFSettings::API::Launcher
         Status Register(const Destination& destination) const noexcept { return m_api ? m_api->Register(destination) : Status::InternalError; }
         Status SetAvailable(const char* mod, const char* id, bool available, const char* reason = "") const noexcept
         { return m_api ? m_api->SetAvailable(mod, id, available, reason) : Status::InternalError; }
+        Status SetPrepare(const char* mod, const char* id, PrepareFn prepare, void* context = nullptr) const noexcept
+        { return m_api ? m_api->SetPrepare(mod, id, prepare, context) : Status::InternalError; }
+        Status ReportPrepared(const char* mod, const char* id, bool ready, const char* reason = "") const noexcept
+        { return m_api ? m_api->ReportPrepared(mod, id, ready, reason) : Status::InternalError; }
     private:
         ILauncher* m_api{};
     };

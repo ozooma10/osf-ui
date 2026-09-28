@@ -24,6 +24,12 @@ void OSFUI::ViewRequestQueue::EnqueueRelativePointer(std::string a_viewId, bool 
     });
 }
 
+void OSFUI::ViewRequestQueue::EnqueuePreload(std::string a_viewId)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_presentation.emplace_back(ViewPreloadRequest{ std::move(a_viewId) });
+}
+
 void OSFUI::ViewRequestQueue::EnqueueBackUnhandled(std::string a_viewId, std::uint64_t a_epoch)
 {
     std::lock_guard<std::mutex> lock(m_mutex);

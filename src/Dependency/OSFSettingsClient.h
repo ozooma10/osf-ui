@@ -8,6 +8,7 @@
 
 #include "vendor/OSFSettings.h"
 #include "vendor/OSFSettings_Diagnostics.h"
+#include "vendor/OSFSettings_Launcher.h"
 
 namespace OSFUI
 {
@@ -17,6 +18,8 @@ namespace OSFUI
 	public:
 		bool Initialize();
 		void RegisterLaunchers(std::span<const ViewManifest> a_views);
+		// Ends the launcher's loading step for a view.
+		void ReportLaunchPrepared(std::string_view a_mod, std::string_view a_viewId, bool a_ready, std::string_view a_reason);
 		[[nodiscard]] bool Available() const { return m_available; }
 		[[nodiscard]] bool DeveloperMode() const { return m_developerMode; }
 		// An empty value selects the browser default for Settings without language support.
@@ -42,6 +45,7 @@ namespace OSFUI
 
 		OSFSettings::API::Client m_settings;
 		OSFSettings::API::Diagnostics::Client m_diagnostics;
+		OSFSettings::API::Launcher::Client m_launcher;
 		bool m_available{};
 		bool m_developerMode{};
 		std::optional<std::string> m_language;

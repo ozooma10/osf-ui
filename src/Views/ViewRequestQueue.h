@@ -35,10 +35,17 @@ namespace OSFUI
             std::uint64_t presentationEpoch{};
         };
 
-        using Operation = std::variant<ViewPresentationRequest, ViewRequest, RelativePointerRequest, BackUnhandled>;
+        // Create and load a menu view hidden without presenting it (OSF Settings launcher loading step).
+        struct ViewPreloadRequest
+        {
+            std::string view;
+        };
+
+        using Operation = std::variant<ViewPresentationRequest, ViewRequest, RelativePointerRequest, BackUnhandled, ViewPreloadRequest>;
 
         void Enqueue(ViewPresentationRequest a_request);
         void EnqueueView(std::string a_viewId, bool a_open);
+        void EnqueuePreload(std::string a_viewId);
         void EnqueueRelativePointer(std::string a_viewId, bool a_active);
         void EnqueueBackUnhandled(std::string a_viewId, std::uint64_t a_epoch);
         // One finite FIFO batch. Callback-enqueued work stays for the next take.

@@ -211,6 +211,16 @@ namespace OSFUI::API
 		return true;
 	}
 
+	bool BridgeApi::RequestPreload(const char* a_viewId) noexcept
+	{
+		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
+		std::lock_guard lock(m_mutex);
+		const auto* id = FindIdCaseInsensitive(m_knownViews, a_viewId);
+		if (!id) return false;
+		m_viewRequests.EnqueuePreload(*id);
+		return true;
+	}
+
 	void BridgeApi::SetViewCatalog(const std::vector<std::string>& a_viewIds)
 	{
 		std::lock_guard lock(m_mutex);

@@ -246,6 +246,10 @@ namespace OSFUI
 				}
 				continue;
 			}
+			if (const auto* preload = std::get_if<ViewRequestQueue::ViewPreloadRequest>(&operation)) {
+				PreloadView(preload->view);
+				continue;
+			}
 			if (const auto* back = std::get_if<ViewRequestQueue::BackUnhandled>(&operation)) {
 				CommitPresentation();
 				const auto active = m_presentation.ActiveMenu();
@@ -305,19 +309,19 @@ namespace OSFUI
 		}
 	}
 
-	void Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason)
+	bool Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason, bool a_present)
 	{
 		const auto* manifest = m_views.Find(a_id);
 		if (!manifest) {
 			REX::WARN("Runtime: cannot open '{}' — no discovered view has that id", a_id);
 			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.not-found", "The requested OSF UI view is not installed", { { "view", a_id } });
-			return;
+			return false;
 		}
 		a_id = manifest->id;
-		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return;
+		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return false;
 		if (!m_webRuntimeReady) {
 			REX::WARN("Runtime: cannot open '{}' — web runtime preparation failed", a_id);
-			return;
+			return false;
 		}
 		if (!m_browserHostRecovery.IsAvailable()) {
 			if (m_browserHostRecovery.RequestManualRetry(m_nowSeconds)) {
@@ -330,31 +334,52 @@ namespace OSFUI
 			} else {
 				REX::WARN("Runtime: cannot open '{}' - the web renderer needs a game restart or the repair described in the log", a_id);
 			}
-			return;
+			return false;
 		}
 		if (m_presentation.IsOpen(a_id) ||
-			m_viewOpens.Contains(a_id)) return;
+			m_viewOpens.Contains(a_id)) return true;
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
 		if (requiresCaptureIntegration && m_inputCapture.IntegrationAttempted() &&
 			!m_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: cannot open '{}' — required input integration is unavailable", a_id);
 			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable", "The view requires web input, but input integration is unavailable", { { "view", a_id } });
-			return;
+			return false;
 		}
 
 		// Creation stays hidden until CommitPresentation applies this intent.
 
-		if (!InstantiateView(*manifest, a_reason)) return;
+		if (!InstantiateView(*manifest, a_reason)) return false;
+		if (!a_present) return true;
 
 		if (manifest->kind == ViewKind::Hud) {
 			m_viewOpens.QueueHud(a_id);
-			return;
+			return true;
 		}
 		if (m_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id))) {
 			m_presentation.Open(a_id);
-			return;
+			return true;
 		}
 		REX::DEBUG("Runtime: holding open of '{}' until its load and input integration are ready", a_id);
+		return true;
+	}
+
+	void Runtime::PreloadView(std::string_view a_id)
+	{
+		const auto* manifest = m_views.Find(a_id);
+		if (!manifest || manifest->kind != ViewKind::Menu || !PrepareViewOpen(manifest->id, "for the OSF Settings launcher", false)) {
+			// PrepareViewOpen logged why; Settings shows its generic message.
+			ReportLaunchPrepared(std::string(a_id), false);
+			return;
+		}
+		// Otherwise OnViewLoad reports once the navigation completes; Settings times out on its own.
+		if (m_viewLoads.GetState(manifest->id) == ViewLoadState::Finished) ReportLaunchPrepared(manifest->id, true);
+	}
+
+	void Runtime::ReportLaunchPrepared(const std::string& a_id, bool a_ready, std::string_view a_reason)
+	{
+		// Settings consumes a report only while its card for this view is loading, so any load may report.
+		const auto* manifest = m_views.Find(a_id);
+		if (manifest && !manifest->launcherMod.empty()) m_osfSettings.ReportLaunchPrepared(manifest->launcherMod, manifest->id, a_ready, a_reason);
 	}
 
 	ViewOpenCoordinator::Readiness Runtime::ViewOpenReadiness(std::string_view a_id) const

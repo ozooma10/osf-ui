@@ -44,4 +44,13 @@ int main()
 	assert(std::get<OSFUI::ViewRequestQueue::ViewRequest>(next[0]).view == "acme/first");
 	assert(std::get<OSFUI::ViewRequestQueue::ViewRequest>(next[1]).view == "acme/second");
 	assert(queue.Take().empty());
+
+	// A launcher preload is ordered with the open that follows it once Settings hands off.
+	queue.EnqueuePreload("acme/first");
+	queue.EnqueueView("acme/first", true);
+	const auto preload = queue.Take();
+	assert(preload.size() == 2);
+	assert(std::get<OSFUI::ViewRequestQueue::ViewPreloadRequest>(preload[0]).view == "acme/first");
+	assert(std::get<OSFUI::ViewRequestQueue::ViewRequest>(preload[1]).open);
+	assert(queue.Take().empty());
 }

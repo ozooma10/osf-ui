@@ -68,6 +68,7 @@ namespace OSFUI
 			m_osfSettings.ClearFailure("view.load-retrying:" + id);
 			m_osfSettings.ClearFailure("view.load-failed:" + id);
 			BroadcastViewsData();  // loadState loading -> loaded
+			ReportLaunchPrepared(id, true);
 			return;
 		}
 		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]", a_viewId, a_url, a_description, a_errorCode);
@@ -77,6 +78,7 @@ namespace OSFUI
 			REX::ERROR("view '{}' has exhausted its crash-recovery budget; destroying and unregistering the view (fix its files and relaunch)", a_viewId);
 			m_osfSettings.ClearFailure("view.load-retrying:" + id);
 			m_osfSettings.ReportFailure("view.load-failed:" + id, "view.load-failed", a_description, { { "view", id }, { "errorCode", a_errorCode } });
+			ReportLaunchPrepared(id, false, a_description);
 			TearDownFailedView(id);
 			return;
 		}
