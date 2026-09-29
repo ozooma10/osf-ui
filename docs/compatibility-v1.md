@@ -1,6 +1,11 @@
 # OSF UI 1.6 compatibility
 
-Compatibility ships inside OSF UI and activates automatically. Install the matching OSF Settings build with `OSFSettings_RequestProvidersAPI` (providers ABI 1.0). OSF Settings supplies the menu, validation, current values, launcher, and input dispatch. All old paths, formats, ABI slots, and browser translations live in OSF UI.
+Compatibility ships inside OSF UI and activates automatically. Install the [matching OSF Settings 1.0.0 build](../sdk/vendor/README.md) with `OSFSettings_RequestProvidersAPI` (providers ABI 1.0). OSF Settings supplies the menu, validation, current values, launcher, and input dispatch. All old paths, formats, ABI slots, and browser translations live in OSF UI.
+
+Mods within this baseline use their original compiled DLLs and scripts. They do
+not need a new SDK, recompilation, or moved view/value files. Authors choosing to
+adopt the new API should instead follow [MIGRATION.md](../MIGRATION.md). Compatibility
+covers the behaviors below; it is not a promise to emulate every historical API.
 
 The current baseline is the six packages supplied for this migration:
 
@@ -27,6 +32,10 @@ Subscriptions replay typed values as per-key JSON on the OSF UI runtime tick. Ke
 
 The separate `OSFUI_RequestBridge` export returns the frozen ABI 1.7 vtable from the v1.6.0 SDK, accepting requests through 1.7. It never returns the new `IUI` object under that export. New consumers use `OSFUI_RequestAPI`.
 
+The legacy export signature, method order, callback signatures, payload layouts,
+and enum values stay frozen even when the adapter implementation changes. The
+new API evolves independently under the [2.0 API contract](api-contract.md).
+
 Legacy views are discovered only under `Data/SFSE/Plugins/OSFUI/views/<mod>/<view>/`. Modern view IDs win collisions. Old `hub: true` menus join the OSF Settings launcher; private views remain private. Under MO2, the legacy tree gets its own immutable, leased cache visible to the browser host. The DLL and host use protocol 2 and must be deployed together. Legacy assets require restart to refresh, including in developer mode.
 
 The old shared stylesheet and adapted JavaScript helper are shipped at the original `shared/` URLs. The helper preserves `ready`, `available()`, `send`/`emit`, `request`/`call`, event payloads, typed request replies, and gamepad messages over the new transport. `RegisterCommand` supports the baseline's fire-and-forget sends; the old command auto-ack/request-ID injection contract is outside this baseline. The old settings-browser endpoints, Papyrus settings APIs, automatic settings-to-web forwarding, localization catalogs, and later modular 1.x exports are not emulated.
@@ -38,3 +47,8 @@ The old shared stylesheet and adapted JavaScript helper are shipped at the origi
 The focused native tests use the supplied schemas/manifests and cover translation, sparse values, unknown-field preservation, failed saves, ABI request layout, and modern-view precedence. Provider tests cover ownership, replacement, rollback, mouse bindings, shared blocks, and unsubscribe. The JavaScript test checks transport translation without launching a browser.
 
 Fresh in-game acceptance remains required for each package: edit/reload/persist settings, check AEGIS's polling, exercise F8/F9 and mouse capture, open the two launcher views, request shop results, and launch Starcade from its existing scripts. Static tests and successful deployment do not establish those outcomes.
+
+Use the original, unmodified consumer packages for that acceptance and record
+their versions/checksums alongside the OSF UI and OSF Settings candidate builds.
+Rebuilding a legacy consumer against a different SDK does not establish binary
+compatibility with its shipped version.

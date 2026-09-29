@@ -10,6 +10,11 @@ static_assert(sizeof(void*) == 8, "OSFUI requires x64");
 namespace OSFUI::API
 {
 	// Packed major.minor ABI versions, independent of the plugin release version.
+	// OSF UI 2.0 release contract: API 1.0 through OSFUI_RequestAPI.
+	// Freeze existing slots, signatures, payload layouts and enum values. Compatible
+	// additions require a minor bump; incompatible changes require a new major interface.
+	// Earlier 2.0 development layouts are unsupported; rebuild those consumers.
+	// Legacy 1.6 consumers use the separate OSFUI_RequestBridge ABI 1.7 adapter.
 	inline constexpr std::uint32_t kVersion = 0x00010000u;
 	inline constexpr std::uint32_t kBaseVersion = 0x00010000u;
 	inline constexpr wchar_t kModuleName[] = L"OSFUI.dll";

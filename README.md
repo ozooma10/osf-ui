@@ -15,12 +15,13 @@ A web view framework for Starfield.
 
 - [Migrating from 1.x](MIGRATION.md)
 - [Built-in 1.6 compatibility](docs/compatibility-v1.md)
+- [2.0 API contract and versioning](docs/api-contract.md)
 
 </details>
 
 ## Runtime
 
-Requires SFSE, Address Library, OSF Settings, and the Edge WebView2 Evergreen Runtime. OSF UI starts the WebView2 helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
+Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and the Edge WebView2 Evergreen Runtime. During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the WebView2 helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
 
 
 - HUD autostart waits for page load. Loading and main-menu transitions suspend requested HUDs; they resume afterward and after successful browser recovery. Explicit close requests remain closed.

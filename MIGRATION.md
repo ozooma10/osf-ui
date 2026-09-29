@@ -2,6 +2,11 @@
 
 OSF UI 2.0 is a WebView host, JavaScript bridge, compositor, and web-input add-on. Settings, hotkeys, and diagnostics moved to [OSF Settings](https://github.com/ozooma10/osf-settings-slim); install it alongside. A built-in [1.6 compatibility adapter](docs/compatibility-v1.md) supports the documented legacy baseline through OSF Settings. New and updated mods should use the current APIs below.
 
+This guide applies when porting a mod to the new API. Existing mods within the
+documented 1.6 compatibility baseline keep their compiled DLLs, scripts, manifests,
+view paths, and saved values; they do not need these migration steps. Use the
+[companion Settings release](sdk/vendor/README.md) in either case.
+
 ## Removed
 
 - Modular exports `OSFUI_RequestSettings`, `OSFUI_RequestDiagnostics`, and `OSFUI_RequestViews`; `OSFUI_RequestBridge` is retained for the 1.6 adapter
@@ -25,9 +30,13 @@ OSF UI 2.0 is a WebView host, JavaScript bridge, compositor, and web-input add-o
 
 Always pass explicit qualified view IDs. Settings Papyrus APIs, actions, and localization are not part of this release.
 
-Rebuild native consumers against the current `OSFUI.h`. Removing the preflight
-slots changes the `IUI` vtable. The API version remains 1.0, so version negotiation
-does not detect consumers built against the previous layout.
+Rebuild consumers of earlier **2.0 development versions** of `OSFUI.h` against the
+release SDK. Their `IUI` layouts changed during development, including removal of
+the preflight slots, while the API version remained 1.0. Version negotiation cannot
+distinguish those obsolete layouts; they are not supported release contracts.
+This rebuild requirement does not apply to supported 1.6 binaries using
+`OSFUI_RequestBridge`. OSF UI 2.0 establishes the new API 1.0 contract through the
+separate `OSFUI_RequestAPI` export; see [API versioning](docs/api-contract.md).
 
 ## Paths
 
