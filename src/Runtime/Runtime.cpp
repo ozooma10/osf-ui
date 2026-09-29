@@ -239,15 +239,13 @@ namespace OSFUI
 			}
 			if (const auto* view = std::get_if<ViewRequestQueue::ViewRequest>(&operation)) {
 				if (view->open) {
-					PrepareViewOpen(view->view);
+					if (!PrepareViewOpen(view->view, "on demand", view->requestId) && view->requestId)
+						m_osfSettings.ReportLaunchOpened(view->requestId, false, "The interface cannot open right now.");
 				} else {
-					m_viewOpens.Cancel(view->view);
+					FailPendingOpen("The interface was closed.", view->view);
+					m_viewOpens.CancelHud(view->view);
 					m_presentation.Close(view->view);
 				}
-				continue;
-			}
-			if (const auto* preload = std::get_if<ViewRequestQueue::ViewPreloadRequest>(&operation)) {
-				PreloadView(preload->view);
 				continue;
 			}
 			if (const auto* back = std::get_if<ViewRequestQueue::BackUnhandled>(&operation)) {
@@ -270,7 +268,7 @@ namespace OSFUI
 			case ViewPresentationRequest::Back: {
 				const auto active = m_presentation.ActiveMenu();
 				if (m_viewOpens.PendingMenu()) {
-					m_viewOpens.CancelMenu();
+					FailPendingOpen("The interface was closed.");
 				} else if (active) {
 					// Both keyboard Escape and controller Back take this path.
 					CommitPresentation();
@@ -281,7 +279,8 @@ namespace OSFUI
 				break;
 			}
 			case ViewPresentationRequest::CloseAll:
-				m_viewOpens.Clear();
+				FailPendingOpen("The interface was closed.");
+				m_viewOpens.ClearHuds();
 				m_presentation.CloseAll();
 				break;
 			}
@@ -309,7 +308,7 @@ namespace OSFUI
 		}
 	}
 
-	bool Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason, bool a_present)
+	bool Runtime::PrepareViewOpen(std::string_view a_id, std::string_view a_reason, std::uint64_t a_requestId)
 	{
 		const auto* manifest = m_views.Find(a_id);
 		if (!manifest) {
@@ -318,6 +317,7 @@ namespace OSFUI
 			return false;
 		}
 		a_id = manifest->id;
+		if (a_requestId && (manifest->kind != ViewKind::Menu || m_presentation.Suspended())) return false;
 		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return false;
 		if (!m_webRuntimeReady) {
 			REX::WARN("Runtime: cannot open '{}' — web runtime preparation failed", a_id);
@@ -336,8 +336,6 @@ namespace OSFUI
 			}
 			return false;
 		}
-		if (m_presentation.IsOpen(a_id) ||
-			m_viewOpens.Contains(a_id)) return true;
 		const bool requiresCaptureIntegration = manifest->kind == ViewKind::Menu && manifest->capturesInput;
 		if (requiresCaptureIntegration && m_inputCapture.IntegrationAttempted() &&
 			!m_inputCapture.IntegrationAvailable()) {
@@ -345,41 +343,79 @@ namespace OSFUI
 			m_osfSettings.ReportFailure("view." + std::string(a_id), "view.input-unavailable", "The view requires web input, but input integration is unavailable", { { "view", a_id } });
 			return false;
 		}
+		if (!a_requestId && m_viewOpens.Contains(a_id)) return true;
+		if (!a_requestId && m_presentation.IsOpen(a_id)) {
+			if (manifest->kind == ViewKind::Menu) FailPendingOpen("Another interface was opened.");
+			return true;
+		}
 
 		// Creation stays hidden until CommitPresentation applies this intent.
 
 		if (!InstantiateView(*manifest, a_reason)) return false;
-		if (!a_present) return true;
 
 		if (manifest->kind == ViewKind::Hud) {
 			m_viewOpens.QueueHud(a_id);
 			return true;
 		}
-		if (m_viewOpens.QueueMenu(a_id, ViewOpenReadiness(a_id))) {
-			m_presentation.Open(a_id);
-			return true;
-		}
-		REX::DEBUG("Runtime: holding open of '{}' until its load and input integration are ready", a_id);
+		FailPendingOpen("Another interface was opened.");
+		m_viewOpens.QueueMenu(a_id, m_nowSeconds + 30.0, a_requestId);
+		REX::INFO("Runtime: menu open requested view='{}' request={}", a_id, a_requestId);
 		return true;
 	}
 
-	void Runtime::PreloadView(std::string_view a_id)
+	void Runtime::FailPendingOpen(std::string_view a_reason, std::string_view a_view)
 	{
-		const auto* manifest = m_views.Find(a_id);
-		if (!manifest || manifest->kind != ViewKind::Menu || !PrepareViewOpen(manifest->id, "for the OSF Settings launcher", false)) {
-			// PrepareViewOpen logged why; Settings shows its generic message.
-			ReportLaunchPrepared(std::string(a_id), false);
-			return;
+		const auto* pending = m_viewOpens.PendingMenu();
+		if (!pending || (!a_view.empty() && pending->view != a_view)) return;
+		const auto opening = m_viewOpens.TakeMenu();
+		REX::INFO("Runtime: menu open failed view='{}' request={} reason='{}'", opening->view, opening->requestId, a_reason);
+		if (opening->phase != ViewOpenCoordinator::Phase::Loading) {
+			m_renderer->SetViewHidden(opening->view, true);
+			m_renderer->ResetPresentation();
+			m_renderer->Frames()->EndPreparation(false);
 		}
-		// Otherwise OnViewLoad reports once the navigation completes; Settings times out on its own.
-		if (m_viewLoads.GetState(manifest->id) == ViewLoadState::Finished) ReportLaunchPrepared(manifest->id, true);
+		m_presentation.Invalidate();
+		if (opening->requestId) m_osfSettings.ReportLaunchOpened(opening->requestId, false, a_reason);
 	}
 
-	void Runtime::ReportLaunchPrepared(const std::string& a_id, bool a_ready, std::string_view a_reason)
+	void Runtime::UpdatePendingOpen()
 	{
-		// Settings consumes a report only while its card for this view is loading, so any load may report.
-		const auto* manifest = m_views.Find(a_id);
-		if (manifest && !manifest->launcherMod.empty()) m_osfSettings.ReportLaunchPrepared(manifest->launcherMod, manifest->id, a_ready, a_reason);
+		auto* pending = m_viewOpens.PendingMenu();
+		if (!pending) return;
+		if (pending->phase == ViewOpenCoordinator::Phase::AwaitingSubmission) {
+			if (const auto frame = m_renderer->Frames()->TakePreparedSubmission()) {
+				const auto opening = m_viewOpens.TakeMenu();
+				m_presentation.Open(opening->view);
+				m_presentation.Invalidate();
+				ApplyViewPresentationPolicy();
+				if (!m_presentation.IsOpen(opening->view)) {
+					if (opening->requestId) m_osfSettings.ReportLaunchOpened(opening->requestId, false, "The interface could not acquire input.");
+					return;
+				}
+				REX::INFO("Runtime: menu opened request={} view='{}' ring={} serial={} (first frame submitted)",
+					opening->requestId, opening->view, frame->ringGeneration, frame->frameIndex);
+				if (opening->requestId) m_osfSettings.ReportLaunchOpened(opening->requestId, true);
+				return;
+			}
+		}
+		// A submitted frame wins over the deadline on the first tick after a hitch.
+		if (m_nowSeconds >= pending->deadline) {
+			FailPendingOpen("The interface did not open within 30 seconds.");
+			return;
+		}
+		const auto readiness = ViewOpenReadiness(pending->view);
+		if (readiness == ViewOpenCoordinator::Readiness::Missing || readiness == ViewOpenCoordinator::Readiness::InputUnavailable) {
+			FailPendingOpen("The interface cannot open right now.");
+			return;
+		}
+		if (pending->phase != ViewOpenCoordinator::Phase::Rendering || !m_compositor) return;
+		const auto expected = m_pointerInput.CaptureSize();
+		if (!m_compositor->PreparedFrameReady(expected.width, expected.height)) return;
+		// Draw the retained frame before changing menu/input ownership. Settings can
+		// still handle Back until Runtime observes submission on a later update.
+		m_renderer->Frames()->EndPreparation(true);
+		pending->phase = ViewOpenCoordinator::Phase::AwaitingSubmission;
+		m_compositor->SetVisible(true);
 	}
 
 	ViewOpenCoordinator::Readiness Runtime::ViewOpenReadiness(std::string_view a_id) const
@@ -400,8 +436,12 @@ namespace OSFUI
 		const auto ready = m_viewOpens.TakeReady(
 			[this](std::string_view a_id) { return ViewOpenReadiness(a_id); });
 		for (const auto& id : ready) {
-			m_presentation.Open(id);
-			REX::DEBUG("Runtime: open prerequisites completed; opening '{}'", id);
+			if (const auto* pending = m_viewOpens.PendingMenu(); pending && pending->view == id) {
+				m_renderer->Frames()->BeginPreparation();
+				m_presentation.Invalidate();
+			} else {
+				m_presentation.Open(id);
+			}
 		}
 	}
 
@@ -438,7 +478,7 @@ namespace OSFUI
 
 		if (m_presentation.DesiredCapture() && !m_inputCapture.IntegrationAvailable()) {
 			REX::WARN("Runtime: closing a requested menu because required input integration is unavailable");
-			m_viewOpens.CancelMenu();
+			FailPendingOpen("Input capture is unavailable.");
 			m_presentation.CloseActiveMenu();
 		}
 
@@ -449,13 +489,21 @@ namespace OSFUI
 			return;
 		}
 
-		const auto layers = m_presentation.DesiredLayers();
+		const auto* pending = m_viewOpens.PendingMenu();
+		const bool prepare = pending && pending->phase != ViewOpenCoordinator::Phase::Loading;
+		auto layers = m_presentation.DesiredLayers();
+		if (prepare) {
+			for (auto& layer : layers) {
+				const auto* manifest = m_views.Find(layer.id);
+				if (manifest && manifest->kind == ViewKind::Menu) layer.hidden = layer.id != pending->view;
+			}
+		}
 		for (const auto& layer : layers) {
 			m_renderer->SetViewOrder(layer.id, layer.z);
 		}
 		const auto active = m_presentation.ActiveMenu();
-		// Publish the input target before its view is shown. The browser host then
-		// grants focus only after that target becomes visible.
+		// Pending menus render without taking input. The target changes only after
+		// their first submission has committed the active menu.
 		if (active) {
 			m_renderer->SetInputTargetView(*active);
 		}
@@ -463,7 +511,7 @@ namespace OSFUI
 		for (const auto& layer : layers) {
 			if (!layer.hidden) {
 				m_osfSettings.ClearFailure("view." + layer.id);
-				m_renderer->SetViewHidden(layer.id, false);
+				m_renderer->SetViewHidden(layer.id, false, prepare && pending->requestId && layer.id == pending->view);
 			}
 		}
 		for (const auto& layer : layers) {
@@ -484,7 +532,7 @@ namespace OSFUI
 		if (!visible) {
 			m_renderer->SetPointerInputEnabled(true);
 		}
-		if (m_compositor) {
+		if (m_compositor && !prepare) {
 			if (visible && !wasVisible) {
 				m_viewReveal.Arm();
 				m_pointerInput.SuspendGeometry();
@@ -593,6 +641,7 @@ namespace OSFUI
 
 	void Runtime::OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event)
 	{
+		FailPendingOpen("The interface renderer failed.");
 		const bool retryableBrowserHostLoss =
 			a_event.stage == "host-connection" && m_renderer;
 		if (!m_browserHostRecovery.OnFailure(m_nowSeconds, retryableBrowserHostLoss)) {
@@ -613,7 +662,6 @@ namespace OSFUI
 		}
 		m_viewRecovery.ClearAll();
 
-		m_viewOpens.CancelMenu();
 		m_presentation.CloseActiveMenu();
 		m_presentation.SetSuspended(true);
 		// Failure is an immediate release boundary, with no new opens or state drain.
@@ -640,6 +688,7 @@ namespace OSFUI
 		if (!captureChanged && !viewportChanged) {
 			return;
 		}
+		FailPendingOpen("The display size changed. Open the interface again.");
 
 		const bool visible = IsVisible();
 		if (visible && m_compositor) {
@@ -664,11 +713,12 @@ namespace OSFUI
 
 	void Runtime::UpdateViewReveal()
 	{
-		if (!m_initialized || !IsVisible() || !m_renderer || !m_compositor || !m_viewReveal.Pending()) {
+		const auto* pending = m_viewOpens.PendingMenu();
+		if ((pending && pending->phase != ViewOpenCoordinator::Phase::Loading) || !m_initialized || !IsVisible() || !m_renderer || !m_compositor || !m_viewReveal.Pending()) {
 			return;
 		}
 
-		// Every arm site invalidated the cached frame, so any frame present now is fresh.
+		// The frame belongs to this presentation, including an already submitted menu frame.
 		const auto frame = m_renderer->Frames()->Latest();
 		const auto expected = m_pointerInput.CaptureSize();
 		const bool frameReady = frame && frame->width == expected.width && frame->height == expected.height;

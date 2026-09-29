@@ -44,10 +44,45 @@ namespace OSFUI
 		void SetPresentation(std::uint64_t a_epoch, bool a_acceptFrames)
 		{
 			if (m_epoch != a_epoch || !a_acceptFrames) {
-				Invalidate();
+				m_preparedSubmission.reset();
+				m_pending.reset();
+				m_latest.reset();
+				if (m_preparation != Preparation::Rendering) m_current.reset();
 			}
 			m_epoch = a_epoch;
 			m_acceptFrames = a_acceptFrames;
+		}
+
+		// Keep the displayed frame while a pending menu renders its first frame off screen.
+		void BeginPreparation()
+		{
+			m_preparedSubmission.reset();
+			m_preparation = Preparation::Rendering;
+			m_pending.reset();
+			m_latest.reset();
+		}
+		void EndPreparation(bool a_commit)
+		{
+			m_preparedSubmission.reset();
+			if (a_commit && m_pending) m_preparedSubmission = PreparedSubmission{ m_epoch, m_pending->view };
+			if (!a_commit) {
+				m_pending.reset();
+				m_latest.reset();
+			}
+			// Record still checks the active ring and producer fence before adopting
+			// this frame. Keep it pinned until that first draw, even after handoff.
+			m_preparation = a_commit ? Preparation::Committed : Preparation::None;
+		}
+		std::optional<FrameBufferView> TakePreparedSubmission()
+		{
+			if (!m_preparedSubmission || !m_preparedSubmission->submitted) return std::nullopt;
+			return std::exchange(m_preparedSubmission, std::nullopt)->frame;
+		}
+		bool PreparationReady(std::uint64_t a_generation, std::uint64_t a_produced, std::uint32_t a_width, std::uint32_t a_height) const
+		{
+			return m_preparation == Preparation::Rendering && m_pending && a_produced != UINT64_MAX &&
+				m_pending->view.ringGeneration == a_generation && m_pending->view.frameIndex <= a_produced &&
+				m_pending->view.width == a_width && m_pending->view.height == a_height;
 		}
 
 		void SetVisible(bool a_visible)
@@ -69,7 +104,8 @@ namespace OSFUI
 				return PublishResult::Invalid;
 			}
 			m_generation->lastSerial = a_serial;
-			if (!m_acceptFrames || a_epoch != m_epoch || a_width != m_generation->width || a_height != m_generation->height) {
+			if (!m_acceptFrames || a_epoch != m_epoch || a_width != m_generation->width || a_height != m_generation->height ||
+				(m_preparation != Preparation::None && m_pending)) {
 				m_generation->released[a_slot] = a_serial;
 				return PublishResult::Discarded;
 			}
@@ -85,7 +121,7 @@ namespace OSFUI
 		std::optional<FrameBufferView> Record(std::uintptr_t a_list, std::uint64_t a_activeGeneration, std::uint64_t a_produced)
 		{
 			if (!m_visible || !a_list) return std::nullopt;
-			const bool promote = m_pending && m_pending->view.ringGeneration == a_activeGeneration && m_pending->view.frameIndex <= a_produced;
+			const bool promote = m_preparation != Preparation::Rendering && m_pending && m_pending->view.ringGeneration == a_activeGeneration && m_pending->view.frameIndex <= a_produced;
 			const auto& selected = promote ? m_pending : m_current;
 			if (!selected || selected->view.ringGeneration != a_activeGeneration) return std::nullopt;
 			if (!std::ranges::any_of(m_reads, [&](const Read& a_read) {
@@ -95,6 +131,7 @@ namespace OSFUI
 			}
 			if (promote) {
 				m_current = std::exchange(m_pending, {});
+				m_preparation = Preparation::None;
 			}
 			return m_current->view;
 		}
@@ -115,6 +152,13 @@ namespace OSFUI
 		{
 			for (auto& read : m_reads) {
 				if (read.list && std::ranges::find(a_lists, read.list) != a_lists.end()) {
+					// A recorded quad is not an opening until its command list was submitted.
+					// Match the retained frame, not a HUD draw or another presentation.
+					if (a_queue && a_value && m_preparedSubmission && m_preparedSubmission->epoch == m_epoch &&
+						read.frame->view.ringGeneration == m_preparedSubmission->frame.ringGeneration &&
+						read.frame->view.frameIndex == m_preparedSubmission->frame.frameIndex) {
+						m_preparedSubmission->submitted = true;
+					}
 					read.list = 0;
 					read.queue = a_queue;
 					read.completion = a_value;
@@ -162,6 +206,7 @@ namespace OSFUI
 		};
 		void Invalidate()
 		{
+			m_preparedSubmission.reset();
 			m_pending.reset();
 			m_current.reset();
 			m_latest.reset();
@@ -170,7 +215,16 @@ namespace OSFUI
 		std::shared_ptr<Frame> m_pending, m_current;
 		std::vector<Read> m_reads;
 		std::optional<FrameBufferView> m_latest;
+		struct PreparedSubmission
+		{
+			std::uint64_t epoch;
+			FrameBufferView frame;
+			bool submitted{ false };
+		};
+		std::optional<PreparedSubmission> m_preparedSubmission;
 		std::uint64_t m_epoch{ 0 };
 		bool m_acceptFrames{ false }, m_visible{ false };
+		enum class Preparation { None, Rendering, Committed };
+		Preparation m_preparation{ Preparation::None };
 	};
 }

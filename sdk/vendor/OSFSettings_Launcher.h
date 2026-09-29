@@ -7,12 +7,8 @@ namespace OSFSettings::API::Launcher
 {
     inline constexpr std::uint32_t kVersion = 0x00010000;
     enum class Status : std::uint32_t { Ok, InvalidArgument, AlreadyRegistered, NotFound, InternalError };
-    // Runs as Settings leaves the menu stack. Return promptly and queue work on your
-    // established UI/runtime lane. The provider owns closing; there is no return session.
-    // Strings have callback lifetime.
-    using OpenFn = void (*)(const char* modId, const char* id, void* context) noexcept;
-    // Settings stays open with the card loading until ReportPrepared, then closes and calls open. Return promptly; strings have callback lifetime.
-    using PrepareFn = void (*)(const char* modId, const char* id, void* context) noexcept;
+    // opens while Settings remains visible. call ReportOpened once interface displayed and ready, or on failure.
+    using OpenFn = void (*)(const char* modId, const char* id, std::uint64_t requestId, void* context) noexcept;
     struct Destination
     {
         const char* modId{};
@@ -29,10 +25,8 @@ namespace OSFSettings::API::Launcher
         // Metadata is copied. Native callback code/context must live until process exit.
         virtual Status Register(const Destination&) noexcept = 0;
         virtual Status SetAvailable(const char* modId, const char* id, bool available, const char* reason) noexcept = 0;
-        // callback (open) destinations only. A null prepare removes the loading step.
-        virtual Status SetPrepare(const char* modId, const char* id, PrepareFn prepare, void* context) noexcept = 0;
-        // ends the loading step; Ignored when Settings is no longer waiting (the player backed out).
-        virtual Status ReportPrepared(const char* modId, const char* id, bool ready, const char* reason) noexcept = 0;
+        // first result wins; stale/duplicate results are ignored. Success closes the Settings instance waiting for this request
+        virtual Status ReportOpened(std::uint64_t requestId, bool opened, const char* reason) noexcept = 0;
     protected:
         ~ILauncher() = default;
     };
@@ -52,12 +46,8 @@ namespace OSFSettings::API::Launcher
         bool Init() noexcept { m_api = RequestInterface(); return m_api != nullptr; }
         explicit operator bool() const noexcept { return m_api != nullptr; }
         Status Register(const Destination& destination) const noexcept { return m_api ? m_api->Register(destination) : Status::InternalError; }
-        Status SetAvailable(const char* mod, const char* id, bool available, const char* reason = "") const noexcept
-        { return m_api ? m_api->SetAvailable(mod, id, available, reason) : Status::InternalError; }
-        Status SetPrepare(const char* mod, const char* id, PrepareFn prepare, void* context = nullptr) const noexcept
-        { return m_api ? m_api->SetPrepare(mod, id, prepare, context) : Status::InternalError; }
-        Status ReportPrepared(const char* mod, const char* id, bool ready, const char* reason = "") const noexcept
-        { return m_api ? m_api->ReportPrepared(mod, id, ready, reason) : Status::InternalError; }
+        Status SetAvailable(const char* mod, const char* id, bool available, const char* reason = "") const noexcept { return m_api ? m_api->SetAvailable(mod, id, available, reason) : Status::InternalError; }
+        Status ReportOpened(std::uint64_t requestId, bool opened, const char* reason = "") const noexcept { return m_api ? m_api->ReportOpened(requestId, opened, reason) : Status::InternalError; }
     private:
         ILauncher* m_api{};
     };

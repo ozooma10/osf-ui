@@ -194,11 +194,13 @@ namespace osfui::wv2::msg
 		std::string   view;
 		bool          hidden{ true };
 		std::uint64_t presentationEpoch{ 0 };
+		bool settleColdOpen{ false }; // first launcher open after navigation gets a short capture grace period
 
 		static constexpr auto kFields = std::tuple{
 			F("view", &SetHidden::view),
 			F("hidden", &SetHidden::hidden),
 			F("presentationEpoch", &SetHidden::presentationEpoch),
+			F("settleColdOpen", &SetHidden::settleColdOpen),
 		};
 	};
 

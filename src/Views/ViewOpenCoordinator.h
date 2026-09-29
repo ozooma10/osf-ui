@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -9,7 +10,7 @@
 
 namespace OSFUI
 {
-	// Runtime-owned. Owns unpresented open requests, using canonical manifest ids.
+	// Runtime-owned. Menu requests live here through first-frame submission.
 	// Runtime owns instantiation and presentation; this class never calls the engine, browser or native plugins.
 	class ViewOpenCoordinator
 	{
@@ -17,26 +18,31 @@ namespace OSFUI
 		// Suspended: presentation refuses menus right now; the request stays queued.
 		enum class Readiness { Missing, Suspended, Loading, WaitingForInput, InputUnavailable, Ready };
 		bool Contains(std::string_view a_view) const;
-		const std::optional<std::string>& PendingMenu() const { return m_menu; }
-
-		// A failed menu must not appear much later after recovery. HUD intent
-		// survives failed loads until an explicit close or view teardown.
-		void OnLoadFailed(std::string_view a_view);
+		enum class Phase { Loading, Rendering, AwaitingSubmission };
+		struct MenuOpen
+		{
+			std::string view;
+			double deadline;
+			std::uint64_t requestId{}; // Zero for opens without a Settings completion.
+			Phase phase{ Phase::Loading };
+		};
+		MenuOpen* PendingMenu() { return m_menu ? &*m_menu : nullptr; }
+		const MenuOpen* PendingMenu() const { return m_menu ? &*m_menu : nullptr; }
+		std::optional<MenuOpen> TakeMenu(); // Runtime completes or cleans up the returned operation.
 
 		// Call after instantiation succeeds. Replaces only the pending
 		// menu, leaving the currently presented menu and HUD requests untouched.
-		// Returns true when desired presentation can select this menu immediately.
-		bool QueueMenu(std::string_view a_view, Readiness a_readiness);
+		// Runtime must finish the previous operation before replacing it.
+		void QueueMenu(std::string_view a_view, double a_deadline, std::uint64_t a_requestId = 0);
 		// HUDs always pass through the load gate, including startup and host recovery.
 		void QueueHud(std::string_view a_view);
 		std::vector<std::string> TakeReady(const std::function<Readiness(std::string_view)>& a_readiness);
 
-		bool CancelMenu();
-		bool Cancel(std::string_view a_view);
-		void Clear();
+		bool CancelHud(std::string_view a_view);
+		void ClearHuds();
 
 	private:
-		std::optional<std::string> m_menu;
+		std::optional<MenuOpen> m_menu;
 		std::unordered_set<std::string> m_huds;
 	};
 }

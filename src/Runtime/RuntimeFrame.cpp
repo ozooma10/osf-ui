@@ -18,7 +18,7 @@ namespace OSFUI
 		// The only menu admission gate; evaluated once per update.
 		const bool suspend = !m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || !m_browserHostRecovery.IsAvailable();
 		if (m_presentation.SetSuspended(suspend) && suspend) {
-			m_viewOpens.CancelMenu();
+			FailPendingOpen("The game is changing menus.");
 		}
 	}
 
@@ -111,6 +111,7 @@ namespace OSFUI
 			m_compositor->Update(); // retire reads and adopt rings even while hidden
 		}
 		m_renderer->Update(); // starts a newly demanded host in this update
+		UpdatePendingOpen();
 		UpdateViewReveal();
 	}
 

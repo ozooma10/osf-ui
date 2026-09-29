@@ -60,6 +60,8 @@ namespace OSFUI
 		void SetInputTargetView(std::string_view a_id);
 		void Resize(std::uint32_t a_width, std::uint32_t a_height);
 		void SetViewport(std::uint32_t a_width, std::uint32_t a_height);
+		// Discard captures from a canceled launcher presentation, including when HUDs remain shown.
+		void ResetPresentation();
 		void SetPointerInputEnabled(bool a_enabled);
 		// Runtime update: callbacks run only here, before Runtime snapshots requests.
 		void DrainNotifications();
@@ -85,7 +87,7 @@ namespace OSFUI
 		void InjectPhysicalMouseWheel(int a_x, int a_y, int a_wheelDelta);
 		void OpenDevTools(std::string_view a_viewId);
 		void SetConsoleHandler(std::string_view a_viewId, ConsoleHandler a_handler);
-		void SetViewHidden(std::string_view a_viewId, bool a_hidden);
+		void SetViewHidden(std::string_view a_viewId, bool a_hidden, bool a_settleColdOpen = false);
 		void SetViewOrder(std::string_view a_viewId, int a_order);
 		void DestroyView(std::string_view a_viewId);
 

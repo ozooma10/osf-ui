@@ -6,12 +6,13 @@ void OSFUI::ViewRequestQueue::Enqueue(ViewPresentationRequest a_request)
     m_presentation.push_back(a_request);
 }
 
-void OSFUI::ViewRequestQueue::EnqueueView(std::string a_viewId, bool a_open)
+void OSFUI::ViewRequestQueue::EnqueueView(std::string a_viewId, bool a_open, std::uint64_t a_requestId)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_presentation.emplace_back(ViewRequest{
         .view = std::move(a_viewId),
         .open = a_open,
+        .requestId = a_requestId,
     });
 }
 
@@ -22,12 +23,6 @@ void OSFUI::ViewRequestQueue::EnqueueRelativePointer(std::string a_viewId, bool 
         .view = std::move(a_viewId),
         .active = a_active,
     });
-}
-
-void OSFUI::ViewRequestQueue::EnqueuePreload(std::string a_viewId)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_presentation.emplace_back(ViewPreloadRequest{ std::move(a_viewId) });
 }
 
 void OSFUI::ViewRequestQueue::EnqueueBackUnhandled(std::string a_viewId, std::uint64_t a_epoch)

@@ -297,7 +297,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		void PollCompletionsLocked()
 		{
-			for (const auto& timeline : timelines) {
+			for (auto& timeline : timelines) {
 				frames->Completed(reinterpret_cast<std::uintptr_t>(timeline.queue), timeline.fence->GetCompletedValue());
 			}
 		}
@@ -545,5 +545,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		if (m_impl) {
 			m_impl->frames->SetVisible(a_visible);
 		}
+	}
+
+	bool D3D12Compositor::PreparedFrameReady(std::uint32_t a_width, std::uint32_t a_height) const
+	{
+		if (!m_impl || !m_impl->setupOk) return false;
+		std::scoped_lock lock(m_impl->sharedRing.drawMutex);
+		const auto& ring = m_impl->sharedRing;
+		if (!ring.produceFence) return false;
+		const auto produced = ring.produceFence->GetCompletedValue();
+		return m_impl->frames->PreparationReady(ring.activeGeneration, produced, a_width, a_height);
 	}
 }

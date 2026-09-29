@@ -58,7 +58,7 @@ namespace OSFUI
 			REX::INFO("Runtime: replacement browser host responded on attempt {}; menus remain closed; requested HUDs resume after loading", attempts);
 		}
 		m_viewLoads.FinishLoad(id, a_failed);
-		if (a_failed) m_viewOpens.OnLoadFailed(id);
+		if (a_failed) FailPendingOpen(a_description, id);
 		if (!a_failed) {
 			if (m_viewRecovery.Clear(id)) {
 				REX::INFO("Runtime: view '{}' recovered ({})", a_viewId, a_url);
@@ -68,7 +68,6 @@ namespace OSFUI
 			m_osfSettings.ClearFailure("view.load-retrying:" + id);
 			m_osfSettings.ClearFailure("view.load-failed:" + id);
 			BroadcastViewsData();  // loadState loading -> loaded
-			ReportLaunchPrepared(id, true);
 			return;
 		}
 		REX::ERROR("Runtime: view '{}' FAILED to load ({}): {} [{}]", a_viewId, a_url, a_description, a_errorCode);
@@ -78,7 +77,6 @@ namespace OSFUI
 			REX::ERROR("view '{}' has exhausted its crash-recovery budget; destroying and unregistering the view (fix its files and relaunch)", a_viewId);
 			m_osfSettings.ClearFailure("view.load-retrying:" + id);
 			m_osfSettings.ReportFailure("view.load-failed:" + id, "view.load-failed", a_description, { { "view", id }, { "errorCode", a_errorCode } });
-			ReportLaunchPrepared(id, false, a_description);
 			TearDownFailedView(id);
 			return;
 		}
@@ -93,6 +91,7 @@ namespace OSFUI
 	void Runtime::NavigateView(const ViewManifest& a_manifest)
 	{
 		const auto& id = a_manifest.id;
+		FailPendingOpen("The interface was reloaded.", id);
 		m_relativePointer.Cancel(id);
 		m_viewLoads.BeginLoad(id);
 		m_viewInputGrants.ResetPage(id);
@@ -124,7 +123,8 @@ namespace OSFUI
 	void Runtime::TearDownFailedView(const std::string& a_id)
 	{
 		m_viewRecovery.Clear(a_id);
-		m_viewOpens.Cancel(a_id);
+		FailPendingOpen("The interface was removed.", a_id);
+		m_viewOpens.CancelHud(a_id);
 		if (m_renderer) {
 			m_renderer->DestroyView(a_id);
 		}

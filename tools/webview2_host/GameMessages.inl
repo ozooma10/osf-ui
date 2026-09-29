@@ -107,6 +107,10 @@
 					HideView(*view);
 				} else {
 					view->pendingPresentationEpoch = a_msg.presentationEpoch;
+					if (a_msg.settleColdOpen) {
+						captureOpening = { .view = view->id, .epoch = a_msg.presentationEpoch };
+						pendingCaptureEpoch = 0;
+					}
 					ShowView(*view);
 				}
 			}

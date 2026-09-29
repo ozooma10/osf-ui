@@ -211,13 +211,13 @@ namespace OSFUI::API
 		return true;
 	}
 
-	bool BridgeApi::RequestPreload(const char* a_viewId) noexcept
+	bool BridgeApi::RequestLauncherOpen(const char* a_viewId, std::uint64_t a_requestId) noexcept
 	{
-		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
+		if (!a_requestId || !a_viewId || !Ids::IsValidQualifiedViewId(a_viewId)) return false;
 		std::lock_guard lock(m_mutex);
 		const auto* id = FindIdCaseInsensitive(m_knownViews, a_viewId);
 		if (!id) return false;
-		m_viewRequests.EnqueuePreload(*id);
+		m_viewRequests.EnqueueView(*id, true, a_requestId);
 		return true;
 	}
 

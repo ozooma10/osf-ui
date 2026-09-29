@@ -240,6 +240,7 @@ namespace OSFUI
 			std::string entry;
 			bool legacy{};
 			bool        hidden{ true };
+			bool settleColdOpen{ false };
 			int         order{ 0 };
 			// Authoring height defines browser rasterization scale against output height.
 			std::uint32_t logicalHeight{ kDefaultViewHeight };
@@ -837,7 +838,7 @@ namespace OSFUI
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
 						.logicalHeight = view.logicalHeight, .legacy = view.legacy }));
 					addBootstrap(ToJson(msg::SetHidden{ .view = view.id,
-						.hidden = view.hidden, .presentationEpoch = presentationEpoch }));
+						.hidden = view.hidden, .presentationEpoch = presentationEpoch, .settleColdOpen = view.settleColdOpen }));
 					addBootstrap(ToJson(msg::SetOrder{ .view = view.id, .order = view.order }));
 				}
 				if (!inputTargetId.empty()) {
@@ -1291,6 +1292,14 @@ namespace OSFUI
 		}
 	}
 
+	void WebView2HostWebRenderer::ResetPresentation()
+	{
+		std::scoped_lock lock(m_impl->stateMutex);
+		m_impl->frames->SetPresentation(++m_impl->presentationEpoch, !m_impl->allHidden);
+		m_impl->Send(ToJson(msg::Viewport{ .width = m_impl->viewportWidth, .height = m_impl->viewportHeight,
+			.presentationEpoch = m_impl->presentationEpoch }));
+	}
+
 	void WebView2HostWebRenderer::DrainNotifications()
 	{
 		m_impl->DrainNotifications();
@@ -1446,13 +1455,15 @@ namespace OSFUI
 		}
 	}
 
-	void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden)
+	void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden, bool a_settleColdOpen)
 	{
 		{
 			std::scoped_lock lock(m_impl->stateMutex);
 			auto* view = m_impl->FindView(a_viewId);
 			if (!view) return;
-			if (view->hidden == a_hidden) return;
+			const bool beginOpening = !a_hidden && a_settleColdOpen && !view->settleColdOpen;
+			view->settleColdOpen = !a_hidden && a_settleColdOpen;
+			if (view->hidden == a_hidden && !beginOpening) return;
 			view->hidden = a_hidden;
 			m_impl->RecomputeAllHidden();
 			if (!a_hidden) {
@@ -1463,7 +1474,7 @@ namespace OSFUI
 				m_impl->frames->SetPresentation(m_impl->presentationEpoch, !m_impl->allHidden);
 			}
 			m_impl->Send(ToJson(msg::SetHidden{ .view = std::string(a_viewId),
-				.hidden = a_hidden, .presentationEpoch = m_impl->presentationEpoch }));
+				.hidden = a_hidden, .presentationEpoch = m_impl->presentationEpoch, .settleColdOpen = view->settleColdOpen }));
 		}
 	}
 

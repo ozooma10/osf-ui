@@ -258,6 +258,7 @@ namespace osfui::wv2
 				std::uint64_t pendingPresentationEpoch{ 0 };
 				int  order{ 0 };
 				bool domSeen{ false };
+				bool captureWarm{ false }; // first launcher capture since navigation has been published
 				std::wstring currentUrl;
 				std::optional<std::wstring> pendingNavigate;
 				std::deque<std::string> queuedPostWeb;
@@ -317,6 +318,12 @@ namespace osfui::wv2
 			std::uint64_t consumeLagDrops{ 0 };
 			ComPtr<ID3D11Texture2D> pendingCapture; // one owned latest-wins copy
 			std::uint64_t pendingCaptureEpoch{ 0 };
+			struct CaptureOpening
+			{
+				std::string view;
+				std::uint64_t epoch{ 0 };
+				std::uint64_t settleUntil{ 0 };
+			} captureOpening;
 
 			ComPtr<ICoreWebView2Environment> environment;
 			bool environmentRequested{ false };
@@ -398,6 +405,7 @@ namespace osfui::wv2
 
 			static constexpr std::string_view kRevealSentinelPrefix = "__osfuiRevealReady:";
 			static constexpr std::uint64_t kRevealTimeoutMs = 300;
+			static constexpr std::uint64_t kColdOpenSettleMs = 100;
 
 			std::string NewRevealToken()
 			{
@@ -431,6 +439,10 @@ namespace osfui::wv2
 
 			void HideView(View& a_view)
 			{
+				if (captureOpening.view == a_view.id) {
+					captureOpening = {};
+					pendingCaptureEpoch = 0;
+				}
 				if (a_view.hidden && !a_view.revealPending) return;
 				RecoverPressedMouseButtons(a_view, "view hide");
 				SetCdpFocus(a_view, false);
@@ -449,7 +461,9 @@ namespace osfui::wv2
 				if (!a_view.hidden) {
 					log.Info(std::format("view '{}': show — already visible (visual={})",
 						a_view.id, a_view.visual && a_view.visual.IsVisible()));
-					if (PromotePresentation(a_view)) {
+					if (captureOpening.view == a_view.id) {
+						PromoteChangedPresentation(a_view); // require a fresh capture even when already shown
+					} else if (PromotePresentation(a_view)) {
 						RepublishLatest();
 					}
 					if (focusGranted && inputTarget == &a_view && a_view.controller) {
@@ -511,6 +525,10 @@ namespace osfui::wv2
 
 			void DestroyOneView(View& a_view)
 			{
+				if (captureOpening.view == a_view.id) {
+					captureOpening = {};
+					pendingCaptureEpoch = 0;
+				}
 				SuspendCdpInput(a_view);
 				RecoverPressedMouseButtons(a_view, "view destruction");
 				if (a_view.compositionController) {
@@ -698,6 +716,7 @@ namespace osfui::wv2
 					if (!a_frame) {
 						RecoverPressedMouseButtons(a_view, "main-frame navigation");
 						a_view.domSeen = false;
+						a_view.captureWarm = false;
 						SuspendCdpInput(a_view);
 					}
 					return S_OK;
@@ -1271,6 +1290,8 @@ namespace osfui::wv2
 					if (!capturedFrame) return;
 					// Draining keeps the WGC pool current while closed; no surface access, GPU copy, fence signal, serialization, or pipe write is useful without a visible view.
 					if (!captureHasVisibleView) return;
+					if (!captureOpening.view.empty() &&
+						(framePresentationEpoch != captureOpening.epoch || AnyRevealPending())) return;
 					auto access = capturedFrame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
 					ComPtr<ID3D11Texture2D> source;
 					winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(&source)));
@@ -1363,6 +1384,8 @@ namespace osfui::wv2
 
 			void ApplyResize(std::uint32_t a_width, std::uint32_t a_height)
 			{
+				pendingCaptureEpoch = 0;
+				if (captureOpening.settleUntil) captureOpening.settleUntil = ::GetTickCount64() + kColdOpenSettleMs;
 				RecoverAllPressedMouseButtons("viewport resize");
 				width = (std::max)(1u, a_width);
 				height = (std::max)(1u, a_height);
@@ -1543,6 +1566,7 @@ namespace osfui::wv2
 					framePool = nullptr;
 				}
 				captureItem = nullptr;
+				captureOpening = {};
 				ReleaseRing();
 				for (auto& view : views) {
 					DestroyOneView(*view);
@@ -1584,8 +1608,13 @@ namespace osfui::wv2
 					};
 					while (!quit.load()) {
 						if (!SendHeartbeatIfDue()) break;
+						DWORD waitMs = AnyRevealPending() ? 50 : 1000;
+						const auto now = ::GetTickCount64();
+						if (captureOpening.settleUntil > now) {
+							waitMs = static_cast<DWORD>((std::min)(std::uint64_t{ waitMs }, captureOpening.settleUntil - now));
+						}
 						const DWORD wait = ::MsgWaitForMultipleObjectsEx(
-							2, waits, AnyRevealPending() ? 50 : 1000,
+							2, waits, waitMs,
 							QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 						if (wait == WAIT_OBJECT_0 + 1) {
 							captureGameExit();
@@ -1605,6 +1634,8 @@ namespace osfui::wv2
 							::TranslateMessage(&message);
 							::DispatchMessageW(&message);
 						}
+						// A static page may not produce another capture after its final paint.
+						if (captureOpening.settleUntil) RetryPendingCapture();
 					}
 				} else {
 					exitCode = 5;

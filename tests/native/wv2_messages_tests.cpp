@@ -34,6 +34,14 @@ namespace
 int main()
 {
 	{
+		const auto launch = RoundTrip(msg::SetHidden{ .view = "starcade.arcade/launcher",
+			.hidden = false, .presentationEpoch = 7, .settleColdOpen = true });
+		Check(launch.settleColdOpen && !launch.hidden && launch.presentationEpoch == 7,
+			"launcher cold-open settling request survives host IPC");
+		Check(!RoundTrip(msg::SetHidden{ .view = "acme/hud", .hidden = false }).settleColdOpen,
+			"normal HUD visibility does not request cold-open settling");
+	}
+	{
 		const auto request = RoundTrip(msg::Back{ .view = "starcade.arcade/launcher", .presentationEpoch = 0xFFFFFFFFFFFFull });
 		const auto reply = RoundTrip(msg::BackUnhandled{ .view = request.view, .presentationEpoch = request.presentationEpoch });
 		Check(reply.view == request.view && reply.presentationEpoch == 0xFFFFFFFFFFFFull,

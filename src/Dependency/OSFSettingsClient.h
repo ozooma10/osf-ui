@@ -19,7 +19,7 @@ namespace OSFUI
 		bool Initialize();
 		void RegisterLaunchers(std::span<const ViewManifest> a_views);
 		// Ends the launcher's loading step for a view.
-		void ReportLaunchPrepared(std::string_view a_mod, std::string_view a_viewId, bool a_ready, std::string_view a_reason);
+		void ReportLaunchOpened(std::uint64_t a_requestId, bool a_opened, std::string_view a_reason = {});
 		[[nodiscard]] bool Available() const { return m_available; }
 		[[nodiscard]] bool DeveloperMode() const { return m_developerMode; }
 		// An empty value selects the browser default for Settings without language support.

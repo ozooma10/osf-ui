@@ -94,12 +94,11 @@ namespace OSFUI
 
 		// View requests, presentation and output geometry.
 		void ApplyPresentationRequests(const std::vector<ViewRequestQueue::Operation>& a_requests);
-		// False when the view cannot be created now (the reason is logged); a_present=false creates it hidden only.
-		bool PrepareViewOpen(std::string_view a_id, std::string_view a_reason = "on demand", bool a_present = true);
+		// False when the view cannot be created now. A nonzero request ID receives a Settings completion.
+		bool PrepareViewOpen(std::string_view a_id, std::string_view a_reason = "on demand", std::uint64_t a_requestId = 0);
 		void DrivePendingOpen();
-		// OSF Settings launcher loading step: create and load hidden, report readiness, never present.
-		void PreloadView(std::string_view a_id);
-		void ReportLaunchPrepared(const std::string& a_id, bool a_ready, std::string_view a_reason = {});
+		void FailPendingOpen(std::string_view a_reason, std::string_view a_view = {});
+		void UpdatePendingOpen();
 		ViewOpenCoordinator::Readiness ViewOpenReadiness(std::string_view a_id) const;
 		void DrainViewRegistrations(const std::vector<std::string>& a_ids);
 		void ApplyViewPresentationPolicy();

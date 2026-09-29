@@ -257,7 +257,7 @@
 				if (TryPublishFrame(a_source, a_width, a_height, a_presentationEpoch)) return;
 				if (captureClosing) return;
 				// WGC's pool will recycle a_source. Keep one private copy so the final
-				// frame of a short animation can be retried when a slot is acknowledged.
+				// frame can be retried after cold-open settling or a slot acknowledgement.
 				D3D11_TEXTURE2D_DESC desc{};
 				if (pendingCapture) pendingCapture->GetDesc(&desc);
 				if (desc.Width != a_width || desc.Height != a_height) pendingCapture.Reset();
@@ -292,6 +292,9 @@
 			bool TryPublishFrame(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
 				if (captureClosing) return false;
+				if (!captureOpening.view.empty() &&
+					(a_presentationEpoch != captureOpening.epoch || AnyRevealPending() ||
+						::GetTickCount64() < captureOpening.settleUntil)) return false;
 				if (!EnsureRing(a_width, a_height)) return false;
 
 				auto writableSlot = kRingSlots;
@@ -328,6 +331,10 @@
 				if (serial == 1) {
 					log.InfoFwd(std::format("first frame published ({}x{})", a_width, a_height));
 				}
+				if (!captureOpening.view.empty()) {
+					if (auto* view = FindView(captureOpening.view)) view->captureWarm = true;
+					captureOpening = {};
+				}
 				return true;
 			}
 
@@ -336,6 +343,11 @@
 			{
 				if (a_epoch <= presentationEpoch) return false;
 				presentationEpoch = a_epoch;
+				if (!captureOpening.view.empty() && a_epoch > captureOpening.epoch) {
+					captureOpening.epoch = a_epoch;
+					pendingCaptureEpoch = 0;
+					if (captureOpening.settleUntil) captureOpening.settleUntil = ::GetTickCount64() + kColdOpenSettleMs;
+				}
 				return true;
 			}
 
@@ -365,12 +377,17 @@
 				// Clear completed or stale reveals; retain the request if pool recreation failed.
 				if (a_view.pendingPresentationEpoch <= presentationEpoch) {
 					a_view.pendingPresentationEpoch = 0;
+					if (captureOpening.view == a_view.id && !a_view.captureWarm && !captureOpening.settleUntil) {
+						captureOpening.settleUntil = ::GetTickCount64() + kColdOpenSettleMs;
+						log.Info(std::format("view '{}': cold launcher open settling for {} ms", a_view.id, kColdOpenSettleMs));
+					}
 				}
 				return advanced;
 			}
 
 			void RepublishLatest()
 			{
+				if (!captureOpening.view.empty()) return; // opening requires a fresh capture, never an old ring frame
 				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) return;
 				// Copying from a held slot is read-only. If the source itself is free, publication can reuse its pixels without a self-copy.
 				// A full ring keeps these pixels as the pending capture, retried on the next acknowledgement.

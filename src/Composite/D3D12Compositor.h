@@ -22,6 +22,7 @@ namespace OSFUI
 		bool Initialize(std::shared_ptr<SharedFrameConsumer> a_frames);
 		void Update();
 		void SetVisible(bool a_visible);
+		bool PreparedFrameReady(std::uint32_t a_width, std::uint32_t a_height) const;
 
 	private:
 		friend bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList*, ID3D12Resource*);

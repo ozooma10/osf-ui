@@ -1,184 +1,92 @@
 #include "Views/ViewOpenCoordinator.h"
-#include "Views/ViewPresentationController.h"
 #include "check.h"
 
 #include <unordered_map>
 
 using OSFUI::ViewOpenCoordinator;
 using Readiness = ViewOpenCoordinator::Readiness;
-
-namespace
-{
-	struct Fixture
-	{
-		ViewOpenCoordinator opens;
-		OSFUI::ViewPresentationController presentation;
-		std::unordered_map<std::string, Readiness> readiness;
-		std::unordered_map<std::string, OSFUI::ViewKind> kinds;
-
-		void Add(std::string a_id, OSFUI::ViewKind a_kind = OSFUI::ViewKind::Menu)
-		{
-			presentation.AddInstantiated({ a_id, a_kind, a_kind == OSFUI::ViewKind::Menu, false, 0 });
-			kinds.emplace(a_id, a_kind);
-			readiness.emplace(std::move(a_id), Readiness::Loading);
-		}
-		void Menu(std::string_view a_id)
-		{
-			if (opens.QueueMenu(a_id, readiness.at(std::string(a_id)))) {
-				presentation.Open(a_id);
-			}
-		}
-		// Mirrors Runtime::ViewOpenReadiness: suspension holds menus, never HUDs.
-		std::vector<std::string> CommitReady()
-		{
-			auto ready = opens.TakeReady([&](std::string_view a_id) {
-				const auto it = readiness.find(std::string(a_id));
-				if (it == readiness.end()) return Readiness::Missing;
-				if (kinds.at(it->first) == OSFUI::ViewKind::Menu && presentation.Suspended()) return Readiness::Suspended;
-				return it->second;
-			});
-			for (const auto& id : ready) presentation.Open(id);
-			return ready;
-		}
-	};
-}
+using Phase = ViewOpenCoordinator::Phase;
 
 int main()
 {
-	// Opening a cold menu preserves the old menu until load and input are ready.
-	// Duplicate opens leave the request pending without changing presentation.
-	{
-		Fixture f;
-		f.Add("mod/old"); f.Add("mod/new");
-		f.presentation.Open("mod/old");
-		f.Menu("mod/new");
-		CHECK(f.CommitReady().empty());
-		f.Menu("mod/new");
-		f.readiness["mod/new"] = Readiness::WaitingForInput;
-		CHECK(f.CommitReady().empty());
-		CHECK(f.presentation.ActiveMenu() == "mod/old");
-		f.readiness["mod/new"] = Readiness::Ready;
-		f.presentation.SetSuspended(true);
-		CHECK(f.CommitReady().empty());
-		CHECK(f.opens.PendingMenu() == "mod/new"); // held, not dropped
-		CHECK(!f.presentation.Open("mod/new")); // suspension refuses menus directly too
-		f.presentation.SetSuspended(false);
-		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/new" });
-		CHECK(f.presentation.ActiveMenu() == "mod/new");
-		CHECK(f.CommitReady().empty());
-	}
+    ViewOpenCoordinator opens;
+    std::unordered_map<std::string, Readiness> readiness;
+    const auto ready = [&] {
+        return opens.TakeReady([&](std::string_view id) {
+            const auto it = readiness.find(std::string(id));
+            return it == readiness.end() ? Readiness::Missing : it->second;
+        });
+    };
 
-	// A warm menu selects desired presentation immediately and supersedes an old
-	// pending request, but leaves unrelated deferred HUDs intact.
-	{
-		Fixture f;
-		f.Add("mod/slow"); f.Add("mod/warm"); f.Add("mod/hud", OSFUI::ViewKind::Hud);
-		f.Menu("mod/slow");
-		f.opens.QueueHud("mod/hud");
-		f.readiness["mod/warm"] = Readiness::Ready;
-		f.Menu("mod/warm");
-		CHECK(f.presentation.ActiveMenu() == "mod/warm");
-		f.readiness["mod/slow"] = Readiness::Ready;
-		CHECK(f.CommitReady().empty());
-		f.readiness["mod/hud"] = Readiness::Ready;
-		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/hud" });
-		CHECK(f.presentation.ActiveMenu() == "mod/warm");
-	}
+    // Both ordinary and launcher opens stay pending after page readiness.
+    // That notification starts rendering; only Runtime's submission observation
+    // may finish the operation and select the new menu/input owner.
+    for (const auto request : { std::uint64_t{0}, std::uint64_t{41} }) {
+        opens.QueueMenu("mod/menu", 130.0, request);
+        CHECK(opens.Contains("mod/menu"));
+        for (const auto held : { Readiness::Loading, Readiness::WaitingForInput, Readiness::Suspended }) {
+            readiness["mod/menu"] = held;
+            CHECK(ready().empty());
+            CHECK(opens.PendingMenu()->phase == Phase::Loading);
+        }
+        readiness["mod/menu"] = Readiness::Ready;
+        CHECK(ready() == std::vector<std::string>{"mod/menu"});
+        CHECK(opens.PendingMenu()->phase == Phase::Rendering);
+        CHECK(opens.PendingMenu()->requestId == request);
+        CHECK(opens.PendingMenu()->deadline == 130.0);
+        CHECK(ready().empty()); // no duplicate start while rendering
+        opens.PendingMenu()->phase = Phase::AwaitingSubmission;
+        CHECK(ready().empty());
+        CHECK(opens.Contains("mod/menu"));
+        const auto finished = opens.TakeMenu();
+        CHECK(finished && finished->view == "mod/menu" && finished->requestId == request);
+        CHECK(finished->phase == Phase::AwaitingSubmission);
+        CHECK(!opens.PendingMenu() && !opens.Contains("mod/menu"));
+        CHECK(!opens.TakeMenu()); // completion/cleanup owns the operation once
+    }
 
-	// Back cancels the pending menu without closing the already presented one.
-	// A subsequent request can replace another cold request without reviving it.
-	{
-		Fixture f;
-		f.Add("mod/old"); f.Add("mod/a"); f.Add("mod/b");
-		f.presentation.Open("mod/old");
-		f.Menu("mod/a");
-		CHECK(f.opens.CancelMenu());
-		CHECK(!f.opens.CancelMenu());
-		CHECK(f.presentation.ActiveMenu() == "mod/old");
-		f.Menu("mod/a"); f.Menu("mod/b");
-		f.readiness["mod/a"] = Readiness::Ready;
-		CHECK(f.CommitReady().empty());
-		f.readiness["mod/b"] = Readiness::Ready;
-		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/b" });
-		f.readiness["mod/a"] = Readiness::Loading;
-		f.Menu("mod/a");
-		CHECK(f.opens.Cancel(*f.opens.PendingMenu()));
-		CHECK(f.CommitReady().empty());
-	}
+    // Failure leaves the completion identity available for Runtime's common
+    // cleanup, rather than silently dropping a Settings waiter.
+    for (const auto failure : { Readiness::Missing, Readiness::InputUnavailable }) {
+        opens.QueueMenu("mod/menu", 230.0, 42);
+        readiness["mod/menu"] = failure;
+        CHECK(ready().empty());
+        const auto failed = opens.TakeMenu();
+        CHECK(failed && failed->requestId == 42 && failed->phase == Phase::Loading);
+        readiness["mod/menu"] = Readiness::Ready;
+        CHECK(ready().empty()); // late readiness cannot revive a canceled open
+    }
 
-	// Warm selection is visible to the next request before browser presentation
-	// is committed. Back/close can cancel it without a late load reopening it.
-	{
-		Fixture f;
-		f.Add("mod/old"); f.Add("mod/warm");
-		f.presentation.Open("mod/old");
-		f.readiness["mod/warm"] = Readiness::Ready;
-		f.Menu("mod/warm");
-		CHECK(!f.opens.PendingMenu());
-		CHECK(f.presentation.ActiveMenu() == "mod/warm");
-		CHECK(f.presentation.CloseActiveMenu());
-		CHECK(f.CommitReady().empty());
-		CHECK(!f.presentation.DesiredVisible());
-	}
+    // Replacing/canceling a menu preserves unrelated HUD demand. Ready HUDs
+    // still complete at load readiness, including while a menu awaits a frame.
+    opens.QueueHud("mod/hud");
+    readiness["mod/hud"] = Readiness::Loading;
+    opens.QueueMenu("mod/old", 300.0, 43);
+    const auto replaced = opens.TakeMenu();
+    CHECK(replaced && replaced->requestId == 43);
+    opens.QueueMenu("mod/new", 310.0, 44);
+    readiness["mod/old"] = Readiness::Ready;
+    readiness["mod/new"] = Readiness::Loading;
+    CHECK(ready().empty());
+    readiness["mod/hud"] = Readiness::Ready;
+    CHECK(ready() == std::vector<std::string>{"mod/hud"});
+    CHECK(opens.PendingMenu()->view == "mod/new");
+    CHECK(opens.PendingMenu()->requestId == 44);
+    CHECK(opens.TakeMenu()->requestId == 44);
+    readiness["mod/new"] = Readiness::Ready;
+    CHECK(ready().empty());
 
-	// Failed menu loads cancel intent. HUDs survive failure and host recovery,
-	// stay behind their load gate, and can resume while menus are prohibited.
-	{
-		Fixture f;
-		f.Add("mod/menu"); f.Add("mod/hud", OSFUI::ViewKind::Hud);
-		f.Menu("mod/menu"); f.opens.QueueHud("mod/hud");
-		f.opens.OnLoadFailed("mod/menu"); f.opens.OnLoadFailed("mod/hud");
-		f.readiness["mod/menu"] = Readiness::Ready;
-		CHECK(f.CommitReady().empty());
-		f.opens.CancelMenu();
-		f.presentation.SetSuspended(true);
-		f.readiness["mod/hud"] = Readiness::Ready;
-		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/hud" });
-		CHECK(!f.presentation.ActiveMenu());
-		CHECK(f.presentation.IsOpen("mod/hud"));
-		CHECK(!f.presentation.DesiredVisible());
-		f.presentation.SetSuspended(false);
-		CHECK(f.presentation.DesiredVisible());
-	}
+    opens.QueueHud("mod/hud");
+    CHECK(opens.CancelHud("mod/hud"));
+    CHECK(!opens.CancelHud("mod/hud"));
+    CHECK(ready().empty());
+    opens.QueueHud("mod/removed");
+    CHECK(ready().empty());
+    CHECK(!opens.Contains("mod/removed"));
+    opens.QueueHud("mod/hud");
+    opens.ClearHuds();
+    CHECK(ready().empty());
 
-	// Ready HUDs commit without a tick delay. Explicit close and close-all
-	// remove deferred work so late loads cannot reopen it.
-	{
-		Fixture f;
-		f.Add("mod/menu"); f.Add("mod/hud", OSFUI::ViewKind::Hud);
-		f.readiness["mod/hud"] = Readiness::Ready;
-		f.opens.QueueHud("mod/hud");
-		CHECK(f.CommitReady() == std::vector<std::string>{ "mod/hud" });
-		f.presentation.Close("mod/hud");
-		f.opens.QueueHud("mod/hud");
-		CHECK(f.opens.Cancel("mod/hud"));
-		CHECK(f.CommitReady().empty());
-		f.Menu("mod/menu"); f.opens.QueueHud("mod/hud");
-		f.opens.Clear(); f.presentation.CloseAll();
-		f.readiness["mod/menu"] = Readiness::Ready;
-		CHECK(f.CommitReady().empty());
-		CHECK(!f.presentation.DesiredVisible());
-	}
-
-	// Removed views and failed input integration cancel pending menus rather
-	// than retaining a request that might surface after a later recovery.
-	for (const auto failure : { Readiness::Missing, Readiness::InputUnavailable }) {
-		Fixture f;
-		f.Add("mod/menu"); f.Menu("mod/menu");
-		f.readiness["mod/menu"] = failure;
-		CHECK(f.CommitReady().empty());
-		f.readiness["mod/menu"] = Readiness::Ready;
-		CHECK(f.CommitReady().empty());
-		f.Menu("mod/menu");
-		CHECK(f.presentation.IsOpen("mod/menu"));
-	}
-	{
-		Fixture f;
-		f.opens.QueueHud("mod/removed");
-		CHECK(f.CommitReady().empty());
-		CHECK(!f.opens.Contains("mod/removed"));
-	}
-
-	std::printf("view_open_coordinator_tests: %d checks, %d failures\n", g_checks, g_failures);
-	return g_failures ? 1 : 0;
+    std::printf("view_open_coordinator_tests: %d checks, %d failures\n", g_checks, g_failures);
+    return g_failures ? 1 : 0;
 }
