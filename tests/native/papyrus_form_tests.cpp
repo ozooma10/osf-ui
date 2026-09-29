@@ -1,10 +1,12 @@
 #include "API/PapyrusApi.h"
+#include "Compat/V1/LegacyBridge.h"
 
 #include "RE/B/BSScriptUtil.h"
 #include "RE/E/Events.h"
 #include "RE/T/TESForm.h"
 #include "RE/T/TESFullName.h"
 #include "check.h"
+#include <cstdlib>
 
 namespace
 {
@@ -52,6 +54,16 @@ namespace OSFUI::Log
 
 	bool DebugEnabled() { return true; }
 	void SetDebugLogging(bool) {}
+}
+
+namespace OSFUI::Compat::V1
+{
+	IOSFUIBridge& Bridge()
+	{
+		// Form marshaling tests do not initialize the legacy Settings/view runtime.
+		std::fputs("Unexpected legacy menu call in papyrus_form_tests\n", stderr);
+		std::abort();
+	}
 }
 
 int main()

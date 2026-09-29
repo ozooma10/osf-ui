@@ -75,10 +75,11 @@ int main()
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
         Install(&settings, &diagnostics);
-        settingsVersion = 0x00010000; // OSF Settings older than ABI 1.1.
+        settingsVersion = 0x00010000; // GetLanguage is part of the initial ABI 1.0 contract.
+        settings.language = "ja";
         OSFSettingsClient client;
         CHECK(client.Initialize());
-        CHECK(client.Language() == "" && settings.languageReads == 0);
+        CHECK(client.Language() == "ja" && settings.languageReads == 1);
     }
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;

@@ -3,7 +3,7 @@
 # against stubs/pch.h (std umbrella + REX log stub) and runs them on the
 # desktop toolchain — no Windows, SFSE, or game required. The native mirror of
 # devtools/harness. Requires a C++23 compiler; fetches the locked
-# nlohmann/json single header on first run.
+# nlohmann/json amalgamated headers on first run.
 #
 # The shared runtime/api sources are listed by many suites (Json.cpp — which
 # drags in the ~25k-line nlohmann/json header — appears in ten of them), so the
@@ -22,12 +22,15 @@ NLOHMANN_VERSION=v3.11.3
 # of suites that no longer exist, which would otherwise remain runnable.
 rm -rf "$BUILD"
 mkdir -p "$DEPS/nlohmann" "$BUILD/obj"
-if [[ ! -f "$DEPS/nlohmann/json.hpp" ]]; then
-    echo "fetching nlohmann/json $NLOHMANN_VERSION ..."
-    curl -fsSL --max-time 120 \
-        -o "$DEPS/nlohmann/json.hpp" \
-        "https://raw.githubusercontent.com/nlohmann/json/$NLOHMANN_VERSION/single_include/nlohmann/json.hpp"
-fi
+for header in json.hpp json_fwd.hpp; do
+    if [[ ! -s "$DEPS/nlohmann/$header" ]]; then
+        echo "fetching nlohmann/$header $NLOHMANN_VERSION ..."
+        curl -fsSL --max-time 120 \
+            -o "$DEPS/nlohmann/$header.tmp" \
+            "https://raw.githubusercontent.com/nlohmann/json/$NLOHMANN_VERSION/single_include/nlohmann/$header"
+        mv -f "$DEPS/nlohmann/$header.tmp" "$DEPS/nlohmann/$header"
+    fi
+done
 
 # Toolchain: CI and Unix developers use a GNU-driver compiler (CXX, default
 # clang++). On a Windows box with no clang/g++ on PATH, fall back to MSVC cl
