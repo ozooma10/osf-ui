@@ -11,21 +11,34 @@ $required = @(
     'SFSE\Plugins\OSFUI.dll',
     'SFSE\Plugins\OSF\UI\bin\osfui_webview2_host.exe',
     'SFSE\Plugins\OSF\UI\views\shared\osfui.js',
+    'SFSE\Plugins\OSF\UI\views\shared\osfui.css',
+    'SFSE\Plugins\OSF\UI\views\shared\gamepadnav.js',
+    'SFSE\Plugins\OSFUI\views\shared\osfui.js',
+    'SFSE\Plugins\OSFUI\views\shared\osfui.css',
     'SFSE\Plugins\OSF\Settings\schemas\osfui.json',
     'Scripts\OSFUI.pex'
 )
 foreach ($relative in $required) {
-    if (-not (Test-Path -LiteralPath (Join-Path $root $relative))) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf)) {
         throw "Missing OSF UI-owned package path: $relative"
     }
 }
 
-foreach ($relative in 'SFSE\Plugins\OSFUI', 'SFSE\Plugins\OSFSettings.dll',
+foreach ($relative in 'SFSE\Plugins\OSFUI\settings', 'SFSE\Plugins\OSFUI\views\osfui',
+        'SFSE\Plugins\OSFSettings.dll',
         'SFSE\Plugins\OSFUISettingsExample.dll', 'SFSE\Plugins\OSF\UI\views\osfui-example',
         'Scripts\OSFUI_Settings.pex', 'Scripts\OSFUI_View.pex',
         'Scripts\Source\OSFUI_Settings.psc', 'Scripts\Source\OSFUI_View.psc') {
     if (Test-Path -LiteralPath (Join-Path $root $relative)) {
         throw "OSF UI package contains legacy or sibling-owned path: $relative"
+    }
+}
+
+$legacyRoot = Join-Path $root 'SFSE\Plugins\OSFUI'
+$legacyOwned = @('views\shared\osfui.js', 'views\shared\osfui.css')
+foreach ($file in Get-ChildItem -LiteralPath $legacyRoot -Recurse -File -Force) {
+    if ([IO.Path]::GetRelativePath($legacyRoot, $file.FullName) -notin $legacyOwned) {
+        throw "Unexpected legacy compatibility payload: $($file.FullName)"
     }
 }
 
