@@ -7,7 +7,7 @@ namespace OSFSettings::API::Launcher
 {
     inline constexpr std::uint32_t kVersion = 0x00010000;
     enum class Status : std::uint32_t { Ok, InvalidArgument, AlreadyRegistered, NotFound, InternalError };
-    // opens while Settings remains visible. call ReportOpened once interface displayed and ready, or on failure.
+    // Open starts a request while Settings remains visible and owns input. The same signature is used for the after-close callback supplied to Complete.
     using OpenFn = void (*)(const char* modId, const char* id, std::uint64_t requestId, void* context) noexcept;
     struct Destination
     {
@@ -25,8 +25,9 @@ namespace OSFSettings::API::Launcher
         // Metadata is copied. Native callback code/context must live until process exit.
         virtual Status Register(const Destination&) noexcept = 0;
         virtual Status SetAvailable(const char* modId, const char* id, bool available, const char* reason) noexcept = 0;
-        // first result wins; stale/duplicate results are ignored. Success closes the Settings instance waiting for this request
-        virtual Status ReportOpened(std::uint64_t requestId, bool opened, const char* reason) noexcept = 0;
+        // Completes once: a callback closes Settings; nullptr reports failure and leaves it open. NotFound rejects abandoned, expired, or already-completed requests.
+        // afterClose runs on removal: queue activation on your runtime;
+        virtual Status Complete(std::uint64_t requestId, OpenFn afterClose, void* context, const char* reason) noexcept = 0;
     protected:
         ~ILauncher() = default;
     };
@@ -47,7 +48,7 @@ namespace OSFSettings::API::Launcher
         explicit operator bool() const noexcept { return m_api != nullptr; }
         Status Register(const Destination& destination) const noexcept { return m_api ? m_api->Register(destination) : Status::InternalError; }
         Status SetAvailable(const char* mod, const char* id, bool available, const char* reason = "") const noexcept { return m_api ? m_api->SetAvailable(mod, id, available, reason) : Status::InternalError; }
-        Status ReportOpened(std::uint64_t requestId, bool opened, const char* reason = "") const noexcept { return m_api ? m_api->ReportOpened(requestId, opened, reason) : Status::InternalError; }
+        Status Complete(std::uint64_t requestId, OpenFn afterClose, void* context = nullptr, const char* reason = "") const noexcept { return m_api ? m_api->Complete(requestId, afterClose, context, reason) : Status::InternalError; }
     private:
         ILauncher* m_api{};
     };

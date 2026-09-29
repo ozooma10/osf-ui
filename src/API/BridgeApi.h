@@ -37,7 +37,7 @@ namespace OSFUI::API
 		void          SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) noexcept override;
 		bool          RegisterView(const char* a_viewId) noexcept override;
-		// Prepare/cancel a known menu's first frame for Settings; not part of the mod ABI.
+		// Start a Settings launch; loading and frame retention stay private to Runtime.
 		bool          RequestLauncherOpen(const char* a_viewId, std::uint64_t a_requestId) noexcept;
 		// Shared internal inbox for native, browser, and game-input requests.
 		ViewRequestQueue& ViewRequests() { return m_viewRequests; }

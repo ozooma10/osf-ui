@@ -217,7 +217,7 @@ namespace OSFUI::API
 		std::lock_guard lock(m_mutex);
 		const auto* id = FindIdCaseInsensitive(m_knownViews, a_viewId);
 		if (!id) return false;
-		m_viewRequests.EnqueueView(*id, true, a_requestId);
+		m_viewRequests.EnqueueLauncherOpen(*id, a_requestId);
 		return true;
 	}
 

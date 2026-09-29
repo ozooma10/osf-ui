@@ -16,6 +16,12 @@ void OSFUI::ViewRequestQueue::EnqueueView(std::string a_viewId, bool a_open, std
     });
 }
 
+void OSFUI::ViewRequestQueue::EnqueueLauncherOpen(std::string a_viewId, std::uint64_t a_requestId)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_presentation.emplace_back(LauncherRequest{ std::move(a_viewId), a_requestId });
+}
+
 void OSFUI::ViewRequestQueue::EnqueueRelativePointer(std::string a_viewId, bool a_active)
 {
     std::lock_guard<std::mutex> lock(m_mutex);

@@ -56,15 +56,21 @@ int main()
     const auto& opened = std::get<ViewRequestQueue::ViewRequest>(presentation.at(0));
     CHECK(opened.view == "acme/panel" && opened.open);
 
-    // A launcher open carries its completion ID through the ordinary FIFO.
+    // A launcher open retains identity until its after-close activation is queued.
     CHECK(api.RequestLauncherOpen("ACME/PANEL", 41));
     CHECK(!api.RequestLauncherOpen("missing/panel", 42));
     CHECK(!api.RequestLauncherOpen(nullptr, 42));
     CHECK(!api.RequestLauncherOpen("acme/panel", 0));
+    api.ViewRequests().EnqueueView("acme/panel", true, 41);
+    CHECK(api.RequestMenu("acme/panel", true));
     auto launches = api.TakePendingBatch().presentation;
-    CHECK(launches.size() == 1);
-    const auto& launch = std::get<ViewRequestQueue::ViewRequest>(launches.at(0));
-    CHECK(launch.view == "acme/panel" && launch.open && launch.requestId == 41);
+    CHECK(launches.size() == 3);
+    const auto& launch = std::get<ViewRequestQueue::LauncherRequest>(launches.at(0));
+    CHECK(launch.view == "acme/panel" && launch.requestId == 41);
+    const auto& activation = std::get<ViewRequestQueue::ViewRequest>(launches.at(1));
+    CHECK(activation.view == "acme/panel" && activation.open && activation.requestId == 41);
+    const auto& direct = std::get<ViewRequestQueue::ViewRequest>(launches.at(2));
+    CHECK(direct.open && direct.requestId == 0);
 
     // Native, browser and input producers share one FIFO, including closes of
     // views that an earlier queued open has not instantiated yet.

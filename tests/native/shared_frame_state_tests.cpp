@@ -40,68 +40,6 @@ namespace
 
 int main()
 {
-	// Readiness and recording are not successful opening. Only submission of
-	// the retained frame counts, and the result survives later frame churn.
-	{
-		auto state = Open();
-		CHECK(Publish(state, 0, 1) == Result::Accepted);
-		CHECK(state.Record(listA, 1, 1));
-		state.BeginPreparation();
-		state.SetPresentation(2, true);
-		CHECK(Publish(state, 1, 2, 2) == Result::Accepted);
-		CHECK(state.PreparationReady(1, 2, 1920, 1080));
-		CHECK(!state.TakePreparedSubmission());
-		state.EndPreparation(true);
-		Submit(state, listA, queueA, 1); // old HUD only
-		CHECK(!state.TakePreparedSubmission());
-		CHECK(state.Record(listB, 1, 2)->frameIndex == 2);
-		CHECK(!state.TakePreparedSubmission());
-		Submit(state, listA, queueA, 2); // unrelated list
-		CHECK(!state.TakePreparedSubmission());
-		Submit(state, listB, queueB, 3);
-		state.Completed(queueB, 3);
-		CHECK(Publish(state, 2, 3, 2) == Result::Accepted);
-		CHECK(state.Record(listA, 1, 3)->frameIndex == 3);
-		Submit(state, listA, queueA, 4);
-		const auto submitted = state.TakePreparedSubmission();
-		CHECK(submitted && submitted->ringGeneration == 1 && submitted->frameIndex == 2);
-		CHECK(!state.TakePreparedSubmission());
-	}
-	// Obsolete epochs, hidden views, disconnected hosts and failed completion
-	// signals cannot confirm an open, even if an old list is submitted later.
-	for (int invalidation = 0; invalidation < 5; ++invalidation) {
-		auto state = Open();
-		state.BeginPreparation();
-		CHECK(Publish(state, 0, 1) == Result::Accepted);
-		state.EndPreparation(true);
-		CHECK(state.Record(listA, 1, 1));
-		switch (invalidation) {
-		case 0: state.SetPresentation(2, true); break;
-		case 1: state.SetVisible(false); break;
-		case 2: state.Disconnect(); break;
-		case 3: state.BeginRing(Ring(2)); break;
-		case 4: break; // queue == 0 means no successful completion signal
-		}
-		Submit(state, listA, invalidation == 4 ? 0 : queueA, 1);
-		CHECK(!state.TakePreparedSubmission());
-	}
-	// Reused serials in a replacement ring must not match an old recorded read.
-	{
-		auto state = Open();
-		state.BeginPreparation();
-		CHECK(Publish(state, 0, 1) == Result::Accepted);
-		state.EndPreparation(true);
-		CHECK(state.Record(listA, 1, 1));
-		state.BeginRing(Ring(2));
-		state.BeginPreparation();
-		CHECK(Publish(state, 0, 1) == Result::Accepted);
-		state.EndPreparation(true);
-		Submit(state, listA, queueA, 1);
-		CHECK(!state.TakePreparedSubmission());
-		CHECK(state.Record(listB, 2, 1));
-		Submit(state, listB, queueA, 2);
-		CHECK(state.TakePreparedSubmission()->ringGeneration == 2);
-	}
 	// Launcher preparation holds the old HUD and pins the first new frame until
 	// the GPU copy completes. New captures cannot displace the promised frame.
 	{

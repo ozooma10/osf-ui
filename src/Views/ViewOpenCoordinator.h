@@ -10,7 +10,7 @@
 
 namespace OSFUI
 {
-	// Runtime-owned. Menu requests live here through first-frame submission.
+	// Runtime-owned. Preparing a frame does not grant input; an ordinary open consumes it.
 	// Runtime owns instantiation and presentation; this class never calls the engine, browser or native plugins.
 	class ViewOpenCoordinator
 	{
@@ -18,17 +18,18 @@ namespace OSFUI
 		// Suspended: presentation refuses menus right now; the request stays queued.
 		enum class Readiness { Missing, Suspended, Loading, WaitingForInput, InputUnavailable, Ready };
 		bool Contains(std::string_view a_view) const;
-		enum class Phase { Loading, Rendering, AwaitingSubmission };
+		enum class Phase { Loading, Rendering, Ready };
 		struct MenuOpen
 		{
 			std::string view;
 			double deadline;
-			std::uint64_t requestId{}; // Zero for opens without a Settings completion.
+			std::uint64_t requestId{}; // Nonzero waits for this request's after-close callback.
 			Phase phase{ Phase::Loading };
 		};
 		MenuOpen* PendingMenu() { return m_menu ? &*m_menu : nullptr; }
 		const MenuOpen* PendingMenu() const { return m_menu ? &*m_menu : nullptr; }
 		std::optional<MenuOpen> TakeMenu(); // Runtime completes or cleans up the returned operation.
+		std::optional<MenuOpen> TakeReadyMenu(std::string_view a_view, std::uint64_t a_requestId = 0);
 
 		// Call after instantiation succeeds. Replaces only the pending
 		// menu, leaving the currently presented menu and HUD requests untouched.

@@ -1,4 +1,5 @@
 #include "Views/ViewOpenCoordinator.h"
+#include "Views/ViewPresentationController.h"
 #include "check.h"
 
 #include <unordered_map>
@@ -18,12 +19,13 @@ int main()
         });
     };
 
-    // Both ordinary and launcher opens stay pending after page readiness.
-    // That notification starts rendering; only Runtime's submission observation
-    // may finish the operation and select the new menu/input owner.
+    // Preparation reaches frame readiness without changing input ownership.
+    OSFUI::ViewPresentationController presentation;
+    presentation.AddInstantiated({ .id = "mod/menu", .kind = OSFUI::ViewKind::Menu, .capturesInput = true, .pausesGame = true });
     for (const auto request : { std::uint64_t{0}, std::uint64_t{41} }) {
         opens.QueueMenu("mod/menu", 130.0, request);
         CHECK(opens.Contains("mod/menu"));
+        CHECK(!opens.TakeReadyMenu("mod/menu", request));
         for (const auto held : { Readiness::Loading, Readiness::WaitingForInput, Readiness::Suspended }) {
             readiness["mod/menu"] = held;
             CHECK(ready().empty());
@@ -33,17 +35,44 @@ int main()
         CHECK(ready() == std::vector<std::string>{"mod/menu"});
         CHECK(opens.PendingMenu()->phase == Phase::Rendering);
         CHECK(opens.PendingMenu()->requestId == request);
-        CHECK(opens.PendingMenu()->deadline == 130.0);
-        CHECK(ready().empty()); // no duplicate start while rendering
-        opens.PendingMenu()->phase = Phase::AwaitingSubmission;
+        CHECK(!opens.TakeReadyMenu("mod/menu", request)); // page readiness is not a prepared frame
         CHECK(ready().empty());
+        opens.PendingMenu()->phase = Phase::Ready; // renderer confirms GPU-ready retained frame
+        CHECK(ready().empty());
+        CHECK(!presentation.DesiredCapture());
+        CHECK(!presentation.DesiredPause());
+        CHECK(!opens.TakeReadyMenu("mod/other"));
         CHECK(opens.Contains("mod/menu"));
-        const auto finished = opens.TakeMenu();
-        CHECK(finished && finished->view == "mod/menu" && finished->requestId == request);
-        CHECK(finished->phase == Phase::AwaitingSubmission);
-        CHECK(!opens.PendingMenu() && !opens.Contains("mod/menu"));
-        CHECK(!opens.TakeMenu()); // completion/cleanup owns the operation once
+        CHECK(!opens.TakeReadyMenu("mod/menu", request + 1));
+        // Only this request's after-close callback can consume its frame, once.
+        const auto finished = opens.TakeReadyMenu("mod/menu", request);
+        CHECK(finished && finished->requestId == request);
+        CHECK(presentation.Open(finished->view));
+        CHECK(presentation.DesiredCapture());
+        CHECK(presentation.DesiredPause());
+        CHECK(!opens.PendingMenu());
+        CHECK(!opens.TakeReadyMenu("mod/menu", request));
+        CHECK(!opens.TakeMenu());
+        presentation.CloseAll();
     }
+
+    // Runtime cleanup may discard any preparation stage, including an accepted
+    // completion whose after-close callback never arrived.
+    for (const auto phase : { Phase::Loading, Phase::Rendering, Phase::Ready }) {
+        opens.QueueMenu("mod/menu", 210.0, 46);
+        opens.PendingMenu()->phase = phase;
+        const auto canceled = opens.TakeMenu();
+        CHECK(canceled && canceled->requestId == 46);
+        CHECK(!opens.TakeReadyMenu("mod/menu", 46));
+        CHECK(ready().empty());
+    }
+
+    // An old callback cannot activate a reopened request for the same view.
+    opens.QueueMenu("mod/menu", 220.0, 47);
+    opens.PendingMenu()->phase = Phase::Ready;
+    CHECK(!opens.TakeReadyMenu("mod/menu", 46));
+    CHECK(!opens.TakeReadyMenu("mod/menu"));
+    CHECK(opens.TakeReadyMenu("mod/menu", 47).has_value());
 
     // Failure leaves the completion identity available for Runtime's common
     // cleanup, rather than silently dropping a Settings waiter.

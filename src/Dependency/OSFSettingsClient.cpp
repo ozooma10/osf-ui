@@ -40,7 +40,7 @@ namespace OSFUI
 				.title = view.title.c_str(), .description = view.description.c_str(),
 				.open = [](const char*, const char* id, std::uint64_t requestId, void* context) noexcept {
 					if (!API::BridgeApi::Get().RequestLauncherOpen(id, requestId)) {
-						static_cast<OSFSettingsClient*>(context)->ReportLaunchOpened(requestId, false, "The interface could not be queued.");
+						static_cast<OSFSettingsClient*>(context)->CompleteLaunch(requestId, false, "The interface could not be queued.");
 					}
 				}, .context = this
 			});
@@ -51,13 +51,19 @@ namespace OSFUI
 		}
 	}
 
-	void OSFSettingsClient::ReportLaunchOpened(std::uint64_t a_requestId, bool a_opened, std::string_view a_reason)
+	bool OSFSettingsClient::CompleteLaunch(std::uint64_t a_requestId, bool a_ready, std::string_view a_reason)
 	{
 		namespace Launcher = OSFSettings::API::Launcher;
-		if (!m_launcher) return;  // no launcher service: nothing is waiting
+		if (!m_launcher) return false;
 		const std::string reason(a_reason);
-		const auto status = m_launcher.ReportOpened(a_requestId, a_opened, reason.c_str());
-		if (status != Launcher::Status::Ok) REX::WARN("Launcher completion report request={} failed: {}", a_requestId, static_cast<unsigned>(status));
+		const Launcher::OpenFn afterClose = [](const char*, const char* id, std::uint64_t requestId, void*) noexcept {
+			API::BridgeApi::Get().ViewRequests().EnqueueView(id, true, requestId);
+		};
+		const auto status = m_launcher.Complete(a_requestId, a_ready ? afterClose : nullptr, nullptr, reason.c_str());
+		if (status != Launcher::Status::Ok && status != Launcher::Status::NotFound) {
+			REX::WARN("Launcher completion request={} failed: {}", a_requestId, static_cast<unsigned>(status));
+		}
+		return status == Launcher::Status::Ok;
 	}
 
 	std::optional<std::string> OSFSettingsClient::Language()

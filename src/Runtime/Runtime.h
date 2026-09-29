@@ -94,11 +94,12 @@ namespace OSFUI
 
 		// View requests, presentation and output geometry.
 		void ApplyPresentationRequests(const std::vector<ViewRequestQueue::Operation>& a_requests);
-		// False when the view cannot be created now. A nonzero request ID receives a Settings completion.
+		// A nonzero request ID prepares only; an ordinary open consumes the retained frame.
 		bool PrepareViewOpen(std::string_view a_id, std::string_view a_reason = "on demand", std::uint64_t a_requestId = 0);
 		void DrivePendingOpen();
 		void FailPendingOpen(std::string_view a_reason, std::string_view a_view = {});
 		void UpdatePendingOpen();
+		void OpenPreparedMenu(std::string_view a_view, std::uint64_t a_requestId = 0);
 		ViewOpenCoordinator::Readiness ViewOpenReadiness(std::string_view a_id) const;
 		void DrainViewRegistrations(const std::vector<std::string>& a_ids);
 		void ApplyViewPresentationPolicy();

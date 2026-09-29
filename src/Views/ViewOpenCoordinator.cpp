@@ -14,6 +14,14 @@ namespace OSFUI
 		return std::exchange(m_menu, std::nullopt);
 	}
 
+	std::optional<ViewOpenCoordinator::MenuOpen> ViewOpenCoordinator::TakeReadyMenu(std::string_view a_view, std::uint64_t a_requestId)
+	{
+		if (!m_menu || m_menu->phase != Phase::Ready || m_menu->view != a_view || m_menu->requestId != a_requestId) {
+			return std::nullopt;
+		}
+		return TakeMenu();
+	}
+
 	void ViewOpenCoordinator::QueueMenu(std::string_view a_view, double a_deadline, std::uint64_t a_requestId)
 	{
 		m_menu = MenuOpen{ std::string(a_view), a_deadline, a_requestId };

@@ -43,11 +43,6 @@ namespace OSFUI
 			std::scoped_lock lock(m_mutex);
 			return m_state.PreparationReady(a_generation, a_produced, a_width, a_height);
 		}
-		std::optional<FrameBufferView> TakePreparedSubmission()
-		{
-			std::scoped_lock lock(m_mutex);
-			return m_state.TakePreparedSubmission();
-		}
 		SharedFrameState::PublishResult Publish(std::uint32_t a_slot, std::uint64_t a_serial, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_epoch)
 		{
 			std::scoped_lock lock(m_mutex);
