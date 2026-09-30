@@ -136,6 +136,18 @@ target("osfui-compat-tests")
     set_pcxxheader("tests/native/stubs/pch.h")
     add_packages("nlohmann_json")
 
+target("osfui-legacy-bridge-tests")
+    set_kind("binary")
+    set_default(false)
+    set_rundir(os.projectdir())
+    add_tests("default")
+    add_files("tests/native/legacy_bridge_tests.cpp", "src/Compat/V1/LegacyBridge.cpp",
+        "src/Compat/V1/SettingsCodec.cpp", "src/Compat/V1/KeyNames.cpp", "src/API/BridgeApi.cpp",
+        "src/Views/ViewRequestQueue.cpp", "src/Bridge/MessageBridge.cpp", "src/Core/Json.cpp")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk")
+    set_pcxxheader("tests/native/stubs/pch.h")
+    add_packages("nlohmann_json")
+
 target("osfui-shared-frame-tests")
     set_kind("binary")
     set_default(false)

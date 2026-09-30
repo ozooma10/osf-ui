@@ -1,9 +1,11 @@
-// Frozen v1.6.0 native ABI 1.7. Keep every slot and payload layout unchanged.
+// Frozen native ABI 1.8: the v1.6.0 ABI 1.7 prefix plus retained view state.
+// Keep every slot and payload layout unchanged.
 #pragma once
 #include <cstdint>
 #include <type_traits>
 namespace OSFUI::Compat::V1
 {
+	inline constexpr std::uint32_t kBridgeVersion = 0x00010008;
 	using CommandFn = void (*)(const char* a_command,
 	                           const char* a_payloadJson,
 	                           const char* a_sourceViewId,
@@ -81,6 +83,7 @@ namespace OSFUI::Compat::V1
 		virtual bool ClearIssuesExcept(const char* a_modId, const char* a_keepIdsJson) = 0;
 		virtual void RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) = 0;
 		virtual void UnregisterRequest(const char* a_name) = 0;
+		virtual bool SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) = 0;
 	protected:
 		~IOSFUIBridge() = default;
 	};

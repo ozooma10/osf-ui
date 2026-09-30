@@ -30,7 +30,7 @@ Subscriptions replay typed values as per-key JSON on the OSF UI runtime tick. Ke
 
 ## Views and native calls
 
-The separate `OSFUI_RequestBridge` export returns the frozen ABI 1.7 vtable from the v1.6.0 SDK, accepting requests through 1.7. It never returns the new `IUI` object under that export. New consumers use `OSFUI_RequestAPI`.
+The separate `OSFUI_RequestBridge` export accepts ABI 1.0 through 1.8. It preserves the frozen ABI 1.7 vtable from the v1.6.0 SDK and appends the ABI 1.8 `SetViewState` slot, forwarding retained state to the current runtime. Somatic Camera SF's shipped DLL requests 1.8 even though its settings subscription uses the older slots; rejecting that request leaves its settings visible and editable but disconnects the mod from changes. The export never returns the new `IUI` object. New consumers use `OSFUI_RequestAPI`.
 
 The legacy export signature, method order, callback signatures, payload layouts,
 and enum values stay frozen even when the adapter implementation changes. The
@@ -44,7 +44,7 @@ The old shared stylesheet and adapted JavaScript helper are shipped at the origi
 
 ## Verification
 
-The focused native tests use the supplied schemas/manifests and cover translation, sparse values, unknown-field preservation, failed saves, ABI request layout, and modern-view precedence. Provider tests cover ownership, replacement, rollback, mouse bindings, shared blocks, and unsubscribe. The JavaScript test checks transport translation without launching a browser. Run the native tests with `xmake test "osfui-compat-tests/*"` and the JavaScript test with `node --test tests/native/compat_web_tests.cjs` from the repository root.
+The focused native tests use the supplied schemas/manifests and cover translation, sparse values, unknown-field preservation, failed saves, ABI request layout, and modern-view precedence. The bridge tests exercise the real legacy export, ABI 1.8 acquisition, initial settings replay, F4-to-F6 change callbacks, unsubscribe, and retained-state forwarding. Provider tests cover ownership, replacement, rollback, mouse bindings, shared blocks, and unsubscribe. The JavaScript test checks transport translation without launching a browser. Run `xmake test "osfui-compat-tests/*"`, `xmake test "osfui-legacy-bridge-tests/*"`, and `node --test tests/native/compat_web_tests.cjs` from the repository root.
 
 Fresh in-game acceptance remains required for each package: edit/reload/persist settings, check AEGIS's polling, exercise F8/F9 and mouse capture, open the two launcher views, request shop results, and launch Starcade from its existing scripts. Static tests and successful deployment do not establish those outcomes.
 

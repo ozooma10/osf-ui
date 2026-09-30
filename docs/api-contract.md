@@ -8,7 +8,7 @@ Product, native API, and browser protocol versions describe different contracts.
 | --- | --- | --- |
 | Plugin version | 2.0.0 | Installation and release identity |
 | `OSFUI_RequestAPI` | Native API 1.0, `OSFUI::API::IUI` | New mods using [`OSFUI.h`](../sdk/OSFUI.h) |
-| `OSFUI_RequestBridge` | Frozen native ABI 1.7 from OSF UI v1.6.0 | Supported existing compiled mods |
+| `OSFUI_RequestBridge` | Frozen native ABI 1.7 prefix plus the ABI 1.8 retained-state slot | Supported existing compiled mods |
 | Modern browser bridge | Protocol 2.0, [`osfui.d.ts`](../sdk/osfui.d.ts) | New views using the shipped shared web helper |
 
 The legacy export keeps its original signature and returns the legacy interface,

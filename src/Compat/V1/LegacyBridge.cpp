@@ -5,6 +5,7 @@
 #include "vendor/OSFSettings_Providers.h"
 #include "vendor/OSFSettingsRegistry.h"
 #include "vendor/OSFSettings_Diagnostics.h"
+#include "RE/U/UIMessageQueue.h"
 #include <cstring>
 #include <map>
 #include <set>
@@ -158,7 +159,7 @@ namespace OSFUI::Compat::V1
                         listener->hotkey(listener->mod.c_str(), listener->key.c_str(), listener->user);
                 }
             }
-            std::uint32_t GetInterfaceVersion() override { return 0x10007; }
+            std::uint32_t GetInterfaceVersion() override { return kBridgeVersion; }
             void GetPluginVersion(std::uint32_t& major, std::uint32_t& minor, std::uint32_t& patch) override { major = 2; minor = patch = 0; }
             const char* GetBridgeProtocolVersion() override { return "1.5"; }
             bool IsBridgeReady() override { return Current().IsReady(); }
@@ -328,6 +329,10 @@ namespace OSFUI::Compat::V1
                 std::lock_guard lock(mutex);
                 if (name && requests.erase(name)) Current().RemoveOwnedEndpoint(name, this);
             }
+            bool SetViewState(const char* mod, const char* key, const char* json) override
+            {
+                return Current().SetViewState(mod, key, json);
+            }
         };
         LegacyBridge& Instance() { static auto* bridge = new LegacyBridge; return *bridge; }
     }
@@ -338,6 +343,7 @@ namespace OSFUI::Compat::V1
 
 extern "C" __declspec(dllexport) void* OSFUI_RequestBridge(std::uint32_t version) noexcept
 {
-    if ((version >> 16) != 1 || (version & 0xFFFF) > 7) return nullptr;
+    if ((version >> 16) != (OSFUI::Compat::V1::kBridgeVersion >> 16) ||
+        (version & 0xFFFF) > (OSFUI::Compat::V1::kBridgeVersion & 0xFFFF)) return nullptr;
     return &OSFUI::Compat::V1::Bridge();
 }
