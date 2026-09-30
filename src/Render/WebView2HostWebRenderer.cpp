@@ -1,6 +1,7 @@
 #include "Render/WebView2HostWebRenderer.h"
 #include "Render/SharedFrameConsumer.h"
 
+#include <array>
 #include <atomic>
 #include <deque>
 #include <random>
@@ -205,24 +206,16 @@ namespace OSFUI
 			return lines;
 		}
 
-		struct FindWindowData { DWORD pid; HWND result; };
-		BOOL CALLBACK FindWindowProc(HWND a_hwnd, LPARAM a_param)
+		// Host log levels: 0 info, 1 warning, 2+ error.
+		void LogBrowserHostLine(int a_level, const std::string& a_text)
 		{
-			auto* data = reinterpret_cast<FindWindowData*>(a_param);
-			DWORD pid = 0;
-			::GetWindowThreadProcessId(a_hwnd, &pid);
-			if (pid == data->pid && ::IsWindowVisible(a_hwnd) &&
-				::GetWindow(a_hwnd, GW_OWNER) == nullptr) {
-				data->result = a_hwnd;
-				return FALSE;
+			if (a_level >= 2) {
+				REX::ERROR("WebView2 browser host: {}", a_text);
+			} else if (a_level == 1) {
+				REX::WARN("WebView2 browser host: {}", a_text);
+			} else {
+				REX::INFO("WebView2 browser host: {}", a_text);
 			}
-			return TRUE;
-		}
-		HWND FindTopLevelWindow()
-		{
-			FindWindowData data{ ::GetCurrentProcessId(), nullptr };
-			::EnumWindows(&FindWindowProc, reinterpret_cast<LPARAM>(&data));
-			return data.result;
 		}
 
 		// Build shared wire structs from copied values; never retain ViewRec or string_view across stateMutex.
@@ -305,40 +298,42 @@ namespace OSFUI
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;
-		// Independently bound page-provokable queues while game-thread draining is paused.
-		static constexpr std::size_t kMaxPendingWeb = 64;
-		static constexpr std::size_t kMaxPendingConsole = 64;
-		static constexpr std::size_t kMaxPendingLogs = 256;
-		std::size_t pendingWebCount{ 0 };      // all guarded by notifyMutex
-		std::size_t pendingConsoleCount{ 0 };
-		std::size_t pendingLogCount{ 0 };
-		std::size_t droppedWebCount{ 0 };
-		std::size_t droppedConsoleCount{ 0 };
-		std::size_t droppedLogCount{ 0 };
+		// Independently bound page-provokable queues while game-thread draining is paused. Guarded by notifyMutex.
+		struct NotifyBudget
+		{
+			const char* what;
+			std::size_t cap;
+			std::size_t pending{ 0 };
+			std::size_t dropped{ 0 };
+		};
+		std::array<NotifyBudget, 3> budgets{ {
+			{ "web message(s)", 64 },
+			{ "console message(s)", 64 },
+			{ "browser-host log line(s)", 256 },
+		} };
+
+		NotifyBudget* BudgetFor(Notify::Kind a_kind)
+		{
+			switch (a_kind) {
+			case Notify::Kind::Web:
+			case Notify::Kind::Back:    return &budgets[0];
+			case Notify::Kind::Console: return &budgets[1];
+			case Notify::Kind::Log:     return &budgets[2];
+			default:                    return nullptr;
+			}
+		}
 
 		std::shared_ptr<SharedFrameConsumer> frames{ std::make_shared<SharedFrameConsumer>() };
 
 		void Push(Notify a_value)
 		{
 			std::scoped_lock lock(notifyMutex);
-			if (a_value.kind == Notify::Kind::Web || a_value.kind == Notify::Kind::Back) {
-				if (pendingWebCount >= kMaxPendingWeb) {
-					++droppedWebCount;
+			if (auto* budget = BudgetFor(a_value.kind)) {
+				if (budget->pending >= budget->cap) {
+					++budget->dropped;
 					return;
 				}
-				++pendingWebCount;
-			} else if (a_value.kind == Notify::Kind::Console) {
-				if (pendingConsoleCount >= kMaxPendingConsole) {
-					++droppedConsoleCount;
-					return;
-				}
-				++pendingConsoleCount;
-			} else if (a_value.kind == Notify::Kind::Log) {
-				if (pendingLogCount >= kMaxPendingLogs) {
-					++droppedLogCount;
-					return;
-				}
-				++pendingLogCount;
+				++budget->pending;
 			}
 			notifications.push_back(std::move(a_value));
 		}
@@ -453,6 +448,17 @@ namespace OSFUI
 			}
 		}
 
+		// stateMutex held. Frames rendered under an older epoch can no longer be revealed.
+		void BeginPresentation()
+		{
+			frames->SetPresentation(++presentationEpoch, !allHidden);
+		}
+
+		void SendViewport()
+		{
+			Send(ToJson(msg::Viewport{ .width = viewportWidth, .height = viewportHeight, .presentationEpoch = presentationEpoch }));
+		}
+
 		// Startup (worker thread)
 
 		// Materialize views at a real path visible outside MO2's USVFS. Production uses immutable fingerprinted generations; 
@@ -476,14 +482,8 @@ namespace OSFUI
 			}
 			if (config.devMode) {
 				const auto mirror = localRoot / std::format("views-dev-{}", ::GetCurrentProcessId());
-				std::error_code ec;
-				std::filesystem::remove_all(mirror, ec);
-				if (ec) {
-					REX::ERROR("WebView2HostWebRenderer: could not clear developer views mirror '{}' ({})", ToUtf8(mirror.native()), ec.message());
-					return false;
-				}
 				std::string error;
-				if (!DevViewFiles::SyncTree(viewsRoot, mirror, error)) {
+				if (!DevViewFiles::ReplaceTree(viewsRoot, mirror, error)) {
 					REX::ERROR("WebView2HostWebRenderer: developer views mirror failed ({})", error);
 					return false;
 				}
@@ -502,7 +502,6 @@ namespace OSFUI
         // Refresh the real-path mod mirror before navigating an unhooked browser.
 		bool RefreshModFiles(std::string_view a_mod)
 		{
-			if (!config.devMode) return true;
 			std::scoped_lock mirrorLock(viewsMirrorMutex);
 			if (!usesDevViewsMirror) return true;
 
@@ -511,7 +510,7 @@ namespace OSFUI
 			const auto source = viewsRoot / modFolder;
 			const auto destination = mappedViewsRoot / modFolder;
 			std::string error;
-			if (!DevViewFiles::SyncTree(source, destination, error)) {
+			if (!DevViewFiles::ReplaceTree(source, destination, error)) {
 				REX::WARN("WebView2HostWebRenderer: dev reload could not mirror '{}' ({})", a_mod, error);
 				return false;
 			}
@@ -564,6 +563,7 @@ namespace OSFUI
 							  "may silently block browser-host launch", ::GetLastError());
 				}
 			}
+			RemoveOldHostExeMirrors(mirrorDir);
 			return true;
 		}
 
@@ -660,7 +660,7 @@ namespace OSFUI
 				return;
 			}
 
-			const HWND gameTopLevel = FindTopLevelWindow();
+			const HWND gameTopLevel = osfui::win32::FindMainWindow();
 
 			auto pipeSeed = ::GetTickCount64() ^
 				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17);
@@ -729,13 +729,7 @@ namespace OSFUI
 				hello = Json::Parse(payload).value_or(json{});
 				if (preHello < 32 && Json::Get(hello, "type", "") == msg::Log::kType) {
 					const auto entry = msg::FromJson<msg::Log>(hello);
-					if (entry.level >= 2) {
-						REX::ERROR("WebView2 browser host: {}", entry.text);
-					} else if (entry.level == 1) {
-						REX::WARN("WebView2 browser host: {}", entry.text);
-					} else {
-						REX::INFO("WebView2 browser host: {}", entry.text);
-					}
+					LogBrowserHostLine(entry.level, entry.text);
 					continue;
 				}
 				break;
@@ -946,28 +940,19 @@ namespace OSFUI
 		void DrainNotifications()
 		{
 			std::deque<Notify> local;
-			std::size_t droppedWeb = 0;
-			std::size_t droppedConsole = 0;
-			std::size_t droppedLogs = 0;
+			std::array<std::size_t, std::tuple_size_v<decltype(budgets)>> dropped{};
 			{
 				std::scoped_lock lock(notifyMutex);
 				local.swap(notifications);
-				pendingWebCount = 0;
-				pendingConsoleCount = 0;
-				pendingLogCount = 0;
-				droppedWeb = std::exchange(droppedWebCount, 0);
-				droppedConsole = std::exchange(droppedConsoleCount, 0);
-				droppedLogs = std::exchange(droppedLogCount, 0);
+				for (std::size_t i = 0; i < budgets.size(); ++i) {
+					budgets[i].pending = 0;
+					dropped[i] = std::exchange(budgets[i].dropped, 0);
+				}
 			}
-			if (droppedWeb) {
-				REX::WARN("WebView2HostWebRenderer: dropped {} web message(s) over the {}-message pending cap", droppedWeb, kMaxPendingWeb);
-			}
-			if (droppedConsole) {
-				REX::WARN("WebView2HostWebRenderer: dropped {} console message(s) over the {}-message pending cap", droppedConsole, kMaxPendingConsole);
-			}
-			if (droppedLogs) {
-				REX::WARN("WebView2HostWebRenderer: dropped {} browser-host log line(s) over "
-						  "the {}-line pending cap", droppedLogs, kMaxPendingLogs);
+			for (std::size_t i = 0; i < budgets.size(); ++i) {
+				if (dropped[i]) {
+					REX::WARN("WebView2HostWebRenderer: dropped {} {} over the {}-item pending cap", dropped[i], budgets[i].what, budgets[i].cap);
+				}
 			}
 			for (auto& value : local) {
 				switch (value.kind) {
@@ -1012,13 +997,7 @@ namespace OSFUI
 					DeliverConsole(value.view, value.text);
 					break;
 				case Notify::Kind::Log:
-					if (value.code >= 2) {
-						REX::ERROR("WebView2 browser host: {}", value.text);
-					} else if (value.code == 1) {
-						REX::WARN("WebView2 browser host: {}", value.text);
-					} else {
-						REX::INFO("WebView2 browser host: {}", value.text);
-					}
+					LogBrowserHostLine(value.code, value.text);
 					break;
 				case Notify::Kind::Dead:
 					REX::ERROR("WebView2HostWebRenderer: browser-host connection lost — the "
@@ -1107,8 +1086,7 @@ namespace OSFUI
 			{
 				std::scoped_lock lock(notifyMutex);
 				notifications.clear();
-				pendingWebCount = pendingConsoleCount = pendingLogCount = 0;
-				droppedWebCount = droppedConsoleCount = droppedLogCount = 0;
+				for (auto& budget : budgets) budget.pending = budget.dropped = 0;
 			}
 
 			{
@@ -1166,24 +1144,22 @@ namespace OSFUI
 	{
 		// Derive stored and sent scale from the same clamp.
 		const auto logicalHeight = (std::max)(1u, a_manifest.height);
-		{
-			std::scoped_lock lock(m_impl->stateMutex);
-			auto* view = m_impl->FindView(a_manifest.id);
-			if (!view) {
-				view = &m_impl->views.emplace_back();
-				view->id = a_manifest.id;
-			}
-			view->entry = a_manifest.entry;
-			view->legacy = a_manifest.legacy;
-			view->logicalHeight = logicalHeight;
-			// Default input to the first instantiated view until runtime policy arrives.
-			if (m_impl->inputTargetId.empty()) {
-				m_impl->inputTargetId = a_manifest.id;
-			}
-			// Re-registering an instantiated view navigates it for dev or crash recovery.
-			m_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
-				.logicalHeight = logicalHeight, .legacy = a_manifest.legacy }));
+		std::scoped_lock lock(m_impl->stateMutex);
+		auto* view = m_impl->FindView(a_manifest.id);
+		if (!view) {
+			view = &m_impl->views.emplace_back();
+			view->id = a_manifest.id;
 		}
+		view->entry = a_manifest.entry;
+		view->legacy = a_manifest.legacy;
+		view->logicalHeight = logicalHeight;
+		// Default input to the first instantiated view until runtime policy arrives.
+		if (m_impl->inputTargetId.empty()) {
+			m_impl->inputTargetId = a_manifest.id;
+		}
+		// Re-registering an instantiated view navigates it for dev or crash recovery.
+		m_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
+			.logicalHeight = logicalHeight, .legacy = a_manifest.legacy }));
 	}
 
     bool WebView2HostWebRenderer::RefreshModFiles(std::string_view a_mod)
@@ -1193,66 +1169,52 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::SetInputTargetView(std::string_view a_id)
 	{
-		{
-			std::scoped_lock lock(m_impl->stateMutex);
-			if (!m_impl->FindView(a_id)) {
-				REX::WARN("WebView2HostWebRenderer: SetInputTargetView('{}') ignored — view not instantiated",
-					a_id);
-				return;
-			}
-			if (m_impl->inputTargetId == a_id) return;
-			m_impl->inputTargetId = a_id;
-			m_impl->Send(ToJson(msg::SetInputTarget{ .view = std::string(a_id) }));
+		std::scoped_lock lock(m_impl->stateMutex);
+		if (!m_impl->FindView(a_id)) {
+			REX::WARN("WebView2HostWebRenderer: SetInputTargetView('{}') ignored — view not instantiated",
+				a_id);
+			return;
 		}
+		if (m_impl->inputTargetId == a_id) return;
+		m_impl->inputTargetId = a_id;
+		m_impl->Send(ToJson(msg::SetInputTarget{ .view = std::string(a_id) }));
 	}
 
 	void WebView2HostWebRenderer::Resize(std::uint32_t a_width, std::uint32_t a_height)
 	{
 		if (!a_width || !a_height) return;
-		{
-			std::scoped_lock lock(m_impl->stateMutex);
-			if (m_impl->width == a_width && m_impl->height == a_height) return;
-			m_impl->width = a_width;
-			m_impl->height = a_height;
-			m_impl->Send(ToJson(msg::Resize{ .width = a_width, .height = a_height }));
-		}
+		std::scoped_lock lock(m_impl->stateMutex);
+		if (m_impl->width == a_width && m_impl->height == a_height) return;
+		m_impl->width = a_width;
+		m_impl->height = a_height;
+		m_impl->Send(ToJson(msg::Resize{ .width = a_width, .height = a_height }));
 	}
 
 	void WebView2HostWebRenderer::SetViewport(
 		const std::uint32_t a_width, const std::uint32_t a_height)
 	{
 		if (!a_width || !a_height) return;
-		{
-			std::scoped_lock lock(m_impl->stateMutex);
-			if (m_impl->viewportWidth == a_width && m_impl->viewportHeight == a_height) return;
-			m_impl->viewportWidth = a_width;
-			m_impl->viewportHeight = a_height;
-			const auto presentation = ++m_impl->presentationEpoch;
-			m_impl->frames->SetPresentation(m_impl->presentationEpoch, !m_impl->allHidden);
-			m_impl->Send(ToJson(msg::Viewport{
-				.width = a_width,
-				.height = a_height,
-				.presentationEpoch = presentation,
-			}));
-		}
+		std::scoped_lock lock(m_impl->stateMutex);
+		if (m_impl->viewportWidth == a_width && m_impl->viewportHeight == a_height) return;
+		m_impl->viewportWidth = a_width;
+		m_impl->viewportHeight = a_height;
+		m_impl->BeginPresentation();
+		m_impl->SendViewport();
 	}
 
 	void WebView2HostWebRenderer::SetPointerInputEnabled(const bool a_enabled)
 	{
-		{
-			std::scoped_lock lock(m_impl->stateMutex);
-			if (m_impl->pointerInputEnabled == a_enabled) return;
-			m_impl->pointerInputEnabled = a_enabled;
-			m_impl->Send(ToJson(msg::PointerInput{ .enabled = a_enabled }));
-		}
+		std::scoped_lock lock(m_impl->stateMutex);
+		if (m_impl->pointerInputEnabled == a_enabled) return;
+		m_impl->pointerInputEnabled = a_enabled;
+		m_impl->Send(ToJson(msg::PointerInput{ .enabled = a_enabled }));
 	}
 
 	void WebView2HostWebRenderer::ResetPresentation()
 	{
 		std::scoped_lock lock(m_impl->stateMutex);
-		m_impl->frames->SetPresentation(++m_impl->presentationEpoch, !m_impl->allHidden);
-		m_impl->Send(ToJson(msg::Viewport{ .width = m_impl->viewportWidth, .height = m_impl->viewportHeight,
-			.presentationEpoch = m_impl->presentationEpoch }));
+		m_impl->BeginPresentation();
+		m_impl->SendViewport();
 	}
 
 	void WebView2HostWebRenderer::DrainNotifications()
@@ -1412,37 +1374,31 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::SetViewHidden(std::string_view a_viewId, bool a_hidden, bool a_settleColdOpen)
 	{
-		{
-			std::scoped_lock lock(m_impl->stateMutex);
-			auto* view = m_impl->FindView(a_viewId);
-			if (!view) return;
-			const bool beginOpening = !a_hidden && a_settleColdOpen && !view->settleColdOpen;
-			view->settleColdOpen = !a_hidden && a_settleColdOpen;
-			if (view->hidden == a_hidden && !beginOpening) return;
-			view->hidden = a_hidden;
-			m_impl->RecomputeAllHidden();
-			if (!a_hidden) {
-				// Every newly shown view is a new presentation, including menu-to-menu switches where another view kept the overlay visible.
-				++m_impl->presentationEpoch;
-				m_impl->frames->SetPresentation(m_impl->presentationEpoch, !m_impl->allHidden);
-			} else if (m_impl->allHidden) {
-				m_impl->frames->SetPresentation(m_impl->presentationEpoch, !m_impl->allHidden);
-			}
-			m_impl->Send(ToJson(msg::SetHidden{ .view = std::string(a_viewId),
-				.hidden = a_hidden, .presentationEpoch = m_impl->presentationEpoch, .settleColdOpen = view->settleColdOpen }));
+		std::scoped_lock lock(m_impl->stateMutex);
+		auto* view = m_impl->FindView(a_viewId);
+		if (!view) return;
+		const bool beginOpening = !a_hidden && a_settleColdOpen && !view->settleColdOpen;
+		view->settleColdOpen = !a_hidden && a_settleColdOpen;
+		if (view->hidden == a_hidden && !beginOpening) return;
+		view->hidden = a_hidden;
+		m_impl->RecomputeAllHidden();
+		if (!a_hidden) {
+			// Every newly shown view is a new presentation, including menu-to-menu switches where another view kept the overlay visible.
+			m_impl->BeginPresentation();
+		} else if (m_impl->allHidden) {
+			m_impl->frames->SetPresentation(m_impl->presentationEpoch, false);
 		}
+		m_impl->Send(ToJson(msg::SetHidden{ .view = std::string(a_viewId),
+			.hidden = a_hidden, .presentationEpoch = m_impl->presentationEpoch, .settleColdOpen = view->settleColdOpen }));
 	}
 
 	void WebView2HostWebRenderer::SetViewOrder(std::string_view a_viewId, int a_order)
 	{
-		{
-			std::scoped_lock lock(m_impl->stateMutex);
-			auto* view = m_impl->FindView(a_viewId);
-			if (!view) return;
-			if (view->order == a_order) return;
-			view->order = a_order;
-			m_impl->Send(ToJson(msg::SetOrder{ .view = std::string(a_viewId), .order = a_order }));
-		}
+		std::scoped_lock lock(m_impl->stateMutex);
+		auto* view = m_impl->FindView(a_viewId);
+		if (!view || view->order == a_order) return;
+		view->order = a_order;
+		m_impl->Send(ToJson(msg::SetOrder{ .view = std::string(a_viewId), .order = a_order }));
 	}
 
 	void WebView2HostWebRenderer::DestroyView(std::string_view a_viewId)
@@ -1458,7 +1414,7 @@ namespace OSFUI
 			}
 			m_impl->RecomputeAllHidden();
 			if (m_impl->allHidden) {
-				m_impl->frames->SetPresentation(m_impl->presentationEpoch, !m_impl->allHidden);
+				m_impl->frames->SetPresentation(m_impl->presentationEpoch, false);
 			}
 			m_impl->Send(ToJson(msg::DestroyView{ .view = std::string(a_viewId) }));
 		}

@@ -56,35 +56,6 @@ namespace OSFUI::OverlayInputHook
 			}
 		}
 
-		struct FindWindowData
-		{
-			DWORD pid{ 0 };
-			HWND  best{ nullptr };
-		};
-
-		BOOL CALLBACK EnumProc(HWND a_hwnd, LPARAM a_param)
-		{
-			auto* data = reinterpret_cast<FindWindowData*>(a_param);
-			DWORD wndPid = 0;
-			::GetWindowThreadProcessId(a_hwnd, &wndPid);
-			if (wndPid != data->pid) {
-				return TRUE;  // keep enumerating
-			}
-			// Want the visible, top-level (unowned) main window.
-			if (!::IsWindowVisible(a_hwnd) || ::GetWindow(a_hwnd, GW_OWNER) != nullptr) {
-				return TRUE;
-			}
-			data->best = a_hwnd;
-			return FALSE;  // good enough; stop
-		}
-
-		[[nodiscard]] HWND FindGameWindow()
-		{
-			FindWindowData data{ .pid = ::GetCurrentProcessId(), .best = nullptr };
-			::EnumWindows(&EnumProc, reinterpret_cast<LPARAM>(&data));
-			return data.best;
-		}
-
 		[[nodiscard]] bool IsLegacyMouseMessage(const UINT a_msg)
 		{
 			switch (a_msg) {
@@ -381,7 +352,7 @@ namespace OSFUI::OverlayInputHook
 			return true;  // already installed (one-way)
 		}
 
-		g_hwnd = FindGameWindow();
+		g_hwnd = osfui::win32::FindMainWindow();
 		if (!g_hwnd) {
 			REX::ERROR("OverlayInputHook: could not find the game window; input capture unavailable");
 			return false;
@@ -432,7 +403,7 @@ namespace OSFUI::OverlayInputHook
 	std::optional<ClientSize> GameWindowClientSize()
 	{
 		// Passive HUDs need the client size before any input hook is installed.
-		if (!g_hwnd) g_hwnd = FindGameWindow();
+		if (!g_hwnd) g_hwnd = osfui::win32::FindMainWindow();
 		RECT client{};
 		if (!g_hwnd || !::GetClientRect(g_hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
 			return std::nullopt;

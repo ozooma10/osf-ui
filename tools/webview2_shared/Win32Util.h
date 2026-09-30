@@ -72,6 +72,27 @@ namespace osfui::win32
 		return ok && elevation.TokenIsElevated != 0;
 	}
 
+	// The visible, unowned top-level window of the current process (the game's main window).
+	[[nodiscard]] inline HWND FindMainWindow()
+	{
+		struct Search
+		{
+			DWORD pid;
+			HWND  result;
+		} search{ ::GetCurrentProcessId(), nullptr };
+		::EnumWindows([](HWND a_hwnd, LPARAM a_param) -> BOOL {
+			auto& search = *reinterpret_cast<Search*>(a_param);
+			DWORD pid = 0;
+			::GetWindowThreadProcessId(a_hwnd, &pid);
+			if (pid != search.pid || !::IsWindowVisible(a_hwnd) || ::GetWindow(a_hwnd, GW_OWNER) != nullptr) {
+				return TRUE;
+			}
+			search.result = a_hwnd;
+			return FALSE;
+		}, reinterpret_cast<LPARAM>(&search));
+		return search.result;
+	}
+
 	template <class T>
 	inline void SafeRelease(T*& a_ptr)
 	{
