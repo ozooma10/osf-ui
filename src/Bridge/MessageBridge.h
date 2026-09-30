@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <optional>
 #include <unordered_set>  // not in pch.h
 
 #include <nlohmann/json.hpp>
@@ -134,6 +135,11 @@ namespace OSFUI
 		void DeliverEvent(std::string_view a_viewId, const std::string& a_encoded, std::string_view a_name);
 		// Fold settlement into the in-flight message's completion trace.
 		void NoteTracedReply(std::string_view a_what);
+		// Reject a malformed page message: logged, reported, and traced (it has no reply channel).
+		void RejectInvalid(std::string_view a_viewId, std::string_view a_message, const nlohmann::json& a_detail = {});
+		void WarnUnknownEndpointOnce(const std::string& a_name, std::string_view a_what);
+		// Remove and return a deferred request; nullopt when already settled, expired, or its view is gone.
+		[[nodiscard]] std::optional<Pending> TakePending(DeferToken a_token);
 
 		SendFn                                            m_send;
 		std::unordered_map<std::string, SendHandler>      m_sends;

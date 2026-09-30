@@ -135,22 +135,19 @@ namespace OSFUI
 		const auto msg = Json::Parse(a_json);
 		if (!msg || !msg->is_object()) {
 			// Unparseable input has no correlation id, so report through logs and the view console.
-			ReportProtocolFault(a_viewId, "invalid-request", "malformed message", {});
-			NoteTracedReply("invalid-request");
+			RejectInvalid(a_viewId, "malformed message");
 			return;
 		}
 
 		const auto kindIt = msg->find("kind");
 		if (kindIt == msg->end() || !kindIt->is_string()) {
-			ReportProtocolFault(a_viewId, "invalid-request", "kind is required and must be a string", {});
-			NoteTracedReply("invalid-request");
+			RejectInvalid(a_viewId, "kind is required and must be a string");
 			return;
 		}
 		const auto& kind = kindIt->get_ref<const std::string&>();
 		const auto nameIt = msg->find("name");
 		if (nameIt == msg->end() || !nameIt->is_string()) {
-			ReportProtocolFault(a_viewId, "invalid-request", "name is required and must be a string", { { "kind", BoundedEcho(kind) } });
-			NoteTracedReply("invalid-request");
+			RejectInvalid(a_viewId, "name is required and must be a string", { { "kind", BoundedEcho(kind) } });
 			return;
 		}
 		const auto& rawName = nameIt->get_ref<const std::string&>();
@@ -158,22 +155,18 @@ namespace OSFUI
 		m_currentName = name;
 
 		if (kind != "send" && kind != "request") {
-			ReportProtocolFault(a_viewId, "invalid-request", "kind must be \"send\" or \"request\"", { { "kind", BoundedEcho(kind) }, { "name", name } });
-			NoteTracedReply("invalid-request");
+			RejectInvalid(a_viewId, "kind must be \"send\" or \"request\"", { { "kind", BoundedEcho(kind) }, { "name", name } });
 			return;
 		}
 		if (rawName.empty() || rawName.size() > kMaxEndpointNameLength) {
-			ReportProtocolFault(a_viewId, "invalid-request",
-				std::format("name is required and must be at most {} bytes", kMaxEndpointNameLength), { { "kind", kind } });
-			NoteTracedReply("invalid-request");
+			RejectInvalid(a_viewId, std::format("name is required and must be at most {} bytes", kMaxEndpointNameLength), { { "kind", kind } });
 			return;
 		}
 
 		// Routing metadata sits beside the payload, so a payload field can never override it. The wire contract requires an object even when it is empty;
 		const auto payloadIt = msg->find("payload");
 		if (payloadIt == msg->end() || !payloadIt->is_object()) {
-			ReportProtocolFault(a_viewId, "invalid-request", "payload is required and must be an object", { { "kind", kind }, { "name", name } });
-			NoteTracedReply("invalid-request");
+			RejectInvalid(a_viewId, "payload is required and must be an object", { { "kind", kind }, { "name", name } });
 			return;
 		}
 		const auto& payload = *payloadIt;
@@ -183,9 +176,7 @@ namespace OSFUI
 		if (kind == "send") {
 			// A send cannot carry an id because it never settles.
 			if (idIt != msg->end()) {
-				ReportProtocolFault(a_viewId, "invalid-request", "send messages carry no id — use a request",
-					{ { "name", name } });
-				NoteTracedReply("invalid-request");
+				RejectInvalid(a_viewId, "send messages carry no id — use a request", { { "name", name } });
 				return;
 			}
 			m_sendDelivered = DispatchSend(name, payload);
@@ -193,17 +184,12 @@ namespace OSFUI
 		}
 
 		if (idIt == msg->end() || !idIt->is_string()) {
-			ReportProtocolFault(a_viewId, "invalid-request", "requests carry a string id",
-				{ { "name", name } });
-			NoteTracedReply("invalid-request");
+			RejectInvalid(a_viewId, "requests carry a string id", { { "name", name } });
 			return;
 		}
 		const auto& id = idIt->get_ref<const std::string&>();
 		if (id.empty() || id.size() > kMaxRequestIdLength) {
-			ReportProtocolFault(a_viewId, "invalid-request",
-				std::format("request id must be 1-{} characters", kMaxRequestIdLength),
-				{ { "name", name } });
-			NoteTracedReply("invalid-request");
+			RejectInvalid(a_viewId, std::format("request id must be 1-{} characters", kMaxRequestIdLength), { { "name", name } });
 			return;
 		}
 		DispatchRequest(name, id, payload);
@@ -242,10 +228,7 @@ namespace OSFUI
 			} else m_sends.at(endpoint.name)(a_payload, *this);
 			return true;
 		}
-		constexpr std::size_t kMaxWarnedEndpoints = 512;
-		if (m_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints && m_warnedUnknownEndpoints.insert(a_name).second) {
-			REX::WARN("MessageBridge: [content] dropped send to unknown endpoint '{}' (further drops of this endpoint are not logged)", a_name);
-		}
+		WarnUnknownEndpointOnce(a_name, "dropped send");
 		ReportProtocolFault(m_currentSource, "unknown-endpoint", "no such endpoint", { { "name", a_name } });
 		NoteTracedReply("unknown-endpoint");
 		return false;
@@ -260,11 +243,7 @@ namespace OSFUI
 			return;
 		}
 		if (endpoint.kind == FallbackEndpointKind::kNone) {
-			constexpr std::size_t kMaxWarnedEndpoints = 512;
-			if (m_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints &&
-				m_warnedUnknownEndpoints.insert(a_name).second) {
-				REX::WARN("MessageBridge: [content] rejected request to unknown endpoint '{}' (further rejections of this endpoint are not logged)", a_name);
-			}
+			WarnUnknownEndpointOnce(a_name, "rejected request");
 			Reject("unknown-endpoint", "no such endpoint");
 			return;
 		}
@@ -368,37 +347,35 @@ namespace OSFUI
 		RespondJsonTo(a_token, Json::Dump(a_payload));
 	}
 
-	void MessageBridge::RespondJsonTo(DeferToken a_token, std::string_view a_payloadJson)
+	std::optional<MessageBridge::Pending> MessageBridge::TakePending(DeferToken a_token)
 	{
 		const auto it = m_pending.find(a_token);
 		if (it == m_pending.end()) {
 			// Never deliver late or duplicate settlements, but keep them visible in logs.
-			REX::DEBUG("MessageBridge: dropped a reply for '{}' — already settled, expired, or its view is gone",
-				a_token);
-			return;
+			REX::DEBUG("MessageBridge: dropped a settlement for '{}' — already settled, expired, or its view is gone", a_token);
+			return std::nullopt;
 		}
-		const auto view = it->second.view;
-		const auto requestId = it->second.requestId;
+		auto pending = std::move(it->second);
 		m_pending.erase(it);
-		if (m_send && !view.empty()) {
-			m_send(view, EncodeReply(requestId, a_payloadJson));
+		return pending;
+	}
+
+	void MessageBridge::RespondJsonTo(DeferToken a_token, std::string_view a_payloadJson)
+	{
+		const auto pending = TakePending(a_token);
+		if (!pending) return;
+		if (m_send && !pending->view.empty()) {
+			m_send(pending->view, EncodeReply(pending->requestId, a_payloadJson));
 		}
 		NoteTracedReply("reply");
 	}
 
 	void MessageBridge::RejectTo(DeferToken a_token, std::string_view a_code, std::string_view a_message)
 	{
-		const auto it = m_pending.find(a_token);
-		if (it == m_pending.end()) {
-			REX::DEBUG("MessageBridge: dropped a '{}' rejection for '{}' — already settled, expired, or its view is gone",
-				a_code, a_token);
-			return;
-		}
-		const auto view = it->second.view;
-		const auto requestId = it->second.requestId;
-		m_pending.erase(it);
-		if (m_send && !view.empty()) {
-			m_send(view, EncodeError(requestId, a_code, a_message));
+		const auto pending = TakePending(a_token);
+		if (!pending) return;
+		if (m_send && !pending->view.empty()) {
+			m_send(pending->view, EncodeError(pending->requestId, a_code, a_message));
 		}
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
@@ -564,15 +541,14 @@ namespace OSFUI
 			}
 		}
 		for (const auto& req : expired) {
-			REX::WARN("MessageBridge: '{}' from view '{}' missed the {}s OSF UI runtime deadline",
-				req.name, req.view, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count());
 			// Settle with the page's correlation id, not the runtime map token.
 			if (m_send && !req.view.empty()) {
 				m_send(req.view, EncodeError(req.requestId, "no-response", "the endpoint handler never answered"));
 			}
 			// Handler silence is reported to the page but never counted against the view.
-			ReportProtocolFault(req.view, "no-response", "the endpoint handler never answered", { { "name", req.name } },
-				/*a_viewFault*/ false);
+			ReportProtocolFault(req.view, "no-response",
+				std::format("'{}' never answered within {}s", req.name, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count()),
+				{ { "name", req.name } }, /*a_viewFault*/ false);
 		}
 	}
 
@@ -582,6 +558,20 @@ namespace OSFUI
 		REX::WARN("MessageBridge: [content] view '{}': {} — {}", a_viewId, a_code, a_message);
 		if (m_protocolFaultSink) {
 			m_protocolFaultSink(a_viewId, a_code, a_message, a_detail, a_viewFault);
+		}
+	}
+
+	void MessageBridge::RejectInvalid(std::string_view a_viewId, std::string_view a_message, const nlohmann::json& a_detail)
+	{
+		ReportProtocolFault(a_viewId, "invalid-request", a_message, a_detail);
+		NoteTracedReply("invalid-request");
+	}
+
+	void MessageBridge::WarnUnknownEndpointOnce(const std::string& a_name, std::string_view a_what)
+	{
+		constexpr std::size_t kMaxWarnedEndpoints = 512;
+		if (m_warnedUnknownEndpoints.size() < kMaxWarnedEndpoints && m_warnedUnknownEndpoints.insert(a_name).second) {
+			REX::WARN("MessageBridge: [content] {} to unknown endpoint '{}' (repeats for this endpoint are not logged)", a_what, a_name);
 		}
 	}
 

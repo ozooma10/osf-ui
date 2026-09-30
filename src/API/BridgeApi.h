@@ -134,6 +134,8 @@ namespace OSFUI::API
 		{
 			m_pending.fetch_or(a_bits, std::memory_order_release);
 		}
+		// m_mutex held. Rejects reserved names and names any endpoint kind already owns.
+		[[nodiscard]] bool CanRegisterEndpointLocked(const std::string& a_name, std::string_view a_caller) const;
 		std::unordered_set<std::string> m_papyrusEndpoints;
 		std::mutex                                    m_mutex;
 		// Unregister and SetReadyCallback wait for callbacks already dispatched on another thread.

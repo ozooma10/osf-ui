@@ -46,19 +46,25 @@ namespace OSFUI::API
 
 	bool BridgeApi::IsReady() noexcept { return m_bridgeAvailable.load(); }
 
+	bool BridgeApi::CanRegisterEndpointLocked(const std::string& a_name, std::string_view a_caller) const
+	{
+		if (!IsUnreservedEndpointName(a_name)) {
+			REX::WARN("BridgeApi: refused {}('{}') — invalid or reserved", a_caller, a_name.substr(0, 128));
+			return false;
+		}
+		if (m_sends.contains(a_name) || m_requests.contains(a_name) || m_papyrusEndpoints.contains(StringUtil::ToLowerAscii(a_name))) {
+			REX::WARN("BridgeApi: refused {}('{}') — endpoint already registered", a_caller, a_name);
+			return false;
+		}
+		return true;
+	}
+
 	bool BridgeApi::RegisterSend(const char* a_name, SendFn a_handler, void* a_user) noexcept
 	{
 		if (!a_name || !a_handler) return false;
 		const std::string name(a_name);
-		if (!IsUnreservedEndpointName(name)) {
-			REX::WARN("BridgeApi: refused RegisterSend('{}') — invalid or reserved", name.substr(0, 128));
-			return false;
-		}
 		std::lock_guard lock(m_mutex);
-		if (m_sends.contains(name) || m_requests.contains(name) || m_papyrusEndpoints.contains(StringUtil::ToLowerAscii(name))) {
-			REX::WARN("BridgeApi: refused RegisterSend('{}') — endpoint already registered", name);
-			return false;
-		}
+		if (!CanRegisterEndpointLocked(name, "RegisterSend")) return false;
 		m_sends[name] = { a_handler, a_user };
 		m_dirty = true;
 		MarkPending(kPendingPump);
@@ -69,15 +75,8 @@ namespace OSFUI::API
 	{
 		if (!a_name || !a_handler) return false;
 		const std::string name(a_name);
-		if (!IsUnreservedEndpointName(name)) {
-			REX::WARN("BridgeApi: refused RegisterRequest('{}') — invalid or reserved", name.substr(0, 128));
-			return false;
-		}
 		std::lock_guard lock(m_mutex);
-		if (m_sends.contains(name) || m_requests.contains(name) || m_papyrusEndpoints.contains(StringUtil::ToLowerAscii(name))) {
-			REX::WARN("BridgeApi: refused RegisterRequest('{}') — endpoint already registered", name);
-			return false;
-		}
+		if (!CanRegisterEndpointLocked(name, "RegisterRequest")) return false;
 		m_requests[name] = { a_handler, a_user };
 		m_dirty = true;
 		MarkPending(kPendingPump);
