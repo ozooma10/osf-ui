@@ -530,11 +530,9 @@ namespace OSFUI
 		if (m_compositor && !prepare) {
 			if (visible && !wasVisible) {
 				m_viewReveal.Arm();
-				m_pointerInput.SuspendGeometry();
 			} else {
 				if (!visible) {
 					m_viewReveal.Cancel();  // closed while a reveal was still pending
-					m_pointerInput.ResumeGeometry();
 				}
 				if (!m_viewReveal.Pending()) {
 					m_compositor->SetVisible(visible);
@@ -546,7 +544,7 @@ namespace OSFUI
 			if (!wasVisible) {
 				m_pointerInput.CenterCursor();
 			}
-			if (active && m_pointerInput.GeometryReady()) {
+			if (active) {
 				m_pointerInput.QueueMouseMove();  // flushed by Update's coalesced move injection
 			}
 		}
@@ -690,7 +688,6 @@ namespace OSFUI
 			m_compositor->SetVisible(false);
 			m_renderer->SetPointerInputEnabled(false);
 			m_viewReveal.Arm();
-			m_pointerInput.SuspendGeometry();
 		}
 		m_relativePointer.Cancel();
 		m_pointerInput.PublishGeometry(output, view);
@@ -721,7 +718,6 @@ namespace OSFUI
 		const auto decision = m_viewReveal.Observe(frameReady, m_nowSeconds);
 		if (decision.reveal) {
 			m_compositor->SetVisible(true);  // the cached frame is fresh and output-sized
-			m_pointerInput.ResumeGeometry();
 			m_renderer->SetPointerInputEnabled(true);
 			m_pointerInput.QueueMouseMove();
 			return;

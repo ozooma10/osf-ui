@@ -2,7 +2,6 @@
 #include "Render/SharedFrameConsumer.h"
 
 #include <atomic>
-#include <charconv>
 #include <deque>
 #include <random>
 #include <thread>
@@ -93,68 +92,32 @@ namespace OSFUI
 			return found;
 		}
 
-		bool ProcessAlive(DWORD a_pid)
+		// Remove folders left by releases that mirrored per process or per version.
+		void RemoveLegacyMirrors(const std::filesystem::path& a_localRoot)
 		{
-			if (const HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, a_pid)) {
-				::CloseHandle(process);
-				return true;
-			}
-			return ::GetLastError() != ERROR_INVALID_PARAMETER;  // access denied still means the pid is in use
-		}
-
-		// Remove abandoned developer and 1.x mirrors. A reused pid only delays removal.
-		void RemoveStaleViewMirrors(const std::filesystem::path& a_localRoot)
-		{
-			constexpr std::string_view kDevPrefix = "views-dev-";
-			constexpr std::string_view kLegacyPrefix = "views-mirror-";
-			std::size_t removed = 0;
+			std::vector<std::filesystem::path> legacy;
 			std::error_code ec;
 			for (std::filesystem::directory_iterator it(a_localRoot, ec), end; !ec && it != end; it.increment(ec)) {
-				std::error_code entryEc;
-				if (!std::filesystem::is_directory(it->symlink_status(entryEc)) || entryEc) continue;
 				const auto name = Utf8Path(it->path().filename());
-				if (name == "views-mirror") {
-					// The original shared mirror has no owner pid.
-					if (BrowserHostProcessRunning()) continue;
-				} else {
-					const auto prefix = name.starts_with(kDevPrefix) ? kDevPrefix : kLegacyPrefix;
-					if (!name.starts_with(prefix)) continue;
-					const auto digits = std::string_view(name).substr(prefix.size());
-					DWORD pid = 0;
-					const auto [parsedEnd, error] = std::from_chars(digits.data(), digits.data() + digits.size(), pid);
-					if (error != std::errc{} || parsedEnd != digits.data() + digits.size() || pid == 0 ||
-						pid == ::GetCurrentProcessId() || ProcessAlive(pid)) continue;
-				}
-				std::error_code removeEc;
-				std::filesystem::remove_all(it->path(), removeEc);
-				if (removeEc) {
-					REX::DEBUG("WebView2HostWebRenderer: stale views mirror '{}' not removed ({})", ToUtf8(it->path().native()), removeEc.message());
-				} else {
-					++removed;
+				if (name == "views-mirror" || name.starts_with("views-mirror-") || name.starts_with("views-dev-")) {
+					legacy.push_back(it->path());
 				}
 			}
-			if (removed) {
-				REX::INFO("WebView2HostWebRenderer: removed {} stale views mirror(s)", removed);
+			for (std::filesystem::directory_iterator it(a_localRoot / "bin", ec), end; !ec && it != end; it.increment(ec)) {
+				if (it->is_directory(ec)) legacy.push_back(it->path());
 			}
-		}
-
-		// Each release mirrors the host into its own bin/<version> folder; drop the others. One still running (another game) is retried next launch.
-		void RemoveOldHostExeMirrors(const std::filesystem::path& a_current)
-		{
 			std::size_t removed = 0;
-			std::error_code ec;
-			for (std::filesystem::directory_iterator it(a_current.parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
-				if (it->path().filename() == a_current.filename() || !it->is_directory(ec)) continue;
+			for (const auto& path : legacy) {
 				std::error_code removeEc;
-				std::filesystem::remove_all(it->path(), removeEc);
+				std::filesystem::remove_all(path, removeEc);
 				if (removeEc) {
-					REX::DEBUG("WebView2HostWebRenderer: old browser-host mirror '{}' not removed ({})", ToUtf8(it->path().native()), removeEc.message());
+					REX::DEBUG("WebView2HostWebRenderer: legacy mirror '{}' not removed ({})", Utf8Path(path), removeEc.message());
 				} else {
 					++removed;
 				}
 			}
 			if (removed) {
-				REX::INFO("WebView2HostWebRenderer: removed {} old browser-host executable mirror(s)", removed);
+				REX::INFO("WebView2HostWebRenderer: removed {} legacy mirror folder(s)", removed);
 			}
 		}
 
@@ -253,7 +216,7 @@ namespace OSFUI
 		std::filesystem::path viewsRoot, mappedViewsRoot, legacyViewsRoot, mappedLegacyViewsRoot, userData;
         // Serialize initial and dev-refresh writes to the real-path mirror.
         std::mutex            viewsMirrorMutex;
-		bool                  usesDevViewsMirror{ false };  // mutable per-run tree, removed on Stop
+		bool                  usesDevViewsMirror{ false };  // mutable views-dev tree, rebuilt on each start
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
 		std::filesystem::path browserHostLog;  // set in Initialize; read by worker + notify drain
 		std::uint32_t adapterLuidLow{ 0 }, adapterLuidHigh{ 0 };
@@ -376,8 +339,7 @@ namespace OSFUI
 			// A concurrent Stop or failure leaves the lifecycle off Starting and closes the queue.
 			if (!outbound.Prepend(std::move(a_bootstrap))) return false;
 			auto expected = Lifecycle::Starting;
-			return lifecycle.compare_exchange_strong(expected, Lifecycle::Running,
-				std::memory_order_acq_rel);
+			return lifecycle.compare_exchange_strong(expected, Lifecycle::Running, std::memory_order_acq_rel);
 		}
 
 		void WriterMain()
@@ -440,7 +402,7 @@ namespace OSFUI
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return true;
 
 			const auto localRoot = LocalOsfuiDir();
-			RemoveStaleViewMirrors(localRoot);
+			RemoveLegacyMirrors(localRoot);
 			std::error_code legacyError;
 			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
 				// Legacy content (bundled games and the like) is the bulk of the cache; its cost must show in the log.
@@ -449,7 +411,7 @@ namespace OSFUI
 				mappedLegacyViewsRoot = *legacy;
 			}
 			if (config.devMode) {
-				const auto mirror = localRoot / std::format("views-dev-{}", ::GetCurrentProcessId());
+				const auto mirror = localRoot / "views-dev";
 				std::string error;
 				if (!DevViewFiles::ReplaceTree(viewsRoot, mirror, error)) {
 					REX::ERROR("WebView2HostWebRenderer: developer views mirror failed ({})", error);
@@ -488,7 +450,7 @@ namespace OSFUI
 		// Mirror the VFS-only host executable to a real versioned path before external launch.
 		bool MirrorHostExe()
 		{
-			const auto mirrorDir = LocalOsfuiDir() / "bin" / kOsfuiReleaseVersion;
+			const auto mirrorDir = LocalOsfuiDir() / "bin";
 			browserHostExeMirror = mirrorDir / "osfui_webview2_host.exe";
 			std::error_code ec;
 			std::filesystem::create_directories(mirrorDir, ec);
@@ -531,7 +493,6 @@ namespace OSFUI
 							  "may silently block browser-host launch", ::GetLastError());
 				}
 			}
-			RemoveOldHostExeMirrors(mirrorDir);
 			return true;
 		}
 
@@ -685,8 +646,7 @@ namespace OSFUI
 				if (now >= helloDeadline ||
 					!pipe.ReadMessage(payload, static_cast<std::uint32_t>(
 						helloDeadline - now))) {
-					REX::ERROR("WebView2HostWebRenderer: browser host connected but did not "
-							   "complete hello in {}ms: {}",
+					REX::ERROR("WebView2HostWebRenderer: browser host connected but did not complete hello in {}ms: {}",
 						osfui::wv2::kHelloTimeoutMs, pipe.LastErrorText());
 					LogBrowserHostStartFailureDiagnostics(launchTime);
 					SignalDead("browser-host hello timed out");
@@ -705,31 +665,24 @@ namespace OSFUI
 			const auto greeting = msg::FromJson<msg::Hello>(hello);
 			if (Json::Get(hello, "type", "") != msg::Hello::kType ||
 				greeting.protocolVersion != osfui::wv2::kBrowserHostProtocolVersion) {
-				REX::ERROR("WebView2HostWebRenderer: rejected browser-host hello "
-						   "(protocol={}, pid={}, browser-host log: {})",
+				REX::ERROR("WebView2HostWebRenderer: rejected browser-host hello (protocol={}, pid={}, browser-host log: {})",
 					greeting.protocolVersion, *peerPid, Utf8Path(browserHostLog));
 				SignalDead("browser-host protocol mismatch");
 				return;
 			}
 
-			const HANDLE browserHostProcess = ::OpenProcess(
-				SYNCHRONIZE | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
-				FALSE, *peerPid);
+			const HANDLE browserHostProcess = ::OpenProcess(SYNCHRONIZE | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, *peerPid);
 			if (!browserHostProcess) {
-				SignalDead(std::format("OpenProcess(browser-host pid {}) failed ({})",
-					*peerPid, ::GetLastError()));
+				SignalDead(std::format("OpenProcess(browser-host pid {}) failed ({})", *peerPid, ::GetLastError()));
 				return;
 			}
 			hostProcess = browserHostProcess;
 
-			const auto webView2RuntimeVersion =
-				greeting.runtimeVersion.empty() ? std::string("?") : greeting.runtimeVersion;
+			const auto webView2RuntimeVersion = greeting.runtimeVersion.empty() ? std::string("?") : greeting.runtimeVersion;
 			if (webView2RuntimeVersion == "unknown") {
-				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not "
-						   "installed; install it and restart the game");
+				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not installed; install it and restart the game");
 			}
-			REX::INFO("WebView2HostWebRenderer: verified browser-host pid {} up "
-					  "(WebView2 Runtime {})", *peerPid, webView2RuntimeVersion);
+			REX::INFO("WebView2HostWebRenderer: verified browser-host pid {} up (WebView2 Runtime {})", *peerPid, webView2RuntimeVersion);
 
 			using OutItem = osfui::wv2::BoundedQueue<std::string>::Item;
 			std::vector<OutItem> bootstrap;
@@ -1009,24 +962,14 @@ namespace OSFUI
 
 			if (const HANDLE browserHostProcess = std::exchange(hostProcess, nullptr)) {
 				::TerminateProcess(browserHostProcess, 9);
-				// Termination is asynchronous; the bounded wait lets the host exit before mirror cleanup.
+				// Termination is asynchronous; the bounded wait lets the host exit before a restart reuses its files.
 				::WaitForSingleObject(browserHostProcess, 1000u);
 				::CloseHandle(browserHostProcess);
 			}
 
 			lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
-			// The immutable production generation stays cached. Developer mode owns
-			// a mutable per-run mirror and removes it once the host has exited.
 			{
 				std::scoped_lock mirrorLock(viewsMirrorMutex);
-				if (usesDevViewsMirror) {
-					std::error_code ec;
-					std::filesystem::remove_all(mappedViewsRoot, ec);
-					if (ec) {
-						REX::DEBUG("WebView2HostWebRenderer: developer views mirror cleanup "
-								   "deferred to the OS ({})", ec.message());
-					}
-				}
 				usesDevViewsMirror = false;
 			}
 		}
