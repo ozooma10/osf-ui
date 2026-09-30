@@ -124,16 +124,6 @@ namespace OSFUI::API
 		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
 		void QueueReply(QueuedReply) noexcept;
 		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
-		enum Pending : std::uint32_t
-		{
-			kPendingPump = 1u << 0,
-			kPendingState = 1u << 1,
-			kPendingViewRegistrations = 1u << 2,
-		};
-		void MarkPending(std::uint32_t a_bits) noexcept
-		{
-			m_pending.fetch_or(a_bits, std::memory_order_release);
-		}
 		// m_mutex held. Rejects reserved names and names any endpoint kind already owns.
 		[[nodiscard]] bool CanRegisterEndpointLocked(const std::string& a_name, std::string_view a_caller) const;
 		std::unordered_set<std::string> m_papyrusEndpoints;
@@ -141,7 +131,6 @@ namespace OSFUI::API
 		// Unregister and SetReadyCallback wait for callbacks already dispatched on another thread.
 		// Recursive so a callback may unregister or replace itself without deadlocking.
 		std::recursive_mutex                          m_callbackDispatchMutex;
-		std::atomic<std::uint32_t>                    m_pending{ 0 };
 		std::unordered_map<std::string, Registration>        m_sends;
 		std::unordered_map<std::string, RequestRegistration> m_requests;
 		bool                                          m_dirty{ false };  // endpoint set changed since apply

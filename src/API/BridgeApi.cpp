@@ -67,7 +67,6 @@ namespace OSFUI::API
 		if (!CanRegisterEndpointLocked(name, "RegisterSend")) return false;
 		m_sends[name] = { a_handler, a_user };
 		m_dirty = true;
-		MarkPending(kPendingPump);
 		return true;
 	}
 
@@ -79,7 +78,6 @@ namespace OSFUI::API
 		if (!CanRegisterEndpointLocked(name, "RegisterRequest")) return false;
 		m_requests[name] = { a_handler, a_user };
 		m_dirty = true;
-		MarkPending(kPendingPump);
 		return true;
 	}
 
@@ -172,7 +170,6 @@ namespace OSFUI::API
 			m_pendingSends.erase(oldest);
 		}
 		m_pendingSends.push_back({ a_viewId, a_type, std::move(canonicalPayload) });
-		MarkPending(kPendingPump);
 		return true;
 	}
 
@@ -186,7 +183,6 @@ namespace OSFUI::API
 		std::lock_guard lock(m_mutex);
 		if (m_pendingStateOps.size() >= 256) return false;
 		m_pendingStateOps.push_back({ a_modId, a_key, std::move(*parsed) });
-		MarkPending(kPendingState);
 		return true;
 	}
 
@@ -197,7 +193,6 @@ namespace OSFUI::API
 		m_readyCb = a_callback;
 		m_readyUser = a_user;
 		m_readyFired = false;
-		MarkPending(kPendingPump);
 	}
 
 	bool BridgeApi::RequestMenu(const char* a_viewId, bool a_open) noexcept
@@ -227,7 +222,6 @@ namespace OSFUI::API
 		m_knownViews.insert(a_viewIds.begin(), a_viewIds.end());
 		m_instantiatedViews.clear();
 		m_viewCatalogReady = true;
-		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::SetViewInstantiated(std::string_view a_viewId, bool a_instantiated)
@@ -244,7 +238,6 @@ namespace OSFUI::API
 				m_instantiatedViews.erase(*found);
 			}
 		}
-		MarkPending(kPendingPump);
 	}
 
 	bool BridgeApi::RegisterView(const char* a_viewId) noexcept
@@ -252,7 +245,6 @@ namespace OSFUI::API
 		if (!a_viewId || !Ids::IsValidQualifiedViewId(a_viewId) || !Ids::IsValidModId(Ids::ModOf(a_viewId))) return false;
 		std::lock_guard lock(m_mutex);
 		m_pendingViewRegs.emplace_back(a_viewId);
-		MarkPending(kPendingViewRegistrations);
 		return true;
 	}
 
@@ -260,9 +252,6 @@ namespace OSFUI::API
 	{
 		PendingBatch batch;
 		batch.presentation = m_viewRequests.Take();
-		constexpr auto frameBits = kPendingState | kPendingViewRegistrations;
-		const auto reasons = m_pending.fetch_and(~frameBits, std::memory_order_acq_rel);
-		if (!(reasons & frameBits)) return batch;
 		std::lock_guard lock(m_mutex);
 		batch.state.swap(m_pendingStateOps);
 		batch.viewRegistrations.swap(m_pendingViewRegs);
@@ -271,9 +260,7 @@ namespace OSFUI::API
 
 	std::vector<BridgeApi::ViewStateOp> BridgeApi::TakePendingState()
 	{
-		const auto reasons = m_pending.fetch_and(~kPendingState, std::memory_order_acq_rel);
 		std::vector<ViewStateOp> state;
-		if (!(reasons & kPendingState)) return state;
 		std::lock_guard lock(m_mutex);
 		state.swap(m_pendingStateOps);
 		return state;
@@ -314,7 +301,6 @@ namespace OSFUI::API
 			return;
 		}
 		m_queuedReplies.push_back(std::move(a_reply));
-		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::DispatchRequest(const std::string& a_name,
@@ -354,7 +340,6 @@ namespace OSFUI::API
 		std::lock_guard lock(m_mutex);
 		assert(!m_bridge);
 		m_bridge = &a_bridge;
-		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::SetBridgeAvailability(bool a_available)
@@ -367,7 +352,6 @@ namespace OSFUI::API
 		if (!a_available) {
 			m_queuedReplies.clear();  // nothing left to settle them against
 		}
-		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::RemoveOwnedEndpoint(const char* a_name, void* a_owner)
@@ -380,13 +364,10 @@ namespace OSFUI::API
 		else return;
 		m_removedEndpoints.emplace_back(a_name);
 		m_dirty = true;
-		MarkPending(kPendingPump);
 	}
 
 	void BridgeApi::PumpRuntimeCallbacks()
 	{
-		const auto reasons = m_pending.fetch_and(~kPendingPump, std::memory_order_acq_rel);
-		if (!(reasons & kPendingPump)) return;
 		MessageBridge* bridge = nullptr;
 		std::vector<std::pair<std::string, Registration>> sendsToRegister;
 		std::vector<std::pair<std::string, RequestRegistration>> requestsToRegister;
