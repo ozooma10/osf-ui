@@ -117,32 +117,16 @@ namespace OSFUI::ViewCache
 			return result;
 		}
 
-		bool SameFingerprint(const Fingerprint& a_left, const Fingerprint& a_right)
+		// The generation name already carries the fingerprint (format and salt included), so the marker only records that the copy finished.
+		bool IsComplete(const std::filesystem::path& a_generation)
 		{
-			return a_left.value == a_right.value && a_left.files == a_right.files && a_left.bytes == a_right.bytes;
+			std::error_code ec;
+			return std::filesystem::is_regular_file(a_generation / kCompleteMarker, ec);
 		}
 
-		std::string MarkerText(const Fingerprint& a_fingerprint, std::string_view a_salt)
-		{
-			return std::format("format={}\nfingerprint={:016x}\nfiles={}\nbytes={}\nsalt={}\n", kCacheFormat, a_fingerprint.value, a_fingerprint.files, a_fingerprint.bytes, a_salt);
-		}
-
-		bool IsComplete(const std::filesystem::path& a_generation,
-			const Fingerprint& a_fingerprint, std::string_view a_salt)
-		{
-			std::ifstream marker(a_generation / kCompleteMarker, std::ios::binary);
-			if (!marker) {
-				return false;
-			}
-			const std::string content{ std::istreambuf_iterator<char>(marker), {} };
-			return content == MarkerText(a_fingerprint, a_salt);
-		}
-
-		bool WriteText(const std::filesystem::path& a_path, std::string_view a_text)
+		bool WriteMarker(const std::filesystem::path& a_path)
 		{
 			std::ofstream out(a_path, std::ios::binary | std::ios::trunc);
-			if (!out) return false;
-			out << a_text;
 			out.close();
 			return out.good();
 		}
@@ -261,7 +245,7 @@ namespace OSFUI::ViewCache
 		}
 
 		const auto generation = a_cacheRoot / GenerationName(fingerprint.value);
-		if (IsComplete(generation, fingerprint, a_salt)) {
+		if (IsComplete(generation)) {
 			return Prepared{ generation, fingerprint, true };
 		}
 
@@ -294,7 +278,7 @@ namespace OSFUI::ViewCache
 		}
 		// A file added, removed or rewritten during the copy changes the metadata; never publish a mixed tree under the old name.
 		const auto after = FingerprintTree(a_source, a_salt, a_error);
-		if (!after || !SameFingerprint(*after, fingerprint)) {
+		if (!after || after->value != fingerprint.value) {
 			if (a_error.empty()) {
 				a_error = "source tree changed while publishing the cache generation";
 			}
@@ -302,7 +286,7 @@ namespace OSFUI::ViewCache
 			return std::nullopt;
 		}
 
-		if (!WriteText(staging / kCompleteMarker, MarkerText(fingerprint, a_salt))) {
+		if (!WriteMarker(staging / kCompleteMarker)) {
 			a_error = std::string(kCompleteMarker) + ": could not write completion marker";
 			cleanupStaging();
 			return std::nullopt;
@@ -311,7 +295,7 @@ namespace OSFUI::ViewCache
 		std::filesystem::rename(staging, generation, ec);
 		if (ec) {
 			// Another process may have published the identical generation first.
-			if (IsComplete(generation, fingerprint, a_salt)) {
+			if (IsComplete(generation)) {
 				cleanupStaging();
 				return Prepared{ generation, fingerprint, true };
 			}
@@ -340,7 +324,6 @@ namespace OSFUI::ViewCache
 				continue;
 			}
 			if (!a_keep.empty() && it->path().lexically_normal() == a_keep.lexically_normal()) {
-				++result.retained;
 				continue;
 			}
 			std::error_code removeEc;

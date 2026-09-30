@@ -125,6 +125,26 @@ namespace OSFUI
 			}
 		}
 
+		// Each release mirrors the host into its own bin/<version> folder; drop the others. One still running (another game) is retried next launch.
+		void RemoveOldHostExeMirrors(const std::filesystem::path& a_current)
+		{
+			std::size_t removed = 0;
+			std::error_code ec;
+			for (std::filesystem::directory_iterator it(a_current.parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
+				if (it->path().filename() == a_current.filename() || !it->is_directory(ec)) continue;
+				std::error_code removeEc;
+				std::filesystem::remove_all(it->path(), removeEc);
+				if (removeEc) {
+					REX::DEBUG("WebView2HostWebRenderer: old browser-host mirror '{}' not removed ({})", ToUtf8(it->path().native()), removeEc.message());
+				} else {
+					++removed;
+				}
+			}
+			if (removed) {
+				REX::INFO("WebView2HostWebRenderer: removed {} old browser-host executable mirror(s)", removed);
+			}
+		}
+
 		// Prepare (or reuse) a generation, then scavenge every other one.
 		std::optional<std::filesystem::path> PrepareGeneration(const std::filesystem::path& a_source,
 			const std::filesystem::path& a_cacheRoot, std::string_view a_label)
@@ -139,9 +159,9 @@ namespace OSFUI
 			}
 			const auto scavenged = ViewCache::Scavenge(a_cacheRoot, prepared->generation);
 			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-			REX::INFO("WebView2HostWebRenderer: USVFS {} {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s), retained {} generation(s))",
+			REX::INFO("WebView2HostWebRenderer: USVFS {} {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s))",
 				a_label, prepared->reused ? "reused" : "published", ToUtf8(prepared->generation.native()), prepared->fingerprint.files,
-				static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), elapsed, scavenged.removed, scavenged.retained);
+				static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), elapsed, scavenged.removed);
 			if (scavenged.failed) {
 				REX::WARN("WebView2HostWebRenderer: {} {} item(s) could not be scavenged; they will be retried next launch", scavenged.failed, a_label);
 			}

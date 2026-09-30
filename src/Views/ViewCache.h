@@ -31,7 +31,6 @@ namespace OSFUI::ViewCache
 	struct ScavengeResult
 	{
 		std::size_t removed{ 0 };
-		std::size_t retained{ 0 };
 		std::size_t failed{ 0 };
 	};
 

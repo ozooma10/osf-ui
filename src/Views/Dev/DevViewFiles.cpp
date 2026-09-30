@@ -2,13 +2,6 @@
 #include "Core/Utf8Path.h"
 #include "Views/ViewCache.h"
 
-#include <algorithm>
-#include <vector>
-
-#ifdef _WIN32
-#include <Windows.h>
-#endif
-
 namespace OSFUI::DevViewFiles
 {
 	namespace
@@ -17,19 +10,6 @@ namespace OSFUI::DevViewFiles
 		{
 			a_error = Utf8Path(a_path.filename()) + ": " + a_ec.message();
 			return false;
-		}
-
-		bool SameRelativePath(const std::filesystem::path& a_lhs, const std::filesystem::path& a_rhs)
-		{
-#ifdef _WIN32
-			// The mirror lives on a case-insensitive Windows filesystem. A case-only
-			// source rename must not make pruning delete the just-copied destination.
-			const auto lhs = a_lhs.native();
-			const auto rhs = a_rhs.native();
-			return ::CompareStringOrdinal(lhs.c_str(), -1, rhs.c_str(), -1, TRUE) == CSTR_EQUAL;
-#else
-			return a_lhs == a_rhs;
-#endif
 		}
 	}  // namespace
 
@@ -44,7 +24,7 @@ namespace OSFUI::DevViewFiles
 		return fingerprint->value;
 	}
 
-	bool SyncTree(const std::filesystem::path& a_source, const std::filesystem::path& a_destination, std::string& a_error)
+	bool ReplaceTree(const std::filesystem::path& a_source, const std::filesystem::path& a_destination, std::string& a_error)
 	{
 		a_error.clear();
 		std::error_code ec;
@@ -52,101 +32,12 @@ namespace OSFUI::DevViewFiles
 			a_error = ec ? ec.message() : "source is not a directory";
 			return false;
 		}
-
+		std::filesystem::remove_all(a_destination, ec);
+		if (ec) return Fail(a_error, a_destination, ec);
 		std::filesystem::create_directories(a_destination, ec);
-		if (ec)
-			return Fail(a_error, a_destination, ec);
-
-		struct SourceEntry
-		{
-			std::filesystem::path source;
-			std::filesystem::path relative;
-			bool                  directory{ false };
-		};
-		std::vector<SourceEntry> sourceEntries;
-		for (std::filesystem::recursive_directory_iterator
-				 it(a_source, std::filesystem::directory_options::skip_permission_denied, ec),
-			end;
-			!ec && it != end; it.increment(ec)) {
-			const bool directory = it->is_directory(ec);
-			if (ec)
-				break;
-			if (!directory && !it->is_regular_file(ec)) {
-				if (ec)
-					break;
-				continue;
-			}
-			sourceEntries.push_back({
-				.source = it->path(),
-				.relative = it->path().lexically_relative(a_source),
-				.directory = directory,
-			});
-		}
-		if (ec)
-			return Fail(a_error, a_source, ec);
-
-		// Deterministic order places assets before entry HTML that references them.
-		std::ranges::sort(sourceEntries, {}, [](const SourceEntry& a_entry) {
-			return Utf8Path(a_entry.relative);
-		});
-
-		std::vector<std::filesystem::path> sourcePaths;
-		sourcePaths.reserve(sourceEntries.size());
-		for (const auto& entry : sourceEntries) {
-			sourcePaths.push_back(entry.relative);
-			const auto destination = a_destination / entry.relative;
-			const bool destinationExists = std::filesystem::exists(destination, ec);
-			if (ec)
-				return Fail(a_error, destination, ec);
-			const bool destinationDirectory =
-				destinationExists && std::filesystem::is_directory(destination, ec);
-			if (ec)
-				return Fail(a_error, destination, ec);
-
-			// Remove path-type conflicts first but retain ordinary stale bundles through copying.
-			if (destinationExists && destinationDirectory != entry.directory) {
-				std::filesystem::remove_all(destination, ec);
-				if (ec)
-					return Fail(a_error, destination, ec);
-			}
-			if (entry.directory) {
-				std::filesystem::create_directories(destination, ec);
-				if (ec)
-					return Fail(a_error, destination, ec);
-				continue;
-			}
-			std::filesystem::create_directories(destination.parent_path(), ec);
-			if (ec)
-				return Fail(a_error, destination.parent_path(), ec);
-			std::filesystem::copy_file(entry.source, destination,
-				std::filesystem::copy_options::overwrite_existing, ec);
-			if (ec)
-				return Fail(a_error, entry.source, ec);
-		}
-
-		// Prune stale paths only after every current file is safely present.
-		std::vector<std::filesystem::path> stale;
-		for (std::filesystem::recursive_directory_iterator
-				 it(a_destination, std::filesystem::directory_options::skip_permission_denied, ec),
-			end;
-			!ec && it != end; it.increment(ec)) {
-			const auto relative = it->path().lexically_relative(a_destination);
-			if (!std::ranges::any_of(sourcePaths, [&](const auto& sourcePath) {
-				return SameRelativePath(sourcePath, relative);
-			})) {
-				stale.push_back(it->path());
-			}
-		}
-		if (ec)
-			return Fail(a_error, a_destination, ec);
-		std::ranges::sort(stale, [](const auto& a_lhs, const auto& a_rhs) {
-			return std::distance(a_lhs.begin(), a_lhs.end()) > std::distance(a_rhs.begin(), a_rhs.end());
-		});
-		for (const auto& path : stale) {
-			std::filesystem::remove_all(path, ec);
-			if (ec)
-				return Fail(a_error, path, ec);
-		}
+		if (ec) return Fail(a_error, a_destination, ec);
+		std::filesystem::copy(a_source, a_destination, std::filesystem::copy_options::recursive, ec);
+		if (ec) return Fail(a_error, a_source, ec);
 		return true;
 	}
 }  // namespace OSFUI::DevViewFiles

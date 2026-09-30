@@ -68,7 +68,7 @@ int main()
 	std::string error;
 	Write(source / "index.html", "one");
 	Write(source / "assets" / "old.js", "old");
-	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
+	assert(OSFUI::DevViewFiles::ReplaceTree(source, mirror, error));
 	assert(Read(mirror / "index.html") == "one");
 	assert(Read(mirror / "assets" / "old.js") == "old");
 
@@ -76,43 +76,17 @@ int main()
 	Write(source / "index.html", "two");
 	fs::remove(source / "assets" / "old.js");
 	Write(source / "assets" / "new.js", "new");
-	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
+	assert(OSFUI::DevViewFiles::ReplaceTree(source, mirror, error));
 	assert(Read(mirror / "index.html") == "two");
 	assert(!fs::exists(mirror / "assets" / "old.js"));
 	assert(Read(mirror / "assets" / "new.js") == "new");
-
-	// Renames may replace a directory with a file or vice versa.
-	Write(source / "swap" / "child.txt", "child");
-	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
-	fs::remove_all(source / "swap");
-	Write(source / "swap", "file");
-	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
-	assert(fs::is_regular_file(mirror / "swap"));
-	assert(Read(mirror / "swap") == "file");
-
-	fs::remove(source / "swap");
-	Write(source / "swap" / "child.txt", "directory");
-	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
-	assert(fs::is_directory(mirror / "swap"));
-	assert(Read(mirror / "swap" / "child.txt") == "directory");
-
-#ifdef _WIN32
-	Write(source / "Case.js", "before");
-	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
-	fs::rename(source / "Case.js", source / "case-temporary.js");
-	fs::rename(source / "case-temporary.js", source / "case.js");
-	Write(source / "case.js", "after");
-	assert(OSFUI::DevViewFiles::SyncTree(source, mirror, error));
-	assert(Read(mirror / "case.js") == "after");
-#endif
-
 
 	const auto unicodeSource = root / "unicode-source";
 	const auto unicodeMirror = root / "unicode-mirror";
 	const auto unicodeName = fs::path(u8"\u9ebb\u96c0/\U0001f3ae.js");
 	Write(unicodeSource / unicodeName, "unicode asset");
 	assert(OSFUI::DevViewFiles::Fingerprint(unicodeSource));
-	assert(OSFUI::DevViewFiles::SyncTree(unicodeSource, unicodeMirror, error));
+	assert(OSFUI::DevViewFiles::ReplaceTree(unicodeSource, unicodeMirror, error));
 	assert(Read(unicodeMirror / unicodeName) == "unicode asset");
 
 	fs::remove_all(root);

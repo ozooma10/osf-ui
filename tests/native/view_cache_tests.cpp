@@ -107,7 +107,6 @@ int main()
 	Write(unrelated / "keep", "x");
 	const auto scavenged = OSFUI::ViewCache::Scavenge(cache, resalted->generation);
 	assert(scavenged.removed == 3);  // first, changed, and abandoned staging
-	assert(scavenged.retained == 1);  // current
 	assert(scavenged.failed == 0);
 	assert(!fs::exists(first->generation));
 	assert(!fs::exists(changed->generation));
