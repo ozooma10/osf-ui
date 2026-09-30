@@ -52,7 +52,7 @@ namespace OSFUI::ViewCache
 		}
 
 		bool SnapshotTree(const std::filesystem::path& a_source,
-			TreeSnapshot& a_snapshot, std::string& a_error)
+			TreeSnapshot& a_snapshot, std::string& a_error, const SkipFile& a_skip = {})
 		{
 			std::error_code ec;
 			if (!std::filesystem::is_directory(a_source, ec) || ec) {
@@ -76,6 +76,9 @@ namespace OSFUI::ViewCache
 				if (!regular) {
 					a_error = Utf8Path(relative) + ": unsupported filesystem entry";
 					return false;
+				}
+				if (a_skip && a_skip(it->path())) {
+					continue;
 				}
 
 				const auto size = it->file_size(ec);
@@ -226,11 +229,11 @@ namespace OSFUI::ViewCache
 		}
 	}  // namespace
 
-	std::optional<Fingerprint> FingerprintTree(const std::filesystem::path& a_source, std::string_view a_salt, std::string& a_error)
+	std::optional<Fingerprint> FingerprintTree(const std::filesystem::path& a_source, std::string_view a_salt, std::string& a_error, const SkipFile& a_skip)
 	{
 		a_error.clear();
 		TreeSnapshot snapshot;
-		if (!SnapshotTree(a_source, snapshot, a_error)) {
+		if (!SnapshotTree(a_source, snapshot, a_error, a_skip)) {
 			return std::nullopt;
 		}
 		return FingerprintSnapshot(snapshot, a_salt);
@@ -299,11 +302,6 @@ namespace OSFUI::ViewCache
 			return std::nullopt;
 		}
 
-		if (!WriteText(staging / kUseLock, {})) {
-			a_error = std::string(kUseLock) + ": could not create cache lease file";
-			cleanupStaging();
-			return std::nullopt;
-		}
 		if (!WriteText(staging / kCompleteMarker, MarkerText(fingerprint, a_salt))) {
 			a_error = std::string(kCompleteMarker) + ": could not write completion marker";
 			cleanupStaging();
@@ -312,7 +310,7 @@ namespace OSFUI::ViewCache
 
 		std::filesystem::rename(staging, generation, ec);
 		if (ec) {
-			// A serialized caller should not race, but accepting an independently published identical generation makes the helper robust on its own.
+			// Another process may have published the identical generation first.
 			if (IsComplete(generation, fingerprint, a_salt)) {
 				cleanupStaging();
 				return Prepared{ generation, fingerprint, true };
@@ -324,7 +322,7 @@ namespace OSFUI::ViewCache
 		return Prepared{ generation, fingerprint, false };
 	}
 
-	ScavengeResult Scavenge(const std::filesystem::path& a_cacheRoot, const std::filesystem::path& a_keep, const CanRemove& a_canRemove)
+	ScavengeResult Scavenge(const std::filesystem::path& a_cacheRoot, const std::filesystem::path& a_keep)
 	{
 		ScavengeResult result;
 		std::error_code ec;
@@ -342,10 +340,6 @@ namespace OSFUI::ViewCache
 				continue;
 			}
 			if (!a_keep.empty() && it->path().lexically_normal() == a_keep.lexically_normal()) {
-				++result.retained;
-				continue;
-			}
-			if (a_canRemove && !a_canRemove(it->path())) {
 				++result.retained;
 				continue;
 			}

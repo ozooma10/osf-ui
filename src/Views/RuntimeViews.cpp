@@ -4,8 +4,8 @@
 #include <vector>
 
 #include "API/BridgeApi.h"
+#include "Core/Ids.h"
 #include "Core/Log.h"
-#include "Views/Dev/DevViewFiles.h"
 
 namespace OSFUI
 {
@@ -169,7 +169,7 @@ namespace OSFUI
 		std::vector<std::string> mods;
 		for (const auto& manifest : m_views.All()) {
 			if (m_presentation.IsInstantiated(manifest.id)) {
-				mods.push_back(DevViewFiles::ModFolder(manifest.id));
+				mods.emplace_back(Ids::ModOf(manifest.id));
 			}
 		}
 		m_devViewReload->SetMods(std::move(mods));
@@ -182,7 +182,7 @@ namespace OSFUI
 		bool anyReloaded = false;
 		for (const auto& mod : m_devViewReload->DrainCompleted()) {
 			for (const auto& manifest : m_views.All()) {
-				if (!m_presentation.IsInstantiated(manifest.id) || DevViewFiles::ModFolder(manifest.id) != mod) continue;
+				if (!m_presentation.IsInstantiated(manifest.id) || Ids::ModOf(manifest.id) != mod) continue;
 				NavigateView(manifest);
 				anyReloaded = true;
 				REX::INFO("Runtime: dev reloaded loose view '{}'", manifest.id);

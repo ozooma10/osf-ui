@@ -91,48 +91,61 @@ namespace OSFUI
 			return found;
 		}
 
-		class ScopedCacheMutex
+		bool ProcessAlive(DWORD a_pid)
 		{
-		public:
-			ScopedCacheMutex()
-			{
-				m_handle = ::CreateMutexW(nullptr, FALSE, ViewCache::kMutexName);
-				if (!m_handle) return;
-				const auto wait = ::WaitForSingleObject(m_handle, 30000);
-				m_owned = wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED;
+			if (const HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, a_pid)) {
+				::CloseHandle(process);
+				return true;
 			}
-			~ScopedCacheMutex()
-			{
-				if (m_owned) ::ReleaseMutex(m_handle);
-				if (m_handle) ::CloseHandle(m_handle);
-			}
-
-			[[nodiscard]] bool Owned() const { return m_owned; }
-
-		private:
-			HANDLE m_handle{ nullptr };
-			bool   m_owned{ false };
-		};
-
-		HANDLE AcquireViewCacheLease(const std::filesystem::path& a_generation)
-		{
-			const auto lock = a_generation / ViewCache::kUseLock;
-			return ::CreateFileW(lock.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_HIDDEN, nullptr);
+			return ::GetLastError() != ERROR_INVALID_PARAMETER;  // access denied still means the pid is in use
 		}
 
-		bool CacheGenerationCanBeRemoved(const std::filesystem::path& a_generation)
+		// Remove developer mirrors whose game process is gone (a crash skips Stop's cleanup). A reused pid only delays removal.
+		void RemoveStaleDevMirrors(const std::filesystem::path& a_localRoot)
 		{
-			const auto lock = a_generation / ViewCache::kUseLock;
+			constexpr std::wstring_view kPrefix = L"views-dev-";
+			std::size_t removed = 0;
 			std::error_code ec;
-			if (!std::filesystem::exists(lock, ec)) {
-				return !ec;  // abandoned staging tree before the lease file was created
+			for (std::filesystem::directory_iterator it(a_localRoot, ec), end; !ec && it != end; it.increment(ec)) {
+				const auto name = it->path().filename().wstring();
+				if (!name.starts_with(kPrefix) || name.size() == kPrefix.size()) continue;
+				wchar_t* parsedEnd = nullptr;
+				const auto pid = static_cast<DWORD>(std::wcstoul(name.c_str() + kPrefix.size(), &parsedEnd, 10));
+				if (*parsedEnd != L'\0' || pid == ::GetCurrentProcessId() || ProcessAlive(pid)) continue;
+				std::error_code removeEc;
+				std::filesystem::remove_all(it->path(), removeEc);
+				if (removeEc) {
+					REX::DEBUG("WebView2HostWebRenderer: stale developer views mirror '{}' not removed ({})", ToUtf8(it->path().native()), removeEc.message());
+				} else {
+					++removed;
+				}
 			}
-			const HANDLE probe = ::CreateFileW(lock.c_str(), DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-			if (probe == INVALID_HANDLE_VALUE) {
-				return false;  // an active game/host lease denies delete sharing
+			if (removed) {
+				REX::INFO("WebView2HostWebRenderer: removed {} stale developer views mirror(s)", removed);
 			}
-			::CloseHandle(probe);
-			return true;
+		}
+
+		// Prepare (or reuse) a generation, then scavenge every other one.
+		std::optional<std::filesystem::path> PrepareGeneration(const std::filesystem::path& a_source,
+			const std::filesystem::path& a_cacheRoot, std::string_view a_label)
+		{
+			const auto started = std::chrono::steady_clock::now();
+			std::string error;
+			const auto prepared = ViewCache::Prepare(a_source, a_cacheRoot, kOsfuiReleaseVersion,
+				std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64()), error);
+			if (!prepared) {
+				REX::ERROR("WebView2HostWebRenderer: {} preparation failed ({})", a_label, error);
+				return std::nullopt;
+			}
+			const auto scavenged = ViewCache::Scavenge(a_cacheRoot, prepared->generation);
+			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+			REX::INFO("WebView2HostWebRenderer: USVFS {} {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s), retained {} generation(s))",
+				a_label, prepared->reused ? "reused" : "published", ToUtf8(prepared->generation.native()), prepared->fingerprint.files,
+				static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), elapsed, scavenged.removed, scavenged.retained);
+			if (scavenged.failed) {
+				REX::WARN("WebView2HostWebRenderer: {} {} item(s) could not be scavenged; they will be retried next launch", scavenged.failed, a_label);
+			}
+			return prepared->generation;
 		}
 
 		// Read the browser-host log tail for pre-handshake failure diagnostics.
@@ -213,11 +226,9 @@ namespace OSFUI
 		WebView2HostConfig    config;
 		std::string          language;  // Resolved before Start; immutable while the worker runs.
 		std::filesystem::path viewsRoot, mappedViewsRoot, legacyViewsRoot, mappedLegacyViewsRoot, userData;
-		HANDLE legacyViewsCacheLease{ INVALID_HANDLE_VALUE };
         // Serialize initial and dev-refresh writes to the real-path mirror.
         std::mutex            viewsMirrorMutex;
 		bool                  usesDevViewsMirror{ false };  // mutable per-run tree, removed on Stop
-		HANDLE                viewsCacheLease{ INVALID_HANDLE_VALUE };
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
 		std::filesystem::path browserHostLog;  // set in Initialize; read by worker + notify drain
 		std::uint32_t adapterLuidLow{ 0 }, adapterLuidHigh{ 0 };
@@ -431,45 +442,18 @@ namespace OSFUI
 			std::scoped_lock mirrorLock(viewsMirrorMutex);
 			mappedViewsRoot = viewsRoot;
 			mappedLegacyViewsRoot = legacyViewsRoot;
-			if (legacyViewsCacheLease != INVALID_HANDLE_VALUE) {
-				::CloseHandle(legacyViewsCacheLease);
-				legacyViewsCacheLease = INVALID_HANDLE_VALUE;
-			}
 			usesDevViewsMirror = false;
-			if (viewsCacheLease != INVALID_HANDLE_VALUE) {
-				::CloseHandle(viewsCacheLease);
-				viewsCacheLease = INVALID_HANDLE_VALUE;
-			}
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return true;
 
-			ScopedCacheMutex cacheMutex;
-			if (!cacheMutex.Owned()) {
-				REX::ERROR("WebView2HostWebRenderer: timed out acquiring the shared views-cache lock");
-				return false;
-			}
-
 			const auto localRoot = LocalOsfuiDir();
+			RemoveStaleDevMirrors(localRoot);
 			std::error_code legacyError;
 			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
 				// Legacy content (bundled games and the like) is the bulk of the cache; its cost must show in the log.
-				const auto legacyStarted = std::chrono::steady_clock::now();
-				std::string error;
-				const auto cache = localRoot / "legacy-views-cache";
-				const auto prepared = ViewCache::Prepare(legacyViewsRoot, cache, kOsfuiReleaseVersion,
-					std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64()), error);
-				if (!prepared) { REX::ERROR("Legacy views cache failed: {}", error); return false; }
-				mappedLegacyViewsRoot = prepared->generation;
-				legacyViewsCacheLease = AcquireViewCacheLease(mappedLegacyViewsRoot);
-				if (legacyViewsCacheLease == INVALID_HANDLE_VALUE) {
-					REX::ERROR("WebView2HostWebRenderer: could not lease legacy views-cache generation '{}' ({})", ToUtf8(mappedLegacyViewsRoot.native()), ::GetLastError());
-					return false;
-				}
-				const auto legacyScavenged = ViewCache::Scavenge(cache, mappedLegacyViewsRoot, CacheGenerationCanBeRemoved);
-				const auto legacyElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - legacyStarted).count();
-				REX::INFO("WebView2HostWebRenderer: USVFS legacy views cache {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s), retained {} generation(s))",
-					prepared->reused ? "reused" : "published", ToUtf8(mappedLegacyViewsRoot.native()), prepared->fingerprint.files, static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), legacyElapsed, legacyScavenged.removed, legacyScavenged.retained);
+				const auto legacy = PrepareGeneration(legacyViewsRoot, localRoot / "legacy-views-cache", "legacy views cache");
+				if (!legacy) return false;
+				mappedLegacyViewsRoot = *legacy;
 			}
-			const auto started = std::chrono::steady_clock::now();
 			if (config.devMode) {
 				const auto mirror = localRoot / std::format("views-dev-{}", ::GetCurrentProcessId());
 				std::error_code ec;
@@ -483,50 +467,15 @@ namespace OSFUI
 					REX::ERROR("WebView2HostWebRenderer: developer views mirror failed ({})", error);
 					return false;
 				}
-				{
-					std::ofstream lock(mirror / ViewCache::kUseLock, std::ios::binary | std::ios::trunc);
-					if (!lock) {
-						REX::ERROR("WebView2HostWebRenderer: could not create developer views lease file");
-						return false;
-					}
-				}
-				viewsCacheLease = AcquireViewCacheLease(mirror);
-				if (viewsCacheLease == INVALID_HANDLE_VALUE) {
-					REX::ERROR("WebView2HostWebRenderer: could not lease developer views mirror ({})", ::GetLastError());
-					return false;
-				}
 				mappedViewsRoot = mirror;
 				usesDevViewsMirror = true;
 				REX::INFO("WebView2HostWebRenderer: USVFS developer views mirrored to {}", ToUtf8(mirror.native()));
 				return true;
 			}
 
-			const auto cacheRoot = localRoot / ViewCache::kCacheDirectory;
-			const auto stagingId = std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64());
-			std::string error;
-			const auto prepared = ViewCache::Prepare(viewsRoot, cacheRoot, kOsfuiReleaseVersion, stagingId, error);
-			if (!prepared) {
-				REX::ERROR("WebView2HostWebRenderer: views cache preparation failed ({})", error);
-				return false;
-			}
-
-			viewsCacheLease = AcquireViewCacheLease(prepared->generation);
-			if (viewsCacheLease == INVALID_HANDLE_VALUE) {
-				REX::ERROR("WebView2HostWebRenderer: could not lease views-cache generation '{}' ({})", ToUtf8(prepared->generation.native()), ::GetLastError());
-				return false;
-			}
-			mappedViewsRoot = prepared->generation;
-
-			const auto scavenged = ViewCache::Scavenge(cacheRoot, mappedViewsRoot,
-				[](const std::filesystem::path& a_generation) {
-					return CacheGenerationCanBeRemoved(a_generation);
-				});
-			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-			REX::INFO("WebView2HostWebRenderer: USVFS views cache {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s), retained {} generation(s))",
-				prepared->reused ? "reused" : "published", ToUtf8(mappedViewsRoot.native()), prepared->fingerprint.files, static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), elapsed, scavenged.removed, scavenged.retained);
-			if (scavenged.failed) {
-				REX::WARN("WebView2HostWebRenderer: {} views-cache item(s) could not be scavenged; they will be retried next launch", scavenged.failed);
-			}
+			const auto modern = PrepareGeneration(viewsRoot, localRoot / ViewCache::kCacheDirectory, "views cache");
+			if (!modern) return false;
+			mappedViewsRoot = *modern;
 			return true;
 		}
 
@@ -1114,17 +1063,9 @@ namespace OSFUI
 
 			lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
 			// The immutable production generation stays cached. Developer mode owns
-			// a mutable per-run mirror and removes it after both host and game leases end.
+			// a mutable per-run mirror and removes it once the host has exited.
 			{
 				std::scoped_lock mirrorLock(viewsMirrorMutex);
-				if (legacyViewsCacheLease != INVALID_HANDLE_VALUE) {
-					::CloseHandle(legacyViewsCacheLease);
-					legacyViewsCacheLease = INVALID_HANDLE_VALUE;
-				}
-				if (viewsCacheLease != INVALID_HANDLE_VALUE) {
-					::CloseHandle(viewsCacheLease);
-					viewsCacheLease = INVALID_HANDLE_VALUE;
-				}
 				if (usesDevViewsMirror) {
 					std::error_code ec;
 					std::filesystem::remove_all(mappedViewsRoot, ec);

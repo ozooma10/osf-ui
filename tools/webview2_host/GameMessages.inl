@@ -19,28 +19,7 @@
 					FailHost("init", E_INVALIDARG, "init without userDataDir");
 					return;
 				}
-				const auto leasePath = viewsRoot / OSFUI::ViewCache::kUseLock;
-				std::error_code leaseEc;
-				if (std::filesystem::exists(leasePath, leaseEc) && !viewsLease.Open(leasePath)) {
-					log.Error(std::format("could not acquire views-cache lease '{}' ({})", ToUtf8(leasePath.native()), ::GetLastError()));
-					byeReason = "views-cache-lease-failed";
-					quit.store(true);
-					return;
-				}
-				if (leaseEc) {
-					log.Error("could not inspect views-cache lease: " + leaseEc.message());
-					byeReason = "views-cache-lease-failed";
-					quit.store(true);
-					return;
-				}
 				std::optional<LUID> requestedAdapter;
-				if (!legacyViewsRoot.empty()) {
-					const auto legacyLease = legacyViewsRoot / OSFUI::ViewCache::kUseLock;
-					if (std::filesystem::exists(legacyLease, leaseEc) && !legacyViewsLease.Open(legacyLease)) {
-						FailHost("legacy-views-lease", HRESULT_FROM_WIN32(::GetLastError()), "could not lease legacy views cache");
-						return;
-					}
-				}
 				if (a_raw.contains("adapterLuidLow") && a_raw.contains("adapterLuidHigh")) {
 					LUID luid{};
 					luid.LowPart = a_msg.adapterLuidLow;

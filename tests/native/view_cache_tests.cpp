@@ -56,7 +56,6 @@ int main()
 	assert(Read(first->generation / "assets" / "exact-buffer.bin") == binary);
 	assert(fs::is_directory(first->generation / "empty"));
 	assert(fs::is_regular_file(first->generation / OSFUI::ViewCache::kCompleteMarker));
-	assert(fs::is_regular_file(first->generation / OSFUI::ViewCache::kUseLock));
 
 	// An identical source reuses the published immutable generation.
 	const auto again = OSFUI::ViewCache::Prepare(
@@ -101,21 +100,20 @@ int main()
 	assert(Read(repaired->generation / "shared" / "osfui.js") == "shared-v2");
 
 	// Scavenging removes abandoned staging and old generations, retains the
-	// selected generation, and honors the caller's active-lease decision.
+	// selected generation, and leaves unrelated folders alone.
 	const auto staging = cache / "staging-abandoned";
-	const auto locked = cache / "gen-locked";
+	const auto unrelated = cache / "unrelated";
 	Write(staging / "partial", "x");
-	Write(locked / std::string(OSFUI::ViewCache::kUseLock), "");
-	const auto scavenged = OSFUI::ViewCache::Scavenge(cache, resalted->generation,
-		[&](const fs::path& a_path) { return a_path != locked; });
+	Write(unrelated / "keep", "x");
+	const auto scavenged = OSFUI::ViewCache::Scavenge(cache, resalted->generation);
 	assert(scavenged.removed == 3);  // first, changed, and abandoned staging
-	assert(scavenged.retained == 2);  // current + simulated active generation
+	assert(scavenged.retained == 1);  // current
 	assert(scavenged.failed == 0);
 	assert(!fs::exists(first->generation));
 	assert(!fs::exists(changed->generation));
 	assert(!fs::exists(staging));
 	assert(fs::exists(resalted->generation));
-	assert(fs::exists(locked));
+	assert(fs::exists(unrelated));
 
 	assert(!OSFUI::ViewCache::Prepare(
 		root / "missing", cache, "runtime-v1", "missing", error));

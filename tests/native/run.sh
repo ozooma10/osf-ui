@@ -54,7 +54,7 @@ SUITES=(
 "bridge_api_tests bridge_api_tests.cpp ../../src/API/BridgeApi.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "papyrus_form_tests papyrus_form_tests.cpp ../../src/API/PapyrusApi.cpp ../../src/API/BridgeApi.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Core/Json.cpp"
 "view_manifest_tests view_manifest_tests.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Core/Json.cpp"
-"dev_view_files_tests dev_view_files_tests.cpp ../../src/Views/Dev/DevViewFiles.cpp"
+"dev_view_files_tests dev_view_files_tests.cpp ../../src/Views/Dev/DevViewFiles.cpp ../../src/Views/ViewCache.cpp"
 "view_cache_tests view_cache_tests.cpp ../../src/Views/ViewCache.cpp"
 "cursor_shape_tests cursor_shape_tests.cpp"
 "absolute_mouse_mapping_tests absolute_mouse_mapping_tests.cpp"

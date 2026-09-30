@@ -1,5 +1,6 @@
 #include "Views/Dev/DevViewFiles.h"
 #include "Core/Utf8Path.h"
+#include "Views/ViewCache.h"
 
 #include <algorithm>
 #include <vector>
@@ -12,19 +13,6 @@ namespace OSFUI::DevViewFiles
 {
 	namespace
 	{
-		struct FileStamp
-		{
-			std::string    relative;
-			std::uintmax_t size{ 0 };
-			std::uint64_t  writeTime{ 0 };
-		};
-
-		std::uint64_t Mix(std::uint64_t a_hash, std::uint64_t a_value)
-		{
-			constexpr std::uint64_t kPrime = 1099511628211ull;
-			return (a_hash ^ a_value) * kPrime;
-		}
-
 		bool Fail(std::string& a_error, const std::filesystem::path& a_path, const std::error_code& a_ec)
 		{
 			a_error = Utf8Path(a_path.filename()) + ": " + a_ec.message();
@@ -45,58 +33,15 @@ namespace OSFUI::DevViewFiles
 		}
 	}  // namespace
 
-	std::string ModFolder(std::string_view a_viewId)
-	{
-		const auto slash = a_viewId.find('/');
-		return std::string(slash == std::string_view::npos ? a_viewId : a_viewId.substr(0, slash));
-	}
-
 	std::optional<std::uint64_t> Fingerprint(const std::filesystem::path& a_viewDir)
 	{
-		std::error_code ec;
-		if (!std::filesystem::is_directory(a_viewDir, ec) || ec) {
-			return std::nullopt;
-		}
-
-		std::vector<FileStamp> files;
-		for (std::filesystem::recursive_directory_iterator
-				 it(a_viewDir, std::filesystem::directory_options::skip_permission_denied, ec),
-			end;
-			!ec && it != end; it.increment(ec)) {
-			if (!it->is_regular_file(ec)) {
-				if (ec)
-					break;
-				continue;
-			}
-			const auto relative = Utf8Path(it->path().lexically_relative(a_viewDir));
-			// Exclude manifests at every depth because their discovery is restart-only.
-			if (it->path().filename() == "manifest.json")
-				continue;
-			const auto size = it->file_size(ec);
-			if (ec)
-				break;
-			const auto writeTime = it->last_write_time(ec);
-			if (ec)
-				break;
-			files.push_back({
-				.relative = relative,
-				.size = size,
-				.writeTime = static_cast<std::uint64_t>(writeTime.time_since_epoch().count()),
-			});
-		}
-		if (ec)
-			return std::nullopt;
-
-		std::ranges::sort(files, {}, &FileStamp::relative);
-		std::uint64_t hash = 1469598103934665603ull;
-		for (const auto& file : files) {
-			for (const unsigned char ch : file.relative)
-				hash = Mix(hash, ch);
-			hash = Mix(hash, 0);
-			hash = Mix(hash, file.size);
-			hash = Mix(hash, file.writeTime);
-		}
-		return hash;
+		// Same walk the views cache uses; manifests are excluded at every depth because their discovery is restart-only.
+		std::string error;
+		const auto fingerprint = ViewCache::FingerprintTree(a_viewDir, {}, error, [](const std::filesystem::path& a_file) {
+			return a_file.filename() == "manifest.json";
+		});
+		if (!fingerprint) return std::nullopt;
+		return fingerprint->value;
 	}
 
 	bool SyncTree(const std::filesystem::path& a_source, const std::filesystem::path& a_destination, std::string& a_error)

@@ -116,6 +116,9 @@ int main()
 		CHECK(!OSFUI::Ids::IsValidModId(invalidMod));
 	}
 	CHECK(OSFUI::Ids::IsAcceptedModId("osfui"));
+	CHECK(OSFUI::Ids::ModOf("acme.widgets/panel") == "acme.widgets");
+	CHECK(OSFUI::Ids::ModOf("osfui/settings/nested") == "osfui");
+	CHECK(OSFUI::Ids::ModOf("acme.widgets") == "acme.widgets");
 	CHECK(!OSFUI::Ids::IsValidQualifiedViewId("osfui/settings"));
 	CHECK(!OSFUI::Ids::IsValidQualifiedViewId("osfui/keybinds"));
 

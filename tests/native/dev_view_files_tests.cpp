@@ -52,10 +52,6 @@ int main()
 	fs::last_write_time(first / "a.js", fixedTime + std::chrono::seconds(1));
 	assert(OSFUI::DevViewFiles::Fingerprint(first) != beforeManifest);
 
-	assert(OSFUI::DevViewFiles::ModFolder("acme.widgets/panel") == "acme.widgets");
-	assert(OSFUI::DevViewFiles::ModFolder("osfui/settings/nested") == "osfui");
-	assert(OSFUI::DevViewFiles::ModFolder("acme.widgets") == "acme.widgets");
-
 	const auto mod = root / "acme.widgets";
 	Write(mod / "panel" / "index.html", "<script src=\"../assets/index-aaa.js\">");
 	Write(mod / "assets" / "index-aaa.js", "old");
