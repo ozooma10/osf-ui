@@ -53,7 +53,7 @@ int main()
         CHECK(!opens.PendingMenu());
         CHECK(!opens.TakeReadyMenu("mod/menu", request));
         CHECK(!opens.TakeMenu());
-        presentation.CloseAll();
+        presentation.CloseActiveMenu();
     }
 
     // Runtime cleanup may discard any preparation stage, including an accepted
@@ -112,9 +112,6 @@ int main()
     opens.QueueHud("mod/removed");
     CHECK(ready().empty());
     CHECK(!opens.Contains("mod/removed"));
-    opens.QueueHud("mod/hud");
-    opens.ClearHuds();
-    CHECK(ready().empty());
 
     std::printf("view_open_coordinator_tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

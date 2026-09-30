@@ -51,13 +51,13 @@ int main()
 	// ---- every message stamps its own type, and the types are distinct.
 	{
 		Check(msg::ToJson(msg::Init{}).at("type") == "init", "init stamps type");
-		Check(msg::ToJson(msg::Shutdown{}).at("type") == "shutdown", "fieldless message stamps type");
+		Check(msg::ToJson(msg::Heartbeat{}).at("type") == "heartbeat", "fieldless message stamps type");
 		Check(msg::SetInputTarget::kType == "setInputTarget", "input target has its own message type");
 		Check(msg::PointerInput::kType == "pointerInput",
 			"pointer-transition state has a stable wire spelling");
 		Check(msg::Viewport::kType == "viewport",
 			"content viewport state has a stable wire spelling");
-		Check(msg::Shutdown::kType != msg::DestroyView::kType, "distinct types");
+		Check(msg::Heartbeat::kType != msg::DestroyView::kType, "distinct types");
 	}
 
 	// ---- round-trip fidelity across every field kind: u64, u32, i32, bool, string.
@@ -213,7 +213,6 @@ int main()
 	{
 		const auto got = RoundTrip(msg::Hello{
 			.protocolVersion = osfui::wv2::kBrowserHostProtocolVersion,
-			.hostVersion = "2.0.0",
 			.runtimeVersion = "120.0.0.0",
 			.pid = 4242 });
 		Check(got.protocolVersion == osfui::wv2::kBrowserHostProtocolVersion, "hello carries the protocol version");

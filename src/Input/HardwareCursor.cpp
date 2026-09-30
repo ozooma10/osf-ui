@@ -38,7 +38,7 @@ namespace OSFUI::HardwareCursor
 			case CursorShape::kSizeNESW:   id = IDC_SIZENESW; break;
 			case CursorShape::kSizeNWSE:   id = IDC_SIZENWSE; break;
 			case CursorShape::kSizeAll:    id = IDC_SIZEALL; break;
-			default:                       break;  // kArrow (kNone never reaches here)
+			default:                       break;  // kArrow
 			}
 			// Shared system handle: not destroyed, cheap to look up.
 			return ::LoadCursorA(nullptr, id);
@@ -105,6 +105,11 @@ namespace OSFUI::HardwareCursor
 		REX::DEBUG("HardwareCursor: deactivated (visibility + clip returned to the game)");
 	}
 
+	bool IsActive()
+	{
+		return g_active;
+	}
+
 	void Reassert(void* a_hwnd)
 	{
 		if (!g_active) {
@@ -127,9 +132,7 @@ namespace OSFUI::HardwareCursor
 
 	void ApplyShape()
 	{
-		const auto shape = g_shape.load(std::memory_order_relaxed);
-		// A null cursor implements CSS cursor:none without changing the show counter.
-		::SetCursor(shape == CursorShape::kNone ? nullptr : SystemCursor(shape));
+		::SetCursor(SystemCursor(g_shape.load(std::memory_order_relaxed)));
 	}
 
 	void SetShape(CursorShape a_shape)

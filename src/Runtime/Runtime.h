@@ -78,7 +78,7 @@ namespace OSFUI
 		bool InitializeWebRuntime();
 		bool InitializeRenderer();
 		void WireRendererLifecycleCallbacks();
-		bool InitializeCompositor();
+		void InitializeCompositor();
 		void InitializeBridge();
 		void InitializeStartupViews();
 
@@ -162,7 +162,6 @@ namespace OSFUI
 
 		// Startup and frame lifecycle.
 		bool m_initialized{ false };
-		bool m_webRuntimeReady{ false };
 		bool m_developerMode{ false };       // startup-latched; changes apply next launch
 		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
 		double m_nowSeconds{ 0.0 };

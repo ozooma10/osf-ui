@@ -24,7 +24,6 @@ namespace OSFUI::UiPass
 		using ExecuteHook = REL::THookVFT<void*(void*, void*, void*, void*)>;
 
 		std::optional<ExecuteHook> g_endHook;
-		bool g_installed = false;
 
 		std::atomic_bool g_directTargetRejectedLogged{ false };
 
@@ -83,13 +82,15 @@ namespace OSFUI::UiPass
 
 	bool Install()
 	{
-		if (g_installed) {
+		if (g_endHook) {
 			return true;
 		}
 
 		g_endHook.emplace("UiPass::ScaleformEnd", RE::VTABLE::CreationRendererPrivate____ScaleformEndRenderPass[0], kExecuteSlot, &EndThunk);
-		g_endHook->Enable();
-		g_installed = true;
+		if (!g_endHook->Enable()) {
+			g_endHook.reset();
+			return false;
+		}
 		return true;
 	}
 }

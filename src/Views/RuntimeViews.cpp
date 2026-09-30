@@ -4,9 +4,7 @@
 #include <vector>
 
 #include "API/BridgeApi.h"
-#include "Core/Ids.h"
 #include "Core/Log.h"
-#include "Core/Version.h"
 #include "Views/Dev/DevViewFiles.h"
 
 namespace OSFUI

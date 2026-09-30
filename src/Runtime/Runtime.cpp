@@ -1,19 +1,13 @@
 #include "Runtime/Runtime.h"
 
-#include <limits>
-
 #include "API/BridgeApi.h"
 #include "Compat/V1/LegacyBridge.h"
 #include "Compat/V1/LegacyViews.h"
 #include "API/PapyrusApi.h"
 #include "Core/Log.h"
-#include "Core/Version.h"
-#include "Input/FreeCursor.h"
 #include "Input/HardwareCursor.h"
 #include "Input/MenuEventSink.h"
-#include "Input/SimPause.h"
 #include "Core/Paths.h"
-#include "Core/Ids.h"
 #include "Render/WebView2HostWebRenderer.h"
 #include "Render/SharedFrameConsumer.h"
 
@@ -81,15 +75,9 @@ namespace OSFUI
 		});
 	}
 
-	bool Runtime::InitializeCompositor()
+	void Runtime::InitializeCompositor()
 	{
-		auto compositor = std::make_unique<D3D12Compositor>();
-		if (!compositor->Initialize(m_renderer->Frames())) {
-			REX::ERROR("Runtime: D3D12 compositor failed to initialize");
-			return false;
-		}
-		m_compositor = std::move(compositor);
-		return true;
+		m_compositor = std::make_unique<D3D12Compositor>(m_renderer->Frames());
 	}
 
 	void Runtime::InitializeBridge()
@@ -132,9 +120,7 @@ namespace OSFUI
 		}
 		m_browserHostRecovery.Reset();
 
-		if (!Paths::Initialize()) {
-			return false;
-		}
+		Paths::Initialize();
 		LoadStartupContent();
 		InitializeBridge();
 
@@ -169,10 +155,7 @@ namespace OSFUI
 			return false;
 		}
 		WireRendererLifecycleCallbacks();
-		if (!InitializeCompositor()) {
-			m_osfSettings.ReportFailure("startup.compositor", "webview.compositor-init", "D3D12 compositor failed to initialize");
-			return false;
-		}
+		InitializeCompositor();
 		m_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
 			if (m_bridge) m_bridge->HandleWebMessage(a_viewId, a_json);
 		});
@@ -186,9 +169,6 @@ namespace OSFUI
 			UpdateDevViewReloadMods();
 		}
 		m_osfSettings.ClearFailure("startup.renderer");
-		m_osfSettings.ClearFailure("startup.compositor");
-		m_osfSettings.ClearFailure("startup.draw-path");
-		m_webRuntimeReady = true;
 		REX::INFO("Runtime: web runtime prepared without launching the browser host");
 		return true;
 	}
@@ -279,16 +259,9 @@ namespace OSFUI
 					// Both keyboard Escape and controller Back take this path.
 					CommitPresentation();
 					if (m_renderer && m_presentation.ActiveMenu() == active) m_renderer->RequestBack(*active);
-				} else {
-					m_presentation.CloseActiveMenu();
 				}
 				break;
 			}
-			case ViewPresentationRequest::CloseAll:
-				FailPendingOpen("The interface was closed.");
-				m_viewOpens.ClearHuds();
-				m_presentation.CloseAll();
-				break;
 			}
 		}
 	}
@@ -325,7 +298,7 @@ namespace OSFUI
 		a_id = manifest->id;
 		if (a_requestId && (manifest->kind != ViewKind::Menu || m_presentation.Suspended())) return false;
 		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return false;
-		if (!m_webRuntimeReady) {
+		if (!m_compositor) {
 			REX::WARN("Runtime: cannot open '{}' — web runtime preparation failed", a_id);
 			return false;
 		}

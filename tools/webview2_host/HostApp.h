@@ -2,13 +2,8 @@
 
 
 #include <cstdint>
-#include <deque>
 #include <filesystem>
-#include <mutex>
 #include <string>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #	define WIN32_LEAN_AND_MEAN
@@ -20,8 +15,6 @@
 
 namespace osfui::wv2
 {
-	class Pipe;
-
 	struct HostOptions
 	{
 		std::wstring          pipeName;

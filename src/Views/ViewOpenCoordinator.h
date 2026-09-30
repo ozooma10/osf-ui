@@ -40,7 +40,6 @@ namespace OSFUI
 		std::vector<std::string> TakeReady(const std::function<Readiness(std::string_view)>& a_readiness);
 
 		bool CancelHud(std::string_view a_view);
-		void ClearHuds();
 
 	private:
 		std::optional<MenuOpen> m_menu;

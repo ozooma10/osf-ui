@@ -87,14 +87,6 @@ namespace OSFUI
 		return true;
 	}
 
-	void ViewPresentationController::CloseAll()
-	{
-		// Clear menus and HUDs so transitions cannot leave the overlay visible.
-		m_changed = m_changed || m_activeMenu.has_value() || !m_hudShown.empty();
-		m_activeMenu.reset();
-		m_hudShown.clear();
-	}
-
 	bool ViewPresentationController::SetSuspended(bool a_suspended)
 	{
 		if (m_suspended == a_suspended) return false;

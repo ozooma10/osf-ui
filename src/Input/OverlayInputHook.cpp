@@ -25,9 +25,7 @@ namespace OSFUI::OverlayInputHook
 		std::atomic<WNDPROC> g_gameProc{ nullptr };
 		HWND    g_hwnd{ nullptr };
 
-		// Window-thread cursor state observes capture edges published by Runtime.
 		bool g_chainCycleLogged{ false };
-		bool g_hwCursorActive{ false };
 		// Absolute raw-input devices report a normalized position rather than a
 		// movement delta. Keep the last client position so relative-pointer owners
 		// still receive motion on touchpads, virtual mice, and remapped devices.
@@ -201,8 +199,7 @@ namespace OSFUI::OverlayInputHook
 					}
 				}
 			}
-			if (wantHwCursor != g_hwCursorActive) {
-				g_hwCursorActive = wantHwCursor;
+			if (wantHwCursor != HardwareCursor::IsActive()) {
 				g_hasLastAbsoluteClient = false;
 				if (wantHwCursor) {
 					HardwareCursor::Activate(a_hwnd);
@@ -233,7 +230,6 @@ namespace OSFUI::OverlayInputHook
 				g_textInput.Reset();
 				g_imeComposing = false;
 				HardwareCursor::Deactivate();
-				g_hwCursorActive = false;
 				break;
 			case WM_KEYDOWN:
 			case WM_SYSKEYDOWN:
@@ -332,7 +328,7 @@ namespace OSFUI::OverlayInputHook
 				break;
 			case WM_SETCURSOR:
 				// Apply the page cursor and prevent engine reset if legacy WM_SETCURSOR arrives.
-				if (g_hwCursorActive) {
+				if (HardwareCursor::IsActive()) {
 					HardwareCursor::ApplyShape();
 					return TRUE;
 				}

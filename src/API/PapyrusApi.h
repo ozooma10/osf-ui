@@ -60,8 +60,8 @@ namespace OSFUI::API::Papyrus
 		std::string      name;
 	};
 
-	// A local name is resolved against a_sourceModId first; otherwise the bounded registry is matched against each exact "modId.name" qualified endpoint.
-	[[nodiscard]] ViewEndpoint ResolveViewEndpoint(std::string_view a_sourceModId, std::string_view a_name);
+	// Matches the bounded registry against each exact "modId.name" qualified endpoint.
+	[[nodiscard]] ViewEndpoint ResolveViewEndpoint(std::string_view a_name);
 
 	bool OnViewSend(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId);
 	// a_deferToken is MessageBridge::Defer()'s token; the script receives it as its reply token.

@@ -515,19 +515,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		}
 	};
 
-	D3D12Compositor::D3D12Compositor() = default;
-	D3D12Compositor::~D3D12Compositor() = default;
-
-	bool D3D12Compositor::Initialize(std::shared_ptr<SharedFrameConsumer> a_frames)
+	D3D12Compositor::D3D12Compositor(std::shared_ptr<SharedFrameConsumer> a_frames) :
+		m_impl(std::make_unique<Impl>())
 	{
-		m_impl = std::make_unique<Impl>();
 		m_impl->frames = std::move(a_frames);
-		return true;
 	}
+	D3D12Compositor::~D3D12Compositor() = default;
 
 	void D3D12Compositor::Update()
 	{
-		if (!m_impl) return;
 		m_impl->PollCompletions();
 		if (!m_impl->frames->HasPendingRing()) return;
 		m_impl->EnsureSetup();
@@ -542,14 +538,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 	void D3D12Compositor::SetVisible(bool a_visible)
 	{
-		if (m_impl) {
-			m_impl->frames->SetVisible(a_visible);
-		}
+		m_impl->frames->SetVisible(a_visible);
 	}
 
 	bool D3D12Compositor::PreparedFrameReady(std::uint32_t a_width, std::uint32_t a_height) const
 	{
-		if (!m_impl || !m_impl->setupOk) return false;
+		if (!m_impl->setupOk) return false;
 		std::scoped_lock lock(m_impl->sharedRing.drawMutex);
 		const auto& ring = m_impl->sharedRing;
 		if (!ring.produceFence) return false;

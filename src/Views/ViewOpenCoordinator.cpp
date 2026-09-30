@@ -57,9 +57,4 @@ namespace OSFUI
 	{
 		return m_huds.erase(std::string(a_view)) != 0;
 	}
-
-	void ViewOpenCoordinator::ClearHuds()
-	{
-		m_huds.clear();
-	}
 }

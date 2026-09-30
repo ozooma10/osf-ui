@@ -271,7 +271,7 @@ namespace OSFUI
 		});
 		a_bridge.SetEndpointFallback(
 			[](std::string_view, std::string_view a_name) {
-				const auto endpoint = API::Papyrus::ResolveViewEndpoint({}, a_name);
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint(a_name);
 				switch (endpoint.kind) {
 				case API::Papyrus::ViewEndpointKind::kSend:
 					return MessageBridge::FallbackEndpointKind::kSend;
@@ -283,7 +283,7 @@ namespace OSFUI
 			},
 			[](std::string_view a_name, const nlohmann::json& a_payload, MessageBridge& a_b) {
 				const std::string source(a_b.CurrentSource());
-				const auto endpoint = API::Papyrus::ResolveViewEndpoint({}, a_name);
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint(a_name);
 				std::string error;
 				auto args = ParsePapyrusArgs(a_payload, error);
 				if (!args) {
@@ -296,7 +296,7 @@ namespace OSFUI
 			},
 			[](std::string_view a_name, const nlohmann::json& a_payload, MessageBridge& a_b) {
 				const std::string source(a_b.CurrentSource());
-				const auto endpoint = API::Papyrus::ResolveViewEndpoint({}, a_name);
+				const auto endpoint = API::Papyrus::ResolveViewEndpoint(a_name);
 				std::string error;
 				auto args = ParsePapyrusArgs(a_payload, error);
 				if (!args) {

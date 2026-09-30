@@ -16,7 +16,6 @@ namespace OSFUI
 		kSizeNESW,
 		kSizeNWSE,
 		kSizeAll,
-		kNone,
 	};
 
 	[[nodiscard]] constexpr CursorShape CursorShapeFromSystemCursorId(std::uint32_t a_id) noexcept

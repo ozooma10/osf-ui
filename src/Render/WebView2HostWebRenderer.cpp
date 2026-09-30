@@ -16,7 +16,6 @@
 #include "Views/ViewCache.h"
 #include "Core/Json.h"
 #include "Input/BrowserKeyboard.h"
-#include "Input/OverlayInputHook.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
@@ -217,8 +216,7 @@ namespace OSFUI
 		HANDLE legacyViewsCacheLease{ INVALID_HANDLE_VALUE };
         // Serialize initial and dev-refresh writes to the real-path mirror.
         std::mutex            viewsMirrorMutex;
-        bool                  usesViewsMirror{ false };
-		bool                  removeViewsMirrorOnStop{ false };
+		bool                  usesDevViewsMirror{ false };  // mutable per-run tree, removed on Stop
 		HANDLE                viewsCacheLease{ INVALID_HANDLE_VALUE };
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
 		std::filesystem::path browserHostLog;  // set in Initialize; read by worker + notify drain
@@ -437,8 +435,7 @@ namespace OSFUI
 				::CloseHandle(legacyViewsCacheLease);
 				legacyViewsCacheLease = INVALID_HANDLE_VALUE;
 			}
-			usesViewsMirror = false;
-			removeViewsMirrorOnStop = false;
+			usesDevViewsMirror = false;
 			if (viewsCacheLease != INVALID_HANDLE_VALUE) {
 				::CloseHandle(viewsCacheLease);
 				viewsCacheLease = INVALID_HANDLE_VALUE;
@@ -499,8 +496,7 @@ namespace OSFUI
 					return false;
 				}
 				mappedViewsRoot = mirror;
-				usesViewsMirror = true;
-				removeViewsMirrorOnStop = true;
+				usesDevViewsMirror = true;
 				REX::INFO("WebView2HostWebRenderer: USVFS developer views mirrored to {}", ToUtf8(mirror.native()));
 				return true;
 			}
@@ -520,7 +516,6 @@ namespace OSFUI
 				return false;
 			}
 			mappedViewsRoot = prepared->generation;
-			usesViewsMirror = true;
 
 			const auto scavenged = ViewCache::Scavenge(cacheRoot, mappedViewsRoot,
 				[](const std::filesystem::path& a_generation) {
@@ -540,7 +535,7 @@ namespace OSFUI
 		{
 			if (!config.devMode) return true;
 			std::scoped_lock mirrorLock(viewsMirrorMutex);
-			if (!usesViewsMirror) return true;
+			if (!usesDevViewsMirror) return true;
 
 			// Mirror the whole mod folder because view entries load sibling hashed assets.
 			const auto modFolder = std::filesystem::path(a_mod);
@@ -1130,7 +1125,7 @@ namespace OSFUI
 					::CloseHandle(viewsCacheLease);
 					viewsCacheLease = INVALID_HANDLE_VALUE;
 				}
-				if (usesViewsMirror && removeViewsMirrorOnStop && mappedViewsRoot != viewsRoot) {
+				if (usesDevViewsMirror) {
 					std::error_code ec;
 					std::filesystem::remove_all(mappedViewsRoot, ec);
 					if (ec) {
@@ -1138,8 +1133,7 @@ namespace OSFUI
 								   "deferred to the OS ({})", ec.message());
 					}
 				}
-				usesViewsMirror = false;
-				removeViewsMirrorOnStop = false;
+				usesDevViewsMirror = false;
 			}
 		}
 		void ResetAfterFailure()
@@ -1436,7 +1430,7 @@ namespace OSFUI
 	void WebView2HostWebRenderer::InjectPhysicalMouseWheel(
 		int a_x, int a_y, int a_wheelDelta)
 	{
-		m_impl->Send(ToJson(msg::Mouse{ .kind = "physicalWheel", .x = a_x, .y = a_y,
+		m_impl->Send(ToJson(msg::Mouse{ .kind = "wheel", .x = a_x, .y = a_y,
 			.wheel = a_wheelDelta, .modifiers = HeldMouseModifiers() }));
 	}
 

@@ -8,14 +8,14 @@ int main()
 	OSFUI::ViewRequestQueue queue;
 	queue.EnqueueView("acme/first", true);
 	queue.EnqueueRelativePointer("acme/first", true);
-	queue.Enqueue(OSFUI::ViewPresentationRequest::CloseAll);
+	queue.Enqueue(OSFUI::ViewPresentationRequest::Back);
 	queue.EnqueueView("acme/second", true);
 	queue.EnqueueView("acme/second", false);
 	const auto batch = queue.Take();
 	CHECK(batch.size() == 5);
 	CHECK(std::get<OSFUI::ViewRequestQueue::ViewRequest>(batch[0]).view == "acme/first");
 	CHECK(std::get<OSFUI::ViewRequestQueue::RelativePointerRequest>(batch[1]).active);
-	CHECK(std::get<OSFUI::ViewPresentationRequest>(batch[2]) == OSFUI::ViewPresentationRequest::CloseAll);
+	CHECK(std::get<OSFUI::ViewPresentationRequest>(batch[2]) == OSFUI::ViewPresentationRequest::Back);
 	CHECK(std::get<OSFUI::ViewRequestQueue::ViewRequest>(batch[3]).view == "acme/second");
 	CHECK(!std::get<OSFUI::ViewRequestQueue::ViewRequest>(batch[4]).open);
 	CHECK(queue.Take().empty());

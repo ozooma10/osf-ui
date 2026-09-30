@@ -12,6 +12,8 @@ namespace OSFUI::HardwareCursor
 	// Undo only our ShowCursor raises and clip, then let the game restore its state.
 	void Deactivate();
 
+	[[nodiscard]] bool IsActive();
+
 	// Heal engine hide/clip changes on captured mouse messages.
 	void Reassert(void* a_hwnd);
 

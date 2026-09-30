@@ -907,7 +907,7 @@ namespace OSFUI::API::Papyrus
 			StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
 	}
 
-	ViewEndpoint ResolveViewEndpoint(std::string_view a_sourceModId, std::string_view a_name)
+	ViewEndpoint ResolveViewEndpoint(std::string_view a_name)
 	{
 		std::lock_guard l{ State().lock };
 		const auto make = [](const Entry& a_entry) {
@@ -917,12 +917,6 @@ namespace OSFUI::API::Papyrus
 				a_entry.key,
 			};
 		};
-		// The caller's own namespace always wins for a local name.
-		for (const auto& entry : State().entries) {
-			if (Ids::EqualsCaseInsensitiveAscii(entry.modId, a_sourceModId) && Ids::EqualsCaseInsensitiveAscii(entry.key, a_name)) {
-				return make(entry);
-			}
-		}
 		// Do not split at a dot: mod IDs and local endpoint names may both contain dots.
 		for (const auto& entry : State().entries) {
 			if (Ids::EqualsCaseInsensitiveAscii(entry.modId + "." + entry.key, a_name)) {

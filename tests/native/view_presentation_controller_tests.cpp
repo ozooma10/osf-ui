@@ -46,9 +46,9 @@ int main()
 		controller.Close("a/unknown");
 		controller.SetSuspended(false);
 		assert(!controller.TakeChanged());
-		controller.CloseAll();
+		controller.CloseActiveMenu();
 		assert(controller.TakeChanged());
-		controller.CloseAll();
+		controller.CloseActiveMenu();
 		assert(!controller.TakeChanged());
 		controller.RemoveInstantiated("a/menu");
 		assert(controller.TakeChanged());
@@ -126,7 +126,7 @@ int main()
 		assert(controller.DesiredVisible());
 	}
 
-	// Close() picks the right collection; CloseAll clears both.
+	// Close() picks the right collection.
 	{
 		ViewPresentationController controller;
 		controller.AddInstantiated(Hud("a/hud"));
@@ -136,9 +136,6 @@ int main()
 		assert(controller.Close("a/menu"));
 		assert(!controller.Close("a/menu"));  // already closed
 		assert(controller.Close("a/hud"));
-		assert(controller.Open("a/hud"));
-		assert(controller.Open("a/menu"));
-		controller.CloseAll();
 		assert(!controller.DesiredVisible());
 		assert(!controller.IsOpen("a/hud") && !controller.IsOpen("a/menu"));
 		assert(controller.IsInstantiated("a/hud") && controller.IsInstantiated("a/menu"));
@@ -180,7 +177,7 @@ int main()
 		assert(controller.SetSuspended(false));
 		assert(controller.DesiredVisible() && !controller.ActiveMenu());
 		controller.SetSuspended(true);
-		controller.CloseAll();
+		assert(controller.Close("a/hud"));
 		controller.SetSuspended(false);
 		assert(!controller.DesiredVisible()); // explicit close survives suspension
 	}

@@ -4,7 +4,6 @@
 #include <optional>
 
 #include "Input/CursorShape.h"
-#include "Render/SharedTextureTransport.h"
 #include "Views/ViewManifest.h"
 
 namespace osfui::wv2::msg { struct Keyboard; struct TextInput; }

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <optional>
-
 #include "Core/StringUtil.h"
 
 namespace OSFUI::Ids

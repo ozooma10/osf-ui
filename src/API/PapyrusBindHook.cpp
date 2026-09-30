@@ -29,14 +29,17 @@ namespace OSFUI::API::Papyrus
 		if (g_bindHook) {
 			return g_bindHook->GetEnabled();
 		}
-		const auto site = RE::ID::GameVM::Ctor.address() + kBindCallOffset;
 		g_bindHook.emplace("PapyrusApi::Bind", RE::ID::GameVM::Ctor, kBindCallOffset, &BindEverythingToScript);
 		if (!g_bindHook->Init()) {
 			REX::ERROR("PapyrusApi: bind hook could not be initialized");
 			g_bindHook.reset();
 			return false;
 		}
-		g_bindHook->Enable();
+		if (!g_bindHook->Enable()) {
+			REX::ERROR("PapyrusApi: bind hook could not be enabled");
+			g_bindHook.reset();
+			return false;
+		}
 		REX::INFO("PapyrusApi: natives will bind from GameVM's constructor");
 		return true;
 	}

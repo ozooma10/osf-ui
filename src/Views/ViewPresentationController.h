@@ -33,7 +33,6 @@ namespace OSFUI
 		bool CloseActiveMenu();                       // HUDs untouched
 		bool SetSuspended(bool a_suspended);          // retain HUD intent, close menus
 		bool Suspended() const { return m_suspended; }
-		void CloseAll();                              // close the menu and every shown HUD
 
 		// Runtime consumes changes at a presentation boundary. Idle ticks still
 		// reconcile engine input, but do not rebuild layers or resend view state.

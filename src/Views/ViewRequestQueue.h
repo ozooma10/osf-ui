@@ -10,8 +10,7 @@ namespace OSFUI
 {
     enum class ViewPresentationRequest
     {
-        Back,
-        CloseAll
+        Back
     };
 
     class ViewRequestQueue

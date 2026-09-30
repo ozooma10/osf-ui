@@ -1,7 +1,6 @@
 #pragma once
 
-#include "Render/SharedTextureTransport.h"
-
+#include <cstdint>
 #include <memory>
 
 struct ID3D12GraphicsCommandList;
@@ -16,10 +15,9 @@ namespace OSFUI
 	class D3D12Compositor final
 	{
 	public:
-		D3D12Compositor();
+		explicit D3D12Compositor(std::shared_ptr<SharedFrameConsumer> a_frames);
 		~D3D12Compositor();
 
-		bool Initialize(std::shared_ptr<SharedFrameConsumer> a_frames);
 		void Update();
 		void SetVisible(bool a_visible);
 		bool PreparedFrameReady(std::uint32_t a_width, std::uint32_t a_height) const;

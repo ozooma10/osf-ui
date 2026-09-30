@@ -2,7 +2,6 @@
 #include "EmbeddedScripts.h"
 #include "FormControls.h"
 
-#include "Core/Version.h"
 #include "Core/Ids.h"
 #include "Core/Json.h"
 #include "Views/ViewCache.h"
@@ -19,11 +18,16 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <format>
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <DispatcherQueue.h>
@@ -357,13 +361,6 @@ namespace osfui::wv2
 					}
 					json&      parsed = *message;
 					const auto type = Json::Get(parsed, "type", "");
-					if (type == "shutdown") {
-						quit.store(true, std::memory_order_release);
-						log.Info("shutdown request received from the game");
-						::SetEvent(wakeEvent);
-						break;
-					}
-
 					const auto coalesceKey = GameMessageCoalesceKey(type,
 						Json::Get(parsed, "kind", ""),
 						Json::Get(parsed, "view", ""));
@@ -1482,7 +1479,6 @@ namespace osfui::wv2
 					!inputTarget->domSeen || !inputTarget->compositionController) return;
 				const auto mouse = msg::FromJson<msg::Mouse>(a_msg);
 				const std::string& kind = mouse.kind;
-				const bool physicalWheel = kind == "physicalWheel";
 				int x = mouse.x;
 				int y = mouse.y;
 				if (kind == "move") {
@@ -1495,7 +1491,7 @@ namespace osfui::wv2
 				bool buttonDown = false;
 				if (kind == "move") {
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
-				} else if (kind == "wheel" || physicalWheel) {
+				} else if (kind == "wheel") {
 					eventKind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL;
 					data = static_cast<UINT32>(mouse.wheel);
 				} else {
@@ -1581,7 +1577,7 @@ namespace osfui::wv2
 			{
 				const auto now = ::GetTickCount64();
 				if (nextHeartbeatAt != 0 && now < nextHeartbeatAt) return true;
-				if (!Send(msg::ToJson(msg::Heartbeat{ .tick = now }))) {
+				if (!Send(msg::ToJson(msg::Heartbeat{}))) {
 					quit.store(true, std::memory_order_release);
 					return false;
 				}
@@ -1757,7 +1753,6 @@ namespace osfui::wv2
 		}
 		if (!app.Send(osfui::wv2::msg::ToJson(osfui::wv2::msg::Hello{
 				.protocolVersion = kBrowserHostProtocolVersion,
-				.hostVersion = OSFUI::kOsfuiReleaseVersion,
 				.runtimeVersion = webView2RuntimeVersion,
 				.pid = ::GetCurrentProcessId(),
 			}))) {
