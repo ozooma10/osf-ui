@@ -3,7 +3,6 @@
 #include "Wv2Protocol.h"
 
 #include <algorithm>
-#include <cstring>
 #include <utility>
 
 #include <sddl.h>
@@ -91,8 +90,13 @@ namespace osfui::wv2
 
 	void Pipe::SetError(const char* a_where, DWORD a_code)
 	{
+		SetErrorText(std::string(a_where) + " failed (" + std::to_string(a_code) + ")");
+	}
+
+	void Pipe::SetErrorText(std::string a_text)
+	{
 		std::scoped_lock lock(m_errorMutex);
-		m_lastError = std::string(a_where) + " failed (" + std::to_string(a_code) + ")";
+		m_lastError = std::move(a_text);
 	}
 
 	bool Pipe::IsCreated() const
@@ -107,36 +111,30 @@ namespace osfui::wv2
 		return !m_closing && m_connected;
 	}
 
-	std::optional<std::uint32_t> Pipe::ClientProcessId()
+	std::optional<std::uint32_t> Pipe::PeerProcessId(BOOL(WINAPI* a_query)(HANDLE, PULONG), const char* a_what)
 	{
-		DWORD pid = 0;
+		ULONG pid = 0;
 		DWORD error = ERROR_SUCCESS;
 		{
 			std::scoped_lock lock(m_stateMutex);
 			if (m_closing || !m_connected) return std::nullopt;
-			if (!::GetNamedPipeClientProcessId(m_pipe, &pid)) error = ::GetLastError();
+			if (!a_query(m_pipe, &pid)) error = ::GetLastError();
 		}
 		if (error != ERROR_SUCCESS) {
-			SetError("GetNamedPipeClientProcessId", error);
+			SetError(a_what, error);
 			return std::nullopt;
 		}
 		return pid;
 	}
 
+	std::optional<std::uint32_t> Pipe::ClientProcessId()
+	{
+		return PeerProcessId(&::GetNamedPipeClientProcessId, "GetNamedPipeClientProcessId");
+	}
+
 	std::optional<std::uint32_t> Pipe::ServerProcessId()
 	{
-		DWORD pid = 0;
-		DWORD error = ERROR_SUCCESS;
-		{
-			std::scoped_lock lock(m_stateMutex);
-			if (m_closing || !m_connected) return std::nullopt;
-			if (!::GetNamedPipeServerProcessId(m_pipe, &pid)) error = ::GetLastError();
-		}
-		if (error != ERROR_SUCCESS) {
-			SetError("GetNamedPipeServerProcessId", error);
-			return std::nullopt;
-		}
-		return pid;
+		return PeerProcessId(&::GetNamedPipeServerProcessId, "GetNamedPipeServerProcessId");
 	}
 
 	bool Pipe::IsClosing() const
@@ -151,23 +149,38 @@ namespace osfui::wv2
 		return m_lastError;
 	}
 
-	bool Pipe::PublishOpenHandles(HANDLE a_pipe, HANDLE a_readEvent,
-		HANDLE a_writeEvent, bool a_connected)
+	bool Pipe::PublishPipe(HANDLE a_pipe, bool a_connected)
 	{
-		{
+		const HANDLE readEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+		const HANDLE writeEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+		if (readEvent && writeEvent) {
 			std::scoped_lock lock(m_stateMutex);
 			if (!m_closing) {
 				m_pipe = a_pipe;
-				m_readEvent = a_readEvent;
-				m_writeEvent = a_writeEvent;
+				m_readEvent = readEvent;
+				m_writeEvent = writeEvent;
 				m_connected = a_connected;
 				return true;
 			}
+		} else {
+			SetError("CreateEvent", ::GetLastError());
 		}
-		::CloseHandle(a_readEvent);
-		::CloseHandle(a_writeEvent);
+		if (readEvent) ::CloseHandle(readEvent);
+		if (writeEvent) ::CloseHandle(writeEvent);
 		::CloseHandle(a_pipe);
 		return false;
+	}
+
+	DWORD Pipe::WaitOverlapped(HANDLE a_pipe, OVERLAPPED& a_ov, DWORD a_waitMs)
+	{
+		const auto wait = ::WaitForSingleObject(a_ov.hEvent, a_waitMs);
+		if (wait == WAIT_OBJECT_0) return ERROR_SUCCESS;
+		const DWORD error = wait == WAIT_TIMEOUT ? WAIT_TIMEOUT :
+			wait == WAIT_FAILED ? ::GetLastError() : ERROR_GEN_FAILURE;
+		::CancelIoEx(a_pipe, &a_ov);
+		DWORD ignored = 0;
+		::GetOverlappedResult(a_pipe, &a_ov, &ignored, TRUE);
+		return error;
 	}
 
 	bool Pipe::CreateServer(const std::wstring& a_name)
@@ -199,17 +212,7 @@ namespace osfui::wv2
 			return fail();
 		}
 
-		const HANDLE readEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-		const HANDLE writeEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-		if (!readEvent || !writeEvent) {
-			SetError("CreateEvent", ::GetLastError());
-			if (readEvent) ::CloseHandle(readEvent);
-			if (writeEvent) ::CloseHandle(writeEvent);
-			::CloseHandle(pipe);
-			return fail();
-		}
-
-		if (!PublishOpenHandles(pipe, readEvent, writeEvent, false)) return fail();
+		if (!PublishPipe(pipe, false)) return fail();
 		return true;
 	}
 
@@ -251,13 +254,7 @@ namespace osfui::wv2
 			return fail();
 		}
 		if (pending) {
-			const auto wait = ::WaitForSingleObject(ov.hEvent, a_timeoutMs);
-			if (wait != WAIT_OBJECT_0) {
-				const DWORD waitError = wait == WAIT_TIMEOUT ? WAIT_TIMEOUT :
-					wait == WAIT_FAILED ? ::GetLastError() : ERROR_GEN_FAILURE;
-				::CancelIoEx(pipe, &ov);
-				DWORD ignored = 0;
-				::GetOverlappedResult(pipe, &ov, &ignored, TRUE);
+			if (const auto waitError = WaitOverlapped(pipe, ov, a_timeoutMs); waitError != ERROR_SUCCESS) {
 				if (!IsClosing()) SetError("ConnectNamedPipe wait", waitError);
 				return fail();
 			}
@@ -315,17 +312,7 @@ namespace osfui::wv2
 			::Sleep(50);
 		}
 
-		const HANDLE readEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-		const HANDLE writeEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-		if (!readEvent || !writeEvent) {
-			SetError("CreateEvent", ::GetLastError());
-			if (readEvent) ::CloseHandle(readEvent);
-			if (writeEvent) ::CloseHandle(writeEvent);
-			::CloseHandle(pipe);
-			return fail();
-		}
-
-		if (!PublishOpenHandles(pipe, readEvent, writeEvent, true)) return fail();
+		if (!PublishPipe(pipe, true)) return fail();
 		return true;
 	}
 
@@ -364,13 +351,7 @@ namespace osfui::wv2
 				return false;
 			}
 			if (error == ERROR_IO_PENDING) {
-				const auto wait = ::WaitForSingleObject(ov.hEvent, waitMs);
-				if (wait != WAIT_OBJECT_0) {
-					const DWORD waitError = wait == WAIT_TIMEOUT ? WAIT_TIMEOUT :
-						wait == WAIT_FAILED ? ::GetLastError() : ERROR_GEN_FAILURE;
-					::CancelIoEx(pipe, &ov);
-					DWORD ignored = 0;
-					::GetOverlappedResult(pipe, &ov, &ignored, TRUE);
+				if (const auto waitError = WaitOverlapped(pipe, ov, waitMs); waitError != ERROR_SUCCESS) {
 					if (!IsClosing()) SetError("ReadFile wait", waitError);
 					return false;
 				}
@@ -401,7 +382,7 @@ namespace osfui::wv2
 		const std::uint32_t length = header[0] | (header[1] << 8) |
 			(header[2] << 16) | (static_cast<std::uint32_t>(header[3]) << 24);
 		if (length == 0 || length > kMaxMessageBytes) {
-			SetError("frame length", length);
+			SetErrorText("invalid frame length " + std::to_string(length));
 			return false;
 		}
 		a_payload.resize(length);
@@ -412,23 +393,30 @@ namespace osfui::wv2
 	Pipe::WriteResult Pipe::WriteMessage(const std::string& a_payload)
 	{
 		if (a_payload.empty() || a_payload.size() > kMaxMessageBytes) {
-			SetError("payload size", static_cast<DWORD>(a_payload.size()));
+			SetErrorText("invalid payload size " + std::to_string(a_payload.size()));
 			return WriteResult::InvalidPayload;
 		}
 		if (!BeginCall(CallKind::Write)) return WriteResult::Disconnected;
 		CallGuard call(*this, CallKind::Write);
 
 		const auto length = static_cast<std::uint32_t>(a_payload.size());
-		std::vector<std::uint8_t> buffer(4 + a_payload.size());
-		buffer[0] = static_cast<std::uint8_t>(length & 0xFF);
-		buffer[1] = static_cast<std::uint8_t>((length >> 8) & 0xFF);
-		buffer[2] = static_cast<std::uint8_t>((length >> 16) & 0xFF);
-		buffer[3] = static_cast<std::uint8_t>((length >> 24) & 0xFF);
-		std::memcpy(buffer.data() + 4, a_payload.data(), a_payload.size());
-
+		const std::uint8_t header[4]{
+			static_cast<std::uint8_t>(length & 0xFF),
+			static_cast<std::uint8_t>((length >> 8) & 0xFF),
+			static_cast<std::uint8_t>((length >> 16) & 0xFF),
+			static_cast<std::uint8_t>((length >> 24) & 0xFF),
+		};
+		// The write lock keeps header and payload contiguous in the byte stream.
 		std::scoped_lock writeLock(m_writeMutex);
+		const auto result = WriteAll(header, sizeof(header));
+		if (result != WriteResult::Written) return result;
+		return WriteAll(reinterpret_cast<const std::uint8_t*>(a_payload.data()), length);
+	}
+
+	Pipe::WriteResult Pipe::WriteAll(const std::uint8_t* a_data, std::uint32_t a_bytes)
+	{
 		std::uint32_t done = 0;
-		while (done < buffer.size()) {
+		while (done < a_bytes) {
 			OVERLAPPED ov{};
 			HANDLE pipe = INVALID_HANDLE_VALUE;
 			DWORD wrote = 0;
@@ -439,8 +427,7 @@ namespace osfui::wv2
 				pipe = m_pipe;
 				ov.hEvent = m_writeEvent;
 				::ResetEvent(m_writeEvent);
-				if (!::WriteFile(pipe, buffer.data() + done,
-						static_cast<DWORD>(buffer.size() - done), &wrote, &ov)) {
+				if (!::WriteFile(pipe, a_data + done, a_bytes - done, &wrote, &ov)) {
 					error = ::GetLastError();
 				}
 			}

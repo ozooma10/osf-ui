@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <string>
 #include <thread>
+#include <vector>
 #include "check.h"
 
 using osfui::wv2::Pipe;
@@ -157,6 +158,31 @@ int main()
 	payload.clear();
 	CHECK(server.ReadMessage(payload));
 	CHECK(payload == "reopened");
+
+	// Concurrent writers never split a header from its payload: every frame arrives whole.
+	{
+		constexpr int kWriters = 4;
+		constexpr int kPerWriter = 50;
+		std::atomic_int written{ 0 };
+		std::vector<std::thread> writers;
+		for (int w = 0; w < kWriters; ++w) {
+			writers.emplace_back([&, w] {
+				for (int i = 0; i < kPerWriter; ++i) {
+					const auto size = static_cast<std::size_t>((w * 7919 + i * 104729) % 200000 + 1);
+					if (client.WriteMessage(std::string(size, static_cast<char>('a' + w))) == Pipe::WriteResult::Written) ++written;
+				}
+			});
+		}
+		int intact = 0;
+		for (int n = 0; n < kWriters * kPerWriter; ++n) {
+			payload.clear();
+			if (!server.ReadMessage(payload, 5000)) break;
+			if (payload.find_first_not_of(payload.front()) == std::string::npos) ++intact;
+		}
+		for (auto& thread : writers) thread.join();
+		CHECK(written == kWriters * kPerWriter);
+		CHECK(intact == kWriters * kPerWriter);
+	}
 	server.Close();
 	client.Close();
 

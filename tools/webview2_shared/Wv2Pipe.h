@@ -57,9 +57,14 @@ namespace osfui::wv2
 		void CloseLocked();
 		[[nodiscard]] bool IsClosing() const;
 		bool ReadExact(std::uint8_t* a_buffer, std::uint32_t a_bytes, std::uint64_t a_deadline);
-		bool PublishOpenHandles(HANDLE a_pipe, HANDLE a_readEvent,
-			HANDLE a_writeEvent, bool a_connected);
+		WriteResult WriteAll(const std::uint8_t* a_data, std::uint32_t a_bytes);
+		// Waits for pending overlapped I/O; on timeout or failure cancels and drains it, then returns the error.
+		DWORD WaitOverlapped(HANDLE a_pipe, OVERLAPPED& a_ov, DWORD a_waitMs);
+		[[nodiscard]] std::optional<std::uint32_t> PeerProcessId(BOOL(WINAPI* a_query)(HANDLE, PULONG), const char* a_what);
+		// Creates the I/O events and publishes the pipe; closes the pipe on failure.
+		bool PublishPipe(HANDLE a_pipe, bool a_connected);
 		void SetError(const char* a_where, DWORD a_code);
+		void SetErrorText(std::string a_text);
 
 		HANDLE      m_pipe{ INVALID_HANDLE_VALUE };
 		HANDLE      m_readEvent{ nullptr };   // overlapped read (cancellable)
