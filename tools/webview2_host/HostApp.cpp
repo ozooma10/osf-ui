@@ -1654,16 +1654,6 @@ namespace osfui::wv2
 			::GetCurrentProcessId(), a_options.gamePid, ToUtf8(a_options.pipeName),
 			elevated ? "yes" : "no", ToUtf8(exePath.native())));
 
-		// Production permits exactly one browser host per game process.
-		const auto mutexName =
-			std::format(L"Local\\osfui-wv2-host-{}", a_options.gamePid);
-		const std::unique_ptr<void, decltype(&::CloseHandle)> instanceMutex(
-			::CreateMutexW(nullptr, TRUE, mutexName.c_str()), &::CloseHandle);
-		if (!instanceMutex || ::GetLastError() == ERROR_ALREADY_EXISTS) {
-			app.log.Error("another browser-host instance is already running for this game pid");
-			return 3;
-		}
-
 		app.pipe.PrepareForOpen();
 		if (!app.pipe.Connect(a_options.pipeName, 15000)) {
 			app.log.Error("pipe connect failed: " + app.pipe.LastErrorText());
