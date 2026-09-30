@@ -233,22 +233,16 @@ namespace OSFUI::OverlayInputHook
 				break;
 			case WM_KEYDOWN:
 			case WM_SYSKEYDOWN:
-			{
-				const auto vk = static_cast<std::uint32_t>(a_wparam);
-				const bool consume = runtime.OnGameWindowKeyboard(
-					BrowserKeyboardEvent(vk, true, a_msg == WM_SYSKEYDOWN, a_lparam));
-				if (g_keyOwnership.Consume(vk, true, consume)) {
-					return 0;
-				}
-				break;
-			}
 			case WM_KEYUP:
 			case WM_SYSKEYUP:
 			{
 				const auto vk = static_cast<std::uint32_t>(a_wparam);
-				const bool consume = runtime.OnGameWindowKeyboard(
-					BrowserKeyboardEvent(vk, false, a_msg == WM_SYSKEYUP, a_lparam));
-				if (g_keyOwnership.Consume(vk, false, consume)) {
+				const bool down = a_msg == WM_KEYDOWN || a_msg == WM_SYSKEYDOWN;
+				const bool system = a_msg == WM_SYSKEYDOWN || a_msg == WM_SYSKEYUP;
+				// Build the browser event only while captured; ownership still sees every key.
+				const bool consume = keyboardCaptured &&
+					runtime.OnGameWindowKeyboard(BrowserKeyboardEvent(vk, down, system, a_lparam));
+				if (g_keyOwnership.Consume(vk, down, consume)) {
 					return 0;
 				}
 				break;

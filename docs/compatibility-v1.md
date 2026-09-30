@@ -36,7 +36,7 @@ The legacy export signature, method order, callback signatures, payload layouts,
 and enum values stay frozen even when the adapter implementation changes. The
 new API evolves independently under the [2.0 API contract](api-contract.md).
 
-Legacy views are discovered only under `Data/SFSE/Plugins/OSFUI/views/<mod>/<view>/`. Modern view IDs win collisions. Old `hub: true` menus join the OSF Settings launcher; private views remain private. Under MO2, the legacy tree gets its own immutable, leased cache visible to the browser host. The DLL and host use protocol 2 and must be deployed together. Legacy assets require restart to refresh, including in developer mode.
+Legacy views are discovered only under `Data/SFSE/Plugins/OSFUI/views/<mod>/<view>/`. Modern view IDs win collisions. Old `hub: true` menus join the OSF Settings launcher; private views remain private. Under MO2, the legacy tree gets its own immutable, leased cache visible to the browser host. The DLL and browser host share a private protocol version and must be deployed together. Legacy assets require restart to refresh, including in developer mode.
 
 The old shared stylesheet and adapted JavaScript helper are shipped at the original `shared/` URLs. The helper preserves `ready`, `available()`, `send`/`emit`, `request`/`call`, event payloads, typed request replies, and gamepad messages over the new transport. `RegisterCommand` supports the baseline's fire-and-forget sends; the old command auto-ack/request-ID injection contract is outside this baseline. The old settings-browser endpoints, Papyrus settings APIs, automatic settings-to-web forwarding, localization catalogs, and later modular 1.x exports are not emulated.
 
@@ -44,7 +44,7 @@ The old shared stylesheet and adapted JavaScript helper are shipped at the origi
 
 ## Verification
 
-The focused native tests use the supplied schemas/manifests and cover translation, sparse values, unknown-field preservation, failed saves, ABI request layout, and modern-view precedence. Provider tests cover ownership, replacement, rollback, mouse bindings, shared blocks, and unsubscribe. The JavaScript test checks transport translation without launching a browser.
+The focused native tests use the supplied schemas/manifests and cover translation, sparse values, unknown-field preservation, failed saves, ABI request layout, and modern-view precedence. Provider tests cover ownership, replacement, rollback, mouse bindings, shared blocks, and unsubscribe. The JavaScript test checks transport translation without launching a browser. Run the native tests with `xmake test "osfui-compat-tests/*"` and the JavaScript test with `node --test tests/native/compat_web_tests.cjs` from the repository root.
 
 Fresh in-game acceptance remains required for each package: edit/reload/persist settings, check AEGIS's polling, exercise F8/F9 and mouse capture, open the two launcher views, request shop results, and launch Starcade from its existing scripts. Static tests and successful deployment do not establish those outcomes.
 

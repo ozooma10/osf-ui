@@ -40,13 +40,21 @@ xmake f -P . -m releasedbg
 xmake build
 ```
 
+Native unit tests need no game or SFSE. `tests/native/run.sh` runs the full suite with clang++ or g++, or falls back to MSVC through `vcvars64`; its exit code is the failure count. A subset, including the V1 compatibility tests, is also registered with XMake.
+
+```powershell
+bash tests/native/run.sh
+xmake test
+node --test tests/native/compat_web_tests.cjs
+```
+
 ## Release package
 
 ```powershell
 pwsh tools/package.ps1
 ```
 
-Writes `dist/OSF-UI-<version>.zip` with its checksum. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
+Writes `dist/OSF-UI-v<version>-<tag>.zip` (`-Tag` defaults to `rc`; pass `-Tag ""` for a final release) and prints its SHA-256. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
 
 ## License
 

@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # Native desktop unit tests: compiles the REAL runtime sources under test
 # against stubs/pch.h (std umbrella + REX log stub) and runs them on the
-# desktop toolchain — no Windows, SFSE, or game required. The native mirror of
-# devtools/harness. Requires a C++23 compiler; fetches the locked
-# nlohmann/json amalgamated headers on first run.
+# desktop toolchain — no SFSE or game required. Requires a C++23 compiler;
+# fetches the locked nlohmann/json amalgamated headers on first run.
 #
-# The shared runtime/api sources are listed by many suites (Json.cpp — which
-# drags in the ~25k-line nlohmann/json header — appears in ten of them), so the
-# build compiles each DISTINCT translation unit exactly once to an object and
-# only re-links per suite, and it fans those compiles across every core. That
-# turns ~51 serial TU compiles into ~26 parallel ones.
+# The shared runtime/api sources are listed by many suites (Json.cpp drags in
+# the ~25k-line nlohmann/json header), so the build compiles each DISTINCT
+# translation unit exactly once to an object, fans those compiles across every
+# core, and only re-links per suite.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -32,9 +30,8 @@ for header in json.hpp json_fwd.hpp; do
     fi
 done
 
-# Toolchain: CI and Unix developers use a GNU-driver compiler (CXX, default
-# clang++). On a Windows box with no clang/g++ on PATH, fall back to MSVC cl
-# through vcvars64 — the "MSVC dev shell" path AGENTS.md describes — with the
+# Toolchain: a GNU-driver compiler (CXX, default clang++). On a Windows box
+# with no clang/g++ on PATH, fall back to MSVC cl through vcvars64 with the
 # same suite list, force-included stubs, and exit-code protocol.
 MSVC=0
 if [[ -z "${CXX:-}" ]] && ! command -v clang++ >/dev/null 2>&1 && ! command -v g++ >/dev/null 2>&1; then

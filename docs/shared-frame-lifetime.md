@@ -38,7 +38,7 @@ consumer never calls back into them or writes to the pipe. Retirement and ack
 draining run on ticks even while hidden. Submission callbacks also collect
 completed reads while the tick thread is stalled.
 
-Private host protocol 17 uses `FrameAck` as the only permission to reuse a slot.
+The private host protocol uses `FrameAck` as the only permission to reuse a slot.
 Only the produce fence is shared. The host can publish into any acknowledged
 slot, keeping the ring at four slots. Exhaustion drops captures as normal
 backpressure. An explicit static-view republish uses another free slot when
