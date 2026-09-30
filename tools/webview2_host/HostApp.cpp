@@ -1659,7 +1659,6 @@ namespace osfui::wv2
 			app.log.Error("pipe connect failed: " + app.pipe.LastErrorText());
 			return 2;
 		}
-		app.log.Info(std::format("verified pipe server pid {}", *serverPid));
 
 		app.gameProcess = ::OpenProcess(
 			PROCESS_DUP_HANDLE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,

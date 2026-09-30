@@ -1,14 +1,16 @@
-// Optional launcher service. Copy this header; link nothing.
 #pragma once
-#include <cstdint>
-#include "REX/W32/KERNEL32.h"
+
+#include "OSFSettings.h"
 
 namespace OSFSettings::API::Launcher
 {
-    inline constexpr std::uint32_t kVersion = 0x00010000;
-    enum class Status : std::uint32_t { Ok, InvalidArgument, AlreadyRegistered, NotFound, InternalError };
+    inline constexpr std::uint32_t kVersion = 0x00010000u;
+    inline constexpr std::uint32_t kBaseVersion = 0x00010000u;
+    inline constexpr char kRequestExportName[] = "OSFSettings_RequestLauncherAPI";
+
     // Open starts a request while Settings remains visible and owns input. The same signature is used for the after-close callback supplied to Complete.
     using OpenFn = void (*)(const char* modId, const char* id, std::uint64_t requestId, void* context) noexcept;
+
     struct Destination
     {
         const char* modId{};
@@ -20,36 +22,64 @@ namespace OSFSettings::API::Launcher
         OpenFn open{};
         void* context{};
     };
+
     struct ILauncher
     {
         // Metadata is copied. Native callback code/context must live until process exit.
         virtual Status Register(const Destination&) noexcept = 0;
+        // UnknownLauncher rejects a destination that was never registered.
         virtual Status SetAvailable(const char* modId, const char* id, bool available, const char* reason) noexcept = 0;
-        // Completes once: a callback closes Settings; nullptr reports failure and leaves it open. NotFound rejects abandoned, expired, or already-completed requests.
-        // afterClose runs on removal: queue activation on your runtime;
+        // Completes once: a callback closes Settings; nullptr reports failure and leaves it open.
+        // UnknownLaunchRequest rejects abandoned, expired, or already-completed requests; afterClose runs on removal.
         virtual Status Complete(std::uint64_t requestId, OpenFn afterClose, void* context, const char* reason) noexcept = 0;
+
     protected:
         ~ILauncher() = default;
     };
-    using AcquireFn = void* (*)(std::uint32_t, std::uint32_t*) noexcept;
-    inline ILauncher* RequestInterface() noexcept
+
+    inline ILauncher* RequestInterface(std::uint32_t version = kBaseVersion, std::uint32_t* outVersion = nullptr) noexcept
     {
-        const auto module = REX::W32::GetModuleHandleW(L"OSFSettings.dll");
-        if (!module) return nullptr;
-        const auto fn = reinterpret_cast<AcquireFn>(REX::W32::GetProcAddress(module, "OSFSettings_RequestLauncherAPI"));
-        std::uint32_t version{};
-        auto* api = fn ? static_cast<ILauncher*>(fn(kVersion, &version)) : nullptr;
-        return (version >> 16) == (kVersion >> 16) && version >= kVersion ? api : nullptr;
+        return static_cast<ILauncher*>(RequestExport(kRequestExportName, version, outVersion));
     }
+
     class Client
     {
     public:
-        bool Init() noexcept { m_api = RequestInterface(); return m_api != nullptr; }
-        explicit operator bool() const noexcept { return m_api != nullptr; }
-        Status Register(const Destination& destination) const noexcept { return m_api ? m_api->Register(destination) : Status::InternalError; }
-        Status SetAvailable(const char* mod, const char* id, bool available, const char* reason = "") const noexcept { return m_api ? m_api->SetAvailable(mod, id, available, reason) : Status::InternalError; }
-        Status Complete(std::uint64_t requestId, OpenFn afterClose, void* context = nullptr, const char* reason = "") const noexcept { return m_api ? m_api->Complete(requestId, afterClose, context, reason) : Status::InternalError; }
+        // Initialize at SFSE kPostLoad or later, before sharing the client
+        bool Init(std::uint32_t version = kBaseVersion) noexcept
+        {
+            std::uint32_t actual{};
+            auto* api = RequestInterface(version, &actual);
+            return Attach(api, actual);
+        }
+
+        bool Attach(ILauncher* api, std::uint32_t version = kVersion) noexcept
+        {
+            m_api = api && Supports(version, kBaseVersion) ? api : nullptr;
+            m_version = m_api ? version : 0;
+            return m_api != nullptr;
+        }
+
+        [[nodiscard]] explicit operator bool() const noexcept { return m_api != nullptr; }
+        [[nodiscard]] std::uint32_t Version() const noexcept { return m_version; }
+        [[nodiscard]] bool Has(std::uint32_t version) const noexcept { return m_api && Supports(m_version, version); }
+        [[nodiscard]] ILauncher* Raw() const noexcept { return m_api; }
+
+        Status Register(const Destination& destination) const noexcept
+        {
+            return m_api ? m_api->Register(destination) : Status::NotReady;
+        }
+        Status SetAvailable(const char* modId, const char* id, bool available, const char* reason = "") const noexcept
+        {
+            return m_api ? m_api->SetAvailable(modId, id, available, reason) : Status::NotReady;
+        }
+        Status Complete(std::uint64_t requestId, OpenFn afterClose, void* context = nullptr, const char* reason = "") const noexcept
+        {
+            return m_api ? m_api->Complete(requestId, afterClose, context, reason) : Status::NotReady;
+        }
+
     private:
         ILauncher* m_api{};
+        std::uint32_t m_version{};
     };
 }

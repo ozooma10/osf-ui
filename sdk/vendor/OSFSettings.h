@@ -12,14 +12,27 @@ namespace OSFSettings::API
     // Packed major.minor ABI versions, independent of the plugin release version.
     // The initial contract stays at 1.0 until launch. After launch, existing slots, signatures and status values are frozen; additions require a minor bump.
     inline constexpr std::uint32_t kVersion = 0x00010000u;
-    inline constexpr std::uint32_t kUnboundKey = 0xFF; // Allowed only when the schema permits unbinding.
     inline constexpr std::uint32_t kBaseVersion = 0x00010000u;
     inline constexpr wchar_t kModuleName[] = L"OSFSettings.dll";
     inline constexpr char kRequestExportName[] = "OSFSettings_RequestAPI";
+    inline constexpr std::uint32_t kUnboundKey = 0xFF; // Allowed only when the schema permits unbinding.
 
     constexpr bool Supports(std::uint32_t have, std::uint32_t need) noexcept
     {
         return (have >> 16) == (need >> 16) && (have & 0xFFFFu) >= (need & 0xFFFFu);
+    }
+
+    // outVersion is optional: actual ABI on success, zero on failure.
+    using AcquireFn = void* (*)(std::uint32_t version, std::uint32_t* outVersion) noexcept;
+
+    // Resolves a service export by name; nullptr and zero outVersion when OSF Settings is not loaded.
+    inline void* RequestExport(const char* exportName, std::uint32_t version, std::uint32_t* outVersion) noexcept
+    {
+        if (outVersion) *outVersion = 0;
+        const auto module = REX::W32::GetModuleHandleW(kModuleName);
+        if (!module) return nullptr;
+        const auto fn = reinterpret_cast<AcquireFn>(REX::W32::GetProcAddress(module, exportName));
+        return fn ? fn(version, outVersion) : nullptr;
     }
 
     enum class Status : std::uint32_t
@@ -39,7 +52,9 @@ namespace OSFSettings::API
         UnknownHotkey = 12,
         UnknownAction = 13,
         AlreadyRegistered = 14,
-        UnknownInvocation = 15
+        UnknownInvocation = 15,
+        UnknownLauncher = 16,
+        UnknownLaunchRequest = 17
     };
 
     using Subscription = std::uint64_t; // Zero is never a valid subscription.
@@ -119,16 +134,9 @@ namespace OSFSettings::API
         ~ISettings() = default;
     };
 
-    // Returns a borrowed process-lifetime interface, or nullptr for an unsupported  major/minor. outVersion is optional: actual ABI on success, zero on failure.
-    using AcquireFn = void* (*)(std::uint32_t version, std::uint32_t* outVersion) noexcept;
-
     inline ISettings* RequestInterface(std::uint32_t version = kBaseVersion, std::uint32_t* outVersion = nullptr) noexcept
     {
-        if (outVersion) *outVersion = 0;
-        const auto module = REX::W32::GetModuleHandleW(kModuleName);
-        if (!module) return nullptr;
-        const auto fn = reinterpret_cast<AcquireFn>(REX::W32::GetProcAddress(module, kRequestExportName));
-        return fn ? static_cast<ISettings*>(fn(version, outVersion)) : nullptr;
+        return static_cast<ISettings*>(RequestExport(kRequestExportName, version, outVersion));
     }
 
     class Client
@@ -174,18 +182,7 @@ namespace OSFSettings::API
         }
         Status GetEnum(const char* mod, const char* key, std::string& out) const noexcept
         {
-            std::string buffer;
-            std::uint32_t required{};
-            auto status = GetEnum(mod, key, nullptr, 0, &required);
-            while (status == Status::BufferTooSmall) {
-                buffer.resize(required);
-                status = GetEnum(mod, key, buffer.data(), static_cast<std::uint32_t>(buffer.size()), &required);
-            }
-            if (status == Status::Ok) {
-                buffer.resize(required - 1); // Exclude the terminating NUL.
-                out.swap(buffer);
-            }
-            return status;
+            return ReadText(out, [&](char* data, std::uint32_t capacity, std::uint32_t* required) { return GetEnum(mod, key, data, capacity, required); });
         }
 
         Status GetKey(const char* mod, const char* key, std::uint32_t* out) const noexcept
@@ -199,18 +196,7 @@ namespace OSFSettings::API
         }
         Status GetString(const char* mod, const char* key, std::string& out) const noexcept
         {
-            std::string buffer;
-            std::uint32_t required{};
-            auto status = GetString(mod, key, nullptr, 0, &required);
-            while (status == Status::BufferTooSmall) {
-                buffer.resize(required);
-                status = GetString(mod, key, buffer.data(), static_cast<std::uint32_t>(buffer.size()), &required);
-            }
-            if (status == Status::Ok) {
-                buffer.resize(required - 1);
-                out.swap(buffer);
-            }
-            return status;
+            return ReadText(out, [&](char* data, std::uint32_t capacity, std::uint32_t* required) { return GetString(mod, key, data, capacity, required); });
         }
         Status SetString(const char* mod, const char* key, const char* value, std::uint32_t length) const noexcept
         {
@@ -298,21 +284,28 @@ namespace OSFSettings::API
         }
         Status GetLanguage(std::string& out) const noexcept
         {
+            return ReadText(out, [&](char* data, std::uint32_t capacity, std::uint32_t* required) { return GetLanguage(data, capacity, required); });
+        }
+
+    private:
+        // Grows a buffer until the text fits; out changes only on Ok.
+        template <class Read>
+        static Status ReadText(std::string& out, Read read) noexcept
+        {
             std::string buffer;
             std::uint32_t required{};
-            auto status = GetLanguage(nullptr, 0, &required);
+            auto status = read(nullptr, 0, &required);
             while (status == Status::BufferTooSmall) {
                 buffer.resize(required);
-                status = GetLanguage(buffer.data(), static_cast<std::uint32_t>(buffer.size()), &required);
+                status = read(buffer.data(), static_cast<std::uint32_t>(buffer.size()), &required);
             }
             if (status == Status::Ok) {
-                buffer.resize(required - 1);
+                buffer.resize(required - 1); // Exclude the terminating NUL.
                 out.swap(buffer);
             }
             return status;
         }
 
-    private:
         ISettings* m_api{};
         std::uint32_t m_version{};
     };

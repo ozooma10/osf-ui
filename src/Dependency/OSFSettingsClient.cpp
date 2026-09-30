@@ -44,7 +44,7 @@ namespace OSFUI
 					}
 				}, .context = this
 			});
-			if (result != Launcher::Status::Ok) {
+			if (result != Status::Ok) {
 				REX::WARN("Launcher registration for '{}' failed: {}", view.id, static_cast<unsigned>(result));
 				continue;
 			}
@@ -60,10 +60,10 @@ namespace OSFUI
 			API::BridgeApi::Get().ViewRequests().EnqueueView(id, true, requestId);
 		};
 		const auto status = m_launcher.Complete(a_requestId, a_ready ? afterClose : nullptr, nullptr, reason.c_str());
-		if (status != Launcher::Status::Ok && status != Launcher::Status::NotFound) {
+		if (status != Status::Ok && status != Status::UnknownLaunchRequest) {
 			REX::WARN("Launcher completion request={} failed: {}", a_requestId, static_cast<unsigned>(status));
 		}
-		return status == Launcher::Status::Ok;
+		return status == Status::Ok;
 	}
 
 	std::optional<std::string> OSFSettingsClient::Language()

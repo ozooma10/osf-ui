@@ -82,15 +82,7 @@ namespace OSFUI::UiPass
 
 	bool Install()
 	{
-		if (g_endHook) {
-			return true;
-		}
-
 		g_endHook.emplace("UiPass::ScaleformEnd", RE::VTABLE::CreationRendererPrivate____ScaleformEndRenderPass[0], kExecuteSlot, &EndThunk);
-		if (!g_endHook->Enable()) {
-			g_endHook.reset();
-			return false;
-		}
-		return true;
+		return g_endHook->Enable();
 	}
 }

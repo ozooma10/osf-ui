@@ -357,20 +357,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		{
 			auto** vtable = *reinterpret_cast<void***>(engine.directQueue);
 			auto** slot = &vtable[kExecuteCommandListsSlot];
-			const auto current = reinterpret_cast<ExecuteCommandListsFn>(*slot);
-			if (current == &ExecuteCommandListsThunk) {
-				return g_origExecuteCommandLists.load(std::memory_order_acquire) != nullptr;
-			}
-			if (g_origExecuteCommandLists.load(std::memory_order_acquire) != nullptr) {
-				REX::ERROR("D3D12Compositor: ExecuteCommandLists hook state conflicts with the engine queue; overlay disabled");
-				return false;
-			}
-
-			g_origExecuteCommandLists.store(current, std::memory_order_release);
+			g_origExecuteCommandLists.store(reinterpret_cast<ExecuteCommandListsFn>(*slot), std::memory_order_release);
 			if (!REL::WriteSafeData(slot, reinterpret_cast<void*>(&ExecuteCommandListsThunk))) {
-				if (*slot != reinterpret_cast<void*>(&ExecuteCommandListsThunk)) {
-					g_origExecuteCommandLists.store(nullptr, std::memory_order_release);
-				}
 				REX::ERROR("D3D12Compositor: could not write the command-queue vtable slot; overlay disabled");
 				return false;
 			}

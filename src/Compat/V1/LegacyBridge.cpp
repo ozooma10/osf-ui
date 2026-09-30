@@ -54,7 +54,7 @@ namespace OSFUI::Compat::V1
             struct Endpoint { CommandFn send{}; RequestFn request{}; void* user{}; };
             std::recursive_mutex mutex;
             Settings::Client settings;
-            Settings::Providers::IProviders* providers{};
+            Settings::Providers::Client providers;
             Settings::Diagnostics::Client diagnostics;
             std::map<std::string, std::shared_ptr<Provider>> definitions;
             std::map<std::uint32_t, std::shared_ptr<Listener>> listeners;
@@ -68,7 +68,7 @@ namespace OSFUI::Compat::V1
                 auto& definition = provider.definition;
                 const auto schema = definition.schema.dump();
                 const auto values = definition.values.dump();
-                const auto status = providers->Register(definition.id.c_str(), schema.c_str(), values.c_str(),
+                const auto status = providers.Register(definition.id.c_str(), schema.c_str(), values.c_str(),
                     [](const char*, const char* json, void* context) noexcept {
                         auto parsed = Document::parse(json, nullptr, false);
                         return !parsed.is_discarded() && SaveValues(static_cast<Provider*>(context)->definition, parsed);
@@ -85,7 +85,7 @@ namespace OSFUI::Compat::V1
                 if (listener.token || !initialized) return;
                 const auto status = listener.changed ? settings.Subscribe(listener.mod.c_str(),
                     [](const char*, const char*, void* context) noexcept { static_cast<Listener*>(context)->dirty.store(true); }, &listener, &listener.token) :
-                    providers->SubscribeKey(listener.mod.c_str(), listener.key.c_str(),
+                    providers.SubscribeKey(listener.mod.c_str(), listener.key.c_str(),
                     [](const char*, const char*, void* context) noexcept { static_cast<Listener*>(context)->presses.fetch_add(1); }, &listener, &listener.token);
                 if (status != Settings::Status::Ok) REX::WARN("Legacy subscription '{}' failed: {}", listener.mod, static_cast<unsigned>(status));
             }
@@ -97,7 +97,7 @@ namespace OSFUI::Compat::V1
                 const auto listener = found->second;
                 listener->active = false;
                 if (listener->token) {
-                    if (hotkey) providers->UnsubscribeKey(listener->token);
+                    if (hotkey) providers.UnsubscribeKey(listener->token);
                     else settings.Unsubscribe(listener->token);
                 }
                 listeners.erase(token);
@@ -108,7 +108,7 @@ namespace OSFUI::Compat::V1
                 std::lock_guard lock(mutex);
                 if (initialized) return;
                 diagnostics.Init();
-                providers = Settings::Providers::RequestInterface();
+                providers.Init();
                 if (!settings.Init() || !settings.IsReady() || !providers) {
                     REX::ERROR("OSF UI 1.6 compatibility requires OSF Settings with runtime provider support");
                     diagnostics.Report({"osfui", "compat.settings", Settings::Diagnostics::Severity::Error,
@@ -256,7 +256,7 @@ namespace OSFUI::Compat::V1
                 if (!mod) return;
                 const auto found = definitions.find(mod);
                 if (found == definitions.end()) return;
-                if (found->second->token) providers->Unregister(found->second->token);
+                if (found->second->token) providers.Unregister(found->second->token);
                 definitions.erase(found);
             }
             std::uint32_t SubscribeHotkey(const char* mod, const char* key, HotkeyFn fn, void* user) override

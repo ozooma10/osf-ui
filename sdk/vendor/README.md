@@ -1,8 +1,8 @@
 # OSF Settings SDK (vendored)
 
 Exact copies of the OSF Settings SDK at commit
-[`619d65053ec650333d5dfdf37912fed2325e61af`](https://github.com/ozooma10/osf-settings-slim/commit/619d65053ec650333d5dfdf37912fed2325e61af)
-(launcher completion contract, 2026-09-29):
+[`ed635f25996308c6112a26890207ab0186ccb663`](https://github.com/ozooma10/osf-settings-slim/commit/ed635f25996308c6112a26890207ab0186ccb663)
+(shared status codes and service clients, 2026-09-29):
 
 | Header | ABI |
 | --- | --- |
@@ -18,7 +18,7 @@ Include as `"vendor/OSFSettings.h"`; `sdk/` is on the include path. Copy these f
 
 The companion dependency is OSF Settings **1.0.0**. The source baseline selected
 for release testing is
-[`08bc609bad21ede7668a68a64c6663e5cab1296b`](https://github.com/ozooma10/osf-settings-slim/commit/08bc609bad21ede7668a68a64c6663e5cab1296b),
+[`a7ffa1860beab086414c02d1037b283c20031f29`](https://github.com/ozooma10/osf-settings-slim/commit/a7ffa1860beab086414c02d1037b283c20031f29),
 whose SDK matches these five headers byte for byte. This identifies the source
 candidate, not a published Settings release or completed in-game acceptance.
 
@@ -27,6 +27,9 @@ supports legacy settings. Launcher ABI 1.0 supplies the `OpenFn` request ID and
 `Complete` after-close handoff used by launcher views. Launcher acquisition is
 optional for direct view opens, but the companion release must provide it for the
 advertised launcher behavior.
+
+Launcher results use the shared `OSFSettings::API::Status` codes, including
+`UnknownLauncher` and `UnknownLaunchRequest`.
 
 Earlier development DLLs also advertised product version 1.0.0 and ABI 1.0 with
 different layouts. Those builds are unsupported: the version numbers alone cannot
