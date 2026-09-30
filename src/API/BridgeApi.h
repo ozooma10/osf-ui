@@ -34,7 +34,6 @@ namespace OSFUI::API
 		bool          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) noexcept override;
 		bool          EmitEvent(const char* a_viewId, const char* a_type, const char* a_payloadJson) noexcept override;
 		bool          SetState(const char* a_modId, const char* a_key, const char* a_payloadJson) noexcept override;
-		void          SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) noexcept override;
 		bool          RegisterView(const char* a_viewId) noexcept override;
 		// Start a Settings launch; loading and frame retention stay private to Runtime.
@@ -66,6 +65,9 @@ namespace OSFUI::API
 		void SetBridgeAvailability(bool a_available);
 		void PumpRuntimeCallbacks();
 		void RemoveOwnedEndpoint(const char* a_name, void* a_owner);
+		// Internal support for the frozen V1 setter; absent from the modern SDK.
+		using LegacyReadyFn = void (*)(void* a_user) noexcept;
+		void SetLegacyReadyCallback(LegacyReadyFn a_callback, void* a_user) noexcept;
 		// Shared reply queue for the frozen native ABI adapter.
 		void ReplyRequest(std::uint64_t, const char*) noexcept;
 		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
@@ -128,7 +130,7 @@ namespace OSFUI::API
 		[[nodiscard]] bool CanRegisterEndpointLocked(const std::string& a_name, std::string_view a_caller) const;
 		std::unordered_set<std::string> m_papyrusEndpoints;
 		std::mutex                                    m_mutex;
-		// Unregister and SetReadyCallback wait for callbacks already dispatched on another thread.
+		// Unregister and the legacy setter wait for callbacks dispatched on another thread.
 		// Recursive so a callback may unregister or replace itself without deadlocking.
 		std::recursive_mutex                          m_callbackDispatchMutex;
 		std::unordered_map<std::string, Registration>        m_sends;
@@ -146,9 +148,9 @@ namespace OSFUI::API
 		std::vector<ViewStateOp>                      m_pendingStateOps;    // SetState writes, drained by Runtime
 		std::vector<std::string>                      m_pendingViewRegs;    // RegisterView ids, drained by Runtime
 		MessageBridge*                                m_bridge{ nullptr };  // non-owning; attached once by Runtime
-		ReadyFn                                m_readyCb{ nullptr };
-		void*                                         m_readyUser{ nullptr };
-		bool                                          m_readyFired{ false };
+		LegacyReadyFn                                 m_legacyReadyCb{ nullptr };
+		void*                                         m_legacyReadyUser{ nullptr };
+		bool                                          m_legacyReadyFired{ false };
 		std::atomic_bool                              m_bridgeAvailable{ false };
 	};
 }

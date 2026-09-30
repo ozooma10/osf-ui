@@ -1,7 +1,11 @@
 #include "OSFUI.h"
 #include "API/BridgeApi.h"
 
-extern "C" __declspec(dllexport) void* OSFUI_RequestAPI(
+extern "C"
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void* OSFUI_RequestAPI(
 	std::uint32_t a_version, std::uint32_t* a_outVersion) noexcept
 {
 	if (a_outVersion) *a_outVersion = 0;

@@ -17,12 +17,16 @@ view paths, and saved values; they do not need these migration steps. Use the
 - Automatic Settings data in the JavaScript bridge
 - Native view-open preflight callbacks. Prepare mod state before requesting a menu,
   or initialize through browser requests after opening.
+- Native readiness callbacks in the modern API. Register handlers and publish
+  retained state before opening a view, or request fresh data from the page when
+  it initializes. The frozen legacy `SetReadyCallback` remains available through
+  `OSFUI_RequestBridge`.
 
 ## Replace with
 
 | 1.x | 2.0 |
 | --- | --- |
-| `OSFUI_RequestViews`, `OSFUI::API::Views` | `OSFUI_RequestAPI`, `OSFUI::API::IUI` wrapped by `OSFUI::API::Client` ([OSFUI.h](sdk/OSFUI.h), API 1.0) |
+| `OSFUI_RequestViews`, `OSFUI::API::Views` | `OSFUI_RequestAPI`, `OSFUI::API::IUI` wrapped by `OSFUI::API::Client` ([OSFUI.h](sdk/OSFUI.h), API 2.0) |
 | `OSFUI_View.psc` | [OSFUI.psc](data/Scripts/Source/OSFUI.psc); recompile scripts |
 | Request replies | JSON only: `request.Reply(json)` |
 | Settings, diagnostics, hotkeys | OSF Settings SDK: `Issue` with `Report` / `Clear`; `AcquireHotkeyBlock` / `ReleaseHotkeyBlock` |
@@ -32,11 +36,16 @@ Always pass explicit qualified view IDs. Settings Papyrus APIs, actions, and loc
 
 Rebuild consumers of earlier **2.0 development versions** of `OSFUI.h` against the
 release SDK. Their `IUI` layouts changed during development, including removal of
-the preflight slots, while the API version remained 1.0. Version negotiation cannot
-distinguish those obsolete layouts; they are not supported release contracts.
+the preflight slots, while the API version remained 1.0. The release SDK requests
+API 2.0 (`0x00020000`); the release DLL rejects API 1.x. Install the release DLL
+alongside rebuilt consumers: acquisition fails when either side still uses API 1.0.
 This rebuild requirement does not apply to supported 1.6 binaries using
-`OSFUI_RequestBridge`. OSF UI 2.0 establishes the new API 1.0 contract through the
+`OSFUI_RequestBridge`. OSF UI 2.0 establishes the new API 2.0 contract through the
 separate `OSFUI_RequestAPI` export; see [API versioning](docs/api-contract.md).
+
+Browser code inspecting the ready envelope must use the integer
+`payload.protocolVersion: 2`. The development `bridgeVersion: "2.0"` field is
+removed; `payload.version` continues to identify the product release.
 
 ## Paths
 

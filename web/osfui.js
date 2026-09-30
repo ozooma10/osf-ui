@@ -1,4 +1,4 @@
-// osfui.js — OSF UI bridge helper (mod API 2.0, bridge protocol 2.0).
+// osfui.js — OSF UI bridge helper (OSF UI 2.0, bridge protocol 2).
 //
 // Load it like the shared stylesheet, BEFORE your view's own script:
 //   <script src="/shared/osfui.js"></script>

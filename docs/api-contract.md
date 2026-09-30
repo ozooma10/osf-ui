@@ -7,9 +7,9 @@ Product, native API, and browser protocol versions describe different contracts.
 | Surface | Release contract | Consumer |
 | --- | --- | --- |
 | Plugin version | 2.0.0 | Installation and release identity |
-| `OSFUI_RequestAPI` | Native API 1.0, `OSFUI::API::IUI` | New mods using [`OSFUI.h`](../sdk/OSFUI.h) |
+| `OSFUI_RequestAPI` | Native API 2.0 (`0x00020000`), `OSFUI::API::IUI` | New mods using [`OSFUI.h`](../sdk/OSFUI.h) |
 | `OSFUI_RequestBridge` | Frozen native ABI 1.7 prefix plus the ABI 1.8 retained-state slot | Supported existing compiled mods |
-| Modern browser bridge | Protocol 2.0, [`osfui.d.ts`](../sdk/osfui.d.ts) | New views using the shipped shared web helper |
+| Modern browser bridge | Protocol 2 (`protocolVersion: 2`), [`osfui.d.ts`](../sdk/osfui.d.ts) | New views using the shipped shared web helper |
 
 The legacy export keeps its original signature and returns the legacy interface,
 never `IUI`. Its adapter translates supported native calls, web messages, schemas,
@@ -19,7 +19,7 @@ and saved values into the current runtime and OSF Settings. See the
 ## Native SDK versioning
 
 OSF UI 2.0 is not yet released. The current `OSFUI.h` defines the intended initial
-release contract for the new API at 1.0; development-only names can change without
+release contract for the new API at 2.0; development-only names can change without
 compatibility aliases. At release, virtual method order and signatures, callback
 signatures, payload layouts, enum values, and documented behavior become frozen.
 The following rules apply after that release:
@@ -33,10 +33,46 @@ The following rules apply after that release:
 - A plugin release version increase alone does not change the native ABI. The
   new API's versioning does not change the frozen legacy interface.
 
-Earlier 2.0 development SDKs also advertised API 1.0 with different `IUI` layouts.
-They are not supported release contracts. Rebuild their consumers against this
-release SDK; the loader cannot distinguish them by the advertised API version.
+Earlier 2.0 development SDKs advertised API 1.0 with different `IUI` layouts.
+API major 1 is reserved for those unsupported layouts and must not be reused.
+The release export rejects API 1.x requests with `nullptr` and a zero output
+version. Release consumers request API 2.0, so development DLLs implementing
+API 1.0 reject them. The SDK also checks the returned ABI before casting the
+interface; failed acquisition leaves `Client` detached. Update both the installed
+OSF UI DLL and development consumers rebuilt against this release SDK.
 Supported 1.6 mods using `OSFUI_RequestBridge` keep their original binaries.
+
+## Browser protocol identity
+
+The ready envelope identifies the browser wire protocol with the integer
+`payload.protocolVersion: 2`. `payload.version` is the product release string,
+such as `"2.0.0"`; it is not a protocol or native ABI compatibility check.
+The development-only `bridgeVersion: "2.0"` field is removed without an alias.
+The complete payload is:
+
+```json
+{"game":"Starfield","plugin":"OSF UI","version":"2.0.0","protocolVersion":2,"mod":"acme","view":"acme/panel"}
+```
+
+This browser version is independent of the private WebView2 host IPC protocol.
+
+## Native initialization and readiness
+
+The modern native API exposes `IsReady()` for global bridge availability and has
+no readiness callbacks. A document reload can leave `IsReady()` true, so it does
+not report individual view initialization, reloads, or first paint.
+
+Register send/request handlers and publish `SetState` values without waiting for
+readiness. Retained state is replayed automatically when a page connects after
+creation or reload. Pages that need newly computed data can call a registered
+request endpoint when they initialize. The browser ready/state/event handshake
+and browser recovery are independent of native readiness callbacks.
+
+Development consumers using native readiness callbacks must remove those
+registrations and rebuild against the release SDK. The frozen legacy
+`SetReadyCallback` slot remains available through `OSFUI_RequestBridge`; its
+behavior and lifetime guarantees are documented under
+[legacy native calls](compatibility-v1.md#views-and-native-calls).
 
 ## Companion dependency and consumers
 

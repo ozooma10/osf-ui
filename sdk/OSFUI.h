@@ -10,13 +10,13 @@ static_assert(sizeof(void*) == 8, "OSFUI requires x64");
 namespace OSFUI::API
 {
 	// Packed major.minor ABI versions, independent of the plugin release version.
-	// OSF UI 2.0 release contract: API 1.0 through OSFUI_RequestAPI.
+	// OSF UI 2.0 release contract: API 2.0 through OSFUI_RequestAPI.
 	// Once 2.0 ships, freeze slots, signatures, payload layouts and enum values.
 	// Then compatible additions require a minor bump; incompatible changes require a new major interface.
-	// Earlier 2.0 development layouts are unsupported; rebuild those consumers.
+	// API 1.x was reused for incompatible development layouts and is rejected; rebuild those consumers.
 	// Legacy 1.6 consumers use the separate OSFUI_RequestBridge ABI 1.7 adapter.
-	inline constexpr std::uint32_t kVersion = 0x00010000u;
-	inline constexpr std::uint32_t kBaseVersion = 0x00010000u;
+	inline constexpr std::uint32_t kVersion = 0x00020000u;
+	inline constexpr std::uint32_t kBaseVersion = 0x00020000u;
 	inline constexpr wchar_t kModuleName[] = L"OSFUI.dll";
 	inline constexpr char kRequestExportName[] = "OSFUI_RequestAPI";
 
@@ -26,8 +26,6 @@ namespace OSFUI::API
 	}
 
 	using SendFn = void (*)(const char* name, const char* payloadJson, const char* sourceViewId, void* context) noexcept;
-	// Runs when a bridge-enabled view becomes available or is recreated.
-	using ReadyFn = void (*)(void* context) noexcept;
 	// Receives accumulated relative-pointer motion for an exact view.
 	enum class RelativePointerPhase : std::uint32_t
 	{
@@ -78,7 +76,8 @@ namespace OSFUI::API
 
 	struct IUI
 	{
-		// True while at least web document is live. Every other slot may be called before readiness.
+		// True while at least one web document is live. Every other slot may be called before readiness.
+		// Global availability only; a document reload may leave this true. No readiness callback is exposed.
 		virtual bool IsReady() noexcept = 0;
 
 		// Endpoint names are exact and unique across sends and requests; reserved prefixes such as "osfui." are refused.
@@ -94,8 +93,6 @@ namespace OSFUI::API
 		// Stores mod-scoped retained state and replays it to fresh documents. valueJson must be valid JSON.
 		// false for an invalid mod ID, empty or overlong key, invalid JSON, or a full pending queue.
 		virtual bool SetState(const char* modId, const char* key, const char* valueJson) noexcept = 0;
-		// Replaces the previous callback. While ready, invokes it once in a subsequent runtime callback pump.
-		virtual void SetReadyCallback(ReadyFn callback, void* context) noexcept = 0;
 
 		// Views are qualified "mod/view" IDs, matched case-insensitively.
 		// Queues an open or close for a discovered view; false when the view is unknown. Closing also cancels a queued/loading open. Repeated closes are harmless.
@@ -120,10 +117,17 @@ namespace OSFUI::API
 	inline IUI* RequestInterface(std::uint32_t version = kBaseVersion, std::uint32_t* outVersion = nullptr) noexcept
 	{
 		if (outVersion) *outVersion = 0;
+		// Never cast a development interface to the release IUI, even for an explicit request.
+		if (!Supports(version, kBaseVersion)) return nullptr;
 		const auto module = REX::W32::GetModuleHandleW(kModuleName);
 		if (!module) return nullptr;
 		const auto fn = reinterpret_cast<AcquireFn>(REX::W32::GetProcAddress(module, kRequestExportName));
-		return fn ? static_cast<IUI*>(fn(version, outVersion)) : nullptr;
+		if (!fn) return nullptr;
+		std::uint32_t actual{};
+		auto* api = fn(version, &actual);
+		if (!api || !Supports(actual, version)) return nullptr;
+		if (outVersion) *outVersion = actual;
+		return static_cast<IUI*>(api);
 	}
 
 	class Client
@@ -167,10 +171,6 @@ namespace OSFUI::API
 		bool SetState(const char* modId, const char* key, const char* valueJson) const noexcept
 		{
 			return m_api && m_api->SetState(modId, key, valueJson);
-		}
-		void SetReadyCallback(ReadyFn callback, void* context) const noexcept
-		{
-			if (m_api) m_api->SetReadyCallback(callback, context);
 		}
 
 		bool RequestMenu(const char* viewId, bool open) const noexcept

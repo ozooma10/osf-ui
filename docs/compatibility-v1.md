@@ -36,6 +36,18 @@ The legacy export signature, method order, callback signatures, payload layouts,
 and enum values stay frozen even when the adapter implementation changes. The
 new API evolves independently under the [2.0 API contract](api-contract.md).
 
+The legacy `SetReadyCallback` retains its single global callback: a new setter
+replaces the previous registration, and a null callback clears it. It runs on
+the game thread during a subsequent runtime pump while the bridge is available,
+then again after availability recovery or document creation/recreation. Changes
+before dispatch coalesce; it is not a per-view load or first-paint signal.
+Registration never invokes the callback inline. The setter is thread-safe and
+waits for an executing callback on another thread before replacing or clearing
+it. Keep callback code and context alive until that call returns; when clearing
+or replacing from inside the callback, the current invocation must also finish.
+Callbacks may call the API, but must not wait for a worker that is clearing or
+replacing them. This compatibility callback is absent from the modern SDK.
+
 Legacy views are discovered only under `Data/SFSE/Plugins/OSFUI/views/<mod>/<view>/`. Modern view IDs win collisions. Old `hub: true` menus join the OSF Settings launcher; private views remain private. Under MO2, the legacy tree gets its own immutable, leased cache visible to the browser host. The DLL and browser host share a private protocol version and must be deployed together. Legacy assets require restart to refresh, including in developer mode.
 
 The old shared stylesheet and adapted JavaScript helper are shipped at the original `shared/` URLs. The helper preserves `ready`, `available()`, `send`/`emit`, `request`/`call`, event payloads, typed request replies, and gamepad messages over the new transport. `RegisterCommand` supports the baseline's fire-and-forget sends; the old command auto-ack/request-ID injection contract is outside this baseline. The old settings-browser endpoints, Papyrus settings APIs, automatic settings-to-web forwarding, localization catalogs, and later modular 1.x exports are not emulated.

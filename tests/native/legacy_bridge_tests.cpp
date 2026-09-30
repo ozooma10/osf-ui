@@ -1,5 +1,6 @@
 #include "Compat/V1/LegacyBridge.h"
 #include "API/BridgeApi.h"
+#include "Bridge/MessageBridge.h"
 #include "Core/Paths.h"
 #include "SettingsServices.h"
 #include "vendor/OSFSettings_Providers.h"
@@ -106,5 +107,56 @@ int main()
     CHECK(state.size() == 1);
     CHECK(state[0].mod == "somaticcamera.sf" && state[0].key == "camera" && state[0].value["active"] == true);
     CHECK(!bridge->SetViewState("somaticcamera.sf", "camera", "invalid json"));
+
+    // The frozen singleton setter still delivers, replaces and clears its callback.
+    auto& api = OSFUI::API::BridgeApi::Get();
+    OSFUI::MessageBridge messages([](std::string_view, std::string_view) {});
+    int originalCalls = 0, replacementCalls = 0;
+    const auto countReady = [](void* context) noexcept { ++*static_cast<int*>(context); };
+    bridge->SetReadyCallback(countReady, &originalCalls);
+    api.PumpRuntimeCallbacks();
+    CHECK(originalCalls == 0);
+    api.AttachBridge(messages);
+    api.PumpRuntimeCallbacks();
+    CHECK(originalCalls == 0);
+    api.SetBridgeAvailability(true);
+    api.PumpRuntimeCallbacks();
+    CHECK(originalCalls == 1);
+    api.SetBridgeAvailability(true);
+    api.PumpRuntimeCallbacks();
+    CHECK(originalCalls == 1); // Unchanged availability does not replay.
+    bridge->SetReadyCallback(countReady, &replacementCalls);
+    CHECK(replacementCalls == 0); // Late registration is never invoked inline.
+    api.PumpRuntimeCallbacks();
+    CHECK(originalCalls == 1 && replacementCalls == 1);
+    api.SetBridgeAvailability(false);
+    api.PumpRuntimeCallbacks();
+    CHECK(replacementCalls == 1);
+    api.SetBridgeAvailability(true);
+    api.PumpRuntimeCallbacks();
+    CHECK(originalCalls == 1 && replacementCalls == 2);
+    api.SetViewInstantiated("somaticcamera.sf/camera", true);
+    api.SetViewInstantiated("somaticcamera.sf/camera", true);
+    api.PumpRuntimeCallbacks();
+    CHECK(replacementCalls == 3); // Recreation replays; changes before dispatch coalesce.
+    api.PumpRuntimeCallbacks();
+    CHECK(replacementCalls == 3);
+    bridge->SetReadyCallback(nullptr, nullptr);
+    api.SetViewInstantiated("somaticcamera.sf/camera", true);
+    api.PumpRuntimeCallbacks();
+    CHECK(originalCalls == 1 && replacementCalls == 3);
+
+    struct SelfClearing { IOSFUIBridge* bridge; int calls{}; } self{ bridge };
+    bridge->SetReadyCallback([](void* context) noexcept {
+        auto& value = *static_cast<SelfClearing*>(context);
+        ++value.calls;
+        value.bridge->SetReadyCallback(nullptr, nullptr);
+    }, &self);
+    api.PumpRuntimeCallbacks();
+    CHECK(self.calls == 1);
+    api.SetViewInstantiated("somaticcamera.sf/camera", true);
+    api.PumpRuntimeCallbacks();
+    CHECK(self.calls == 1);
+    api.SetBridgeAvailability(false);
     return g_failures;
 }

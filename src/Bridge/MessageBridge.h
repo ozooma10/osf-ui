@@ -8,7 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
-// Protocol 2.0 bridge with typed send/request endpoints and a page-initiated ready/state/event handshake.
+// Protocol 2 bridge with typed send/request endpoints and a page-initiated ready/state/event handshake.
 
 namespace OSFUI
 {

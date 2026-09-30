@@ -473,7 +473,7 @@ namespace OSFUI
 			{ "game", "Starfield" },
 			{ "plugin", kPluginName },
 			{ "version", kOsfuiReleaseVersion },
-			{ "bridgeVersion", kBridgeProtocolVersion },
+			{ "protocolVersion", kBridgeProtocolVersion },
 			{ "view", std::string(a_viewId) },
 			{ "mod", std::string(Ids::ModOf(a_viewId)) },
 		};

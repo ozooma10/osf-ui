@@ -186,13 +186,13 @@ namespace OSFUI::API
 		return true;
 	}
 
-	void BridgeApi::SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept
+	void BridgeApi::SetLegacyReadyCallback(LegacyReadyFn a_callback, void* a_user) noexcept
 	{
 		std::lock_guard dispatchLock(m_callbackDispatchMutex);
 		std::lock_guard lock(m_mutex);
-		m_readyCb = a_callback;
-		m_readyUser = a_user;
-		m_readyFired = false;
+		m_legacyReadyCb = a_callback;
+		m_legacyReadyUser = a_user;
+		m_legacyReadyFired = false;
 	}
 
 	bool BridgeApi::RequestMenu(const char* a_viewId, bool a_open) noexcept
@@ -231,7 +231,8 @@ namespace OSFUI::API
 		const std::string id = known ? *known : std::string(a_viewId);
 		if (a_instantiated) {
 			m_instantiatedViews.emplace(id);
-			m_readyFired = false; // includes replacing a document under an existing view ID
+			// Includes replacing a document under an existing view ID.
+			m_legacyReadyFired = false;
 		}
 		else {
 			if (const auto* found = FindIdCaseInsensitive(m_instantiatedViews, id)) {
@@ -347,7 +348,7 @@ namespace OSFUI::API
 		std::lock_guard lock(m_mutex);
 		assert(!a_available || m_bridge);
 		if (m_bridgeAvailable.exchange(a_available, std::memory_order_acq_rel) != a_available) {
-			m_readyFired = false;
+			m_legacyReadyFired = false;
 		}
 		if (!a_available) {
 			m_queuedReplies.clear();  // nothing left to settle them against
@@ -429,16 +430,17 @@ namespace OSFUI::API
 				}
 			}
 		}
-		// Decide under the dispatch lock so a replaced or reset callback is never invoked stale.
+		// Only the frozen V1 API has a readiness callback. The dispatch lock ensures
+		// replacing or clearing it waits for any invocation already in progress.
 		std::lock_guard dispatchLock(m_callbackDispatchMutex);
-		ReadyFn ready = nullptr;
+		LegacyReadyFn ready = nullptr;
 		void* readyUser = nullptr;
 		{
 			std::lock_guard lock(m_mutex);
-			if (m_bridgeAvailable.load(std::memory_order_acquire) && !m_readyFired) {
-				m_readyFired = true;
-				ready = m_readyCb;
-				readyUser = m_readyUser;
+			if (m_bridgeAvailable.load(std::memory_order_acquire) && !m_legacyReadyFired) {
+				m_legacyReadyFired = true;
+				ready = m_legacyReadyCb;
+				readyUser = m_legacyReadyUser;
 			}
 		}
 		if (ready) ready(readyUser);

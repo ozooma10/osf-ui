@@ -185,7 +185,7 @@ namespace OSFUI::Compat::V1
                 if (name && sends.erase(name)) Current().RemoveOwnedEndpoint(name, this);
             }
             bool SendToWeb(const char* view, const char* type, const char* json) override { return Current().EmitEvent(view, type, json); }
-            void SetReadyCallback(ReadyFn fn, void* user) override { Current().SetReadyCallback(fn, user); }
+            void SetReadyCallback(ReadyFn fn, void* user) override { Current().SetLegacyReadyCallback(fn, user); }
             bool RequestMenu(const char* view, bool open) override
             {
                 if (view && std::string_view(view) == "osfui/settings") {

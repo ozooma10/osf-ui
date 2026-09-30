@@ -81,7 +81,7 @@ namespace OSFUI
 
 	void Runtime::CommitPresentation()
 	{
-		// Ready callbacks may publish state while this batch is prepared.
+		// Legacy ready callbacks may publish state while this batch is prepared.
 		// Consume only that state: callback-enqueued requests belong to the next batch.
 		ApplyNativeState(API::BridgeApi::Get().TakePendingState());
 		DrivePendingOpen();
@@ -126,7 +126,7 @@ namespace OSFUI
 		ProcessRendererNotifications();
 		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
 		auto papyrusBatch = API::Papyrus::TakePendingBatch();
-		// Apply captured state before ready callbacks can publish newer values.
+		// Apply captured state before legacy ready callbacks can publish newer values.
 		// Messages still follow view registration.
 		ProcessBackendState(papyrusBatch, bridgeBatch.state);
 		DrainViewRegistrations(bridgeBatch.viewRegistrations);

@@ -11,5 +11,6 @@ namespace OSFUI
 	inline constexpr std::uint32_t kOsfuiReleaseVersionMinor = 0;
 	inline constexpr std::uint32_t kOsfuiReleaseVersionPatch = 0;
 
-	inline constexpr const char* kBridgeProtocolVersion = "2.0";
+	// Browser wire protocol identity, serialized as the integer payload.protocolVersion.
+	inline constexpr std::uint32_t kBridgeProtocolVersion = 2;
 }

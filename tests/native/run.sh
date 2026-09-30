@@ -52,6 +52,7 @@ SUITES=(
 "settings_client_tests settings_client_tests.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/API/BridgeApi.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "settings_view_example_tests settings_view_example_tests.cpp ../../examples/settings-view/src/SettingsViewConsumer.cpp ../../src/API/BridgeApi.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "bridge_api_tests bridge_api_tests.cpp ../../src/API/BridgeApi.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
+"api_version_tests api_version_tests.cpp ../../src/API/Exports.cpp ../../src/API/BridgeApi.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
 "papyrus_form_tests papyrus_form_tests.cpp ../../src/API/PapyrusApi.cpp ../../src/API/BridgeApi.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Core/Json.cpp"
 "view_manifest_tests view_manifest_tests.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Core/Json.cpp"
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/Views/Dev/DevViewFiles.cpp ../../src/Views/ViewCache.cpp"

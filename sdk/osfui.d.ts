@@ -55,7 +55,16 @@ export type OSFUIHelper = OSFUIBridge;
 
 export interface ReadyEnvelope {
   kind: "ready";
-  payload: { mod: string; view: string; protocolVersion: 2 };
+  payload: {
+    game: "Starfield";
+    plugin: "OSF UI";
+    /** Product release version; independent of the browser protocol and native ABI. */
+    version: string;
+    /** Integer browser wire protocol identity. */
+    protocolVersion: 2;
+    mod: string;
+    view: string;
+  };
 }
 export interface StateEnvelope {
   kind: "state";
