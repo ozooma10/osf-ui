@@ -2,6 +2,7 @@
 #include "Render/SharedFrameConsumer.h"
 
 #include <atomic>
+#include <charconv>
 #include <deque>
 #include <random>
 #include <thread>
@@ -101,28 +102,39 @@ namespace OSFUI
 			return ::GetLastError() != ERROR_INVALID_PARAMETER;  // access denied still means the pid is in use
 		}
 
-		// Remove developer mirrors whose game process is gone (a crash skips Stop's cleanup). A reused pid only delays removal.
-		void RemoveStaleDevMirrors(const std::filesystem::path& a_localRoot)
+		// Remove abandoned developer and 1.x mirrors. A reused pid only delays removal.
+		void RemoveStaleViewMirrors(const std::filesystem::path& a_localRoot)
 		{
-			constexpr std::wstring_view kPrefix = L"views-dev-";
+			constexpr std::string_view kDevPrefix = "views-dev-";
+			constexpr std::string_view kLegacyPrefix = "views-mirror-";
 			std::size_t removed = 0;
 			std::error_code ec;
 			for (std::filesystem::directory_iterator it(a_localRoot, ec), end; !ec && it != end; it.increment(ec)) {
-				const auto name = it->path().filename().wstring();
-				if (!name.starts_with(kPrefix) || name.size() == kPrefix.size()) continue;
-				wchar_t* parsedEnd = nullptr;
-				const auto pid = static_cast<DWORD>(std::wcstoul(name.c_str() + kPrefix.size(), &parsedEnd, 10));
-				if (*parsedEnd != L'\0' || pid == ::GetCurrentProcessId() || ProcessAlive(pid)) continue;
+				std::error_code entryEc;
+				if (!std::filesystem::is_directory(it->symlink_status(entryEc)) || entryEc) continue;
+				const auto name = Utf8Path(it->path().filename());
+				if (name == "views-mirror") {
+					// The original shared mirror has no owner pid.
+					if (BrowserHostProcessRunning()) continue;
+				} else {
+					const auto prefix = name.starts_with(kDevPrefix) ? kDevPrefix : kLegacyPrefix;
+					if (!name.starts_with(prefix)) continue;
+					const auto digits = std::string_view(name).substr(prefix.size());
+					DWORD pid = 0;
+					const auto [parsedEnd, error] = std::from_chars(digits.data(), digits.data() + digits.size(), pid);
+					if (error != std::errc{} || parsedEnd != digits.data() + digits.size() || pid == 0 ||
+						pid == ::GetCurrentProcessId() || ProcessAlive(pid)) continue;
+				}
 				std::error_code removeEc;
 				std::filesystem::remove_all(it->path(), removeEc);
 				if (removeEc) {
-					REX::DEBUG("WebView2HostWebRenderer: stale developer views mirror '{}' not removed ({})", ToUtf8(it->path().native()), removeEc.message());
+					REX::DEBUG("WebView2HostWebRenderer: stale views mirror '{}' not removed ({})", ToUtf8(it->path().native()), removeEc.message());
 				} else {
 					++removed;
 				}
 			}
 			if (removed) {
-				REX::INFO("WebView2HostWebRenderer: removed {} stale developer views mirror(s)", removed);
+				REX::INFO("WebView2HostWebRenderer: removed {} stale views mirror(s)", removed);
 			}
 		}
 
@@ -441,7 +453,7 @@ namespace OSFUI
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return true;
 
 			const auto localRoot = LocalOsfuiDir();
-			RemoveStaleDevMirrors(localRoot);
+			RemoveStaleViewMirrors(localRoot);
 			std::error_code legacyError;
 			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
 				// Legacy content (bundled games and the like) is the bulk of the cache; its cost must show in the log.
