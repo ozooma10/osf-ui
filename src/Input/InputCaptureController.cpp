@@ -6,7 +6,6 @@
 #include "Input/FocusMenu.h"
 #include "Input/MenuEventSink.h"
 #include "Input/OverlayInputHook.h"
-#include "Input/UiLayoutGuard.h"
 #include "Render/WebView2HostWebRenderer.h"
 
 namespace OSFUI
@@ -15,10 +14,6 @@ namespace OSFUI
 	{
 		if (IntegrationAttempted()) return IntegrationAvailable();
 		m_integrationState = IntegrationState::Failed;
-		if (!UiLayoutGuard::VerifyUiLayout()) {
-			REX::ERROR("Runtime: UI layout guard failed; skipping ALL UI integration (menu events, FocusMenu and the WndProc hook stay uninstalled; capturing menus are unavailable)");
-			return false;
-		}
 		m_menuEventsAvailable = MenuEventSink::Install();
 		const bool focusMenuRegistered = FocusMenu::Register();
 		const bool inputInstalled = OverlayInputHook::Install();
