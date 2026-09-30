@@ -1659,13 +1659,6 @@ namespace osfui::wv2
 			app.log.Error("pipe connect failed: " + app.pipe.LastErrorText());
 			return 2;
 		}
-		const auto serverPid = app.pipe.ServerProcessId();
-		if (!serverPid || *serverPid != a_options.gamePid) {
-			app.log.Error(std::format(
-				"rejected pipe server: expected game pid {}, kernel reported {}",
-				a_options.gamePid, serverPid.value_or(0)));
-			return 6;
-		}
 		app.log.Info(std::format("verified pipe server pid {}", *serverPid));
 
 		app.gameProcess = ::OpenProcess(
@@ -1673,13 +1666,9 @@ namespace osfui::wv2
 			FALSE, a_options.gamePid);
 		if (!app.gameProcess) {
 			const auto error = ::GetLastError();
-			auto message = std::format("OpenProcess(game pid {}) failed ({})",
-				a_options.gamePid, error);
+			auto message = std::format("OpenProcess(game pid {}) failed ({})", a_options.gamePid, error);
 			if (error == ERROR_ACCESS_DENIED) {
-				message += std::format(
-					" — access denied: the game is likely running elevated (as "
-					"administrator) while this browser host is not (elevated={}); run the "
-					"game/MO2 without administrator rights",
+				message += std::format("access denied: the game is likely running elevated (as administrator) while this browser host is not (elevated={}); run the game/MO2 without administrator rights",
 					elevated ? "yes" : "no");
 			}
 			app.log.Error(message);
