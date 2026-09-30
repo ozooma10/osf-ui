@@ -24,21 +24,6 @@ namespace OSFUI
 			}
 			return result;
 		}
-
-		[[nodiscard]] bool IsSameComObject(IUnknown* a_lhs, IUnknown* a_rhs)
-		{
-			IUnknown* lhs = nullptr;
-			IUnknown* rhs = nullptr;
-			const bool ok = SUCCEEDED(a_lhs->QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(&lhs))) && SUCCEEDED(a_rhs->QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(&rhs)));
-			const bool same = ok && lhs == rhs;
-			if (lhs) {
-				lhs->Release();
-			}
-			if (rhs) {
-				rhs->Release();
-			}
-			return same;
-		}
 	}
 
 	EngineD3D12 LocateEngineD3D12()
@@ -62,27 +47,7 @@ namespace OSFUI
 			return result;
 		}
 
-		const auto desc = queue->GetDesc();
-		if (desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT) {
-			REX::WARN("EngineD3D12: queue type is {} (expected DIRECT) — refusing it", static_cast<int>(desc.Type));
-			queue->Release();
-			device->Release();
-			return result;
-		}
-
-		ID3D12Device* queueDevice = nullptr;
-		const bool sameDevice = SUCCEEDED(queue->GetDevice(__uuidof(ID3D12Device), reinterpret_cast<void**>(&queueDevice))) && queueDevice && IsSameComObject(queueDevice, device);
-		if (queueDevice) {
-			queueDevice->Release();
-		}
-		if (!sameDevice) {
-			REX::WARN("EngineD3D12: queue does not belong to the located device — refusing the pair");
-			queue->Release();
-			device->Release();
-			return result;
-		}
-
-		REX::INFO("EngineD3D12: located ID3D12Device=0x{:X} + DIRECT ID3D12CommandQueue=0x{:X}", reinterpret_cast<std::uintptr_t>(device), reinterpret_cast<std::uintptr_t>(queue));
+		REX::INFO("EngineD3D12: located ID3D12Device=0x{:X} + ID3D12CommandQueue=0x{:X}", reinterpret_cast<std::uintptr_t>(device), reinterpret_cast<std::uintptr_t>(queue));
 
 		result.device = device;
 		result.directQueue = queue;
