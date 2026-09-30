@@ -40,7 +40,7 @@ namespace OSFUI
 		// Process-unique handle for a deferred request; 0 is never issued.
 		using DeferToken = std::uint64_t;
 
-		explicit MessageBridge(SendFn a_send);
+		explicit MessageBridge(SendFn a_send);  // a_send must be callable; it is never null-checked
 
 		// Register or replace an exact endpoint; send and request names are disjoint.
 		void RegisterSend(std::string a_name, SendHandler a_handler);

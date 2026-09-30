@@ -281,9 +281,7 @@ namespace OSFUI
 		live.queued.clear();
 		live.eventsOpen = true;
 		for (const auto& encoded : queued) {
-			if (m_send) {
-				m_send(a_viewId, encoded);
-			}
+			m_send(a_viewId, encoded);
 		}
 		REX::DEBUG("MessageBridge: view '{}' greeted — ready, state replay, {} queued event(s), events open", a_viewId, queued.size());
 	}
@@ -299,7 +297,7 @@ namespace OSFUI
 			return;
 		}
 		m_settled = true;
-		if (m_send && !m_currentSource.empty()) {
+		if (!m_currentSource.empty()) {
 			m_send(m_currentSource, EncodeReply(m_currentRequestId, Json::Dump(a_payload)));
 		}
 		NoteTracedReply("reply");
@@ -317,7 +315,7 @@ namespace OSFUI
 			return;
 		}
 		m_settled = true;
-		if (m_send && !m_currentSource.empty()) {
+		if (!m_currentSource.empty()) {
 			m_send(m_currentSource, EncodeError(m_currentRequestId, a_code, a_message));
 		}
 		NoteTracedReply(std::string("error:") + std::string(a_code));
@@ -364,7 +362,7 @@ namespace OSFUI
 	{
 		const auto pending = TakePending(a_token);
 		if (!pending) return;
-		if (m_send && !pending->view.empty()) {
+		if (!pending->view.empty()) {
 			m_send(pending->view, EncodeReply(pending->requestId, a_payloadJson));
 		}
 		NoteTracedReply("reply");
@@ -374,7 +372,7 @@ namespace OSFUI
 	{
 		const auto pending = TakePending(a_token);
 		if (!pending) return;
-		if (m_send && !pending->view.empty()) {
+		if (!pending->view.empty()) {
 			m_send(pending->view, EncodeError(pending->requestId, a_code, a_message));
 		}
 		NoteTracedReply(std::string("error:") + std::string(a_code));
@@ -387,7 +385,7 @@ namespace OSFUI
 
 	void MessageBridge::EmitJson(std::string_view a_viewId, std::string_view a_name, std::string_view a_payloadJson)
 	{
-		if (!m_send || a_viewId.empty()) {
+		if (a_viewId.empty()) {
 			return;
 		}
 		DeliverEvent(a_viewId, EncodeEvent(a_name, a_payloadJson), a_name);
@@ -400,7 +398,7 @@ namespace OSFUI
 
 	void MessageBridge::EmitJson(const std::unordered_set<std::string>& a_viewIds, std::string_view a_name, std::string_view a_payloadJson)
 	{
-		if (!m_send || a_viewIds.empty()) {
+		if (a_viewIds.empty()) {
 			return;
 		}
 		// Encode once, hand the same text to every target transport.
@@ -437,7 +435,7 @@ namespace OSFUI
 	void MessageBridge::PublishJsonState(std::string_view a_viewId, std::string_view a_mod, std::string_view a_key,
 		std::string_view a_valueJson)
 	{
-		if (!m_send || a_viewId.empty()) {
+		if (a_viewId.empty()) {
 			return;
 		}
 		// Pre-hello documents receive state through replay; do not queue stale values.
@@ -456,7 +454,7 @@ namespace OSFUI
 	void MessageBridge::PublishState(const std::unordered_set<std::string>& a_viewIds, std::string_view a_mod,
 		std::string_view a_key, const nlohmann::json& a_value)
 	{
-		if (!m_send || a_viewIds.empty()) {
+		if (a_viewIds.empty()) {
 			return;
 		}
 		const auto valueJson = Json::Dump(a_value);
@@ -467,7 +465,7 @@ namespace OSFUI
 
 	void MessageBridge::SendReady(std::string_view a_viewId)
 	{
-		if (!m_send || a_viewId.empty()) {
+		if (a_viewId.empty()) {
 			return;
 		}
 		// Ready identifies the runtime release, bridge protocol, view, and owning mod.
@@ -520,7 +518,7 @@ namespace OSFUI
 		auto pending = std::exchange(m_pending, {});
 		REX::DEBUG("MessageBridge: rejected {} in-flight request(s) with '{}'", pending.size(), a_code);
 		for (const auto& [_, req] : pending) {
-			if (m_send && !req.view.empty()) {
+			if (!req.view.empty()) {
 				m_send(req.view, EncodeError(req.requestId, a_code, a_message));
 			}
 		}
@@ -542,7 +540,7 @@ namespace OSFUI
 		}
 		for (const auto& req : expired) {
 			// Settle with the page's correlation id, not the runtime map token.
-			if (m_send && !req.view.empty()) {
+			if (!req.view.empty()) {
 				m_send(req.view, EncodeError(req.requestId, "no-response", "the endpoint handler never answered"));
 			}
 			// Handler silence is reported to the page but never counted against the view.
