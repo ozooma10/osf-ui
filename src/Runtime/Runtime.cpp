@@ -70,8 +70,8 @@ namespace OSFUI
 			OnRendererFailure(a_e);
 		});
 
-		m_renderer->SetCursorChangeHandler([](CursorShape a_shape) {
-			HardwareCursor::SetShape(a_shape);
+		m_renderer->SetCursorChangeHandler([](std::uint32_t a_id) {
+			HardwareCursor::SetSystemCursorId(a_id);
 		});
 	}
 

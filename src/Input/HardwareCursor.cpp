@@ -12,8 +12,8 @@ namespace OSFUI::HardwareCursor
 {
 	namespace
 	{
-		// Runtime drains renderer notifications and publishes the shape; WndProc applies it.
-		std::atomic<CursorShape> g_shape{ CursorShape::kArrow };
+		// The renderer callback publishes the system cursor ID; WndProc applies it.
+		std::atomic<std::uint32_t> g_systemCursorId{ 0 };
 
 		// Window-message thread only.
 		bool g_active{ false };
@@ -21,28 +21,6 @@ namespace OSFUI::HardwareCursor
 
 		// Bound ShowCursor raises in case another owner holds visibility.
 		constexpr int kMaxShowRaises = 8;
-
-		[[nodiscard]] HCURSOR SystemCursor(CursorShape a_shape)
-		{
-			// Use the A variant because non-UNICODE IDC_* expands to LPSTR ordinals.
-			LPCSTR id = IDC_ARROW;
-			switch (a_shape) {
-			case CursorShape::kCross:      id = IDC_CROSS; break;
-			case CursorShape::kHand:       id = IDC_HAND; break;
-			case CursorShape::kIBeam:      id = IDC_IBEAM; break;
-			case CursorShape::kWait:       id = IDC_WAIT; break;
-			case CursorShape::kHelp:       id = IDC_HELP; break;
-			case CursorShape::kNotAllowed: id = IDC_NO; break;
-			case CursorShape::kSizeWE:     id = IDC_SIZEWE; break;
-			case CursorShape::kSizeNS:     id = IDC_SIZENS; break;
-			case CursorShape::kSizeNESW:   id = IDC_SIZENESW; break;
-			case CursorShape::kSizeNWSE:   id = IDC_SIZENWSE; break;
-			case CursorShape::kSizeAll:    id = IDC_SIZEALL; break;
-			default:                       break;  // kArrow
-			}
-			// Shared system handle: not destroyed, cheap to look up.
-			return ::LoadCursorA(nullptr, id);
-		}
 
 		[[nodiscard]] bool PointerShowing()
 		{
@@ -132,11 +110,19 @@ namespace OSFUI::HardwareCursor
 
 	void ApplyShape()
 	{
-		::SetCursor(SystemCursor(g_shape.load(std::memory_order_relaxed)));
+		const auto id = g_systemCursorId.load(std::memory_order_relaxed);
+		// Resource ordinals are 16-bit; do not truncate an invalid incoming ID.
+		auto cursor = id <= 0xFFFF ? ::LoadCursorW(nullptr, MAKEINTRESOURCEW(id)) : nullptr;
+		// WebView2 reports 0 for custom CSS cursors. Keep the pointer visible on
+		// unsupported IDs or failed loads. These shared handles are not destroyed.
+		if (!cursor) {
+			cursor = ::LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));  // IDC_ARROW
+		}
+		::SetCursor(cursor);
 	}
 
-	void SetShape(CursorShape a_shape)
+	void SetSystemCursorId(std::uint32_t a_id)
 	{
-		g_shape.store(a_shape, std::memory_order_relaxed);
+		g_systemCursorId.store(a_id, std::memory_order_relaxed);
 	}
 }

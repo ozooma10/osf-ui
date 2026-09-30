@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Input/CursorShape.h"
+#include <cstdint>
 
 namespace OSFUI::HardwareCursor
 {
-	// Run cursor state on the window thread; only SetShape is thread-safe for renderer callbacks.
+	// Run cursor state on the window thread; only SetSystemCursorId is thread-safe for renderer callbacks.
 
 	// Show, center, and clip the hardware pointer to the game client area.
 	void Activate(void* a_hwnd);
@@ -20,6 +20,6 @@ namespace OSFUI::HardwareCursor
 	// After applying the page cursor on WM_SETCURSOR, return TRUE to prevent engine reset.
 	void ApplyShape();
 
-	// Thread-safe: record the CSS cursor for the next window-thread application.
-	void SetShape(CursorShape a_shape);
+	// Thread-safe: record WebView2's system cursor ID for the next window-thread application.
+	void SetSystemCursorId(std::uint32_t a_id);
 }

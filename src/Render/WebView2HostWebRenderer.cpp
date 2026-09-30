@@ -847,8 +847,7 @@ namespace OSFUI
 				} else if (type == msg::Cursor::kType) {
 					// Contract allows renderer-thread delivery for cursor.
 					if (onCursorChange) {
-						onCursorChange(CursorShapeFromSystemCursorId(
-							msg::FromJson<msg::Cursor>(message).id));
+						onCursorChange(msg::FromJson<msg::Cursor>(message).id);
 					}
 				} else if (type == msg::Log::kType) {
 					const auto entry = msg::FromJson<msg::Log>(message);

@@ -1,9 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 
-#include "Input/CursorShape.h"
 #include "Views/ViewManifest.h"
 
 namespace osfui::wv2::msg { struct Keyboard; struct TextInput; }
@@ -44,7 +44,7 @@ namespace OSFUI
 		using WebMessageHandler = std::function<void(std::string_view a_viewId, std::string_view a_json)>;
 		using LoadHandler = std::function<void(const LoadEvent& a_event)>;
 		using FailureHandler = std::function<void(const FailureEvent& a_event)>;
-		using CursorChangeHandler = std::function<void(CursorShape a_shape)>;
+		using CursorChangeHandler = std::function<void(std::uint32_t a_id)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
 		using BackHandler = std::function<void(std::string_view a_viewId, std::uint64_t a_presentationEpoch)>;
 		// Update drains game-thread callbacks; cursor callbacks run on the transport thread.

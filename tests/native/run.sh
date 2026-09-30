@@ -56,7 +56,6 @@ SUITES=(
 "view_manifest_tests view_manifest_tests.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Core/Json.cpp"
 "dev_view_files_tests dev_view_files_tests.cpp ../../src/Views/Dev/DevViewFiles.cpp ../../src/Views/ViewCache.cpp"
 "view_cache_tests view_cache_tests.cpp ../../src/Views/ViewCache.cpp"
-"cursor_shape_tests cursor_shape_tests.cpp"
 "absolute_mouse_mapping_tests absolute_mouse_mapping_tests.cpp"
 "adaptive_view_geometry_tests adaptive_view_geometry_tests.cpp"
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
