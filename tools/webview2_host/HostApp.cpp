@@ -1698,7 +1698,6 @@ namespace osfui::wv2
 		if (!app.Send(osfui::wv2::msg::ToJson(osfui::wv2::msg::Hello{
 				.protocolVersion = kBrowserHostProtocolVersion,
 				.runtimeVersion = webView2RuntimeVersion,
-				.pid = ::GetCurrentProcessId(),
 			}))) {
 			app.log.Error("hello write failed: " + app.pipe.LastErrorText());
 			return 7;

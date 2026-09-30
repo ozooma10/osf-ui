@@ -320,12 +320,10 @@ namespace osfui::wv2::msg
 		static constexpr std::string_view kType = "hello";
 		std::uint32_t protocolVersion{ 0 };
 		std::string   runtimeVersion;
-		std::uint32_t pid{ 0 };
 
 		static constexpr auto kFields = std::tuple{
 			F("protocolVersion", &Hello::protocolVersion),
 			F("runtimeVersion", &Hello::runtimeVersion),
-			F("pid", &Hello::pid),
 		};
 	};
 

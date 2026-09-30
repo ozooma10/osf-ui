@@ -213,13 +213,12 @@ int main()
 	{
 		const auto got = RoundTrip(msg::Hello{
 			.protocolVersion = osfui::wv2::kBrowserHostProtocolVersion,
-			.runtimeVersion = "120.0.0.0",
-			.pid = 4242 });
+			.runtimeVersion = "120.0.0.0" });
 		Check(got.protocolVersion == osfui::wv2::kBrowserHostProtocolVersion, "hello carries the protocol version");
-		Check(got.pid == 4242, "hello carries the pid");
-		// A garbage hello must land on 0/0 so the gate rejects rather than admits.
-		const auto junk = msg::FromJson<msg::Hello>(json{ { "type", "hello" }, { "protocolVersion", "six" }, { "pid", nullptr } });
-		Check(junk.protocolVersion == 0 && junk.pid == 0, "unreadable hello fields read as 0 so the identity gate fails closed");
+		Check(got.runtimeVersion == "120.0.0.0", "hello carries the runtime version");
+		// A garbage hello must land on 0 so the gate rejects rather than admits.
+		const auto junk = msg::FromJson<msg::Hello>(json{ { "type", "hello" }, { "protocolVersion", "six" } });
+		Check(junk.protocolVersion == 0, "an unreadable protocol version reads as 0 so the gate fails closed");
 	}
 
 	std::cout << "wv2_messages_tests: " << checks << " checks, " << failures  << " failure(s)\n";

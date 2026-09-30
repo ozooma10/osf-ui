@@ -701,15 +701,14 @@ namespace OSFUI
 				break;
 			}
 
-			// Wrong-typed hello fields fall back to defaults and fail this gate.
+			// A wrong-typed protocol version falls back to 0 and fails this gate.
 			const auto greeting = msg::FromJson<msg::Hello>(hello);
 			if (Json::Get(hello, "type", "") != msg::Hello::kType ||
-				greeting.protocolVersion != osfui::wv2::kBrowserHostProtocolVersion ||
-				greeting.pid != *peerPid) {
+				greeting.protocolVersion != osfui::wv2::kBrowserHostProtocolVersion) {
 				REX::ERROR("WebView2HostWebRenderer: rejected browser-host hello "
-						   "(protocol={}, claimed pid={}, kernel pid={}, browser-host log: {})",
-					greeting.protocolVersion, greeting.pid, *peerPid, Utf8Path(browserHostLog));
-				SignalDead("browser-host identity or protocol mismatch");
+						   "(protocol={}, pid={}, browser-host log: {})",
+					greeting.protocolVersion, *peerPid, Utf8Path(browserHostLog));
+				SignalDead("browser-host protocol mismatch");
 				return;
 			}
 
