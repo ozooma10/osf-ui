@@ -1,7 +1,6 @@
 #include "Render/WebView2HostWebRenderer.h"
 #include "Render/SharedFrameConsumer.h"
 
-#include <array>
 #include <atomic>
 #include <deque>
 #include <random>
@@ -17,6 +16,7 @@
 #include "Views/ViewCache.h"
 #include "Core/Json.h"
 #include "Input/BrowserKeyboard.h"
+#include "Input/OverlayInputHook.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
@@ -297,44 +297,13 @@ namespace OSFUI
 		HANDLE     hostProcess{ nullptr };
 
 		std::mutex         notifyMutex;
-		std::deque<Notify> notifications;
-		// Independently bound page-provokable queues while game-thread draining is paused. Guarded by notifyMutex.
-		struct NotifyBudget
-		{
-			const char* what;
-			std::size_t cap;
-			std::size_t pending{ 0 };
-			std::size_t dropped{ 0 };
-		};
-		std::array<NotifyBudget, 3> budgets{ {
-			{ "web message(s)", 64 },
-			{ "console message(s)", 64 },
-			{ "browser-host log line(s)", 256 },
-		} };
-
-		NotifyBudget* BudgetFor(Notify::Kind a_kind)
-		{
-			switch (a_kind) {
-			case Notify::Kind::Web:
-			case Notify::Kind::Back:    return &budgets[0];
-			case Notify::Kind::Console: return &budgets[1];
-			case Notify::Kind::Log:     return &budgets[2];
-			default:                    return nullptr;
-			}
-		}
+		std::deque<Notify> notifications;  // unbounded: the host rate-limits page messages and forwards console only in dev mode
 
 		std::shared_ptr<SharedFrameConsumer> frames{ std::make_shared<SharedFrameConsumer>() };
 
 		void Push(Notify a_value)
 		{
 			std::scoped_lock lock(notifyMutex);
-			if (auto* budget = BudgetFor(a_value.kind)) {
-				if (budget->pending >= budget->cap) {
-					++budget->dropped;
-					return;
-				}
-				++budget->pending;
-			}
 			notifications.push_back(std::move(a_value));
 		}
 
@@ -660,7 +629,7 @@ namespace OSFUI
 				return;
 			}
 
-			const HWND gameTopLevel = osfui::win32::FindMainWindow();
+			const HWND gameTopLevel = OverlayInputHook::GameWindow();
 
 			auto pipeSeed = ::GetTickCount64() ^
 				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17);
@@ -940,19 +909,9 @@ namespace OSFUI
 		void DrainNotifications()
 		{
 			std::deque<Notify> local;
-			std::array<std::size_t, std::tuple_size_v<decltype(budgets)>> dropped{};
 			{
 				std::scoped_lock lock(notifyMutex);
 				local.swap(notifications);
-				for (std::size_t i = 0; i < budgets.size(); ++i) {
-					budgets[i].pending = 0;
-					dropped[i] = std::exchange(budgets[i].dropped, 0);
-				}
-			}
-			for (std::size_t i = 0; i < budgets.size(); ++i) {
-				if (dropped[i]) {
-					REX::WARN("WebView2HostWebRenderer: dropped {} {} over the {}-item pending cap", dropped[i], budgets[i].what, budgets[i].cap);
-				}
 			}
 			for (auto& value : local) {
 				switch (value.kind) {
@@ -1086,7 +1045,6 @@ namespace OSFUI
 			{
 				std::scoped_lock lock(notifyMutex);
 				notifications.clear();
-				for (auto& budget : budgets) budget.pending = budget.dropped = 0;
 			}
 
 			{
