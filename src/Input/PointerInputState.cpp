@@ -36,24 +36,9 @@ namespace OSFUI
 		return UnpackViewSize(m_viewSize.load(std::memory_order_acquire));
 	}
 
-	void PointerInputState::SuspendGeometry()
-	{
-		m_geometryReady.store(false, std::memory_order_release);
-	}
-
-	void PointerInputState::ResumeGeometry()
-	{
-		m_geometryReady.store(true, std::memory_order_release);
-	}
-
-	bool PointerInputState::GeometryReady() const
-	{
-		return m_geometryReady.load(std::memory_order_acquire);
-	}
-
 	bool PointerInputState::CanSendPointer() const
 	{
-		return GeometryReady() && m_insideView.load(std::memory_order_relaxed);
+		return m_insideView.load(std::memory_order_relaxed);
 	}
 
 	void PointerInputState::CenterCursor()
@@ -73,7 +58,7 @@ namespace OSFUI
 		m_cursorX.store(mapped.x, std::memory_order_relaxed);
 		m_cursorY.store(mapped.y, std::memory_order_relaxed);
 		m_insideView.store(mapped.inside, std::memory_order_relaxed);
-		if (GeometryReady()) QueueMouseMove();
+		QueueMouseMove();
 	}
 
 	PointerInputState::Position PointerInputState::CursorPosition() const
