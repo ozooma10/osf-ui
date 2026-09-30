@@ -23,7 +23,7 @@ namespace OSFUI::OverlayInputHook
 	{
 		std::atomic<WNDPROC> g_originalProc{ nullptr };
 		std::atomic<WNDPROC> g_gameProc{ nullptr };
-		HWND    g_hwnd{ nullptr };
+		std::atomic<HWND> g_hwnd{ nullptr };
 
 		bool g_chainCycleLogged{ false };
 		// Absolute raw-input devices report a normalized position rather than a
@@ -346,14 +346,31 @@ namespace OSFUI::OverlayInputHook
 		}
 	}
 
+	HWND GameWindow()
+	{
+		if (const HWND cached = g_hwnd.load(std::memory_order_acquire)) return cached;
+		// The engine registers its window class as "Starfield" (its own single-instance
+		// check looks it up by that name). Filter by PID: another instance may be running.
+		HWND hwnd = nullptr;
+		while ((hwnd = ::FindWindowExW(nullptr, hwnd, L"Starfield", nullptr))) {
+			DWORD pid = 0;
+			::GetWindowThreadProcessId(hwnd, &pid);
+			if (pid == ::GetCurrentProcessId()) {
+				g_hwnd.store(hwnd, std::memory_order_release);
+				return hwnd;
+			}
+		}
+		return nullptr;
+	}
+
 	bool Install()
 	{
 		if (g_originalProc.load(std::memory_order_acquire)) {
 			return true;  // already installed (one-way)
 		}
 
-		g_hwnd = osfui::win32::FindMainWindow();
-		if (!g_hwnd) {
+		const HWND hwnd = GameWindow();
+		if (!hwnd) {
 			REX::ERROR("OverlayInputHook: could not find the game window; input capture unavailable");
 			return false;
 		}
@@ -366,7 +383,7 @@ namespace OSFUI::OverlayInputHook
 			}
 		}
 		// Call the stable class procedure so later subclass chains cannot recurse through ours.
-		const auto gameProc = reinterpret_cast<WNDPROC>(::GetClassLongPtrW(g_hwnd, GCLP_WNDPROC));
+		const auto gameProc = reinterpret_cast<WNDPROC>(::GetClassLongPtrW(hwnd, GCLP_WNDPROC));
 		g_gameProc.store(gameProc, std::memory_order_release);
 		if (!gameProc) {
 			REX::WARN("OverlayInputHook: could not read the game window's class WndProc; "
@@ -374,10 +391,10 @@ namespace OSFUI::OverlayInputHook
 		}
 		// Seed the forwarding target before publishing WndProc to the window
 		// thread. SetWindowLongPtr returns the actual predecessor immediately after.
-		g_originalProc.store(reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(g_hwnd, GWLP_WNDPROC)),
+		g_originalProc.store(reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(hwnd, GWLP_WNDPROC)),
 			std::memory_order_release);
 		const auto original = reinterpret_cast<WNDPROC>(
-			::SetWindowLongPtrW(g_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WndProc)));
+			::SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WndProc)));
 		if (!original) {
 			g_originalProc.store(nullptr, std::memory_order_release);
 			REX::ERROR("OverlayInputHook: SetWindowLongPtr failed (Win32 error {})", ::GetLastError());
@@ -387,15 +404,15 @@ namespace OSFUI::OverlayInputHook
 
 		REX::INFO("OverlayInputHook: subclassed game WndProc (hwnd 0x{:X}, class proc 0x{:X}); "
 			"overlay can now capture input",
-			reinterpret_cast<std::uintptr_t>(g_hwnd), reinterpret_cast<std::uintptr_t>(gameProc));
+			reinterpret_cast<std::uintptr_t>(hwnd), reinterpret_cast<std::uintptr_t>(gameProc));
 		return true;
 	}
 
 	void RequestStateRefresh()
 	{
-		if (g_hwnd) {
+		if (const HWND hwnd = g_hwnd.load(std::memory_order_acquire)) {
 			if (const auto message = osfui::wv2::RefreshInputStateMessage()) {
-				::PostMessageW(g_hwnd, message, 0, 0);
+				::PostMessageW(hwnd, message, 0, 0);
 			}
 		}
 	}
@@ -403,9 +420,9 @@ namespace OSFUI::OverlayInputHook
 	std::optional<ClientSize> GameWindowClientSize()
 	{
 		// Passive HUDs need the client size before any input hook is installed.
-		if (!g_hwnd) g_hwnd = osfui::win32::FindMainWindow();
+		const HWND hwnd = GameWindow();
 		RECT client{};
-		if (!g_hwnd || !::GetClientRect(g_hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
+		if (!hwnd || !::GetClientRect(hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
 			return std::nullopt;
 		}
 		return ClientSize{
