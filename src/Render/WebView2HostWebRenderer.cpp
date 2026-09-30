@@ -305,8 +305,7 @@ namespace OSFUI
 		std::thread      worker;
 		std::thread      writer;  // Spawned by the worker once connected; joined after the worker.
 		std::atomic<Lifecycle> lifecycle{ Lifecycle::Stopped };
-		std::mutex hostProcessMutex;
-		HANDLE     hostProcess{ nullptr };
+		HANDLE hostProcess{ nullptr };  // Written by the worker; Stop reads it only after joining the worker.
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;  // unbounded: the host rate-limits page messages and forwards console only in dev mode
@@ -324,18 +323,6 @@ namespace OSFUI
 
 		bool IsRunning() const { return lifecycle.load(std::memory_order_acquire) == Lifecycle::Running; }
 		bool IsStarting() const { return lifecycle.load(std::memory_order_acquire) == Lifecycle::Starting; }
-
-		void SetBrowserHostProcess(HANDLE a_process)
-		{
-			std::scoped_lock lock(hostProcessMutex);
-			hostProcess = a_process;
-		}
-
-		HANDLE TakeBrowserHostProcess()
-		{
-			std::scoped_lock lock(hostProcessMutex);
-			return std::exchange(hostProcess, nullptr);
-		}
 
 		void SignalDead(std::string_view a_reason)
 		{
@@ -734,7 +721,7 @@ namespace OSFUI
 					*peerPid, ::GetLastError()));
 				return;
 			}
-			SetBrowserHostProcess(browserHostProcess);
+			hostProcess = browserHostProcess;
 
 			const auto webView2RuntimeVersion =
 				greeting.runtimeVersion.empty() ? std::string("?") : greeting.runtimeVersion;
@@ -1021,9 +1008,9 @@ namespace OSFUI
 			if (writer.joinable()) writer.join();
 			frames->Disconnect();
 
-			if (const HANDLE browserHostProcess = TakeBrowserHostProcess()) {
+			if (const HANDLE browserHostProcess = std::exchange(hostProcess, nullptr)) {
 				::TerminateProcess(browserHostProcess, 9);
-				// Termination is asynchronous; the bounded wait lets the host drop its views lease.
+				// Termination is asynchronous; the bounded wait lets the host exit before mirror cleanup.
 				::WaitForSingleObject(browserHostProcess, 1000u);
 				::CloseHandle(browserHostProcess);
 			}
