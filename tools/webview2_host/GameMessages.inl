@@ -19,14 +19,9 @@
 					FailHost("init", E_INVALIDARG, "init without userDataDir");
 					return;
 				}
-				std::optional<LUID> requestedAdapter;
-				if (a_raw.contains("adapterLuidLow") && a_raw.contains("adapterLuidHigh")) {
-					LUID luid{};
-					luid.LowPart = a_msg.adapterLuidLow;
-					luid.HighPart = static_cast<LONG>(a_msg.adapterLuidHigh);
-					requestedAdapter = luid;
-				}
-				if (!InitializeGraphics(requestedAdapter)) {
+				// The game sends its adapter in every init; it never starts the host without one.
+				const LUID gameAdapter{ .LowPart = a_msg.adapterLuidLow, .HighPart = static_cast<LONG>(a_msg.adapterLuidHigh) };
+				if (!InitializeGraphics(gameAdapter)) {
 					RequestQuit("graphics-init-failed");
 					return;
 				}

@@ -1,33 +1,31 @@
-			bool InitializeGraphics(const std::optional<LUID>& a_requestedLuid)
+			bool InitializeGraphics(const LUID& a_requestedLuid)
 			{
 				ComPtr<IDXGIAdapter1> selectedAdapter;
-				if (a_requestedLuid) {
-					ComPtr<IDXGIFactory1> factory;
-					const auto factoryHr = ::CreateDXGIFactory1(IID_PPV_ARGS(&factory));
-					if (SUCCEEDED(factoryHr)) {
-						for (UINT index = 0; ; ++index) {
-							ComPtr<IDXGIAdapter1> candidate;
-							if (factory->EnumAdapters1(index, &candidate) == DXGI_ERROR_NOT_FOUND) break;
-							DXGI_ADAPTER_DESC1 desc{};
-							if (SUCCEEDED(candidate->GetDesc1(&desc)) &&
-								desc.AdapterLuid.LowPart == a_requestedLuid->LowPart &&
-								desc.AdapterLuid.HighPart == a_requestedLuid->HighPart) {
-								selectedAdapter = std::move(candidate);
-								break;
-							}
+				ComPtr<IDXGIFactory1> factory;
+				const auto factoryHr = ::CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+				if (SUCCEEDED(factoryHr)) {
+					for (UINT index = 0; ; ++index) {
+						ComPtr<IDXGIAdapter1> candidate;
+						if (factory->EnumAdapters1(index, &candidate) == DXGI_ERROR_NOT_FOUND) break;
+						DXGI_ADAPTER_DESC1 desc{};
+						if (SUCCEEDED(candidate->GetDesc1(&desc)) &&
+							desc.AdapterLuid.LowPart == a_requestedLuid.LowPart &&
+							desc.AdapterLuid.HighPart == a_requestedLuid.HighPart) {
+							selectedAdapter = std::move(candidate);
+							break;
 						}
-					} else {
-						log.Warn(std::format(
-							"CreateDXGIFactory1 failed while matching the game adapter (0x{:08X}); "
-							"falling back to the browser-host default GPU", static_cast<unsigned>(factoryHr)));
 					}
-					if (!selectedAdapter) {
-						log.Warn(std::format(
-							"game adapter LUID 0x{:08X}:0x{:08X} was not found in the browser host; "
-							"falling back to the browser-host default GPU",
-							static_cast<std::uint32_t>(a_requestedLuid->HighPart),
-							a_requestedLuid->LowPart));
-					}
+				} else {
+					log.Warn(std::format(
+						"CreateDXGIFactory1 failed while matching the game adapter (0x{:08X}); "
+						"falling back to the browser-host default GPU", static_cast<unsigned>(factoryHr)));
+				}
+				if (!selectedAdapter) {
+					log.Warn(std::format(
+						"game adapter LUID 0x{:08X}:0x{:08X} was not found in the browser host; "
+						"falling back to the browser-host default GPU",
+						static_cast<std::uint32_t>(a_requestedLuid.HighPart),
+						a_requestedLuid.LowPart));
 				}
 
 				const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
