@@ -141,6 +141,7 @@ namespace OSFUI::OverlayInputHook
 		}
 
 		LRESULT CALLBACK WndProc(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam);
+		bool Subclass(HWND a_hwnd);
 
 		LRESULT ForwardToGame(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 		{
@@ -149,6 +150,23 @@ namespace OSFUI::OverlayInputHook
 				return ::CallWindowProcW(gameProc, a_hwnd, a_msg, a_wparam, a_lparam);
 			}
 			return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
+		}
+
+		// Pass a message down the chain below us.
+		LRESULT ForwardDown(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
+		{
+			const auto current = reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(a_hwnd, GWLP_WNDPROC));
+			if (detail::OriginalMovedAboveUs( reinterpret_cast<std::uintptr_t>(current), reinterpret_cast<std::uintptr_t>(&WndProc), reinterpret_cast<std::uintptr_t>(g_originalProc.load(std::memory_order_acquire)))) {
+				if (!g_chainCycleLogged) {
+					g_chainCycleLogged = true;
+					REX::WARN("OverlayInputHook: the previously chained WndProc moved back above OSF UI; bypassing the circular link and forwarding to Starfield's class WndProc (compatibility path for BetterConsole and similar re-hooking overlays)");
+				}
+				return ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
+			}
+
+			// Forwarding can synchronously deliver different messages (for example, WM_ACTIVATE -> WM_SETFOCUS); they must traverse our normal handler too.
+			const auto original = g_originalProc.load(std::memory_order_acquire);
+			return original ? ::CallWindowProcW(original, a_hwnd, a_msg, a_wparam, a_lparam) : ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
 		}
 
 		LRESULT CALLBACK WndProc(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
@@ -227,25 +245,6 @@ namespace OSFUI::OverlayInputHook
 			case WM_SYSCHAR:
 				if (runtime.IsInputCaptured()) return 0;
 				break;
-			case WM_UNICHAR:
-				// Answer WM_UNICHAR probes and swallow duplicates only while captured.
-				if (!runtime.IsInputCaptured()) {
-					break;
-				}
-				if (a_wparam == UNICODE_NOCHAR) {
-					return TRUE;  // yes, we accept WM_UNICHAR
-				}
-				if (a_wparam <= 0x10FFFF) {
-					g_textInput.Reset();
-					if (a_wparam >= 0x10000) {
-						const auto scalar = static_cast<std::uint32_t>(a_wparam - 0x10000);
-						ForwardCharacter(runtime, static_cast<char16_t>(0xD800 + (scalar >> 10)));
-						ForwardCharacter(runtime, static_cast<char16_t>(0xDC00 + (scalar & 0x3FF)));
-					} else if (a_wparam < 0xD800 || a_wparam > 0xDFFF) {
-						ForwardCharacter(runtime, static_cast<char16_t>(a_wparam));
-					}
-				}
-				return 0;
 			case WM_IME_SETCONTEXT:
 				if (runtime.IsInputCaptured()) {
 					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam & ~ISC_SHOWUICOMPOSITIONWINDOW);
@@ -316,6 +315,15 @@ namespace OSFUI::OverlayInputHook
 				}
 				break;
 			}
+			case WM_NCDESTROY: {
+				// Forward first so this window's own chain sees its final message.
+				const LRESULT result = ForwardDown(a_hwnd, a_msg, a_wparam, a_lparam);
+				// On a window-mode change the engine publishes a new window (Main::window) and then destroys this one: move the hook along.
+				if (const HWND next = GameWindow(); next && next != a_hwnd && Subclass(next)) {
+					runtime.OnGameWindowRecreated();
+				}
+				return result;
+			}
 			default:
 				if (IsLegacyMouseMessage(a_msg) && runtime.IsInputCaptured()) {
 					// Block legacy duplicates because WM_INPUT is authoritative.
@@ -324,49 +332,52 @@ namespace OSFUI::OverlayInputHook
 				break;
 			}
 
-			const auto current = reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(a_hwnd, GWLP_WNDPROC));
-			if (detail::OriginalMovedAboveUs(
-					reinterpret_cast<std::uintptr_t>(current),
-					reinterpret_cast<std::uintptr_t>(&WndProc),
-					reinterpret_cast<std::uintptr_t>(g_originalProc.load(std::memory_order_acquire)))) {
-				if (!g_chainCycleLogged) {
-					g_chainCycleLogged = true;
-					REX::WARN("OverlayInputHook: the previously chained WndProc moved back above OSF UI; "
-						"bypassing the circular link and forwarding to Starfield's class WndProc "
-						"(compatibility path for BetterConsole and similar re-hooking overlays)");
-				}
-				return ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
-			}
+			return ForwardDown(a_hwnd, a_msg, a_wparam, a_lparam);
+		}
 
-			// Forwarding can synchronously deliver different messages (for example,
-			// WM_ACTIVATE -> WM_SETFOCUS); they must traverse our normal handler too.
-			const auto original = g_originalProc.load(std::memory_order_acquire);
-			return original ? ::CallWindowProcW(original, a_hwnd, a_msg, a_wparam, a_lparam) :
-				ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
+		// Hook a_hwnd's WndProc; on success g_hwnd names the hooked window.
+		bool Subclass(HWND a_hwnd)
+		{
+			// Keys already held when the hook is installed belong to the game. A recreated window's predecessor already reset per-window input state on WM_KILLFOCUS.
+			for (std::uint32_t vk = 1; vk < 256; ++vk) {
+				if (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) {
+					g_keyOwnership.Consume(vk, true, false);
+					g_rawKeyOwnership.Consume(vk, true, false);
+				}
+			}
+			// Call the stable class procedure so later subclass chains cannot recurse through ours.
+			const auto gameProc = reinterpret_cast<WNDPROC>(::GetClassLongPtrW(a_hwnd, GCLP_WNDPROC));
+			g_gameProc.store(gameProc, std::memory_order_release);
+			if (!gameProc) {
+				REX::WARN("OverlayInputHook: could not read the game window's class WndProc; recursive third-party hook recovery will fall back to DefWindowProc");
+			}
+			// Seed the forwarding target before publishing WndProc to the window thread. SetWindowLongPtr returns the actual predecessor immediately after.
+			g_originalProc.store(reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(a_hwnd, GWLP_WNDPROC)), std::memory_order_release);
+			const auto original = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(a_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WndProc)));
+			if (!original) {
+				g_originalProc.store(nullptr, std::memory_order_release);
+				REX::ERROR("OverlayInputHook: SetWindowLongPtr failed (Win32 error {})", ::GetLastError());
+				return false;
+			}
+			g_originalProc.store(original, std::memory_order_release);
+			g_hwnd.store(a_hwnd, std::memory_order_release);
+
+			REX::INFO("OverlayInputHook: subclassed game WndProc (hwnd 0x{:X}, class proc 0x{:X}); overlay can now capture input",
+				reinterpret_cast<std::uintptr_t>(a_hwnd), reinterpret_cast<std::uintptr_t>(gameProc));
+			return true;
 		}
 	}
 
 	HWND GameWindow()
 	{
-		if (const HWND cached = g_hwnd.load(std::memory_order_acquire)) return cached;
-		// The engine registers its window class as "Starfield" (its own single-instance
-		// check looks it up by that name). Filter by PID: another instance may be running.
-		HWND hwnd = nullptr;
-		while ((hwnd = ::FindWindowExW(nullptr, hwnd, L"Starfield", nullptr))) {
-			DWORD pid = 0;
-			::GetWindowThreadProcessId(hwnd, &pid);
-			if (pid == ::GetCurrentProcessId()) {
-				g_hwnd.store(hwnd, std::memory_order_release);
-				return hwnd;
-			}
-		}
-		return nullptr;
+		const auto* main = RE::Main::GetSingleton();
+		return main && main->window ? reinterpret_cast<HWND>(main->window->hwnd) : nullptr;
 	}
 
 	bool Install()
 	{
-		if (g_originalProc.load(std::memory_order_acquire)) {
-			return true;  // already installed (one-way)
+		if (g_hwnd.load(std::memory_order_acquire)) {
+			return true;  // already installed; WM_NCDESTROY moves it to a recreated window
 		}
 
 		const HWND hwnd = GameWindow();
@@ -374,38 +385,7 @@ namespace OSFUI::OverlayInputHook
 			REX::ERROR("OverlayInputHook: could not find the game window; input capture unavailable");
 			return false;
 		}
-
-		// Keys already held when the hook is installed belong to the game.
-		for (std::uint32_t vk = 1; vk < 256; ++vk) {
-			if (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) {
-				g_keyOwnership.Consume(vk, true, false);
-				g_rawKeyOwnership.Consume(vk, true, false);
-			}
-		}
-		// Call the stable class procedure so later subclass chains cannot recurse through ours.
-		const auto gameProc = reinterpret_cast<WNDPROC>(::GetClassLongPtrW(hwnd, GCLP_WNDPROC));
-		g_gameProc.store(gameProc, std::memory_order_release);
-		if (!gameProc) {
-			REX::WARN("OverlayInputHook: could not read the game window's class WndProc; "
-				"recursive third-party hook recovery will fall back to DefWindowProc");
-		}
-		// Seed the forwarding target before publishing WndProc to the window
-		// thread. SetWindowLongPtr returns the actual predecessor immediately after.
-		g_originalProc.store(reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(hwnd, GWLP_WNDPROC)),
-			std::memory_order_release);
-		const auto original = reinterpret_cast<WNDPROC>(
-			::SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WndProc)));
-		if (!original) {
-			g_originalProc.store(nullptr, std::memory_order_release);
-			REX::ERROR("OverlayInputHook: SetWindowLongPtr failed (Win32 error {})", ::GetLastError());
-			return false;
-		}
-		g_originalProc.store(original, std::memory_order_release);
-
-		REX::INFO("OverlayInputHook: subclassed game WndProc (hwnd 0x{:X}, class proc 0x{:X}); "
-			"overlay can now capture input",
-			reinterpret_cast<std::uintptr_t>(hwnd), reinterpret_cast<std::uintptr_t>(gameProc));
-		return true;
+		return Subclass(hwnd);
 	}
 
 	void RequestStateRefresh()

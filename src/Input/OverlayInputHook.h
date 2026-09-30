@@ -16,7 +16,7 @@ namespace OSFUI
 			std::uint32_t height{ 0 };
 		};
 
-		// This process's game window (class "Starfield"), resolved once it exists. Any thread.
+		// The engine's current game window (Main::window), or null before Main exists. Any thread; the engine recreates it on a window-mode change, so don't cache it.
 		[[nodiscard]] HWND__* GameWindow();
 		// Install once from the runtime tick; never un-subclass another overlay's chain.
 		bool Install();

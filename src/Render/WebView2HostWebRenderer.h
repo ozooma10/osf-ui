@@ -80,6 +80,8 @@ namespace OSFUI
 		void InjectKeyboard(const osfui::wv2::msg::Keyboard& a_key);
 		void InjectText(const osfui::wv2::msg::TextInput& a_text);
 		void SetWindowActive(bool a_active);
+		// Re-send OverlayInputHook::GameWindow() after the game recreates its window.
+		void GameWindowChanged();
 		void InjectMouseMove(int a_x, int a_y);
 		void InjectMouseButton(int a_x, int a_y, int a_button, bool a_down);
 		void InjectMouseWheel(int a_x, int a_y, int a_wheelDelta);

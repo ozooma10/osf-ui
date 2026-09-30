@@ -629,8 +629,6 @@ namespace OSFUI
 				return;
 			}
 
-			const HWND gameTopLevel = OverlayInputHook::GameWindow();
-
 			auto pipeSeed = ::GetTickCount64() ^
 				(static_cast<std::uint64_t>(::GetCurrentProcessId()) << 17);
 			std::mt19937_64 rng(pipeSeed);
@@ -743,7 +741,7 @@ namespace OSFUI
 			{
 				std::scoped_lock lock(stateMutex);
 				addBootstrap(ToJson(msg::Init{
-					.topLevelHwnd = reinterpret_cast<std::uint64_t>(gameTopLevel),
+					.topLevelHwnd = reinterpret_cast<std::uint64_t>(OverlayInputHook::GameWindow()),
 					.viewsPath = ToUtf8(mappedViewsRoot.native()),
 					.legacyViewsPath = ToUtf8(mappedLegacyViewsRoot.native()),
 					.width = width,
@@ -1279,6 +1277,13 @@ namespace OSFUI
 		std::scoped_lock lock(m_impl->stateMutex);
 		m_impl->windowActive = a_active;
 		m_impl->Send(ToJson(msg::WindowActive{ .active = a_active }));
+	}
+	void WebView2HostWebRenderer::GameWindowChanged()
+	{
+		// Under stateMutex, like the connect snapshot that reads the same handle.
+		std::scoped_lock lock(m_impl->stateMutex);
+		m_impl->Send(ToJson(msg::GameWindow{
+			.hwnd = reinterpret_cast<std::uint64_t>(OverlayInputHook::GameWindow()) }));
 	}
 
 	namespace

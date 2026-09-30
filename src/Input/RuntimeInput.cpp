@@ -42,6 +42,11 @@ namespace OSFUI
 		if (!a_active) m_relativePointer.RequestCancel();
 	}
 
+	void Runtime::OnGameWindowRecreated()
+	{
+		if (m_renderer) m_renderer->GameWindowChanged();
+	}
+
 	void Runtime::OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
 	{
 		if (!IsInputCaptured() || !m_renderer) return;

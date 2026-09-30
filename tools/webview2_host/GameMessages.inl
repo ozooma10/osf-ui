@@ -35,6 +35,12 @@
 				BeginEnvironment();
 			}
 
+			void HandleGameWindow(const json& a_raw)
+			{
+				gameTopLevel = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(msg::FromJson<msg::GameWindow>(a_raw).hwnd));
+				log.Info(std::format("game window -> 0x{:X}", reinterpret_cast<std::uintptr_t>(gameTopLevel)));
+			}
+
 			void HandleNavigate(const json& a_raw)
 			{
 				const auto a_msg = msg::FromJson<msg::Navigate>(a_raw);
@@ -208,6 +214,7 @@
 					{ msg::Back::kType, &App::HandleBack },
 					{ msg::TextInput::kType, &App::HandleTextInput },
 					{ msg::WindowActive::kType, &App::HandleWindowActive },
+					{ msg::GameWindow::kType, &App::HandleGameWindow },
 					{ msg::FrameAck::kType, &App::HandleFrameAck },
 					{ msg::PostWeb::kType, &App::HandlePostWeb },
 					{ msg::OpenDevTools::kType, &App::HandleOpenDevTools },

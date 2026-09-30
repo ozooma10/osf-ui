@@ -63,6 +63,7 @@ namespace OSFUI
 		bool OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key);
 		void OnGameWindowText(const osfui::wv2::msg::TextInput& a_text);
 		void OnGameWindowActivation(bool a_active);
+		void OnGameWindowRecreated();
 		void OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
 		// Accumulate one packet for the active relative-pointer owner.
 		bool OnGameWindowMouseRelative(int a_dx, int a_dy);

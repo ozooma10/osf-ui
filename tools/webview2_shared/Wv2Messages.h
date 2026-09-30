@@ -282,6 +282,14 @@ namespace osfui::wv2::msg
 		static constexpr auto kFields = std::tuple{ F("active", &WindowActive::active) };
 	};
 
+	// Sent when the game recreates its window (window-mode change); supersedes Init::topLevelHwnd.
+	struct GameWindow
+	{
+		static constexpr std::string_view kType = "gameWindow";
+		std::uint64_t hwnd{ 0 };
+		static constexpr auto kFields = std::tuple{ F("hwnd", &GameWindow::hwnd) };
+	};
+
 	struct PostWeb
 	{
 		static constexpr std::string_view kType = "postWeb";
