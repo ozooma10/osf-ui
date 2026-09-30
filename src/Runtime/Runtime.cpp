@@ -115,16 +115,12 @@ namespace OSFUI
 
     bool Runtime::Initialize()
 	{
-		if (m_initialized) {
-			return true;
-		}
 		m_browserHostRecovery.Reset();
 
 		Paths::Initialize();
 		LoadStartupContent();
 		InitializeBridge();
 
-		m_initialized = true;
 		REX::INFO("Runtime: add-on loaded; waiting for SFSE kPostLoad before acquiring OSF Settings");
 		return true;
 	}
@@ -713,7 +709,7 @@ namespace OSFUI
 	void Runtime::UpdateViewReveal()
 	{
 		const auto* pending = m_viewOpens.PendingMenu();
-		if ((pending && pending->phase != ViewOpenCoordinator::Phase::Loading) || !m_initialized || !IsVisible() || !m_renderer || !m_compositor || !m_viewReveal.Pending()) {
+		if ((pending && pending->phase != ViewOpenCoordinator::Phase::Loading) || !IsVisible() || !m_renderer || !m_compositor || !m_viewReveal.Pending()) {
 			return;
 		}
 

@@ -117,7 +117,7 @@ namespace OSFUI
 
 	void Runtime::Update()
 	{
-		if (!m_initialized || !m_osfSettings.Available()) return;
+		if (!m_osfSettings.Available()) return;
 		const auto now = std::chrono::steady_clock::now();
 		m_nowSeconds = std::chrono::duration<double>(now.time_since_epoch()).count();
 		ProcessLifecycleWork();

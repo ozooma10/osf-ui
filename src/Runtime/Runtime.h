@@ -149,7 +149,7 @@ namespace OSFUI
 		// Ownership: ordinary mutable fields below belong to the runtime tick.
 		// This requires ordered, non-overlapping updates. OS thread affinity is not guaranteed.
 		// Startup initializes paths/catalog/settings before input hooks are installed;
-		// m_initialized, m_developerMode and the renderer pointer then stay stable.
+		// m_developerMode and the renderer pointer then stay stable.
 		// Renderer load/failure callbacks run when its queues drain on that tick.
 
 		// Owned services. Keep their construction/destruction order explicit.
@@ -162,7 +162,6 @@ namespace OSFUI
 		std::unique_ptr<DevViewReloadWorker> m_devViewReload;
 
 		// Startup and frame lifecycle.
-		bool m_initialized{ false };
 		bool m_developerMode{ false };       // startup-latched; changes apply next launch
 		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
 		double m_nowSeconds{ 0.0 };

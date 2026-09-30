@@ -12,7 +12,7 @@ namespace OSFUI
 
 	bool Runtime::IsInputCaptured() const
 	{
-		return m_initialized && m_inputCapture.CaptureRequested() && m_visible.load();
+		return m_inputCapture.CaptureRequested() && m_visible.load();
 	}
 
 	bool Runtime::OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key)
