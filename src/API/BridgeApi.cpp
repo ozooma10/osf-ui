@@ -152,7 +152,7 @@ namespace OSFUI::API
 		return true;
 	}
 
-	bool BridgeApi::SendToWeb(const char* a_viewId, const char* a_type,
+	bool BridgeApi::EmitEvent(const char* a_viewId, const char* a_type,
 		const char* a_payloadJson) noexcept
 	{
 		if (!a_viewId || !a_type || !a_type[0] || !a_payloadJson ||
@@ -173,7 +173,7 @@ namespace OSFUI::API
 		return true;
 	}
 
-	bool BridgeApi::SetViewState(const char* a_modId, const char* a_key,
+	bool BridgeApi::SetState(const char* a_modId, const char* a_key,
 		const char* a_payloadJson) noexcept
 	{
 		if (!a_modId || !a_key || !a_key[0] || !a_payloadJson ||
@@ -266,15 +266,15 @@ namespace OSFUI::API
 		return state;
 	}
 
-	void BridgeApi::RespondThunk(std::uint64_t token, const char* json) noexcept
+	void BridgeApi::ReplyThunk(std::uint64_t token, const char* json) noexcept
 	{
-		Get().RespondRequest(token, json);
+		Get().ReplyRequest(token, json);
 	}
 	void BridgeApi::RejectThunk(std::uint64_t token, const char* code,
 		const char* message) noexcept { Get().RejectRequest(token, code, message); }
 
 	// Any thread. Late, duplicate and stale answers are filtered by the bridge on the main thread.
-	void BridgeApi::RespondRequest(std::uint64_t token, const char* json) noexcept
+	void BridgeApi::ReplyRequest(std::uint64_t token, const char* json) noexcept
 	{
 		const auto parsed = json ? Json::Parse(json) : std::nullopt;
 		if (!parsed) {
@@ -316,7 +316,7 @@ namespace OSFUI::API
 		request.payloadJson = payload.c_str();
 		request.sourceViewId = view.c_str();
 		request.m_token = token;
-		request.m_respond = &RespondThunk;
+		request.m_reply = &ReplyThunk;
 		request.m_reject = &RejectThunk;
 		a_registration.fn(request, a_registration.user);
 	}

@@ -32,8 +32,8 @@ namespace OSFUI::API
 		bool          RegisterViewLifecycle(const char* a_viewId, ViewLifecycleFn a_handler, void* a_user) noexcept override;
 		void          UnregisterViewLifecycle(const char* a_viewId) noexcept override;
 		bool          RegisterRequest(const char* a_name, RequestFn a_handler, void* a_user) noexcept override;
-		bool          SendToWeb(const char* a_viewId, const char* a_type, const char* a_payloadJson) noexcept override;
-		bool          SetViewState(const char* a_modId, const char* a_key, const char* a_payloadJson) noexcept override;
+		bool          EmitEvent(const char* a_viewId, const char* a_type, const char* a_payloadJson) noexcept override;
+		bool          SetState(const char* a_modId, const char* a_key, const char* a_payloadJson) noexcept override;
 		void          SetReadyCallback(ReadyFn a_callback, void* a_user) noexcept override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) noexcept override;
 		bool          RegisterView(const char* a_viewId) noexcept override;
@@ -67,7 +67,7 @@ namespace OSFUI::API
 		void PumpRuntimeCallbacks();
 		void RemoveOwnedEndpoint(const char* a_name, void* a_owner);
 		// Shared reply queue for the frozen native ABI adapter.
-		void RespondRequest(std::uint64_t, const char*) noexcept;
+		void ReplyRequest(std::uint64_t, const char*) noexcept;
 		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
 
 		// Runtime relative-pointer dispatch.
@@ -120,7 +120,7 @@ namespace OSFUI::API
 			std::string message;
 		};
 
-		static void RespondThunk(std::uint64_t, const char*) noexcept;
+		static void ReplyThunk(std::uint64_t, const char*) noexcept;
 		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
 		void QueueReply(QueuedReply) noexcept;
 		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
@@ -143,7 +143,7 @@ namespace OSFUI::API
 		std::unordered_set<std::string>               m_knownViews;         // boot-discovered qualified view ids
 		std::unordered_set<std::string>               m_instantiatedViews;  // views with an instantiated document
 		bool                                          m_viewCatalogReady{ false };
-		std::vector<ViewStateOp>                      m_pendingStateOps;    // SetViewState writes, drained by Runtime
+		std::vector<ViewStateOp>                      m_pendingStateOps;    // SetState writes, drained by Runtime
 		std::vector<std::string>                      m_pendingViewRegs;    // RegisterView ids, drained by Runtime
 		MessageBridge*                                m_bridge{ nullptr };  // non-owning; attached once by Runtime
 		ReadyFn                                m_readyCb{ nullptr };

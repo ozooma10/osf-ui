@@ -34,7 +34,7 @@ namespace SettingsViewExample
             return false;
         }
         // Explicit, minimal forwarding. No schema, binding data, or other mods' settings enter the page.
-        return m_views.SetViewState(kModId, "showDetails", showDetails ? "true" : "false");
+        return m_views.SetState(kModId, "showDetails", showDetails ? "true" : "false");
     }
 
     void Consumer::OnSettingChanged(const char*, const char* key, void* user) noexcept

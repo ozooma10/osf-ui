@@ -16,11 +16,13 @@ never `IUI`. Its adapter translates supported native calls, web messages, schema
 and saved values into the current runtime and OSF Settings. See the
 [compatibility scope and exclusions](compatibility-v1.md).
 
-## Native SDK freeze
+## Native SDK versioning
 
-The current `OSFUI.h` defines the initial release contract for the new API at 1.0.
-Existing virtual method order and signatures, callback signatures, payload layouts,
-enum values, and documented behavior must remain compatible after this freeze.
+OSF UI 2.0 is not yet released. The current `OSFUI.h` defines the intended initial
+release contract for the new API at 1.0; development-only names can change without
+compatibility aliases. At release, virtual method order and signatures, callback
+signatures, payload layouts, enum values, and documented behavior become frozen.
+The following rules apply after that release:
 
 - Compatible additions require a minor API version increase. Append new methods
   without moving existing slots and gate their use on the acquired API version.

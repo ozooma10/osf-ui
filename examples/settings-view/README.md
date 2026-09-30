@@ -3,7 +3,7 @@
 A development-only plugin that opens a view from an OSF Settings hotkey and forwards one setting to the page. Not built or packaged with OSF UI.
 
 - `osfui-example.json` declares `showDetails` and the **Open example panel** hotkey (F6; rebind in Settings).
-- At `kPostPostLoad` the plugin acquires both SDKs, subscribes before reading `showDetails`, and publishes only that boolean with `SetViewState`.
+- At `kPostPostLoad` the plugin acquires both SDKs, subscribes before reading `showDetails`, and publishes only that boolean with `SetState`.
 - The hotkey callback queues `RequestMenu` and returns; it never calls the engine.
 - The panel joins the Launcher tab as **OSF UI Example**, has a text field and slider for input testing, and closes with its button or Escape.
 

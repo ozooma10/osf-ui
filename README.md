@@ -26,7 +26,7 @@ Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and th
 
 - HUD autostart waits for page load. Loading and main-menu transitions suspend requested HUDs; they resume afterward and after successful browser recovery. Explicit close requests remain closed.
 - Views load bundled local files only. Browser networking and page-requested external windows are blocked.
-- Pages receive only state their owning mod publishes with `SetViewState` / `OSFUI.SetState`.
+- Pages receive only state their owning mod publishes with `SetState` / `OSFUI.SetState`.
 - A menu view joins the OSF Settings **Launcher** tab with `"launcher": { "modId": "mymod", "modTitle": "My Mod" }` in its manifest. Omit it for private views; Debug-only views appear only in developer mode.
 
 ## Build and test

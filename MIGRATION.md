@@ -24,7 +24,7 @@ view paths, and saved values; they do not need these migration steps. Use the
 | --- | --- |
 | `OSFUI_RequestViews`, `OSFUI::API::Views` | `OSFUI_RequestAPI`, `OSFUI::API::IUI` wrapped by `OSFUI::API::Client` ([OSFUI.h](sdk/OSFUI.h), API 1.0) |
 | `OSFUI_View.psc` | [OSFUI.psc](data/Scripts/Source/OSFUI.psc); recompile scripts |
-| Request replies | JSON only: `request.Respond(json)` |
+| Request replies | JSON only: `request.Reply(json)` |
 | Settings, diagnostics, hotkeys | OSF Settings SDK: `Issue` with `Report` / `Clear`; `AcquireHotkeyBlock` / `ReleaseHotkeyBlock` |
 | Opening a view from a hotkey | Register a callback hotkey with OSF Settings and call `Client::RequestMenu` from it ([example](examples/settings-view/README.md)) |
 
@@ -54,4 +54,4 @@ Legacy providers retain their original flat value files through the compatibilit
 
 ## State
 
-Pages receive only what their mod publishes with `SetViewState` or `OSFUI.SetState`. Read OSF Settings in the mod and forward the values the page needs.
+Pages receive only what their mod publishes with `SetState` or `OSFUI.SetState`. Read OSF Settings in the mod and forward the values the page needs.

@@ -184,7 +184,7 @@ namespace OSFUI::Compat::V1
                 std::lock_guard lock(mutex);
                 if (name && sends.erase(name)) Current().RemoveOwnedEndpoint(name, this);
             }
-            bool SendToWeb(const char* view, const char* type, const char* json) override { return Current().SendToWeb(view, type, json); }
+            bool SendToWeb(const char* view, const char* type, const char* json) override { return Current().EmitEvent(view, type, json); }
             void SetReadyCallback(ReadyFn fn, void* user) override { Current().SetReadyCallback(fn, user); }
             bool RequestMenu(const char* view, bool open) override
             {
@@ -317,7 +317,7 @@ namespace OSFUI::Compat::V1
                             const auto parsed = json ? Json::Parse(json) : std::nullopt;
                             if (!parsed) { Current().RejectRequest(token, "invalid-response", "legacy handler returned invalid JSON"); return; }
                             const auto reply = Json::Dump({{"__osfuiV1Reply", true}, {"type", type && *type ? type : "ui.result"}, {"payload", *parsed}});
-                            Current().RespondRequest(token, reply.c_str());
+                            Current().ReplyRequest(token, reply.c_str());
                         },
                         [](std::uint64_t token, const char* code, const char* message) noexcept { Current().RejectRequest(token, code, message); }};
                     callback.request(request, callback.user);
@@ -331,7 +331,7 @@ namespace OSFUI::Compat::V1
             }
             bool SetViewState(const char* mod, const char* key, const char* json) override
             {
-                return Current().SetViewState(mod, key, json);
+                return Current().SetState(mod, key, json);
             }
         };
         LegacyBridge& Instance() { static auto* bridge = new LegacyBridge; return *bridge; }

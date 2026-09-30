@@ -11,8 +11,8 @@ namespace OSFUI::API
 {
 	// Packed major.minor ABI versions, independent of the plugin release version.
 	// OSF UI 2.0 release contract: API 1.0 through OSFUI_RequestAPI.
-	// Freeze existing slots, signatures, payload layouts and enum values. Compatible
-	// additions require a minor bump; incompatible changes require a new major interface.
+	// Once 2.0 ships, freeze slots, signatures, payload layouts and enum values.
+	// Then compatible additions require a minor bump; incompatible changes require a new major interface.
 	// Earlier 2.0 development layouts are unsupported; rebuild those consumers.
 	// Legacy 1.6 consumers use the separate OSFUI_RequestBridge ABI 1.7 adapter.
 	inline constexpr std::uint32_t kVersion = 0x00010000u;
@@ -49,7 +49,7 @@ namespace OSFUI::API
 	// Copyable deferred reply token. Copies may answer later from any thread; only the first answer counts.
 	struct Request
 	{
-		using RespondFn = void (*)(std::uint64_t token, const char* json) noexcept;
+		using ReplyFn = void (*)(std::uint64_t token, const char* json) noexcept;
 		using RejectFn = void (*)(std::uint64_t token, const char* code, const char* message) noexcept;
 
 		const char* name{};          // Registered endpoint; valid only for the callback.
@@ -57,9 +57,9 @@ namespace OSFUI::API
 		const char* sourceViewId{};  // Sending view; valid only for the callback.
 
 		// Resolves with a JSON payload. Invalid JSON rejects with "invalid-response".
-		void Respond(const char* json) const noexcept
+		void Reply(const char* json) const noexcept
 		{
-			if (m_respond) m_respond(m_token, json);
+			if (m_reply) m_reply(m_token, json);
 		}
 		// Rejects with a stable code and optional message.
 		void Reject(const char* code, const char* message = "") const noexcept
@@ -69,7 +69,7 @@ namespace OSFUI::API
 
 		// Host-owned reply state; copy it, do not modify it.
 		std::uint64_t m_token{};
-		RespondFn m_respond{};
+		ReplyFn m_reply{};
 		RejectFn m_reject{};
 	};
 	static_assert(std::is_standard_layout_v<Request> && std::is_trivially_copyable_v<Request>);
@@ -90,10 +90,10 @@ namespace OSFUI::API
 		// Queues a transient event for a view; the page receives it through on(event). payloadJson must be valid JSON.
 		// false for an invalid view ID, event longer than 128 bytes, empty event, invalid JSON, or payload over 1 MiB.
 		// Oldest queued events per view are dropped under pressure.
-		virtual bool SendToWeb(const char* viewId, const char* event, const char* payloadJson) noexcept = 0;
+		virtual bool EmitEvent(const char* viewId, const char* event, const char* payloadJson) noexcept = 0;
 		// Stores mod-scoped retained state and replays it to fresh documents. valueJson must be valid JSON.
 		// false for an invalid mod ID, empty or overlong key, invalid JSON, or a full pending queue.
-		virtual bool SetViewState(const char* modId, const char* key, const char* valueJson) noexcept = 0;
+		virtual bool SetState(const char* modId, const char* key, const char* valueJson) noexcept = 0;
 		// Replaces the previous callback. While ready, invokes it once in a subsequent runtime callback pump.
 		virtual void SetReadyCallback(ReadyFn callback, void* context) noexcept = 0;
 
@@ -160,13 +160,13 @@ namespace OSFUI::API
 			return m_api && m_api->RegisterRequest(name, callback, context);
 		}
 
-		bool SendToWeb(const char* viewId, const char* event, const char* payloadJson) const noexcept
+		bool EmitEvent(const char* viewId, const char* event, const char* payloadJson) const noexcept
 		{
-			return m_api && m_api->SendToWeb(viewId, event, payloadJson);
+			return m_api && m_api->EmitEvent(viewId, event, payloadJson);
 		}
-		bool SetViewState(const char* modId, const char* key, const char* valueJson) const noexcept
+		bool SetState(const char* modId, const char* key, const char* valueJson) const noexcept
 		{
-			return m_api && m_api->SetViewState(modId, key, valueJson);
+			return m_api && m_api->SetState(modId, key, valueJson);
 		}
 		void SetReadyCallback(ReadyFn callback, void* context) const noexcept
 		{

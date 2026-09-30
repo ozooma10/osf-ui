@@ -25,7 +25,7 @@ namespace
     void Request(const OSFUI::API::Request& request, void*) noexcept
     {
         ++g_request;
-        request.Respond("{}");
+        request.Reply("{}");
     }
 }
 
@@ -99,15 +99,15 @@ int main()
     auto registrations = api.TakePendingBatch().viewRegistrations;
     CHECK(registrations == std::vector<std::string>{ "acme/panel" });
 
-    CHECK(api.SetViewState("acme", "status", R"({"ready":true})"));
-    CHECK(!api.SetViewState("acme", "status", "{bad"));
+    CHECK(api.SetState("acme", "status", R"({"ready":true})"));
+    CHECK(!api.SetState("acme", "status", "{bad"));
     auto state = api.TakePendingBatch().state;
     CHECK(state.size() == 1 && state[0].mod == "acme" && state[0].key == "status");
 
     // Draining state preserves publication order and leaves requests and
     // registrations queued for the next batch.
-    CHECK(api.SetViewState("acme", "status", R"({"revision":1})"));
-    CHECK(api.SetViewState("acme", "status", R"({"revision":2})"));
+    CHECK(api.SetState("acme", "status", R"({"revision":1})"));
+    CHECK(api.SetState("acme", "status", R"({"revision":2})"));
     CHECK(api.RequestMenu("acme/hud", true));
     api.ViewRequests().Enqueue(ViewPresentationRequest::Back);
     CHECK(api.RegisterView("acme/hud"));
@@ -125,7 +125,7 @@ int main()
     CHECK(std::get<ViewPresentationRequest>(afterState.presentation.at(1)) == ViewPresentationRequest::Back);
     CHECK(afterState.viewRegistrations == std::vector<std::string>{ "acme/hud" });
     // An empty state drain must not swallow a subsequent publication.
-    CHECK(api.SetViewState("acme", "status", R"({"revision":3})"));
+    CHECK(api.SetState("acme", "status", R"({"revision":3})"));
     auto laterState = api.TakePendingBatch().state;
     CHECK(laterState.size() == 1 && laterState[0].value["revision"] == 3);
 
@@ -180,7 +180,7 @@ int main()
     api.SetBridgeAvailability(false);
     api.PumpRuntimeCallbacks();
     g_sent.clear();
-    CHECK(api.SendToWeb("acme/panel", "acme.during-recovery", R"({"value":7})"));
+    CHECK(api.EmitEvent("acme/panel", "acme.during-recovery", R"({"value":7})"));
     CHECK(api.RegisterSend("acme.recovered", &Send, nullptr));
     CHECK(api.RegisterRequest("acme.recoveredQuery", &Request, nullptr));
     api.PumpRuntimeCallbacks();
@@ -232,11 +232,11 @@ int main()
     api.UnregisterRelativePointer("AcMe/PaNeL");
     CHECK(!api.HasRelativePointer("acme/panel"));
     g_sent.clear();
-    CHECK(api.SendToWeb("ACME/PANEL", "mixed-case", "{}"));
+    CHECK(api.EmitEvent("ACME/PANEL", "mixed-case", "{}"));
     api.PumpRuntimeCallbacks();
     CHECK(g_sent.size() == 1 && g_sent.back()["name"] == "mixed-case");
     g_sent.clear();
-    CHECK(api.SendToWeb("acme/panel", "commented-json", R"({/* allowed input */"value":3})"));
+    CHECK(api.EmitEvent("acme/panel", "commented-json", R"({/* allowed input */"value":3})"));
     api.PumpRuntimeCallbacks();
     CHECK(g_sent.size() == 1 && g_sent.back()["payload"]["value"] == 3);
     g_sent.clear();
