@@ -178,7 +178,21 @@ namespace osfui::wv2
 			std::thread reader;
 			std::atomic_bool quit{ false };
 			bool             rendererFatal{ false };  // STA thread only; first failure wins
-			std::string      byeReason;  // overrides the default bye reason (STA thread only)
+			std::string      byeReason;  // overrides the default bye reason (STA thread only); first reason wins
+
+			~App()
+			{
+				if (gameProcess) ::CloseHandle(gameProcess);
+				if (wakeEvent) ::CloseHandle(wakeEvent);
+			}
+
+			// STA thread only.
+			void RequestQuit(std::string_view a_reason)
+			{
+				if (byeReason.empty()) byeReason = a_reason;
+				quit.store(true);
+				if (wakeEvent) ::SetEvent(wakeEvent);
+			}
 
 			static constexpr std::size_t kMaxGameMessages = 1024;
 			static constexpr std::size_t kGameMessagesPerDrain = 128;
@@ -521,13 +535,13 @@ namespace osfui::wv2
 			{
 				if (!rendererFatal) {
 					rendererFatal = true;
-					log.Error(std::format("{}: {} (0x{:08X})", a_stage, a_description, static_cast<unsigned>(a_hr)));
+					log.Error(a_view.empty()
+						? std::format("{}: {} (0x{:08X})", a_stage, a_description, static_cast<unsigned>(a_hr))
+						: std::format("{} (view '{}'): {} (0x{:08X})", a_stage, a_view, a_description, static_cast<unsigned>(a_hr)));
 					Send(msg::ToJson(msg::Fatal{ .stage = std::string(a_stage), .view = std::string(a_view),
 						.description = std::string(a_description), .code = static_cast<std::uint32_t>(a_hr) }));
 				}
-				byeReason = std::string(a_stage);
-				quit.store(true);
-				if (wakeEvent) ::SetEvent(wakeEvent);
+				RequestQuit(a_stage);
 			}
 
 			bool BeginEnvironment()
@@ -644,25 +658,12 @@ namespace osfui::wv2
 				PromptRepairWebView2Runtime(log, a_hr);
 			}
 
+			// The host refuses to run without its complete browser security policy.
 			void ReportSecurityFailure(View& a_view, HRESULT a_hr,
 				std::string_view a_description)
 			{
-				if (rendererFatal) return;
-				rendererFatal = true;
-				byeReason = "security-policy-failed";
-				const auto code = static_cast<unsigned>(a_hr);
-				log.Error(std::format("view '{}': {} (0x{:08X}); refusing to run "
-									 "without the complete browser security policy",
-					a_view.id, a_description, code));
-				Send(msg::ToJson(msg::Fatal{
-					.stage = "browser-security",
-					.view = a_view.id,
-					.description = std::string(a_description),
-					.code = code,
-				}));
-				if (a_view.webView) a_view.webView->Stop();
-				quit.store(true);
-				if (wakeEvent) ::SetEvent(wakeEvent);
+				if (!rendererFatal && a_view.webView) a_view.webView->Stop();
+				FailHost("browser-security", a_hr, a_description, a_view.id);
 			}
 
 			HRESULT HandleNavigationStarting(View& a_view, ICoreWebView2NavigationStartingEventArgs* a_args, bool a_frame)
@@ -1104,8 +1105,7 @@ namespace osfui::wv2
 								view->id, static_cast<int>(kind)));
 							switch (kind) {
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED:
-								byeReason = "browser-process-exited";
-								quit.store(true);
+								RequestQuit("browser-process-exited");
 								break;
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED:
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE:
@@ -1647,18 +1647,7 @@ namespace osfui::wv2
 		App app;
 		app.log.Open(a_options.logFile);
 
-		bool elevated = false;
-		{
-			HANDLE token = nullptr;
-			if (::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
-				TOKEN_ELEVATION elevation{};
-				DWORD size = 0;
-				elevated = ::GetTokenInformation(token, TokenElevation,
-								&elevation, sizeof(elevation), &size) &&
-				           elevation.TokenIsElevated;
-				::CloseHandle(token);
-			}
-		}
+		const bool elevated = osfui::win32::IsProcessElevated();
 		const auto exePath = osfui::win32::ModulePath();
 		app.log.Info(std::format(
 			"osfui_webview2_host starting (pid {}, game pid {}, pipe '{}', elevated={}, exe '{}')",
@@ -1668,7 +1657,8 @@ namespace osfui::wv2
 		// Production permits exactly one browser host per game process.
 		const auto mutexName =
 			std::format(L"Local\\osfui-wv2-host-{}", a_options.gamePid);
-		const HANDLE instanceMutex = ::CreateMutexW(nullptr, TRUE, mutexName.c_str());
+		const std::unique_ptr<void, decltype(&::CloseHandle)> instanceMutex(
+			::CreateMutexW(nullptr, TRUE, mutexName.c_str()), &::CloseHandle);
 		if (!instanceMutex || ::GetLastError() == ERROR_ALREADY_EXISTS) {
 			app.log.Error("another browser-host instance is already running for this game pid");
 			return 3;
@@ -1677,7 +1667,6 @@ namespace osfui::wv2
 		app.pipe.PrepareForOpen();
 		if (!app.pipe.Connect(a_options.pipeName, 15000)) {
 			app.log.Error("pipe connect failed: " + app.pipe.LastErrorText());
-			::CloseHandle(instanceMutex);
 			return 2;
 		}
 		const auto serverPid = app.pipe.ServerProcessId();
@@ -1685,8 +1674,6 @@ namespace osfui::wv2
 			app.log.Error(std::format(
 				"rejected pipe server: expected game pid {}, kernel reported {}",
 				a_options.gamePid, serverPid.value_or(0)));
-			app.pipe.Close();
-			::CloseHandle(instanceMutex);
 			return 6;
 		}
 		app.log.Info(std::format("verified pipe server pid {}", *serverPid));
@@ -1706,7 +1693,6 @@ namespace osfui::wv2
 					elevated ? "yes" : "no");
 			}
 			app.log.Error(message);
-			::CloseHandle(instanceMutex);
 			return 4;
 		}
 
@@ -1725,9 +1711,6 @@ namespace osfui::wv2
 				.pid = ::GetCurrentProcessId(),
 			}))) {
 			app.log.Error("hello write failed: " + app.pipe.LastErrorText());
-			app.pipe.Close();
-			::CloseHandle(app.gameProcess);
-			::CloseHandle(instanceMutex);
 			return 7;
 		}
 		app.log.Info("hello sent (WebView2 Runtime " + webView2RuntimeVersion + ")");
@@ -1735,9 +1718,6 @@ namespace osfui::wv2
 		app.wakeEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
 		if (!app.wakeEvent) {
 			app.log.Error(std::format("CreateEvent(wake) failed (Win32 error {})", ::GetLastError()));
-			app.pipe.Close();
-			::CloseHandle(app.gameProcess);
-			::CloseHandle(instanceMutex);
 			return 10;
 		}
 		app.reader = std::thread([&app] { app.ReaderMain(); });
@@ -1747,21 +1727,13 @@ namespace osfui::wv2
 		} catch (const winrt::hresult_error& e) {
 			app.log.Error("unhandled browser-host failure: " + ToUtf8(e.message()));
 		}
+		// Run() normally stops the reader itself; this also covers the exception path.
 		app.quit.store(true);
-		if (app.wakeEvent) {
-			::SetEvent(app.wakeEvent);
-		}
+		::SetEvent(app.wakeEvent);
 		app.pipe.Close();
 		if (app.reader.joinable()) {
 			app.reader.join();
 		}
-		if (app.gameProcess) {
-			::CloseHandle(app.gameProcess);
-		}
-		if (app.wakeEvent) {
-			::CloseHandle(app.wakeEvent);
-		}
-		::CloseHandle(instanceMutex);
 		return code;
 	}
 }

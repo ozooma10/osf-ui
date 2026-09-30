@@ -27,8 +27,7 @@
 					requestedAdapter = luid;
 				}
 				if (!InitializeGraphics(requestedAdapter)) {
-					byeReason = "graphics-init-failed";
-					quit.store(true);
+					RequestQuit("graphics-init-failed");
 					return;
 				}
 				rootVisual.Size({ static_cast<float>(width), static_cast<float>(height) });
