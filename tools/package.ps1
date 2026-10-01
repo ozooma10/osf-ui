@@ -144,12 +144,16 @@ try {
             }
         }
 
+    Step 'Checking the staged DLL API negotiation and compiled Papyrus signatures'
+    & (Join-Path $RepoRoot 'tests\package\test-package.ps1') -DataRoot $StageData
+
     New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
     $archive = Join-Path $OutDir "OSF-UI-$versionLabel.zip"
     if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
     Compress-Archive -Path (Join-Path $Staging '*') -DestinationPath $archive -CompressionLevel Optimal
 
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+    "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath ($archive + '.sha256') -Encoding utf8
     Write-Host "Created $archive" -ForegroundColor Green
     Write-Host "SHA256 $hash"
     Write-Host 'Requires OSF Settings (settings, diagnostics and providers ABI 1.0), SFSE, and Address Library.'

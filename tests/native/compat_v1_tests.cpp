@@ -27,6 +27,16 @@ int main()
     const fs::path fixtures = "tests/native/fixtures/compat-v1";
     const auto read = [](const fs::path& file) { std::ifstream input(file); return Document::parse(input); };
     std::string error;
+    const auto ssseSource = read(fixtures / "ssse-settings.json");
+    const auto ssse = TranslateSettings(ssseSource, {{"openExchange", "F8"}, {"future", 42}}, error);
+    CHECK(ssse.has_value());
+    CHECK(ssse->id == "x2357.ssse" && ssse->keys == std::vector<std::string>{"openExchange"});
+    CHECK(ssse->defaults["openExchange"] == 0x76); // F7
+    CHECK(ssse->values["openExchange"] == 0x77); // preserve the user's F8 override
+    CHECK(ssse->Encode(ssse->values)["openExchange"] == "F8");
+    CHECK(ssse->Encode(ssse->values)["future"] == 42);
+    CHECK(SaveValues(*ssse, ssse->values));
+    CHECK(read(Root() / "settings/values/x2357.ssse.json") == ssse->Encode(ssse->values));
     for (const auto& [id, count] : std::vector<std::pair<std::string, unsigned>>{
         {"ddc.dynamicdialoguecamera", 6}, {"somaticcamera.sf", 18}, {"fieldos.aegis", 24}}) {
         const auto schema = read(fixtures / (id + ".json"));

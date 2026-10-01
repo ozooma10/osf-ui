@@ -26,9 +26,6 @@ namespace OSFUI
 		// Process-wide so a late answer can never settle a request on a recreated bridge.
 		std::atomic<std::uint64_t> g_nextDeferToken{ 1 };
 
-		// Keep the runtime deadline longer than the page timer so timeout and no-response stay distinct.
-		constexpr auto kRequestDeadline = std::chrono::seconds(30);
-
 		[[nodiscard]] std::string BoundedEcho(std::string_view a_s, std::size_t a_limit = kMaxEndpointNameLength)
 		{
 			return std::string{ a_s.substr(0, StringUtil::Utf8TruncateLen(a_s, a_limit)) };
@@ -321,7 +318,7 @@ namespace OSFUI
 		NoteTracedReply(std::string("error:") + std::string(a_code));
 	}
 
-	MessageBridge::DeferToken MessageBridge::Defer()
+	MessageBridge::DeferToken MessageBridge::Defer(std::chrono::milliseconds a_timeout)
 	{
 		if (m_currentRequestId.empty() || m_settled) {
 			REX::WARN("MessageBridge: Defer() outside an unsettled request ('{}')", m_currentName);
@@ -334,7 +331,7 @@ namespace OSFUI
 			.view = m_currentSource,
 			.requestId = m_currentRequestId,
 			.name = m_currentName,
-			.deadline = std::chrono::steady_clock::now() + kRequestDeadline,
+			.deadline = std::chrono::steady_clock::now() + a_timeout,
 		};
 		NoteTracedReply("deferred");
 		return token;
@@ -545,7 +542,7 @@ namespace OSFUI
 			}
 			// Handler silence is reported to the page but never counted against the view.
 			ReportProtocolFault(req.view, "no-response",
-				std::format("'{}' never answered within {}s", req.name, std::chrono::duration_cast<std::chrono::seconds>(kRequestDeadline).count()),
+				std::format("'{}' never answered before its deadline", req.name),
 				{ { "name", req.name } }, /*a_viewFault*/ false);
 		}
 	}

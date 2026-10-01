@@ -303,6 +303,7 @@ namespace RE
 					std::string              fn;
 					std::vector<std::string> args;
 					std::vector<std::string> argTypes;
+					std::vector<std::string> parameterTypes;
 				};
 
 				static VirtualMachine* GetSingleton()
@@ -319,7 +320,7 @@ namespace RE
 						return false;
 					}
 					auto packed = Resolve(std::forward<Fn>(a_makeArgs));
-					calls.push_back({ true, a_script.c_str(), nullptr, 0, a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
+					calls.push_back({ true, a_script.c_str(), nullptr, 0, a_fn.c_str(), std::move(packed.args), std::move(packed.types), std::move(packed.parameters) });
 					return true;
 				}
 
@@ -328,7 +329,7 @@ namespace RE
 					const BSTSmartPointer<IStackCallbackFunctor>&, int)
 				{
 					auto packed = Resolve(std::forward<Fn>(a_makeArgs));
-					calls.push_back({ false, "", a_receiver.get(), 0, a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
+					calls.push_back({ false, "", a_receiver.get(), 0, a_fn.c_str(), std::move(packed.args), std::move(packed.types), std::move(packed.parameters) });
 					return true;
 				}
 
@@ -340,7 +341,7 @@ namespace RE
 						return false;
 					}
 					auto packed = Resolve(std::forward<Fn>(a_makeArgs));
-					calls.push_back({ false, a_script.c_str(), nullptr, a_handle, a_fn.c_str(), std::move(packed.args), std::move(packed.types) });
+					calls.push_back({ false, a_script.c_str(), nullptr, a_handle, a_fn.c_str(), std::move(packed.args), std::move(packed.types), std::move(packed.parameters) });
 					return true;
 				}
 
@@ -352,6 +353,7 @@ namespace RE
 				{
 					std::vector<std::string> args;
 					std::vector<std::string> types;
+					std::vector<std::string> parameters;
 				};
 
 				template <class Fn>
@@ -363,6 +365,7 @@ namespace RE
 					out.args.reserve(packed.size());
 					out.types.reserve(packed.size());
 					for (const auto& v : packed) {
+						out.parameters.push_back(v.Type());
 						if (v.IsList()) {
 							for (std::size_t i = 0; i < v.List().size(); ++i) {
 								out.args.push_back(v.List()[i]);

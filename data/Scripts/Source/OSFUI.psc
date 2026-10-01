@@ -178,3 +178,37 @@ bool Function Close(string asViewId) Global Native
 ; OSF UI 1.6 aliases retained for compiled consumer scripts.
 bool Function OpenMenu(string asViewId = "osfui/settings") Global Native
 bool Function CloseMenu(string asViewId = "osfui/settings") Global Native
+
+; Frozen v1 compatibility. Registrations/state expire on game load; scripts re-register.
+; SetView* is void; ReplyView* and Unregister return false for stale/duplicate tokens.
+; Hotkeys use the existing OSF Settings key setting, with gameplay/capture gates.
+int Function RegisterForHotkey(ScriptObject akReceiver, string asFn, string asModId, string asKey = "") Global Native
+int Function RegisterForHotkeyStatic(string asScript, string asFn, string asModId, string asKey = "") Global Native
+Function SetViewBool(string asModId, string asKey, bool abValue) Global Native
+Function SetViewInt(string asModId, string asKey, int aiValue) Global Native
+Function SetViewFloat(string asModId, string asKey, float afValue) Global Native
+Function SetViewString(string asModId, string asKey, string asValue) Global Native
+Function SetViewBools(string asModId, string asKey, bool[] abValues) Global Native
+Function SetViewInts(string asModId, string asKey, int[] aiValues) Global Native
+Function SetViewFloats(string asModId, string asKey, float[] afValues) Global Native
+Function SetViewStrings(string asModId, string asKey, string[] asValues) Global Native
+Function SetViewForms(string asModId, string asKey, Form[] akForms) Global Native
+int Function RegisterForViewActions(ScriptObject akReceiver, string asFn, string asModId) Global Native
+int Function RegisterForViewActionsStatic(string asScript, string asFn, string asModId) Global Native
+int Function RegisterForViewActionsArgs(ScriptObject akReceiver, string asFn, string asModId) Global Native
+int Function RegisterForViewActionsArgsStatic(string asScript, string asFn, string asModId) Global Native
+int Function ListenForViewActions(ScriptObject akReceiver, string asModId) Global Native
+int Function ListenForViewActionsStatic(string asScript, string asModId) Global Native
+int Function ListenForViewRequests(ScriptObject akReceiver, string asModId) Global Native
+int Function ListenForViewRequestsStatic(string asScript, string asModId) Global Native
+bool Function ReplyViewBool(string asReplyToken, bool abValue) Global Native
+bool Function ReplyViewInt(string asReplyToken, int aiValue) Global Native
+bool Function ReplyViewFloat(string asReplyToken, float afValue) Global Native
+bool Function ReplyViewString(string asReplyToken, string asValue) Global Native
+bool Function ReplyViewBools(string asReplyToken, bool[] abValues) Global Native
+bool Function ReplyViewInts(string asReplyToken, int[] aiValues) Global Native
+bool Function ReplyViewFloats(string asReplyToken, float[] afValues) Global Native
+bool Function ReplyViewStrings(string asReplyToken, string[] asValues) Global Native
+bool Function ReplyViewForms(string asReplyToken, Form[] akForms) Global Native
+bool Function RejectViewRequest(string asReplyToken, string asCode, string asMessage = "") Global Native
+bool Function Unregister(int aiToken) Global Native

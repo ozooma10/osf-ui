@@ -1,3 +1,4 @@
+#include "Compat/V1/PapyrusAdapter.h"
 #include "API/PapyrusApi.h"
 #include "Compat/V1/LegacyBridge.h"
 
@@ -786,6 +787,7 @@ namespace OSFUI::API::Papyrus
 		// Entries hold no VM references, so clearing them touches nothing the old session owned.
 		void ClearRegistrations(std::string_view a_reason)
 		{
+			Compat::V1::Papyrus::ResetSession();
 			std::lock_guard l{ State().lock };
 			const std::size_t dropped = State().entries.size();
 			for (auto& e : State().entries) {
@@ -805,6 +807,7 @@ namespace OSFUI::API::Papyrus
 
 		void SetSuspended(bool a_suspended, std::string_view a_reason)
 		{
+			Compat::V1::Papyrus::SetSuspended(a_suspended);
 			if (State().suspended.exchange(a_suspended, std::memory_order_acq_rel) != a_suspended) {
 				REX::DEBUG("PapyrusApi: dispatch {} ({})", a_suspended ? "suspended" : "resumed", a_reason);
 			}
@@ -855,6 +858,7 @@ namespace OSFUI::API::Papyrus
 			return;
 		}
 		BindNativeMethods(&a_vm);
+		Compat::V1::Papyrus::BindNatives(a_vm);
 	}
 
 	void Install()

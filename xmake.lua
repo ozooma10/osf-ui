@@ -206,3 +206,17 @@ target("osfui-api-version-tests")
     add_includedirs("src", "sdk", "tests/native/stubs")
     set_pcxxheader("tests/native/stubs/pch.h")
     add_packages("nlohmann_json")
+
+-- Frozen Papyrus signatures through the real protocol bridge, with VM/Settings test doubles.
+target("osfui-legacy-papyrus-tests")
+    set_kind("binary")
+    set_default(false)
+    set_rundir(os.projectdir())
+    add_tests("default")
+    add_files("tests/native/legacy_papyrus_tests.cpp", "src/Compat/V1/PapyrusAdapter.cpp",
+        "src/API/PapyrusApi.cpp", "src/API/BridgeApi.cpp", "src/Compat/V1/LegacyBridge.cpp",
+        "src/Compat/V1/SettingsCodec.cpp", "src/Compat/V1/KeyNames.cpp",
+        "src/Views/ViewRequestQueue.cpp", "src/Bridge/MessageBridge.cpp", "src/Core/Json.cpp")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk")
+    set_pcxxheader("tests/native/stubs/pch.h")
+    add_packages("nlohmann_json")

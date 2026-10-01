@@ -139,7 +139,11 @@
       }
       pending.set(requestId, { resolve, reject, timer, command,
         pluginRequest: /^[a-z0-9-]+\.[a-z0-9-]+\..+/.test(command) });
-      g.postMessage(JSON.stringify({ kind: "request", name: command, id: requestId, payload: Object.assign({ command }, fields || {}) }));
+      const payload = Object.assign({ command }, fields || {});
+      // Private v2 transport metadata; the frozen Papyrus callback remains unchanged.
+      if (command === "ui.papyrusRequest" && timeoutMs > 0)
+        payload.__osfuiV1TimeoutMs = Math.min(60000, Math.max(1, Math.trunc(timeoutMs)));
+      g.postMessage(JSON.stringify({ kind: "request", name: command, id: requestId, payload }));
     });
   };
   g.call = (command, fields, opts) =>
@@ -215,6 +219,7 @@
       switch (incoming.kind) {
         case "ready": message = { type: "runtime.ready", payload: incoming.payload }; break;
         case "event": message = { type: incoming.name, payload: incoming.payload }; break;
+        case "state": message = { type: "data.state", payload: { mod: incoming.mod, key: incoming.key, value: incoming.value } }; break;
         case "reply":
           message = incoming.payload && incoming.payload.__osfuiV1Reply === true
             ? { type: incoming.payload.type, payload: incoming.payload.payload, requestId: incoming.id }
@@ -225,6 +230,20 @@
       }
     }
     if (!message || typeof message.type !== "string") return;
+    if (message.type === "data.reset") {
+      // Hidden documents can outlive a save. Invalidate cached replay and current
+      // subscribers before state from the new session arrives.
+      const keys = message.payload && Array.isArray(message.payload.keys)
+        ? message.payload.keys.map(dataKey) : [...dataState.keys()];
+      const old = keys.map(key => dataState.get(key)).filter(Boolean);
+      keys.forEach(key => dataState.delete(key));
+      for (const current of old) {
+        const payload = { ...current.payload, value: null };
+        for (const fn of [...(listeners.get("data.state") || [])]) {
+          try { fn(payload, { type: "data.state", payload }); } catch (e) { console.error("osfui.on handler failed:", e); }
+        }
+      }
+    }
     if (message.type === "runtime.ready") {
       resolveReady(message.payload || {});
         resolveI18n({ locale, strings });

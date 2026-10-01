@@ -1,0 +1,22 @@
+{
+  "id": "x2357.ssse",
+  "title": "Settled Systems Stock Exchange",
+  "description": "X-2357's Settled Systems Stock Exchange - hotkey and display options. Created by X-2357.",
+  "version": 1,
+  "groups": [
+    {
+      "id": "input",
+      "label": "Input",
+      "settings": [
+        {
+          "key": "openExchange",
+          "label": "Open the exchange",
+          "type": "key",
+          "default": "F7",
+          "allowUnbound": true,
+          "hint": "Opens the exchange view during gameplay. The SSSE Broker Console aid item does the same."
+        }
+      ]
+    }
+  ]
+}

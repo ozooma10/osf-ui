@@ -59,7 +59,14 @@ namespace OSFUI
 		void Reject(std::string_view a_code, std::string_view a_message = {});
 		// Returns a token for bounded deferred settlement, or 0 outside an unsettled request.
 		// The bridge is the only owner of deferred requests; adapters just carry the token.
-		[[nodiscard]] DeferToken Defer();
+		[[nodiscard]] DeferToken Defer(std::chrono::milliseconds a_timeout = std::chrono::seconds(30));
+		// Runtime-thread liveness for adapters with a separate script-token ledger.
+		[[nodiscard]] bool HasPending(DeferToken a_token) const { return m_pending.contains(a_token); }
+		[[nodiscard]] bool IsGreeted(std::string_view a_view) const
+		{
+			const auto found = m_gates.find(std::string(a_view));
+			return found != m_gates.end() && found->second.greeted;
+		}
 
 		// Stale, expired, and duplicate deferred-settlement tokens are ignored.
 		void RespondTo(DeferToken a_token, const nlohmann::json& a_payload);

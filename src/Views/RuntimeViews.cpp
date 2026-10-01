@@ -1,3 +1,4 @@
+#include "Compat/V1/PapyrusAdapter.h"
 #include "Runtime/Runtime.h"
 
 #include <utility>
@@ -93,8 +94,13 @@ namespace OSFUI
 		m_relativePointer.Cancel(id);
 		m_viewLoads.BeginLoad(id);
 		m_viewInputGrants.ResetPage(id);
+		if (m_bridge) {
+			// Discard old correlations before starting the new document. A cancellation
+			// message sent after navigation could otherwise hit a reused page request id.
+			m_bridge->OnViewCreated(id);
+			Compat::V1::Papyrus::CloseView(*m_bridge, id);
+		}
 		m_renderer->CreateOrNavigateView(a_manifest);
-		if (m_bridge) m_bridge->OnViewCreated(id);
 		API::BridgeApi::Get().SetViewInstantiated(id, true);
 		// Geometry is renderer-wide, retained across restart and replayed in its
 		// connection snapshot. Navigation does not need to resend unchanged sizes.
@@ -142,6 +148,7 @@ namespace OSFUI
 			API::BridgeApi::Get().SetBridgeAvailability(false);
 		}
 		if (m_bridge) {
+			Compat::V1::Papyrus::CloseView(*m_bridge, a_id);
 			m_bridge->OnViewDestroyed(a_id);
 		}
 		m_viewInputGrants.ResetPage(a_id);

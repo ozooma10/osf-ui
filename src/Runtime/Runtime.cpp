@@ -1,3 +1,4 @@
+#include "Compat/V1/PapyrusAdapter.h"
 #include "Runtime/Runtime.h"
 
 #include "API/BridgeApi.h"
@@ -219,6 +220,7 @@ namespace OSFUI
 					else PrepareViewOpen(view->view);
 				} else {
 					FailPendingOpen("The interface was closed.", view->view);
+					if (m_bridge) Compat::V1::Papyrus::CloseView(*m_bridge, view->view);
 					m_viewOpens.CancelHud(view->view);
 					m_presentation.Close(view->view);
 				}
@@ -559,6 +561,7 @@ namespace OSFUI
 			if (!previous.empty()) {
 				API::BridgeApi::Get().DispatchViewLifecycle(previous, API::ViewLifecyclePhase::kHidden);
 				if (m_bridge) {
+					Compat::V1::Papyrus::CloseView(*m_bridge, previous);
 					m_bridge->Emit(previous, "ui.visibility", nlohmann::json{ { "visible", false }, { "reason", reason } });
 				}
 			}

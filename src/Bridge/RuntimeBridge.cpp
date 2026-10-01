@@ -1,3 +1,4 @@
+#include "Compat/V1/PapyrusAdapter.h"
 #include "Runtime/Runtime.h"
 
 #include <format>
@@ -167,6 +168,9 @@ namespace OSFUI
 			}
 		}
 		m_viewInputGrants.ResetPage(a_viewId);
+		if (const auto* manifest = m_views.Find(a_viewId); manifest && manifest->legacy) {
+			Compat::V1::Papyrus::ReplayState(*m_bridge, a_viewId);
+		}
 	}
 
 	void Runtime::OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault)
@@ -192,6 +196,10 @@ namespace OSFUI
 
     void Runtime::RegisterPlatformEndpoints(MessageBridge& a_bridge)
 	{
+		Compat::V1::Papyrus::RegisterEndpoints(a_bridge, [this](std::string_view view) {
+			const auto* manifest = m_views.Find(view);
+			return manifest && manifest->legacy && m_presentation.IsInstantiated(view);
+		});
 		a_bridge.RegisterSend("close", [this](const nlohmann::json&, MessageBridge& a_b) {
 			EnqueueCloseView(std::string(a_b.CurrentSource()));
 		});

@@ -16,7 +16,8 @@ $required = @(
     'SFSE\Plugins\OSFUI\views\shared\osfui.js',
     'SFSE\Plugins\OSFUI\views\shared\osfui.css',
     'SFSE\Plugins\OSF\Settings\schemas\osfui.json',
-    'Scripts\OSFUI.pex'
+    'Scripts\OSFUI.pex',
+    'Scripts\Source\OSFUI.psc'
 )
 foreach ($relative in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf)) {
@@ -61,4 +62,6 @@ if ($sync -notmatch 'os\.rm\(path\.join\(views, "shared"\)\)') {
     throw 'runtime_payload.lua must synchronize only OSF UI-owned views'
 }
 
-Write-Host 'OSF UI package ownership test passed'
+& python (Join-Path $PSScriptRoot 'verify_binary.py') $root
+if ($LASTEXITCODE -ne 0) { throw 'OSF UI compiled binary contract verification failed' }
+Write-Host 'OSF UI package ownership and compiled binary tests passed'

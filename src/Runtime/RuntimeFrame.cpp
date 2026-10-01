@@ -1,3 +1,4 @@
+#include "Compat/V1/PapyrusAdapter.h"
 #include "Runtime/Runtime.h"
 
 #include "API/PapyrusApi.h"
@@ -91,6 +92,13 @@ namespace OSFUI
 	void Runtime::ProcessRendererNotifications()
 	{
 		Compat::V1::Pump();
+        if (m_bridge) {
+            std::vector<std::string> legacyViews;
+            for (const auto& manifest : m_views.All())
+                if (manifest.legacy && m_presentation.IsInstantiated(manifest.id)) legacyViews.push_back(manifest.id);
+            Compat::V1::Papyrus::Pump(*m_bridge, legacyViews, !IsInputCaptured() && !MenuEventSink::TransitionOpen());
+        }
+
 		// Install pending native endpoints before incoming pages can call them.
 		API::BridgeApi::Get().PumpRuntimeCallbacks();
 		if (m_renderer) m_renderer->DrainNotifications();
