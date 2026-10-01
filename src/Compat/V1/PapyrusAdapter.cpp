@@ -475,8 +475,17 @@ namespace OSFUI::Compat::V1::Papyrus
                 // erase its new-session replay when the event gate opens after hello.
                 if (!bridge.IsGreeted(view)) continue;
                 auto keys = Json::array();
-                for (const auto& [mod, key] : S().resetKeys)
-                    if (Ids::EqualsCaseInsensitiveAscii(mod, Ids::ModOf(view))) keys.push_back(key);
+                for (const auto& address : S().resetKeys) {
+                    if (!Ids::EqualsCaseInsensitiveAscii(address.first, Ids::ModOf(view))) continue;
+                    keys.push_back(address.second);
+                    // A greeting may already have replayed this session's value.
+                    // Invalidate that delivery so fresh state follows this reset,
+                    // including when publication must wait until loading resumes.
+                    if (auto current = S().values.find(address); current != S().values.end()) {
+                        current->second.delivered.erase(view);
+                        current->second.dirty = true;
+                    }
+                }
                 if (!keys.empty()) bridge.Emit(view, "data.reset", {{"keys", keys}});
             }
             S().resetKeys.clear();

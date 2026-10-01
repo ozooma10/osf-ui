@@ -1,0 +1,109 @@
+[center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784309971-769134952.png[/img][/center]
+
+[center][size=5][b]Custom Menus and HUDs for Starfield[/b][/size][/center]
+
+[center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-930784041.png[/img][/center]
+[b]OSF UI[/b] lets mods build in-game interfaces with HTML, CSS, and JavaScript. It provides the framework for custom menus, browsers, interactive panels, and HUD overlays, with connections to C++ and Papyrus.
+
+Install it alongside mods that require it, then open their interfaces through the mod's controls or the [b]LAUNCHER[/b] tab in OSF Settings.
+
+[quote][b]New in 2.0:[/b] Mod settings, keybindings, and issue reporting have moved to [url=https://www.nexusmods.com/starfield/mods/18326]OSF Settings[/url]. [b]OSF Settings is now required by OSF UI.[/b] Install both to use OSF UI mods. Mods built for OSF Settings alone do not need OSF UI.[/quote]
+
+[center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-1196566958.png[/img][/center]
+[list]
+[*][b]Custom Interfaces:[/b] Build menus and interactive panels using HTML, CSS, and JavaScript, rendered in-game through Microsoft WebView2.[/*]
+[*][b]HUD Overlays:[/b] Display transparent, passive views during gameplay, with support for multiple HUD layers.[/*]
+[*][b]C++ and Papyrus Support:[/b] Connect interfaces to mod logic, send commands, request data, and update what the player sees.[/*]
+[*][b]Keyboard, Mouse, and Controller Input:[/b] Support interactive controls and gamepad navigation. Controller support depends on the individual interface.[/*]
+[*][b]Shared Launcher:[/b] Supporting mods can list their menus in OSF Settings for easy access.[/*]
+[*][b]Loads When Needed:[/b] The WebView2 helper starts when a view is requested.[/*]
+[/list]
+
+[i]OSF UI is a framework. Custom menus and HUDs are supplied by individual mods; installing it alone does not add a new interface to the game.[/i]
+
+[center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306243-1886780377.png[/img][/center]
+[b]Requirements[/b]
+[list]
+[*][url=https://www.nexusmods.com/starfield/mods/106]Starfield Script Extender (SFSE)[/url][/*]
+[*][url=https://www.nexusmods.com/starfield/mods/3256]Address Library for SFSE Plugins[/url][/*]
+[*][url=https://www.nexusmods.com/starfield/mods/18326]OSF Settings[/url] - install the companion 1.0.0 release or a compatible newer release.[/*]
+[*][url=https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section]Microsoft Edge WebView2 Evergreen Runtime[/url][/*]
+[/list]
+
+Install the requirements, then install and enable OSF UI with MO2 or Vortex.
+[b]No ESM or ESP activation is needed for OSF UI.[/b]
+
+Launch Starfield through SFSE and load a save. Open [b]MOD SETTINGS[/b] from the Pause menu, or press [font=Courier New]F10[/font] by default, then select [b]LAUNCHER[/b] to open a registered mod menu. Some mods open their interfaces through their own hotkeys or gameplay actions instead.
+
+[b]Updating from 1.x[/b]
+Exit the game, update OSF UI through your mod manager, and install OSF Settings alongside it. Install the complete OSF UI 2.0 package so the plugin and browser helper are updated together.
+
+2.0 includes built-in compatibility for supported mods using the 1.6 interfaces. These mods can keep their existing compiled plugins, scripts, view files, and saved settings. [b]Keep mod-provided files and existing saved values in place.[/b] Compatibility covers the documented 1.6 interfaces; other integrations may need an update from their author.
+
+The old OSF UI settings and keybindings pages are replaced by OSF Settings. [font=Courier New]F10[/font] now belongs to OSF Settings and can be rebound there.
+
+[b]Installing and updating mid-save[/b]
+OSF UI itself does not require a new save. Follow any separate installation or update instructions provided by the mods using it.
+
+[center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306243-115352482.png[/img][/center]
+[b]Build your interface with web tools, then connect it to your mod.[/b]
+Ship a view manifest and local HTML, CSS, and JavaScript files. Use the C++ or Papyrus API to open views, handle commands and requests, publish events, and keep interface state up to date.
+[list]
+[*][b]Menus and HUDs:[/b] Choose an interactive menu or a passive HUD. Menus can capture input and optionally pause gameplay.[/*]
+[*][b]Launcher Integration:[/b] Add a [font=Courier New]launcher[/font] entry to a menu's manifest to list it in OSF Settings.[/*]
+[*][b]Settings and Hotkeys:[/b] Use OSF Settings for configuration, rebindable hotkeys, and issue reporting. Forward any settings your web interface needs through OSF UI.[/*]
+[*][b]Developer Tools:[/b] Enable Developer mode on the OSF UI settings page and restart the game for F12 WebView DevTools and loose-view hot reload.[/*]
+[/list]
+
+[b]Minimal view manifest[/b]
+[spoiler]
+Place your manifest at:
+[code]Data/SFSE/Plugins/OSF/UI/views/mymod/panel/manifest.json[/code]
+Place [font=Courier New]index.html[/font] and the interface's assets alongside it.
+[code]{
+  "manifestVersion": 1,
+  "title": "My Mod",
+  "entry": "index.html",
+  "kind": "menu",
+  "capturesInput": true,
+  "pausesGame": true,
+  "launcher": {
+    "modId": "mymod",
+    "modTitle": "My Mod"
+  }
+}[/code]
+This view's ID is [font=Courier New]mymod/panel[/font]. Bundle the files your page needs locally; browser networking and page-requested external windows are blocked.
+[/spoiler]
+
+See [url=https://github.com/ozooma10/osf-ui]GitHub[/url] for the SDK, examples, view manifest reference, 1.6 compatibility notes, and migration guide. New integrations should use the 2.0 API.
+
+[b][color=#46c7c2][size=4]Troubleshooting[/size][/color][/b]
+
+[b]I installed OSF UI, but nothing new appears.[/b]
+OSF UI supplies the framework. Install a mod that provides an OSF UI interface, then follow that mod's instructions to open it.
+
+[b]F10 does nothing, or MOD SETTINGS is missing.[/b]
+Install and enable OSF Settings, launch through SFSE, and confirm that [font=Courier New]OSFSettings.dll[/font] loaded successfully in the SFSE log. Check whether the opening key has been rebound.
+
+[b]A mod is missing from the Launcher.[/b]
+Only menus registered for the launcher appear there. HUDs and menus opened through a mod's own controls may not have a launcher entry.
+
+[b]A menu fails to open or appears blank.[/b]
+Check that the WebView2 Evergreen Runtime is installed, OSF UI's complete package is enabled, and the mod's interface files are present. Check [b]MOD ISSUES[/b] in OSF Settings for any reported problem and suggested steps.
+
+[b]Reporting a bug[/b]
+Include what happened, steps to reproduce it, the affected mod, and your Starfield, OSF UI, and OSF Settings versions. For rendering problems, also include whether you use HDR, frame generation, or other overlays.
+
+Attach the OSF UI, OSF Settings, and SFSE logs, plus [font=Courier New]OSF UI.webview2-host.log[/font] if present, from:
+[code]Documents/My Games/Starfield/SFSE/Logs[/code]
+
+[center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306246-1794772097.png[/img][/center]
+[list]
+[*][b]ianpatt and the SFSE team[/b] ([url=https://sfse.silverlock.org/]SFSE[/url])[/*]
+[*][b]CommonLibSF contributors[/b] ([url=https://github.com/libxse/commonlibsf]CommonLibSF[/url])[/*]
+[*][b]meh321[/b] ([url=https://www.nexusmods.com/starfield/mods/3256]Address Library[/url])[/*]
+[*][b]Microsoft[/b] ([url=https://developer.microsoft.com/en-us/microsoft-edge/webview2/]WebView2[/url])[/*]
+[*][b]StarkMP[/b] ([url=https://www.nexusmods.com/skyrimspecialedition/mods/148718]Prisma UI[/url]) - inspiration for the framework.[/*]
+[/list]
+
+Source, author guides, and issue tracker on [url=https://github.com/ozooma10/osf-ui]GitHub[/url].

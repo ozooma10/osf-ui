@@ -299,6 +299,67 @@ int main()
     CHECK(listenRequests(*vm, 0, {}, receiver, "x2357.ssse") > 0);
     API::Papyrus::OnMainMenuOpened(); pump(); CHECK(providers.observers.empty());
     CHECK(providers.registrations == 0);
+
+    // Model the legacy helper's per-document cache. A reset must never be the
+    // last delivery for a key already republished in the current session.
+    const std::string chartView = "x2357.ssse/chart";
+    std::map<std::string, Json> pageData;
+    const auto consumeState = [&] {
+        for (const auto& [target, message] : wire) {
+            auto [cached, _] = pageData.try_emplace(target, Json::object());
+            if (message["kind"] == "state") cached->second[message["key"].get<std::string>()] = message["value"];
+            else if (message["kind"] == "event" && message["name"] == "data.reset")
+                for (const auto& key : message["payload"]["keys"]) cached->second.erase(key.get<std::string>());
+        }
+        wire.clear();
+    };
+    // Re-publish a second mod too; each document receives only its own reset/state.
+    setInts(*vm, 0, {}, "other.mod", "independent", {7});
+    Legacy::ReplayState(bridge, other); consumeState();
+    for (const bool greetBeforePump : {false, true}) {
+        for (int iteration = 0; iteration < 3; ++iteration) {
+            const int latest = 10 + iteration;
+            setInts(*vm, 0, {}, "x2357.ssse", "replay", {1});
+            setInts(*vm, 0, {}, "x2357.ssse", "removed", {99});
+            Legacy::ReplayState(bridge, view); consumeState();
+            Legacy::CloseView(bridge, chartView);
+            bridge.OnViewCreated(chartView);
+            pageData[chartView] = Json::object(); // A newly created document has no old cache.
+            Legacy::ResetSession();
+            setInts(*vm, 0, {}, "x2357.ssse", "replay", {2});
+            Legacy::ResetSession(); // Consecutive loads coalesce; only the latest value survives.
+            setInts(*vm, 0, {}, "x2357.ssse", "replay", {latest});
+            setInts(*vm, 0, {}, "other.mod", "independent", {7});
+            Legacy::ReplayState(bridge, other); consumeState();
+            if (greetBeforePump) {
+                send(chartView, "osfui.hello"); consumeState();
+                CHECK(pageData[chartView]["replay"] == Json({latest}));
+                // Repeated greetings must not let a pending reset erase fresh replay.
+                send(chartView, "osfui.hello"); consumeState();
+            }
+            Legacy::Pump(bridge, {view, chartView, other}, true); consumeState();
+            if (!greetBeforePump) { send(chartView, "osfui.hello"); consumeState(); }
+            CHECK(pageData[view]["replay"] == Json({latest}));
+            CHECK(pageData[chartView]["replay"] == Json({latest}));
+            CHECK(!pageData[view].contains("removed") && !pageData[chartView].contains("removed"));
+            CHECK(pageData[other]["independent"] == Json({7}) && !pageData[other].contains("replay"));
+            Legacy::Pump(bridge, {view, chartView, other}, true);
+            CHECK(wire.empty()); // No unsolicited duplicate delivery on the following tick.
+        }
+    }
+    // If loading starts after replay, invalidation can run while suspended;
+    // current values must remain dirty so resuming restores the cleared cache.
+    Legacy::ResetSession();
+    setInts(*vm, 0, {}, "x2357.ssse", "replay", {42});
+    Legacy::ReplayState(bridge, view); consumeState();
+    Legacy::SetSuspended(true);
+    Legacy::Pump(bridge, {view}, true); consumeState();
+    CHECK(!pageData[view].contains("replay"));
+    Legacy::SetSuspended(false);
+    Legacy::Pump(bridge, {view}, true); consumeState();
+    CHECK(pageData[view]["replay"] == Json({42}));
+    Legacy::Pump(bridge, {view}, true); CHECK(wire.empty());
+
     std::fprintf(stderr, "legacy_papyrus_tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures;
 }

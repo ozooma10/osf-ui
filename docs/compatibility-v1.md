@@ -92,7 +92,10 @@ script state; scripts re-register and republish, as Stock Exchange's original
 session. Weak VM identities, monotonic registration tokens, idempotent action/key
 registration, first-wins request ownership and dead-receiver cleanup prevent
 duplicates and stale callbacks. Reset invalidates only Papyrus-owned cached keys;
-it does not erase native state or run after a new page's greeting replay.
+it does not erase native state. If a reset follows fresh greeting replay, affected
+current values are republished after the reset (or on resume if loading is
+suspended). Pre-hello documents receive their current values through greeting
+replay. See the [reset/replay regression record](RESET_REPLAY_VALIDATION.md).
 
 Hotkeys observe the canonical existing OSF Settings key setting using its provider
 service. No additional schema, provider, ControlMap action or persistence path is

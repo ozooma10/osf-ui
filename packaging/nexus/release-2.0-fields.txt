@@ -1,0 +1,47 @@
+TITLE
+OSF UI - Web Interface Framework
+
+SHORT DESCRIPTION
+An SFSE framework for custom in-game menus and HUDs built with HTML, CSS, and JavaScript. Connect interfaces to C++ or Papyrus, with keyboard, mouse, and controller support. Requires OSF Settings.
+
+VERSION
+2.0.0
+
+CHANGELOG
+- Moved mod configuration, keybindings, and issue reporting to the separate OSF Settings framework. OSF Settings is now required.
+- Mod menus can register with the Launcher in OSF Settings.
+- Added a new 2.0 API for custom menus, passive HUDs, and communication between web interfaces and C++ or Papyrus.
+- Included a compatibility adapter for the documented 1.6 interfaces, preserving supported mods' existing files and saved values.
+- The WebView2 helper starts when a view is requested.
+
+NEXUS REQUIREMENTS
+Starfield Script Extender (SFSE): https://www.nexusmods.com/starfield/mods/106
+Address Library for SFSE Plugins: https://www.nexusmods.com/starfield/mods/3256
+OSF Settings: https://www.nexusmods.com/starfield/mods/18326
+External requirement: Microsoft Edge WebView2 Evergreen Runtime
+https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+
+EDITOR NOTES (NOT PART OF THE PUBLIC DESCRIPTION)
+The paste-ready description is in description-2.0.bbcode.txt.
+It reuses the original OSF UI banner and all five original cyan section headers. No new image uploads are required. Troubleshooting uses a cyan text heading.
+Update Nexus's title, short description, and Requirements fields as well as the main description.
+At release, publish the 2.0 author documentation to the public GitHub default branch; the public default branch still showed the older combined framework during this review.
+The local release documentation calls for the companion OSF Settings 1.0.0 release; older development builds with the same version number may have incompatible interfaces. Publish the matching release pair.
+The compatibility wording follows the documented 1.6 baseline. It does not claim that every historical integration is supported or that in-game acceptance testing is complete.
+
+EXISTING OSF UI IMAGE REFERENCES
+Main banner:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784309971-769134952.png
+01 Overview:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-930784041.png
+02 Features:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-1196566958.png
+03 Get Started:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306243-1886780377.png
+04 For Authors:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306243-115352482.png
+05 Credits:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306246-1794772097.png
+
+OPTIONAL NEW ARTWORK
+For an image header on every section, add a cyan 05 Troubleshooting banner and renumber the Credits banner to 06. Both would need uploading to Nexus before their image URLs could be inserted. The current text heading avoids that requirement.

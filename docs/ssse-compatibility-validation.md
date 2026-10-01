@@ -4,6 +4,12 @@ Status: automated compatibility/build/package checks pass. **In-game acceptance 
 unverified.** No game profile was launched, no live installation was deployed, and
 Stock Exchange was not edited or rebuilt. No commit, push or publication was made.
 
+Current candidate and follow-up fix: [RESET_REPLAY_VALIDATION.md](RESET_REPLAY_VALIDATION.md)
+records the corrected reset/replay behavior, fresh test results, and exact matched
+UI/Settings package hashes. Package identities and logs below describe the
+earlier adapter implementation and are historical; use the new record for this
+candidate. In-game acceptance remains unverified.
+
 ## Evidence and scope
 
 The OSF UI checkout was clean on branch `dev` before this work. The applicable
@@ -126,7 +132,7 @@ checkout at `c0afdf0ade3ce6b6bb0c45875302c16551d09a22` byte for byte. Runtime
 acceptance needs a Settings build from this compatible source/layout; product
 version 1.0.0 alone is insufficient to identify a development build.
 
-## Candidate artifacts and hashes
+## Historical adapter candidate artifacts and hashes
 
 Built from OSF UI `dev` at `2f5f68d2f5abca374924f71ef845c940e41fb6af` plus
 the uncommitted changes listed below, in `releasedbg` mode. The candidate archive
