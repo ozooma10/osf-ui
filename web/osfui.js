@@ -161,7 +161,13 @@
         resolve: resolve, reject: reject, timer: timer, name: endpoint,
         startedAt: TRACE ? Date.now() : 0,
       });
-      post({ kind: "request", name: endpoint, id: id, payload: call.payload });
+      try {
+        post({ kind: "request", name: endpoint, id: id, payload: call.payload });
+      } catch (error) {
+        pending.delete(id);
+        if (timer) clearTimeout(timer);
+        reject(error);
+      }
     });
   };
 

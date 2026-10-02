@@ -533,6 +533,7 @@ namespace osfui::wv2
 
 			void FailHost(std::string_view a_stage, HRESULT a_hr, std::string_view a_description, std::string_view a_view = {})
 			{
+				captureClosing = true;
 				if (!rendererFatal) {
 					rendererFatal = true;
 					log.Error(a_view.empty()
@@ -1368,7 +1369,8 @@ namespace osfui::wv2
 						3, winrt::Windows::Graphics::SizeInt32{
 							static_cast<std::int32_t>(width), static_cast<std::int32_t>(height) });
 				} catch (const winrt::hresult_error& a_error) {
-					log.Warn(std::format("frame pool resize failed: {}", ToUtf8(a_error.message())));
+					FailHost("capture-resize", a_error.code(),
+						std::format("frame pool resize failed: {}", ToUtf8(a_error.message())));
 				}
 			}
 

@@ -318,14 +318,17 @@
 				}
 
 				const auto serial = ++frameSerial;
+				if (const auto hr = context4->Signal(produceFence.Get(), serial); FAILED(hr)) {
+					FailHost("capture-signal", hr, "could not signal the shared frame fence");
+					return false;
+				}
 				slot.lastSerial = serial;
 				lastSlot = writableSlot;
 				ringWrite = (writableSlot + 1) % kRingSlots;
-				context4->Signal(produceFence.Get(), serial);
 				context->Flush();
-				Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
+				if (!Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
 					.width = a_width, .height = a_height,
-					.presentationEpoch = a_presentationEpoch }));
+					.presentationEpoch = a_presentationEpoch }))) return false;
 				if (serial == 1) {
 					log.InfoFwd(std::format("first frame published ({}x{})", a_width, a_height));
 				}
@@ -362,7 +365,8 @@
 					try {
 						framePool.Recreate(captureDevice, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, winrt::Windows::Graphics::SizeInt32{ static_cast<std::int32_t>(width), static_cast<std::int32_t>(height) });
 					} catch (const winrt::hresult_error& a_error) {
-						log.Error(std::format("could not drain stale capture frames before presentation epoch {}: {}", a_epoch, ToUtf8(a_error.message())));
+						FailHost("capture-recreate", a_error.code(),
+							std::format("could not drain stale capture frames before presentation epoch {}: {}", a_epoch, ToUtf8(a_error.message())));
 						return false;
 					}
 				}
@@ -372,7 +376,7 @@
 			bool PromoteChangedPresentation(View& a_view)
 			{
 				const bool advanced = AdvanceChangedPresentation(a_view.pendingPresentationEpoch);
-				// Clear completed or stale reveals; retain the request if pool recreation failed.
+				// Clear completed or stale reveals. Recreation failure shuts down the host.
 				if (a_view.pendingPresentationEpoch <= presentationEpoch) {
 					a_view.pendingPresentationEpoch = 0;
 					if (captureOpening.view == a_view.id && !a_view.captureWarm && !captureOpening.settleUntil) {
