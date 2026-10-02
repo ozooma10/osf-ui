@@ -16,13 +16,12 @@
     "title": { "type": "string" },
     "description": { "type": "string" },
     "launcher": {
-      "type": "object",
-      "description": "Opt this menu into the OSF Settings launcher. Omit for private and HUD views.",
-      "required": ["modId"],
+      "type": ["boolean", "object"],
+      "description": "Use true to list this menu in OSF Settings using the mod folder ID and view title. An object opts in with optional overrides. Omit or use false for private and HUD views.",
       "additionalProperties": false,
       "properties": {
-        "modId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9._-]+$", "not": { "enum": [".", ".."] } },
-        "modTitle": { "type": "string", "maxLength": 256 }
+        "modId": { "type": "string", "description": "Optional OSF Settings mod ID override. Defaults to the containing mod folder name, which must satisfy the same ID rules when used as the default.", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9._-]+$", "not": { "enum": [".", ".."] } },
+        "modTitle": { "type": "string", "description": "Optional mod display name override. Defaults to the view title.", "maxLength": 256 }
       }
     },
     "entry": {
@@ -61,7 +60,7 @@
     }
   },
   "allOf": [{
-    "if": { "required": ["launcher"] },
+    "if": { "required": ["launcher"], "properties": { "launcher": { "anyOf": [{ "const": true }, { "type": "object" }] } } },
     "then": { "properties": { "kind": { "const": "menu" } } }
   }]
 }

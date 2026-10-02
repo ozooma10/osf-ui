@@ -3,7 +3,7 @@
   "title": "Settings integration example",
   "entry": "index.html",
   "kind": "menu",
-  "launcher": { "modId": "osfui-example", "modTitle": "OSF UI Example" },
+  "launcher": true,
   "width": 900,
   "height": 560,
   "capturesInput": true,

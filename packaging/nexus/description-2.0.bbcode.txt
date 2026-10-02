@@ -67,12 +67,9 @@ Place [font=Courier New]index.html[/font] and the interface's assets alongside i
   "kind": "menu",
   "capturesInput": true,
   "pausesGame": true,
-  "launcher": {
-    "modId": "mymod",
-    "modTitle": "My Mod"
-  }
+  "launcher": true
 }[/code]
-This view's ID is [font=Courier New]mymod/panel[/font]. Bundle the files your page needs locally; browser networking and page-requested external windows are blocked.
+This view's ID is [font=Courier New]mymod/panel[/font]. The launcher uses the [font=Courier New]mymod[/font] folder name as its mod ID and [font=Courier New]title[/font] as its display name. To override either, use an object such as [font=Courier New]"launcher": { "modId": "mymod", "modTitle": "My Mod" }[/font]; both fields are optional. Omit [font=Courier New]launcher[/font] or set it to [font=Courier New]false[/font] to leave the view out of the launcher. Bundle the files your page needs locally; browser networking and page-requested external windows are blocked.
 [/spoiler]
 
 See [url=https://github.com/ozooma10/osf-ui]GitHub[/url] for the SDK, examples, view manifest reference, 1.6 compatibility notes, and migration guide. New integrations should use the 2.0 API.

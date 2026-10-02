@@ -53,12 +53,41 @@ int main()
 	CHECK(manifest && manifest->id == "demo.mod/terminal");
 	CHECK(manifest && manifest->title == "Cargo terminal");
 	CHECK(manifest && manifest->launcherMod.empty());
+	Write(path, R"({"manifestVersion":1,"title":"Demo","launcher":true})");
+	manifest = OSFUI::ViewManifest::Load(path);
+	CHECK(manifest && manifest->launcherMod == "demo.mod" && manifest->launcherModTitle == "Demo");
+	for (const auto kind : { "menu", "hud" }) {
+		manifest = OSFUI::ViewManifest::Parse(path, {{"manifestVersion", 1}, {"kind", kind}, {"launcher", false}});
+		CHECK(manifest && manifest->launcherMod.empty() && manifest->launcherModTitle.empty());
+	}
+	Write(path, R"({"manifestVersion":1,"launcher":{}})");
+	manifest = OSFUI::ViewManifest::Load(path);
+	CHECK(manifest && manifest->launcherMod == "demo.mod" && manifest->launcherModTitle == "demo.mod/terminal");
+	Write(path, R"({"manifestVersion":1,"title":"Demo","launcher":{}})");
+	manifest = OSFUI::ViewManifest::Load(path);
+	CHECK(manifest && manifest->launcherMod == "demo.mod" && manifest->launcherModTitle == "Demo");
+	Write(path, R"({"manifestVersion":1,"launcher":{"modTitle":"Demo"}})");
+	manifest = OSFUI::ViewManifest::Load(path);
+	CHECK(manifest && manifest->launcherMod == "demo.mod" && manifest->launcherModTitle == "Demo");
+	Write(path, R"({"manifestVersion":1,"launcher":{"modId":"other.mod"}})");
+	manifest = OSFUI::ViewManifest::Load(path);
+	CHECK(manifest && manifest->launcherMod == "other.mod" && manifest->launcherModTitle == "demo.mod/terminal");
+	CHECK(manifest && manifest->id == "demo.mod/terminal" && manifest->mod == "demo.mod");
 	Write(path, R"({"manifestVersion":1,"launcher":{"modId":"demo.mod","modTitle":"Demo"}})");
 	manifest = OSFUI::ViewManifest::Load(path);
 	CHECK(manifest && manifest->launcherMod == "demo.mod" && manifest->launcherModTitle == "Demo");
 	for (const auto invalid : {
-		R"({"manifestVersion":1,"launcher":true})",
+		R"({"manifestVersion":1,"launcher":null})",
+		R"({"manifestVersion":1,"launcher":0})",
+		R"({"manifestVersion":1,"launcher":1})",
+		R"({"manifestVersion":1,"launcher":"true"})",
+		R"({"manifestVersion":1,"launcher":[]})",
+		R"({"manifestVersion":1,"kind":"hud","launcher":true})",
+		R"({"manifestVersion":1,"launcher":{"modId":null}})",
+		R"({"manifestVersion":1,"launcher":{"modId":1}})",
+		R"({"manifestVersion":1,"launcher":{"modId":""}})",
 		R"({"manifestVersion":1,"launcher":{"modId":"Invalid ID"}})",
+		R"({"manifestVersion":1,"kind":"hud","launcher":{}})",
 		R"({"manifestVersion":1,"kind":"hud","launcher":{"modId":"demo"}})",
 		R"({"manifestVersion":1,"launcher":{"modId":"demo","modTitle":1}})"
 	}) {
@@ -100,6 +129,10 @@ int main()
 	};
 	const auto validPath = addView("Acme.widgets_2~demo", "main-menu");
 	CHECK(OSFUI::ViewManifest::Load(validPath));
+	// View folders accept characters that Settings launcher IDs do not.
+	CHECK(!OSFUI::ViewManifest::Parse(validPath, {{"manifestVersion", 1}, {"launcher", nlohmann::json::object()}}));
+	manifest = OSFUI::ViewManifest::Parse(validPath, {{"manifestVersion", 1}, {"launcher", {{"modId", "acme.widgets"}}}});
+	CHECK(manifest && manifest->launcherMod == "acme.widgets" && manifest->id == "Acme.widgets_2~demo/main-menu");
 	for (const auto& invalidMod : {
 		std::filesystem::path(u8"\u6a21\u7ec4"), std::filesystem::path("bad name"),
 		std::filesystem::path("bad+name"), std::filesystem::path("bad;name"),
