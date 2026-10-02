@@ -13,6 +13,9 @@ namespace osfui::wv2
 		const unsigned char kBridgeShim[] = {
 #include "bridge-shim.js.h"
 		};
+		const unsigned char kLegacyTransport[] = {
+#include "web-transport.js.h"
+		};
 		const unsigned char kNetworkGuard[] = {
 #include "network-guard.js.h"
 		};
@@ -40,9 +43,11 @@ namespace osfui::wv2
 	{
 		static const auto controls = LoadScript(kFormControls);
 		static const auto bridge = controls + LoadScript(kBridgeShim);
+		static const auto legacyBridge = bridge + LoadScript(kLegacyTransport);
 		static const auto network = LoadScript(kNetworkGuard);
 		switch (a_script) {
 		case EmbeddedScript::BridgeShim:   return bridge;
+		case EmbeddedScript::LegacyBridgeShim: return legacyBridge;
 		case EmbeddedScript::NetworkGuard: return network;
 		case EmbeddedScript::FormControls: return controls;
 		}

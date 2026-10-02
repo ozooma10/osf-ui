@@ -7,6 +7,7 @@ namespace osfui::wv2
 	enum class EmbeddedScript
 	{
 		BridgeShim,
+		LegacyBridgeShim,
 		NetworkGuard,
 		FormControls,
 	};

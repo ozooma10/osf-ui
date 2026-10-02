@@ -25,9 +25,10 @@ Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and th
 
 
 - HUD autostart waits for page load. Loading and main-menu transitions suspend requested HUDs; they resume afterward and after successful browser recovery. Explicit close requests remain closed.
+- View files are prepared in the background after game data loads. Each session reuses that preparation for view opens and browser recovery; unchanged disk caches are reused across sessions. An earlier view request starts or waits for the same preparation job.
 - Views load bundled local files only. Browser networking and page-requested external windows are blocked.
 - Pages receive only state their owning mod publishes with `SetState` / `OSFUI.SetState`.
-- A menu view joins the OSF Settings **Launcher** tab with `"launcher": { "modId": "mymod", "modTitle": "My Mod" }` in its manifest. Omit it for private views; Debug-only views appear only in developer mode.
+- A menu view joins the OSF Settings **Launcher** tab with `"launcher": true` in its manifest. The launcher mod ID defaults to the mod folder name and its display name defaults to the view's `title`. Use an object such as `"launcher": { "modId": "mymod", "modTitle": "My Mod" }` only for overrides; both fields are optional. Launcher IDs allow lowercase letters, digits, `.`, `_`, and `-`; other folder names need an explicit valid override. Omit `launcher` or set it to `false` for private and HUD views; Debug-only views appear only in developer mode.
 
 ## Build and test
 

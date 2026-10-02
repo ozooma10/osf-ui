@@ -822,7 +822,8 @@ namespace osfui::wv2
 
 			void InstallBridgeShim(View& a_view)
 			{
-				const auto hr = AddDocumentScript(a_view, EmbeddedScript::BridgeShim,
+				const auto hr = AddDocumentScript(a_view,
+					a_view.legacy ? EmbeddedScript::LegacyBridgeShim : EmbeddedScript::BridgeShim,
 					[this, id = a_view.id, generation = a_view.generation](const HRESULT a_scriptHr) {
 						auto* view = FindView(id);
 						if (!view || view->generation != generation) return;

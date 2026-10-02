@@ -53,6 +53,13 @@ Legacy views are discovered only under `Data/SFSE/Plugins/OSFUI/views/<mod>/<vie
 
 The old shared stylesheet and adapted JavaScript helper are shipped at the original `shared/` URLs. The helper preserves `ready`, `available()`, `send`/`emit`, `request`/`call`, event payloads, typed request replies, and gamepad messages over the new transport. `RegisterCommand` supports the baseline's fire-and-forget sends; the old command auto-ack/request-ID injection contract is outside this baseline. The old settings-browser endpoints, Papyrus settings APIs, automatic settings-to-web forwarding, localization catalogs, and later modular 1.x exports are not emulated.
 
+Legacy views that bundle their own 1.x helper, such as Console Command Center,
+receive transport translation in the injected browser bridge. It initiates the
+ready handshake, translates `ui.command` sends/requests, and returns legacy
+envelopes with the original request ID and typed reply. The shared helper remains
+supported; modern views retain the 2.0 wire format. This does not add command
+auto-acks or the unsupported endpoints listed above.
+
 `OSFUI.OpenMenu` and `CloseMenu` remain available to already compiled scripts. Their old default `osfui/settings` target opens/closes OSF Settings. The old HTML Mods/Settings/Keybindings pages are not shipped.
 
 ## Legacy Papyrus view adapter

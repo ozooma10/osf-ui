@@ -4,6 +4,86 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync('src/Compat/V1/web/osfui.js', 'utf8');
+const shim = fs.readFileSync('tools/webview2_host/scripts/bridge-shim.js', 'utf8');
+const transport = fs.readFileSync('src/Compat/V1/web-transport.js', 'utf8');
+
+function injectedBridge(legacy = true) {
+  const sent = [];
+  let receive;
+  const chrome = { webview: {
+    postMessage: text => sent.push(JSON.parse(text)),
+    addEventListener: (name, fn) => { assert.equal(name, 'message'); receive = fn; },
+  } };
+  const window = { chrome };
+  const context = vm.createContext({ window, chrome, document: {}, console, setTimeout, clearTimeout });
+  vm.runInContext(shim, context);
+  if (legacy) vm.runInContext(transport, context);
+  return { context, api: window.osfui, sent, receive: message => receive({ data: message }) };
+}
+
+test('bundled 1.x wire requests receive their typed close reply and original correlation ID', () => {
+  const { api, sent, receive } = injectedBridge();
+  const received = [];
+  api.onMessage = text => received.push(JSON.parse(text));
+  assert.deepEqual(sent, [{ kind: 'send', name: 'osfui.hello', payload: {} }]);
+  receive({ kind: 'ready', payload: { version: '2.0.0' } });
+  assert.equal(received.at(-1).type, 'runtime.ready');
+
+  // Console Command Center's bundled helper sends this exact 1.x envelope.
+  api.postMessage(JSON.stringify({ type: 'ui.command', requestId: 'q1',
+    payload: { command: 'console.command-center.close' } }));
+  assert.deepEqual(sent.at(-1), { kind: 'request', name: 'console.command-center.close',
+    id: 'q1', payload: { command: 'console.command-center.close' } });
+  receive({ kind: 'reply', id: 'q1', payload: { __osfuiV1Reply: true,
+    type: 'console.command-center.closeResult', payload: { ok: true } } });
+  assert.deepEqual(received.at(-1), { type: 'console.command-center.closeResult',
+    requestId: 'q1', payload: { ok: true } });
+  receive({ kind: 'error', id: 'q2', payload: { code: 'unavailable', message: 'close failed' } });
+  assert.deepEqual(received.at(-1), { type: 'ui.error', requestId: 'q2',
+    payload: { code: 'unavailable', message: 'close failed' } });
+
+  api.postMessage(JSON.stringify({ type: 'ui.command', payload: { command: 'view.ready' } }));
+  assert.equal(sent.at(-1).kind, 'send');
+  assert.equal(Object.hasOwn(sent.at(-1), 'id'), false);
+  // Preserve malformed IDs so native validation rejects them instead of executing a send.
+  api.postMessage(JSON.stringify({ type: 'ui.command', requestId: null, payload: { command: 'close' } }));
+  assert.equal(sent.at(-1).kind, 'request');
+  assert.equal(sent.at(-1).id, null);
+
+  api.onMessage = null;
+  receive({ kind: 'event', name: 'ui.gamepad', payload: { button: 'back' } });
+  api.onMessage = text => received.push(JSON.parse(text));
+  assert.deepEqual(received.at(-1), { type: 'ui.gamepad', payload: { button: 'back' } });
+  assert.equal(sent.filter(message => message.name === 'osfui.hello').length, 1);
+});
+
+test('injected legacy translation also supports the shared facade without duplicate greetings', async () => {
+  const { context, api, sent, receive } = injectedBridge();
+  vm.runInContext(source, context);
+  assert.equal(sent.length, 1);
+  receive({ kind: 'ready', payload: { version: '2.0.0' } });
+  assert.equal((await api.ready).version, '2.0.0');
+  const closing = api.call('console.command-center.close');
+  receive({ kind: 'reply', id: sent.at(-1).id, payload: { __osfuiV1Reply: true,
+    type: 'console.command-center.closeResult', payload: { ok: true } } });
+  assert.equal((await closing).ok, true);
+  receive({ kind: 'state', mod: 'console.command-center', key: 'status', value: 'closed' });
+  assert.equal(api.data.get('status'), 'closed');
+});
+
+test('modern injected bridge retains unmodified 2.0 messages and page-initiated greeting', () => {
+  const { api, sent, receive } = injectedBridge(false);
+  const received = [];
+  api.onMessage = text => received.push(JSON.parse(text));
+  assert.equal(sent.length, 0);
+  const request = { kind: 'request', name: 'close', id: 'q1', payload: {} };
+  api.postMessage(JSON.stringify(request));
+  assert.deepEqual(sent.at(-1), request);
+  const reply = { kind: 'reply', id: 'q1', payload: { ok: true } };
+  receive(reply);
+  assert.deepEqual(received.at(-1), reply);
+});
+
 test('legacy ready, sends, typed replies, errors and gamepad events use v2 transport', async () => {
   const sent = [];
   const window = { osfui: { postMessage: text => sent.push(JSON.parse(text)) } };
