@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace OSFUI::ViewCache
 {
@@ -26,12 +27,28 @@ namespace OSFUI::ViewCache
 		std::filesystem::path generation;
 		Fingerprint           fingerprint;
 		bool                  reused{ false };
+		std::int64_t          scanMs{ 0 };
+		std::int64_t          copyMs{ 0 };
+		std::int64_t          verifyMs{ 0 };
 	};
 
 	struct ScavengeResult
 	{
 		std::size_t removed{ 0 };
 		std::size_t failed{ 0 };
+	};
+
+	struct ModPrepared
+	{
+		std::string name;
+		Prepared cache;
+	};
+
+	struct PreparedMods
+	{
+		std::filesystem::path root;
+		std::vector<ModPrepared> entries;
+		std::size_t removed{ 0 };
 	};
 
 	using SkipFile = std::function<bool(const std::filesystem::path&)>;
@@ -46,6 +63,11 @@ namespace OSFUI::ViewCache
 	// An edit that keeps both a file's size and its timestamp is invisible to the fingerprint and reuses the old generation.
 	[[nodiscard]] std::optional<Prepared> Prepare(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error);
 
-	// Remove every staging tree and generation except keep. A second game instance using another generation at the same time is not protected.
+	// Cache each top-level mod/shared directory independently under one browser-visible root.
+	// Changed entries are staged and checked before replacement. Root files are retained too.
+	// Call only during session preparation: concurrent game instances are not supported.
+	[[nodiscard]] std::optional<PreparedMods> PrepareMods(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error);
+
+	// Remove every staging entry and old generation except keep. Concurrent game instances are not protected.
 	[[nodiscard]] ScavengeResult Scavenge(const std::filesystem::path& a_cacheRoot, const std::filesystem::path& a_keep);
 }

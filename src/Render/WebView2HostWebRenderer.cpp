@@ -122,27 +122,39 @@ namespace OSFUI
 			}
 		}
 
-		// Prepare (or reuse) a generation, then scavenge every other one.
-		std::optional<std::filesystem::path> PrepareGeneration(const std::filesystem::path& a_source,
+		// Prepare each mod independently while retaining the existing browser URL layout.
+		std::optional<std::filesystem::path> PrepareModCaches(const std::filesystem::path& a_source,
 			const std::filesystem::path& a_cacheRoot, std::string_view a_label)
 		{
 			const auto started = std::chrono::steady_clock::now();
 			std::string error;
-			const auto prepared = ViewCache::Prepare(a_source, a_cacheRoot, kOsfuiReleaseVersion,
+			const auto prepared = ViewCache::PrepareMods(a_source, a_cacheRoot, kOsfuiReleaseVersion,
 				std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64()), error);
 			if (!prepared) {
 				REX::ERROR("WebView2HostWebRenderer: {} preparation failed ({})", a_label, error);
 				return std::nullopt;
 			}
-			const auto scavenged = ViewCache::Scavenge(a_cacheRoot, prepared->generation);
+			std::size_t reused = 0;
+			std::uint64_t copiedBytes = 0;
+			for (const auto& entry : prepared->entries) {
+				const auto& cache = entry.cache;
+				if (cache.reused) ++reused;
+				else copiedBytes += cache.fingerprint.bytes;
+				REX::INFO("WebView2HostWebRenderer: USVFS {} '{}' {} ({} files, {:.2f} MiB; scan={} ms, copy={} ms, verify={} ms)",
+					a_label, entry.name, cache.reused ? "reused" : "published", cache.fingerprint.files,
+					static_cast<double>(cache.fingerprint.bytes) / (1024.0 * 1024.0), cache.scanMs, cache.copyMs, cache.verifyMs);
+			}
+			const auto cleanupStarted = std::chrono::steady_clock::now();
+			const auto scavenged = ViewCache::Scavenge(a_cacheRoot, prepared->root);
+			const auto cleanupMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - cleanupStarted).count();
 			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-			REX::INFO("WebView2HostWebRenderer: USVFS {} {} {} ({} files, {:.2f} MiB, {} ms; removed {} old generation(s))",
-				a_label, prepared->reused ? "reused" : "published", ToUtf8(prepared->generation.native()), prepared->fingerprint.files,
-				static_cast<double>(prepared->fingerprint.bytes) / (1024.0 * 1024.0), elapsed, scavenged.removed);
+			REX::INFO("WebView2HostWebRenderer: USVFS {} ready {} ({} reused, {} rebuilt, {:.2f} MiB copied, {} ms; cleanup={} ms, {} obsolete entries, {} old cache(s) removed)",
+				a_label, ToUtf8(prepared->root.native()), reused, prepared->entries.size() - reused,
+				static_cast<double>(copiedBytes) / (1024.0 * 1024.0), elapsed, cleanupMs, prepared->removed, scavenged.removed);
 			if (scavenged.failed) {
 				REX::WARN("WebView2HostWebRenderer: {} {} item(s) could not be scavenged; they will be retried next launch", scavenged.failed, a_label);
 			}
-			return prepared->generation;
+			return prepared->root;
 		}
 
 		// Read the browser-host log tail for pre-handshake failure diagnostics.
@@ -393,8 +405,8 @@ namespace OSFUI
 
 		// Startup (worker thread)
 
-		// Materialize views at a real path visible outside MO2's USVFS. Production uses immutable fingerprinted generations; 
-		// developer hot reload gets a private mutable tree so it cannot alter a generation another game uses.
+		// Materialize views at a real path visible outside MO2's USVFS. Production caches each mod independently;
+		// developer hot reload uses a separate mutable tree and leaves the production caches intact.
 		void PrepareViewFiles()
 		{
 			if (viewFilesPreparation.valid()) return;
@@ -424,7 +436,7 @@ namespace OSFUI
 			std::error_code legacyError;
 			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
 				// Legacy content (bundled games and the like) is the bulk of the cache; its cost must show in the log.
-				const auto legacy = PrepareGeneration(legacyViewsRoot, localRoot / "legacy-views-cache", "legacy views cache");
+				const auto legacy = PrepareModCaches(legacyViewsRoot, localRoot / "legacy-views-cache", "legacy views cache");
 				if (!legacy) return false;
 				mappedLegacyViewsRoot = *legacy;
 			}
@@ -441,7 +453,7 @@ namespace OSFUI
 				return true;
 			}
 
-			const auto modern = PrepareGeneration(viewsRoot, localRoot / ViewCache::kCacheDirectory, "views cache");
+			const auto modern = PrepareModCaches(viewsRoot, localRoot / ViewCache::kCacheDirectory, "views cache");
 			if (!modern) return false;
 			mappedViewsRoot = *modern;
 			return true;
