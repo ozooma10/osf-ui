@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <deque>
+#include <future>
 #include <random>
 #include <thread>
 #include <unordered_map>
@@ -216,7 +217,8 @@ namespace OSFUI
 		std::filesystem::path viewsRoot, mappedViewsRoot, legacyViewsRoot, mappedLegacyViewsRoot, userData;
         // Serialize initial and dev-refresh writes to the real-path mirror.
         std::mutex            viewsMirrorMutex;
-		bool                  usesDevViewsMirror{ false };  // mutable views-dev tree, rebuilt on each start
+		bool                  usesDevViewsMirror{ false };  // mutable views-dev tree, updated by explicit dev refreshes
+		std::shared_future<bool> viewFilesPreparation;  // Started by Runtime; consumed by the transport worker.
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
 		std::filesystem::path browserHostLog;  // set in Initialize; read by worker + notify drain
 		std::uint32_t adapterLuidLow{ 0 }, adapterLuidHigh{ 0 };
@@ -393,6 +395,22 @@ namespace OSFUI
 
 		// Materialize views at a real path visible outside MO2's USVFS. Production uses immutable fingerprinted generations; 
 		// developer hot reload gets a private mutable tree so it cannot alter a generation another game uses.
+		void PrepareViewFiles()
+		{
+			if (viewFilesPreparation.valid()) return;
+			REX::INFO("WebView2HostWebRenderer: preparing view files in the background");
+			viewFilesPreparation = std::async(std::launch::async, [this] {
+				try {
+					const bool ready = ResolveMappedViewsRoot();
+					if (ready) REX::INFO("WebView2HostWebRenderer: view files ready for this session");
+					return ready;
+				} catch (const std::exception& error) {
+					REX::ERROR("WebView2HostWebRenderer: view file preparation failed ({})", error.what());
+					return false;
+				}
+			}).share();
+		}
+
 		bool ResolveMappedViewsRoot()
 		{
 			std::scoped_lock mirrorLock(viewsMirrorMutex);
@@ -525,6 +543,7 @@ namespace OSFUI
 			}
 
 			pipe.PrepareForOpen();
+			PrepareViewFiles();  // Also covers view demand before the data-load notification.
 			worker = std::thread([this] { WorkerMain(); });
 			REX::DEBUG("WebView2HostWebRenderer: starting browser-host transport threads");
 			return true;
@@ -580,10 +599,11 @@ namespace OSFUI
 
 		void WorkerMain()
 		{
-			if (!ResolveMappedViewsRoot()) {
+			if (!viewFilesPreparation.get()) {
 				SignalDead("views cache preparation failed");
 				return;
 			}
+			if (lifecycle.load(std::memory_order_acquire) != Lifecycle::Starting) return;
 			if (!MirrorHostExe()) {
 				SignalDead("browser-host executable preparation failed");
 				return;
@@ -968,14 +988,16 @@ namespace OSFUI
 			}
 
 			lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
-			{
-				std::scoped_lock mirrorLock(viewsMirrorMutex);
-				usesDevViewsMirror = false;
-			}
 		}
 		void ResetAfterFailure()
 		{
 			Stop();
+			// Successful preparation survives browser recovery; failed preparation can be retried.
+			if (viewFilesPreparation.valid() &&
+				viewFilesPreparation.wait_for(std::chrono::seconds(0)) == std::future_status::ready &&
+				!viewFilesPreparation.get()) {
+				viewFilesPreparation = {};
+			}
 
 			const auto discardedOut = outbound.Size();
 			outbound.Reset();
@@ -1004,7 +1026,11 @@ namespace OSFUI
 
 	WebView2HostWebRenderer::~WebView2HostWebRenderer()
 	{
-		if (m_impl) m_impl->Stop();
+		if (m_impl) {
+			m_impl->Stop();
+			// Preparation may be the only active job if no view was ever opened.
+			if (m_impl->viewFilesPreparation.valid()) m_impl->viewFilesPreparation.wait();
+		}
 	}
 
 	bool WebView2HostWebRenderer::Initialize(const WebView2HostConfig& a_config)
@@ -1029,6 +1055,11 @@ namespace OSFUI
 			return false;
 		}
 		return true;
+	}
+
+	void WebView2HostWebRenderer::PrepareViewFiles()
+	{
+		m_impl->PrepareViewFiles();
 	}
 
 	void WebView2HostWebRenderer::RestartAfterFailure()

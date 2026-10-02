@@ -53,6 +53,8 @@ namespace OSFUI
 		~WebView2HostWebRenderer();
 
 		bool Initialize(const WebView2HostConfig& a_config);
+		// Runtime-thread call: prepare files asynchronously once per session, without starting a browser.
+		void PrepareViewFiles();
 		void RestartAfterFailure();
 		void CreateOrNavigateView(const ViewManifest& a_manifest);
 		bool RefreshModFiles(std::string_view a_mod);

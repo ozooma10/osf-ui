@@ -75,17 +75,17 @@ namespace OSFUI
 		manifest.openOnStart = Json::Get(*json, "openOnStart", manifest.openOnStart);
 		manifest.order = static_cast<std::int32_t>(Json::Get(*json, "order", manifest.order));
 		manifest.debugOnly = Json::Get(*json, "debugOnly", manifest.debugOnly);
-		if (const auto launcher = json->find("launcher"); launcher != json->end()) {
-			if (!launcher->is_object() || !launcher->contains("modId") || !(*launcher)["modId"].is_string() ||
+		if (const auto launcher = json->find("launcher"); launcher != json->end() && *launcher != false) {
+			if ((!launcher->is_object() && !launcher->is_boolean()) || (launcher->contains("modId") && !(*launcher)["modId"].is_string()) ||
 				(launcher->contains("modTitle") && !(*launcher)["modTitle"].is_string()) || manifest.kind != ViewKind::Menu) {
-				REX::ERROR("ViewManifest: {} launcher requires a menu and an object with modId and optional modTitle", Utf8Path(a_path));
+				REX::ERROR("ViewManifest: {} launcher must be false, or opt in a menu with true or an object with optional string modId and modTitle", Utf8Path(a_path));
 				return std::nullopt;
 			}
-			manifest.launcherMod = (*launcher)["modId"].get<std::string>();
-			manifest.launcherModTitle = launcher->value("modTitle", manifest.launcherMod);
+			manifest.launcherMod = launcher->is_object() ? launcher->value("modId", manifest.mod) : manifest.mod;
+			manifest.launcherModTitle = launcher->is_object() ? launcher->value("modTitle", manifest.title) : manifest.title;
 			if (manifest.launcherMod.empty() || manifest.launcherMod.size() > 128 || manifest.launcherMod == "." || manifest.launcherMod == ".." ||
 				manifest.launcherMod.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789._-") != std::string::npos) {
-				REX::ERROR("ViewManifest: {} launcher.modId must be a valid OSF Settings mod ID", Utf8Path(a_path));
+				REX::ERROR("ViewManifest: {} launcher mod ID must be a valid OSF Settings mod ID; set launcher.modId if the mod folder name is incompatible", Utf8Path(a_path));
 				return std::nullopt;
 			}
 		}

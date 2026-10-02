@@ -178,6 +178,7 @@ namespace OSFUI
 	void Runtime::InitializeEngineIntegration()
 	{
 		REX::DEBUG("Runtime: consuming kPostPostDataLoad work on the post-menu-advance runtime tick");
+		if (m_renderer) m_renderer->PrepareViewFiles();
 		API::Papyrus::Install();
 		if (!m_inputCapture.Initialize()) {
 			m_osfSettings.ReportFailure("startup.input", "input.unavailable", "Game UI input integration failed");
