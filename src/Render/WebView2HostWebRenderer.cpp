@@ -821,6 +821,9 @@ namespace OSFUI
 						.text = fatal.stage,
 						.detail = fatal.description,
 						.unsignedCode = fatal.code });
+					// A fatal host cannot certify later loads or publish more frames.
+					SignalDead("browser host reported a fatal error");
+					return;
 				} else if (type == msg::Console::kType) {
 					const auto console = msg::FromJson<msg::Console>(message);
 					Push(Notify{ .kind = Notify::Kind::Console,

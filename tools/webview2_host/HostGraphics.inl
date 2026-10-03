@@ -36,20 +36,30 @@
 					static_cast<UINT>(std::size(levels)), D3D11_SDK_VERSION,
 					&device, &actual, &context);
 				if (FAILED(hr)) {
-					log.Error(std::format("D3D11CreateDevice failed (0x{:08X})", static_cast<unsigned>(hr)));
+					FailHost("graphics-init", hr, "D3D11CreateDevice failed");
 					return false;
 				}
-				if (FAILED(device.As(&device5)) || FAILED(context.As(&context4))) {
-					log.Error("ID3D11Device5/DeviceContext4 unavailable (need Win10 1703+) — no shared-fence transport");
+				if (const auto query = device.As(&device5); FAILED(query)) {
+					FailHost("graphics-init", query, "ID3D11Device5 unavailable for shared-fence transport");
+					return false;
+				}
+				if (const auto query = context.As(&context4); FAILED(query)) {
+					FailHost("graphics-init", query, "ID3D11DeviceContext4 unavailable for shared-fence transport");
 					return false;
 				}
 				ComPtr<IDXGIDevice> dxgi;
-				if (FAILED(device.As(&dxgi))) return false;
+				if (const auto query = device.As(&dxgi); FAILED(query)) {
+					FailHost("graphics-init", query, "IDXGIDevice unavailable for capture");
+					return false;
+				}
 				ComPtr<IDXGIAdapter> actualAdapter;
 				DXGI_ADAPTER_DESC actualDesc{};
-				if (FAILED(dxgi->GetAdapter(&actualAdapter)) ||
-					FAILED(actualAdapter->GetDesc(&actualDesc))) {
-					log.Error("could not identify the D3D11 capture adapter");
+				if (const auto query = dxgi->GetAdapter(&actualAdapter); FAILED(query)) {
+					FailHost("graphics-init", query, "could not get the D3D11 capture adapter");
+					return false;
+				}
+				if (const auto query = actualAdapter->GetDesc(&actualDesc); FAILED(query)) {
+					FailHost("graphics-init", query, "could not identify the D3D11 capture adapter");
 					return false;
 				}
 				graphicsAdapterLuid = actualDesc.AdapterLuid;
@@ -61,8 +71,7 @@
 				winrt::com_ptr<::IInspectable> inspectable;
 				hr = ::CreateDirect3D11DeviceFromDXGIDevice(dxgi.Get(), inspectable.put());
 				if (FAILED(hr)) {
-					log.Error(std::format("CreateDirect3D11DeviceFromDXGIDevice failed (0x{:08X})",
-						static_cast<unsigned>(hr)));
+					FailHost("graphics-init", hr, "CreateDirect3D11DeviceFromDXGIDevice failed");
 					return false;
 				}
 				captureDevice = inspectable.as<
@@ -129,8 +138,7 @@
 					const auto hr = device5->CreateFence(0, D3D11_FENCE_FLAG_SHARED,
 						IID_PPV_ARGS(&produceFence));
 					if (FAILED(hr)) {
-						log.Error(std::format("CreateFence(produce) failed (0x{:08X})",
-							static_cast<unsigned>(hr)));
+						FailHost("capture-ring", hr, "CreateFence(produce) failed");
 						return false;
 					}
 				}
@@ -142,7 +150,7 @@
 				HANDLE remote = nullptr;
 				if (!::DuplicateHandle(::GetCurrentProcess(), a_local, gameProcess,
 						&remote, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-					log.Error(std::format("DuplicateHandle into game failed ({})", ::GetLastError()));
+					FailHost("capture-ring", HRESULT_FROM_WIN32(::GetLastError()), "DuplicateHandle into game failed");
 					return nullptr;
 				}
 				return remote;
@@ -168,21 +176,22 @@
 				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 				desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
 				// No keyed-mutex fallback: the game reads slots without AcquireSync, so a keyed-mutex ring would be read unsynchronized. Fail cleanly instead.
-				if (const auto hr = device->CreateTexture2D(&desc, nullptr, &ring[0].texture); FAILED(hr)) {
-					log.Error(std::format("shared texture creation failed (0x{:08X})", static_cast<unsigned>(hr)));
-					return false;
-				}
-				for (std::uint32_t i = 1; i < kRingSlots; ++i) {
-					if (FAILED(device->CreateTexture2D(&desc, nullptr, &ring[i].texture))) {
-						log.Error("shared texture ring creation failed");
+				for (auto& slot : ring) {
+					if (const auto hr = device->CreateTexture2D(&desc, nullptr, &slot.texture); FAILED(hr)) {
+						FailHost("capture-ring", hr, "shared texture creation failed");
 						ReleaseRing();
 						return false;
 					}
 				}
 				for (auto& slot : ring) {
 					ComPtr<IDXGIResource1> resource;
-					if (FAILED(slot.texture.As(&resource)) || FAILED(resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, &slot.localHandle))) {
-						log.Error("CreateSharedHandle failed");
+					if (const auto hr = slot.texture.As(&resource); FAILED(hr)) {
+						FailHost("capture-ring", hr, "IDXGIResource1 unavailable for shared texture");
+						ReleaseRing();
+						return false;
+					}
+					if (const auto hr = resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, &slot.localHandle); FAILED(hr)) {
+						FailHost("capture-ring", hr, "texture CreateSharedHandle failed");
 						ReleaseRing();
 						return false;
 					}
@@ -216,9 +225,9 @@
 					slots.push_back(reinterpret_cast<std::uint64_t>(remote));
 				}
 				HANDLE produceLocal = nullptr;
-				if (FAILED(produceFence->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr,
-						&produceLocal))) {
-					log.Error("produce fence CreateSharedHandle failed");
+				if (const auto hr = produceFence->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr,
+						&produceLocal); FAILED(hr)) {
+					FailHost("capture-ring", hr, "produce fence CreateSharedHandle failed");
 					closeUnannouncedHandles();
 					ReleaseRing();
 					return false;
@@ -262,7 +271,10 @@
 				if (!pendingCapture) {
 					a_source->GetDesc(&desc);
 					desc.MiscFlags = 0;
-					if (FAILED(device->CreateTexture2D(&desc, nullptr, &pendingCapture))) return;
+					if (const auto hr = device->CreateTexture2D(&desc, nullptr, &pendingCapture); FAILED(hr)) {
+						FailHost("capture-frame", hr, "pending capture texture creation failed");
+						return;
+					}
 				}
 				context->CopyResource(pendingCapture.Get(), a_source);
 				pendingCaptureEpoch = a_presentationEpoch;

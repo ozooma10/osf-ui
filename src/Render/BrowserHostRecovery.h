@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string_view>
 
 namespace OSFUI
 {
@@ -21,6 +22,25 @@ namespace OSFUI
 
 		static constexpr std::uint32_t kMaxAttempts = 3;
 		static constexpr double        kResponseTimeoutSeconds = 30.0;
+
+		// Only known transient failures in the helper can benefit from a restart.
+		// HRESULT values stay portable so this policy is tested without Windows/COM.
+		[[nodiscard]] static constexpr bool IsRetryable(std::string_view a_stage, std::uint32_t a_code)
+		{
+			if (a_stage == "host-connection") return true;
+			if (a_stage != "capture-ring" && a_stage != "capture-frame" &&
+				a_stage != "capture-signal" && a_stage != "capture-recreate" &&
+				a_stage != "capture-resize" && a_stage != "capture-setup") return false;
+			switch (a_code) {
+			case 0x8007000Eu: // E_OUTOFMEMORY
+			case 0x887A0005u: // DXGI_ERROR_DEVICE_REMOVED (helper device only)
+			case 0x887A0007u: // DXGI_ERROR_DEVICE_RESET
+			case 0x887A0020u: // DXGI_ERROR_DRIVER_INTERNAL_ERROR
+				return true;
+			default:
+				return false;
+			}
+		}
 
 		void Reset()
 		{
@@ -46,10 +66,11 @@ namespace OSFUI
 			if (m_phase == Phase::Healthy && a_now >= m_healthyUntil) Reset();
 		}
 
-		// First failure per host wins. Return whether Runtime should apply failure cleanup/reporting.
+		// Duplicates do not consume retries. A permanent error overrides a generic
+		// disconnect from the same host, regardless of which notification arrived first.
 		[[nodiscard]] bool OnFailure(double a_now, bool a_retryable)
 		{
-			if (m_failureHandled) {
+			if (m_failureHandled && (a_retryable || m_phase == Phase::Disabled)) {
 				return false;
 			}
 			m_failureHandled = true;

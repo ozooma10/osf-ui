@@ -44,6 +44,15 @@ slot, keeping the ring at four slots. Exhaustion drops captures as normal
 backpressure. An explicit static-view republish uses another free slot when
 the old pixels are still held, and retries on acknowledgement if none is free.
 
+Allocation, shared-handle, fence-signal, and capture callback failures stop the
+helper and report the operation and HRESULT through OSF Settings. Known transient
+capture errors share the connection-loss retry budget (three attempts); the game
+device must still be healthy before a replacement starts. Unsupported, security,
+and unknown failures disable WebViews for the session. A permanent failure takes
+precedence over a disconnect notification from the same host. Normal ring
+backpressure and an empty capture pool do not count as failures.
+
 Focused checks: `xmake test -j4 'osfui-shared-frame-tests/*' 'osfui-wv2-message-tests/*' 'osfui-view-reveal-tests/*'`.
+Recovery and diagnostics: `xmake test -j4 'osfui-browser-recovery-tests/*' 'osfui-settings-client-tests/*'`.
 These cover state transitions and wire encoding; they do not replace in-game
 validation of the engine submission hooks and frame-generation path.

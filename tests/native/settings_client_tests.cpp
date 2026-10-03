@@ -163,5 +163,32 @@ int main()
         client.ClearFailure(longId);
         CHECK(!diagnostics.Has(longId));
     }
+    {
+        OSFUI::OSFSettingsClient client;
+        SettingsTest::Settings rendererSettings;
+        SettingsTest::Diagnostics rendererDiagnostics;
+        Install(&rendererSettings, &rendererDiagnostics);
+        const auto& diagnostics = rendererDiagnostics;
+        CHECK(client.Initialize());
+        client.ReportFailure("runtime.renderer", "webview.renderer-failed", "Browser stopped",
+            {{"stage", "capture-ring"}, {"detail", "texture CreateSharedHandle failed"},
+             {"errorCode", 0x8007000Eu}, {"retrying", true}});
+        CHECK(diagnostics.Get("runtime.renderer").title.find("CreateSharedHandle") != std::string::npos);
+        CHECK(diagnostics.Get("runtime.renderer").title.find("8007000E") != std::string::npos);
+        CHECK(diagnostics.Get("runtime.renderer").nextSteps.find("restarting") != std::string::npos);
+        client.ReportFailure("runtime.renderer", "webview.renderer-failed", "Browser stopped",
+            {{"detail", "Capture failed"}, {"exhausted", true}});
+        CHECK(diagnostics.Get("runtime.renderer").nextSteps.find("three attempts") != std::string::npos);
+        CHECK(diagnostics.Get("runtime.renderer").nextSteps.find("Open a view to retry") != std::string::npos);
+        client.ReportFailure("runtime.renderer", "webview.renderer-failed", "Browser stopped",
+            {{"stage", "environment"}, {"errorCode", 0x80070002u}});
+        CHECK(diagnostics.Get("runtime.renderer").title == "Microsoft Edge WebView2 Runtime is missing");
+        CHECK(diagnostics.Get("runtime.renderer").nextSteps.find("Install") != std::string::npos);
+        client.ReportFailure("runtime.renderer", "webview.renderer-failed", "Browser stopped",
+            {{"stage", "game-device"}, {"detail", "Starfield's graphics device is unavailable"}});
+        CHECK(diagnostics.Get("runtime.renderer").nextSteps.find("Restart Starfield") != std::string::npos);
+        client.ClearFailure("runtime.renderer");
+        CHECK(!diagnostics.Has("runtime.renderer"));
+    }
     return g_failures;
 }

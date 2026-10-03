@@ -11,9 +11,24 @@
 #include "Core/Paths.h"
 #include "Render/WebView2HostWebRenderer.h"
 #include "Render/SharedFrameConsumer.h"
+#include "Composite/EngineD3D12.h"
+#include "Composite/D3D12Prologue.h"
 
 namespace OSFUI
 {
+	namespace
+	{
+		bool GameGraphicsHealthy()
+		{
+			const auto engine = LocateEngineD3D12();
+			if (!engine) return false;
+			const bool healthy = SUCCEEDED(engine.device->GetDeviceRemovedReason());
+			engine.directQueue->Release();
+			engine.device->Release();
+			return healthy;
+		}
+	}
+
 	Runtime& Runtime::Get()
 	{
 		static Runtime* const instance = new Runtime;
@@ -593,10 +608,16 @@ namespace OSFUI
 			if (m_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Exhausted) {
 				REX::ERROR("Runtime: automatic browser-host recovery exhausted; the next explicit menu open will start a fresh retry cycle");
+				m_osfSettings.ReportFailure("runtime.renderer", "webview.renderer-failed", "The OSF UI browser did not recover",
+					{ { "detail", "The replacement browser did not finish loading." }, { "exhausted", true } });
 			}
 		}
 
 		if (!m_browserHostRecovery.BeginDueAttempt(m_nowSeconds)) {
+			return;
+		}
+		if (!GameGraphicsHealthy()) {
+			OnRendererFailure({ .stage = "game-device", .description = "Starfield's graphics device is unavailable; restarting the browser cannot repair it." });
 			return;
 		}
 
@@ -639,17 +660,18 @@ namespace OSFUI
 	void Runtime::OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event)
 	{
 		FailPendingOpen("The interface renderer failed.");
-		const bool retryableBrowserHostLoss =
-			a_event.stage == "host-connection" && m_renderer;
-		if (!m_browserHostRecovery.OnFailure(m_nowSeconds, retryableBrowserHostLoss)) {
+		const bool retryable = m_renderer && BrowserHostRecovery::IsRetryable(a_event.stage, a_event.errorCode);
+		if (!m_browserHostRecovery.OnFailure(m_nowSeconds, retryable)) {
 			return;
 		}
 		API::BridgeApi::Get().SetBridgeAvailability(false);
 		m_osfSettings.ReportFailure("runtime.renderer", "webview.renderer-failed",
 			"The OSF UI browser stopped working",
-			{ { "view", a_event.viewId }, { "stage", a_event.stage }, { "detail", a_event.description }, { "errorCode", a_event.errorCode } });
-		if (retryableBrowserHostLoss) {
-			REX::ERROR("Runtime: browser-host connection failed for view '{}' (0x{:08X}): {} - closing the overlay; bounded browser-host recovery is scheduled", a_event.viewId, a_event.errorCode, a_event.description);
+			{ { "view", a_event.viewId }, { "stage", a_event.stage }, { "detail", a_event.description }, { "errorCode", a_event.errorCode },
+				{ "retrying", retryable && m_browserHostRecovery.PhaseValue() != BrowserHostRecovery::Phase::Exhausted },
+				{ "exhausted", m_browserHostRecovery.PhaseValue() == BrowserHostRecovery::Phase::Exhausted } });
+		if (retryable) {
+			REX::ERROR("Runtime: browser host failed at '{}' for view '{}' (0x{:08X}): {} - closing the overlay; bounded browser-host recovery applies", a_event.stage, a_event.viewId, a_event.errorCode, a_event.description);
 			if (m_browserHostRecovery.PhaseValue() ==
 				BrowserHostRecovery::Phase::Exhausted) {
 				REX::ERROR("Runtime: automatic browser-host recovery exhausted; the next explicit menu open will start a fresh retry cycle");

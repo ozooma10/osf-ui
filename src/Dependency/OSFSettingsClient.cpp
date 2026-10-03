@@ -133,6 +133,24 @@ namespace OSFUI
 		} else if (a_code == "view.protocol-misuse") {
 			result = { Severity::Warning, "A mod WebView is sending unsupported requests", degraded,
 				"Update the owning mod and OSF UI to compatible versions." };
+		} else if (a_code == "webview.renderer-failed") {
+			const auto stage = Json::Get(a_context, "stage", "");
+			const auto error = Json::Get(a_context, "errorCode", 0u);
+			const auto detail = Json::Get(a_context, "detail", "");
+			if (!detail.empty()) result.title = error ? std::format("{} (0x{:08X})", detail, error) : detail;
+			result.impact = "OSF UI WebViews are closed. OSF Settings remains available.";
+			if (Json::Get(a_context, "retrying", false)) {
+				result.nextSteps = "OSF UI is restarting its browser. Reopen the view after recovery. If retries stop, opening a view starts a new attempt.";
+			} else if (Json::Get(a_context, "exhausted", false)) {
+				result.nextSteps = "Automatic browser recovery stopped after three attempts. Open a view to retry, or restart Starfield if the failure persists.";
+			} else if (stage == "environment" && error == 0x80070002u) { // ERROR_FILE_NOT_FOUND
+				result.title = "Microsoft Edge WebView2 Runtime is missing";
+				result.nextSteps = "Install the Microsoft Edge WebView2 Evergreen Runtime from Microsoft's website, then restart Starfield.";
+			} else if (stage == "composition-controller") {
+				result.nextSteps = "Restart Windows, then repair or reinstall the Microsoft Edge WebView2 Runtime. If the error persists, repair the Microsoft Visual C++ x64 Runtime.";
+			} else if (stage == "game-device") {
+				result.nextSteps = "Restart Starfield. If graphics-device failures recur, check the graphics driver and game stability.";
+			}
 		}
 		return result;
 	}

@@ -35,7 +35,6 @@
 #include <WebView2EnvironmentOptions.h>
 
 #include "LanguageTag.h"
-#include <shellapi.h>
 #include <wrl.h>
 #include <wrl/client.h>
 #include <d3d11_4.h>
@@ -120,54 +119,6 @@ namespace osfui::wv2
 			void Warn(const std::string& a_text) { Log(1, a_text); }
 			void Error(const std::string& a_text) { Log(2, a_text); }
 		};
-
-		constexpr wchar_t kRuntimeDownloadUrl[] = L"https://go.microsoft.com/fwlink/p/?LinkId=2124703";
-
-		void PromptInstallWebView2Runtime(Logger& a_log)
-		{
-			static std::atomic_bool prompted{ false };
-			if (prompted.exchange(true)) return;
-			a_log.Error("the WebView2 Evergreen Runtime is not installed — showing the install dialog (download: https://go.microsoft.com/fwlink/p/?LinkId=2124703)");
-			std::thread([] {
-				const auto choice = ::MessageBoxW(nullptr,
-					L"OSF UI cannot start because the Microsoft Edge WebView2 Runtime is not installed on this PC.\n\n"
-					L"Mod WebViews will not appear without it. OSF Settings remains available.\n\n"
-					L"Open the download in your browser now? Run the downloaded \"MicrosoftEdgeWebview2Setup.exe\", then restart the game.",
-
-					L"OSF UI - WebView2 Runtime missing",
-					MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
-				if (choice == IDYES) {
-					::ShellExecuteW(nullptr, L"open", kRuntimeDownloadUrl, nullptr, nullptr, SW_SHOWNORMAL);
-				}
-			}).detach();
-		}
-
-		void PromptRepairWebView2Runtime(Logger& a_log, HRESULT a_hr)
-		{
-			static std::atomic_bool prompted{ false };
-			if (prompted.exchange(true)) return;
-			const auto code = static_cast<unsigned>(a_hr);
-			a_log.Error(std::format(
-				"WebView2 could not create its composition controller (0x{:08X}) - "
-				"showing the repair dialog", code));
-			std::thread([code] {
-				const auto message = std::format(
-					L"OSF UI could not start the Microsoft Edge WebView2 renderer "
-					L"(error 0x{:08X}).\n\n"
-					L"The overlay has been closed so the game remains usable. Restart "
-					L"Windows, then repair or reinstall the WebView2 Runtime. If the "
-					L"problem remains, repair the Microsoft Visual C++ x64 Runtime.\n\n"
-					L"Open Microsoft's WebView2 installer download now?",
-					code);
-				const auto choice = ::MessageBoxW(nullptr, message.c_str(),
-					L"OSF UI - WebView2 renderer failed",
-					MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
-				if (choice == IDYES) {
-					::ShellExecuteW(nullptr, L"open", kRuntimeDownloadUrl,
-						nullptr, nullptr, SW_SHOWNORMAL);
-				}
-			}).detach();
-		}
 
 		struct App
 		{
@@ -328,7 +279,8 @@ namespace osfui::wv2
 					return false;
 				}
 				pipeDead.store(true, std::memory_order_release);
-				if (wakeEvent) ::SetEvent(wakeEvent);
+				captureClosing = true;
+				RequestQuit("pipe-write");
 				return false;
 			}
 
@@ -561,9 +513,6 @@ namespace osfui::wv2
 							if (quit.load()) return S_OK;
 							if (FAILED(a_hr) || !a_environment) {
 								FailHost("environment", FAILED(a_hr) ? a_hr : E_POINTER, "WebView2 environment callback failed");
-								if (a_hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
-									PromptInstallWebView2Runtime(log);
-								}
 								return S_OK;
 							}
 							environment = a_environment;
@@ -611,9 +560,6 @@ namespace osfui::wv2
 					nullptr, userData.c_str(), environmentOptions.Get(), callback.Get());
 				if (FAILED(hr)) {
 					FailHost("environment", hr, "CreateCoreWebView2EnvironmentWithOptions failed");
-					if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
-						PromptInstallWebView2Runtime(log);
-					}
 					environmentRequested = false;
 					return false;
 				}
@@ -656,7 +602,6 @@ namespace osfui::wv2
 				std::string_view a_description)
 			{
 				FailHost("composition-controller", a_hr, a_description, a_view.id);
-				PromptRepairWebView2Runtime(log, a_hr);
 			}
 
 			// The host refuses to run without its complete browser security policy.
@@ -1266,7 +1211,8 @@ namespace osfui::wv2
 					source->GetDesc(&desc);
 					PublishFrame(source.Get(), desc.Width, desc.Height, framePresentationEpoch);
 				} catch (const winrt::hresult_error& a_error) {
-					log.Warn(std::format("capture callback failed: {}", ToUtf8(a_error.message())));
+					FailHost("capture-frame", a_error.code(),
+						std::format("capture callback failed: {}", ToUtf8(a_error.message())));
 				}
 			}
 
@@ -1497,7 +1443,7 @@ namespace osfui::wv2
 			{
 				decltype(gameMessages)::Item item;
 				std::size_t drained = 0;
-				while (drained < kGameMessagesPerDrain && gameMessages.TryPop(item)) {
+				while (!quit.load() && drained < kGameMessagesPerDrain && gameMessages.TryPop(item)) {
 					HandleGameMessage(item.value);
 					++drained;
 				}
@@ -1592,6 +1538,7 @@ namespace osfui::wv2
 							break;
 						}
 						DrainGameMessages();
+						if (quit.load()) break;
 						TickReveals();
 						MSG message{};
 						// Focus callbacks can post more window messages. Keep servicing native
@@ -1684,7 +1631,7 @@ namespace osfui::wv2
 			webView2RuntimeVersion = ToUtf8(webView2RuntimeVersionRaw);
 			::CoTaskMemFree(webView2RuntimeVersionRaw);
 		} else {
-			PromptInstallWebView2Runtime(app.log);
+			app.log.Warn("WebView2 Runtime version unavailable; environment creation will report the failure to OSF Settings.");
 		}
 		if (!app.Send(osfui::wv2::msg::ToJson(osfui::wv2::msg::Hello{
 				.protocolVersion = kBrowserHostProtocolVersion,

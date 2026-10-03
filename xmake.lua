@@ -164,6 +164,23 @@ target("osfui-shared-frame-tests")
     add_files("tests/native/shared_frame_state_tests.cpp")
     add_includedirs("src", "tests/native/stubs")
 
+target("osfui-browser-recovery-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/browser_host_recovery_tests.cpp")
+    add_includedirs("src", "tests/native/stubs")
+
+target("osfui-settings-client-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/settings_client_tests.cpp", "src/Dependency/OSFSettingsClient.cpp",
+        "src/API/BridgeApi.cpp", "src/Views/ViewRequestQueue.cpp", "src/Bridge/MessageBridge.cpp", "src/Core/Json.cpp")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk")
+    set_pcxxheader("tests/native/stubs/pch.h")
+    add_packages("nlohmann_json")
+
 target("osfui-wv2-message-tests")
     set_kind("binary")
     set_default(false)
