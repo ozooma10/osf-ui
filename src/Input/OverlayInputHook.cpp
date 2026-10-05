@@ -141,6 +141,19 @@ namespace OSFUI::OverlayInputHook
 		LRESULT CALLBACK WndProc(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam);
 		bool Subclass(HWND a_hwnd);
 
+		void OnActivation(Runtime& a_runtime, bool a_active)
+		{
+			a_runtime.OnGameWindowActivation(a_active);
+			if (!a_active) {
+				g_keyOwnership.Reset();
+				g_rawKeyOwnership.Reset();
+				g_textInput.Reset();
+				g_imeComposing = false;
+				g_hasLastAbsoluteClient = false;
+				HardwareCursor::Deactivate();
+			}
+		}
+
 		LRESULT ForwardToGame(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 		{
 			const auto gameProc = g_gameProc.load(std::memory_order_acquire);
@@ -205,16 +218,17 @@ namespace OSFUI::OverlayInputHook
 				return 0;
 			}
 			switch (a_msg) {
+			case WM_ACTIVATEAPP:
+				OnActivation(runtime, a_wparam != FALSE);
+				break;
+			case WM_ACTIVATE:
+				OnActivation(runtime, LOWORD(a_wparam) != WA_INACTIVE && HIWORD(a_wparam) == 0);
+				break;
 			case WM_SETFOCUS:
-				runtime.OnGameWindowActivation(true);
+				OnActivation(runtime, true);
 				break;
 			case WM_KILLFOCUS:
-				g_keyOwnership.Reset();
-				g_rawKeyOwnership.Reset();
-				runtime.OnGameWindowActivation(false);
-				g_textInput.Reset();
-				g_imeComposing = false;
-				HardwareCursor::Deactivate();
+				OnActivation(runtime, false);
 				break;
 			case WM_KEYDOWN:
 			case WM_SYSKEYDOWN:
@@ -366,6 +380,12 @@ namespace OSFUI::OverlayInputHook
 	{
 		const auto* main = RE::Main::GetSingleton();
 		return main && main->window ? reinterpret_cast<HWND>(main->window->hwnd) : nullptr;
+	}
+
+	bool IsGameWindowActive()
+	{
+		const HWND hwnd = GameWindow();
+		return hwnd && ::GetForegroundWindow() == hwnd && !::IsIconic(hwnd);
 	}
 
 	bool Install()

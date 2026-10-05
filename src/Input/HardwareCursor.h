@@ -9,7 +9,7 @@ namespace OSFUI::HardwareCursor
 	// Show, center, and clip the pointer to the client area.
 	void Activate(void* a_hwnd);
 
-	// Undoes only our ShowCursor raises and clip.
+	// Restores the previous cursor and undoes only our ShowCursor raises and clip.
 	void Deactivate();
 
 	[[nodiscard]] bool IsActive();

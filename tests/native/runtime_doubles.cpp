@@ -101,7 +101,7 @@ namespace OSFUI
     void WebView2HostWebRenderer::SetFailureHandler(FailureHandler handler) { env.failure = std::move(handler); }
     void WebView2HostWebRenderer::SetCursorChangeHandler(CursorChangeHandler) {}
     void WebView2HostWebRenderer::SetBackHandler(BackHandler) {}
-    void WebView2HostWebRenderer::RequestBack(std::string_view) {}
+    void WebView2HostWebRenderer::RequestBack(std::string_view) { env.backWindowActive.push_back(env.rendererWindowActive); }
     bool WebView2HostWebRenderer::IsCurrentInputPresentation(std::string_view, std::uint64_t) const { return true; }
     void WebView2HostWebRenderer::SetInputFocus(bool focused)
     {
@@ -111,7 +111,7 @@ namespace OSFUI
     void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t, bool) {}
     void WebView2HostWebRenderer::InjectKeyboard(const osfui::wv2::msg::Keyboard& key) { env.keys.push_back(key.vk); }
     void WebView2HostWebRenderer::InjectText(const osfui::wv2::msg::TextInput&) {}
-    void WebView2HostWebRenderer::SetWindowActive(bool) {}
+    void WebView2HostWebRenderer::SetWindowActive(bool active) { env.rendererWindowActive = active; }
     void WebView2HostWebRenderer::GameWindowChanged() {}
     void WebView2HostWebRenderer::InjectMouseMove(int, int) {}
     void WebView2HostWebRenderer::InjectMouseButton(int, int, int, bool) {}
@@ -148,6 +148,7 @@ namespace OSFUI
     {
         bool Install() { ++env.inputHookInstallations; return env.inputHookInstalls; }
         void RequestStateRefresh() {}
+        bool IsGameWindowActive() { return env.gameWindowActive; }
         std::optional<ClientSize> GameWindowClientSize() { return std::nullopt; }
     }
     namespace HardwareCursor { void SetSystemCursorId(std::uint32_t) {} }

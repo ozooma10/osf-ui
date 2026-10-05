@@ -61,6 +61,7 @@ namespace OSFUI
 		// Window-message thread.
 		bool OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key);
 		void OnGameWindowText(const osfui::wv2::msg::TextInput& a_text);
+		// Activation messages and the runtime's foreground reconciliation both publish here.
 		void OnGameWindowActivation(bool a_active);
 		void OnGameWindowRecreated();
 		void OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);

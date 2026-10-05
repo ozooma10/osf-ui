@@ -184,6 +184,27 @@ namespace
         CHECK(env.keys == std::vector<std::uint32_t>{ 0x79 }); // F10 is ordinary page input.
         CHECK(CountLifecycle("acme/menu", API::ViewLifecyclePhase::kShown) == 1);
 
+        // Alt-Tab loss arrives, but another window hook swallows the focus-gain message.
+        env.gameWindowActive = false;
+        runtime().OnGameWindowActivation(false);
+        runtime().Update();
+        CHECK(!env.rendererWindowActive);
+        CHECK(runtime().IsVisible() && runtime().IsInputCaptured() && env.controlsBlocked);
+        env.gameWindowActive = true;
+        runtime().EnqueuePresentationRequest(ViewPresentationRequest::Back);
+        runtime().Update();
+        CHECK(env.rendererWindowActive);
+        CHECK(env.backWindowActive == std::vector<bool>{ true }); // Repair before routing Escape.
+        CHECK(env.browserFocus && runtime().IsInputCaptured() && env.controlsBlocked);
+
+        // Foreground sampling also revokes browser input when no loss message arrives.
+        env.gameWindowActive = false;
+        runtime().Update();
+        CHECK(!env.rendererWindowActive);
+        env.gameWindowActive = true;
+        runtime().Update();
+        CHECK(env.rendererWindowActive);
+
         OpenMenu("acme/second");
         CHECK(CountLifecycle("acme/menu", API::ViewLifecyclePhase::kHidden) == 1);
         CHECK(env.settings.acquisitions == 1); // Menu switch retains a single suppression lease.

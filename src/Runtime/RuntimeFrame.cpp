@@ -125,6 +125,8 @@ namespace OSFUI
 	void Runtime::Update()
 	{
 		if (!m_osfSettings.Available()) return;
+		// Other window hooks can swallow focus messages. Repair the browser gate before Back or input is routed.
+		OnGameWindowActivation(OverlayInputHook::IsGameWindowActive());
 		const auto now = std::chrono::steady_clock::now();
 		m_nowSeconds = std::chrono::duration<double>(now.time_since_epoch()).count();
 		ProcessLifecycleWork();

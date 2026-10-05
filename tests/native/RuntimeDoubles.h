@@ -28,6 +28,8 @@ namespace RuntimeTest
         bool transition = false;
         bool engineFocus = false;
         bool browserFocus = false;
+        bool gameWindowActive = true;
+        bool rendererWindowActive = true;
         bool controlsBlocked = false;
         bool cursorFree = false;
         bool paused = false;
@@ -50,6 +52,7 @@ namespace RuntimeTest
         std::vector<std::string> navigations;
         std::map<std::string, bool> hidden;
         std::vector<std::uint32_t> keys;
+        std::vector<bool> backWindowActive;
         std::vector<SentMessage> sent;
         OSFUI::WebView2HostWebRenderer::LoadHandler load;
         OSFUI::WebView2HostWebRenderer::FailureHandler failure;

@@ -263,7 +263,7 @@ namespace OSFUI
 		std::uint32_t        viewportWidth{ 1 }, viewportHeight{ 1 };
 		bool                 pointerInputEnabled{ true };
 		bool                 focusRequested{ false };
-		bool                 windowActive{ true };  // last WM_SETFOCUS/WM_KILLFOCUS edge; the host trusts this value
+		bool                 windowActive{ true };  // activation messages, reconciled against the foreground window each tick
 
 		// Failed persists until RestartAfterFailure.
 		enum class Lifecycle : std::uint8_t
@@ -1249,8 +1249,10 @@ namespace OSFUI
 	void WebView2HostWebRenderer::SetWindowActive(bool a_active)
 	{
 		std::scoped_lock lock(m_impl->stateMutex);
+		if (m_impl->windowActive == a_active) return;
 		m_impl->windowActive = a_active;
 		m_impl->Send(ToJson(msg::WindowActive{ .active = a_active }));
+		REX::INFO("WebView2HostWebRenderer: game window active -> {}", a_active);
 	}
 	void WebView2HostWebRenderer::GameWindowChanged()
 	{

@@ -18,6 +18,8 @@ namespace OSFUI::HardwareCursor
 		// Window-message thread only.
 		bool g_active{ false };
 		int  g_showRaises{ 0 };  // net ShowCursor(TRUE) calls, undone on Deactivate
+		HCURSOR g_previousCursor{ nullptr };
+		HCURSOR g_appliedCursor{ nullptr };
 
 		// Bound ShowCursor raises in case another owner holds visibility.
 		constexpr int kMaxShowRaises = 8;
@@ -30,9 +32,11 @@ namespace OSFUI::HardwareCursor
 
 		void RaiseUntilShowing()
 		{
-			while (g_showRaises < kMaxShowRaises && !PointerShowing()) {
-				::ShowCursor(TRUE);
+			if (PointerShowing()) return;
+			while (g_showRaises < kMaxShowRaises) {
+				const int count = ::ShowCursor(TRUE);
 				++g_showRaises;
+				if (count >= 0) break;
 			}
 		}
 
@@ -58,9 +62,11 @@ namespace OSFUI::HardwareCursor
 		}
 		g_active = true;
 		const auto hwnd = static_cast<HWND>(a_hwnd);
+		g_previousCursor = ::GetCursor();
 
-		RaiseUntilShowing();
+		// A null cursor stays invisible regardless of the ShowCursor count.
 		ApplyShape();
+		RaiseUntilShowing();
 
 		RECT screen{};
 		if (ClientRectOnScreen(hwnd, screen)) {
@@ -76,6 +82,12 @@ namespace OSFUI::HardwareCursor
 			return;
 		}
 		g_active = false;
+		// Restore a null (hidden) game cursor too, unless another owner already replaced ours.
+		if (::GetCursor() == g_appliedCursor) {
+			::SetCursor(g_previousCursor);
+		}
+		g_previousCursor = nullptr;
+		g_appliedCursor = nullptr;
 		for (; g_showRaises > 0; --g_showRaises) {
 			::ShowCursor(FALSE);
 		}
@@ -93,8 +105,8 @@ namespace OSFUI::HardwareCursor
 		if (!g_active) {
 			return;
 		}
-		RaiseUntilShowing();
 		ApplyShape();
+		RaiseUntilShowing();
 		// Restore cursor clipping after engine or resolution changes.
 		RECT want{};
 		if (!ClientRectOnScreen(static_cast<HWND>(a_hwnd), want)) {
@@ -117,6 +129,7 @@ namespace OSFUI::HardwareCursor
 		if (!cursor) {
 			cursor = ::LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));  // IDC_ARROW
 		}
+		g_appliedCursor = cursor;
 		::SetCursor(cursor);
 	}
 
