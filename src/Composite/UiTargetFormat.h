@@ -4,7 +4,7 @@
 
 namespace OSFUI::UiTargetFormat
 {
-	//Starfields UI layer is typeless RGBA8. Luma mod upgrades to RGBA16F
+	// Starfield uses typeless RGBA8 for UI; Luma upgrades it to RGBA16F.
 	[[nodiscard]] constexpr DXGI_FORMAT ResolveRtv(const DXGI_FORMAT a_resourceFormat)
 	{
 		switch (a_resourceFormat) {

@@ -20,8 +20,7 @@ int main()
 	CHECK(!std::get<OSFUI::ViewRequestQueue::ViewRequest>(batch[4]).open);
 	CHECK(queue.Take().empty());
 
-	// Browser Back replies remain ordered with close/reopen requests and keep
-	// their original presentation identity for the runtime's stale-reply check.
+	// Keep Back replies ordered with close/reopen requests; retain IDs to detect stale replies.
 	queue.EnqueueView("acme/first", false);
 	queue.EnqueueBackUnhandled("acme/first", 42);
 	queue.EnqueueView("acme/second", true);
@@ -32,8 +31,7 @@ int main()
 	CHECK(!std::get<OSFUI::ViewRequestQueue::ViewRequest>(backBatch[0]).open);
 	CHECK(std::get<OSFUI::ViewRequestQueue::ViewRequest>(backBatch[2]).open);
 
-	// Producers may enqueue during consumption without extending or invalidating
-	// the batch being processed (ready and lifecycle callbacks do this).
+	// Work queued by callbacks waits for the next batch.
 	for (const auto& operation : batch) {
 		if (const auto* view = std::get_if<OSFUI::ViewRequestQueue::ViewRequest>(&operation); view && view->open) {
 			queue.EnqueueView(view->view, false);

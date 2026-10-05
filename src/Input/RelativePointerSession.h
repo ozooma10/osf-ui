@@ -9,8 +9,7 @@
 
 namespace OSFUI
 {
-	// Runtime owns the session and dispatches native callbacks. WndProc only adds
-	// deltas or requests a stop through the atomic producer methods below.
+	// Runtime owns the session and dispatches native callbacks; WndProc only uses the atomic producers.
 	class RelativePointerSession
 	{
 	public:
@@ -21,7 +20,7 @@ namespace OSFUI
 		void ReconcileOwner(std::string_view a_allowedView);
 		void Drain();
 
-		// Window-message thread; these never invoke native callbacks.
+		// Window thread; never invoke native callbacks.
 		bool AccumulateMotion(int a_dx, int a_dy);
 		bool AccumulateWheel(int a_wheelDelta);
 		void RequestEnd();

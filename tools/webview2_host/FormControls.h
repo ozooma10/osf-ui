@@ -2,8 +2,7 @@
 
 namespace osfui::wv2
 {
-    // Query at the time of Back, rather than mirroring popup-open state across
-    // processes. A focused same-origin iframe owns its own select picker.
+    // Check the focused page and its iframes for an open picker when Back is pressed.
     inline constexpr wchar_t kHasOpenSelectScript[] = LR"JS((() => {
         let root = document;
         while (root) {

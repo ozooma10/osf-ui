@@ -9,8 +9,6 @@
 namespace OSFUI
 {
 	// WndProc publishes cursor samples; Runtime publishes geometry and drains moves.
-	// Runtime geometry bookkeeping relies on ordered, non-overlapping updates.
-	// Fields shared with WndProc retain their atomic publication boundaries.
 	class PointerInputState
 	{
 	public:
@@ -22,14 +20,14 @@ namespace OSFUI
 			int y;
 		};
 
-		// Runtime geometry lifecycle.
+		// Runtime.
 		void Initialize(ViewSize a_size);
 		void PublishGeometry(ViewSize a_capture, ViewSize a_view);
 		ViewSize CaptureSize() const;
 		ViewSize ViewportSize() const;
 		void CenterCursor();
 
-		// WndProc input sampling and queries.
+		// WndProc.
 		void UpdateAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
 		Position CursorPosition() const;
 		bool CanSendPointer() const;
@@ -40,10 +38,10 @@ namespace OSFUI
 		void DiscardMouseMove();
 
 	private:
-		// Runtime-owned geometry bookkeeping; no window-thread readers.
+		// Runtime only.
 		ViewSize m_captureSize;
 
-		// Runtime and WndProc share the viewport, cursor and pending motion.
+		// Shared with WndProc.
 		std::atomic<std::uint64_t> m_viewSize;
 		std::atomic<float> m_cursorX{ 0.0f };
 		std::atomic<float> m_cursorY{ 0.0f };

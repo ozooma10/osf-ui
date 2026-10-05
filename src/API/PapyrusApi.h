@@ -15,18 +15,16 @@ namespace RE::BSScript
 
 namespace OSFUI::API::Papyrus
 {
-	// Untrusted script dispatch must reject this trusted platform script.
+	// Block page requests from calling this platform script directly.
 	inline constexpr std::string_view kPlatformScriptName = "OSFUI";
 
-	// Binds the OSFUI natives on a_vm once per process; later calls are no-ops. Normally reached from the
-	// GameVM constructor hook (PapyrusBindHook); Install() falls back to it when the hook is absent.
+	// Once per process. Normally called from the GameVM ctor hook; Install() is the fallback.
 	void BindNatives(RE::BSScript::IVirtualMachine& a_vm);
 
-	// Runtime update and idempotent; binds natives if still unbound and installs the session sinks.
+	// Runtime update; idempotent. Binds natives if unbound and installs the session sinks.
 	void Install();
 
-	// Any thread. Returning to the main menu ends the script session: registrations, queued state and
-	// pending requests are dropped exactly as on a game load.
+	// Any thread. Ends the script session exactly as a game load does.
 	void OnMainMenuOpened();
 
 	enum class StaticDispatchResult
@@ -35,11 +33,11 @@ namespace OSFUI::API::Papyrus
 		kVmUnavailable,
 		kTargetRejected,
 	};
-	// Queue a loose-PEX GLOBAL call while preserving JavaScript scalar types.
+	// Loose-PEX Global call; preserves JavaScript scalar types.
 	using StaticCallArg = std::variant<std::string, std::int32_t, float, bool>;
 	StaticDispatchResult DispatchStaticFunction(std::string_view a_script, std::string_view a_function, const std::vector<StaticCallArg>& a_args);
 
-	// Portable scalar carried by the JavaScript/Papyrus bridge. Form IDs are resolved only while building a VM callback and serialized only on main.
+	// Form IDs resolve only when building a VM callback and serialize only on main.
 	struct FormValue
 	{
 		std::uint32_t id{ 0 };
@@ -60,7 +58,7 @@ namespace OSFUI::API::Papyrus
 		std::string      name;
 	};
 
-	// Matches the bounded registry against each exact "modId.name" qualified endpoint.
+	// Exact "modId.name" match; never split at a dot.
 	[[nodiscard]] ViewEndpoint ResolveViewEndpoint(std::string_view a_name);
 
 	bool OnViewSend(std::string_view a_modId, std::string_view a_name, const std::vector<Value>& a_args, std::string_view a_sourceViewId);
@@ -76,7 +74,7 @@ namespace OSFUI::API::Papyrus
 		nlohmann::json value;
 	};
 
-	// Drained retained state with lowercase mod id; FormIDs are serialized in the runtime update.
+	// Lower-cased mod id; FormIDs serialized in the runtime update.
 	struct ViewState
 	{
 		std::string    mod;
@@ -84,7 +82,7 @@ namespace OSFUI::API::Papyrus
 		nlohmann::json value;
 	};
 
-	// A one-shot event for instantiated views; never retained or replayed.
+	// Never retained or replayed.
 	struct ViewEvent
 	{
 		std::string    mod;

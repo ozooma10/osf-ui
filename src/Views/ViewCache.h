@@ -53,21 +53,18 @@ namespace OSFUI::ViewCache
 
 	using SkipFile = std::function<bool(const std::filesystem::path&)>;
 
-	// Metadata fingerprint (path, size and modification time of every file) of the resolved USVFS tree; no content is read. The salt carries
-	// cache-format/runtime compatibility so a release can invalidate old snapshots. SkipFile leaves matching files out of the fingerprint.
+	// Hash paths, sizes and mtimes through USVFS. Salt invalidates caches; SkipFile excludes files.
 	[[nodiscard]] std::optional<Fingerprint> FingerprintTree(const std::filesystem::path& a_source, std::string_view a_salt, std::string& a_error, const SkipFile& a_skip = {});
 
 	[[nodiscard]] std::string GenerationName(std::uint64_t a_fingerprint);
 
-	// Reuse a complete immutable generation, or copy into a private staging tree and atomically publish it.
-	// An edit that keeps both a file's size and its timestamp is invisible to the fingerprint and reuses the old generation.
+	// Reuse or atomically replace the cache. Same-size edits with unchanged mtimes go undetected.
 	[[nodiscard]] std::optional<Prepared> Prepare(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error);
 
-	// Cache each top-level mod/shared directory independently under one browser-visible root.
-	// Changed entries are staged and checked before replacement. Root files are retained too.
-	// Call only during session preparation: concurrent game instances are not supported.
+	// Cache each top-level entry separately; verify changes before replacing it.
+	// Session preparation only; concurrent game instances are unsupported.
 	[[nodiscard]] std::optional<PreparedMods> PrepareMods(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error);
 
-	// Remove every staging entry and old generation except keep. Concurrent game instances are not protected.
+	// Removes all staging entries and generations except a_keep. Not safe across concurrent game instances.
 	[[nodiscard]] ScavengeResult Scavenge(const std::filesystem::path& a_cacheRoot, const std::filesystem::path& a_keep);
 }

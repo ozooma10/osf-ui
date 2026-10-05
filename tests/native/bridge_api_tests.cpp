@@ -70,8 +70,7 @@ int main()
     const auto& direct = std::get<ViewRequestQueue::ViewRequest>(launches.at(2));
     CHECK(direct.open && direct.requestId == 0);
 
-    // Native, browser and input producers share one FIFO, including closes of
-    // views that an earlier queued open has not instantiated yet.
+    // Native, browser and input producers share one FIFO, including closes of not-yet-instantiated views.
     api.ViewRequests().EnqueueView("acme/hud", true);
     CHECK(api.RequestMenu("ACME/PANEL", true));
     api.ViewRequests().Enqueue(ViewPresentationRequest::Back);
@@ -87,9 +86,9 @@ int main()
 
     API::Client client;
     CHECK(client.Attach(&api));
-    CHECK(client.Attach(&api, API::kVersion + 1)); // Minor bumps stay compatible.
-    CHECK(!API::Supports(API::kVersion, API::kVersion + 0x00010000u)); // Runtime rejects incompatible majors.
-    CHECK(!client.Attach(&api, API::kVersion + 0x00010000u)); // Major bumps detach.
+    CHECK(client.Attach(&api, API::kVersion + 1));
+    CHECK(!API::Supports(API::kVersion, API::kVersion + 0x00010000u));
+    CHECK(!client.Attach(&api, API::kVersion + 0x00010000u));
     CHECK(!client && client.Version() == 0);
 
     CHECK(api.RegisterView("acme/panel"));
@@ -102,8 +101,7 @@ int main()
     auto state = api.TakePendingBatch().state;
     CHECK(state.size() == 1 && state[0].mod == "acme" && state[0].key == "status");
 
-    // Draining state preserves publication order and leaves requests and
-    // registrations queued for the next batch.
+    // State drains in publication order; requests and registrations stay queued for the next batch.
     CHECK(api.SetState("acme", "status", R"({"revision":1})"));
     CHECK(api.SetState("acme", "status", R"({"revision":2})"));
     CHECK(api.RequestMenu("acme/hud", true));
@@ -113,7 +111,7 @@ int main()
     CHECK(pendingState.size() == 2);
     if (pendingState.size() == 2) {
         CHECK(pendingState[0].value["revision"] == 1);
-        CHECK(pendingState[1].value["revision"] == 2); // Newest publication wins.
+        CHECK(pendingState[1].value["revision"] == 2);
     }
     CHECK(api.TakePendingState().empty());
     auto afterState = api.TakePendingBatch();
@@ -135,7 +133,7 @@ int main()
 
     MessageBridge bridge(Capture);
     CHECK(api.RegisterSend("acme.increment", &Send, nullptr));
-    CHECK(!api.RegisterSend("acme.increment", &Send, nullptr)); // Duplicate name refused.
+    CHECK(!api.RegisterSend("acme.increment", &Send, nullptr));
     CHECK(!api.RegisterSend("osfui.reserved", &Send, nullptr));
     CHECK(api.RegisterRequest("acme.query", &Request, nullptr));
     CHECK(!api.RegisterRequest("acme.increment", &Request, nullptr));
@@ -171,8 +169,7 @@ int main()
     CHECK(!api.RegisterRequest("acme.query", &Request, nullptr));
     CHECK(!api.ClaimPapyrusEndpoint("ACME.QUERY"));
 
-    // A failed browser host stops draining native sends. Recovery restores
-    // availability on the same bridge; delivery still waits for the document greeting.
+    // A failed host stops draining native sends; recovery reuses the bridge, delivery waits for the greeting.
     api.SetViewInstantiated("acme/panel", false);
     bridge.OnViewDestroyed("acme/panel");
     api.SetBridgeAvailability(false);
@@ -259,7 +256,7 @@ int main()
     CHECK(g_sent.empty());
     bridge.RespondTo(newToken, {{ "new", true }});
     CHECK(g_sent.size() == 1 && g_sent.back()["payload"]["new"] == true);
-    // Only the first answer counts; the bridge drops the duplicate.
+    // Ignore duplicate replies.
     bridge.RejectTo(newToken, "late");
     CHECK(g_sent.size() == 1);
 
@@ -287,7 +284,7 @@ int main()
     other.HandleWebMessage("acme/panel", R"({"kind":"request","name":"deferred","id":"q1","payload":{}})");
     CHECK(otherToken > newToken);
 
-    // Owner-qualified fallback beats a global native endpoint, including kind checks.
+    // Prefer the owning mod's endpoint, including when checking send versus request.
     unsigned ownSend = 0, globalSend = 0;
     bridge.RegisterSend("refresh", [&](const auto&, auto&) { ++globalSend; });
     bridge.SetEndpointFallback(

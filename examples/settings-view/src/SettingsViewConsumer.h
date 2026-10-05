@@ -9,7 +9,7 @@ namespace SettingsViewExample
     inline constexpr const char* kModId = "osfui-example";
     inline constexpr const char* kViewId = "osfui-example/panel";
 
-    // The plugin owns one process-lifetime instance, matching Slim's callback lifetime.
+    // Process lifetime: Settings callbacks hold a pointer to it.
     class Consumer final
     {
     public:

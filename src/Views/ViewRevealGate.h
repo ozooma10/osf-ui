@@ -5,7 +5,6 @@
 namespace OSFUI
 {
 	// Holds a presentation hidden until a frame at the expected size arrives, or times out.
-	// Arm sites either invalidate the old frame or retain a submitted menu frame.
 	class ViewRevealGate
 	{
 	public:

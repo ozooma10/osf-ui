@@ -24,7 +24,7 @@ namespace OSFUI
 		if (!m_pending) {
 			return decision;
 		}
-		// frame wins before checking timeout. Prevents alt-tab or load hitch from timing out frame that became ready on first resumed tick.
+		// Accept a ready frame before checking the timeout after a stall.
 		if (a_frameReady) {
 			Cancel();
 			decision.reveal = true;

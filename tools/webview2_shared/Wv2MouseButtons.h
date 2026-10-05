@@ -65,8 +65,7 @@ namespace osfui::wv2
 			return m_pressed;
 		}
 
-		// A non-zero result means the host crossed an input boundary without seeing the matching synthetic button-up. 
-		// The caller must deliver forced releases to WebView2 before abandoning the old view/controller.
+		// Non-zero means buttons are still held; release them before leaving the view.
 		[[nodiscard]] SyntheticMouseButtonMask TakePressed() noexcept
 		{
 			const auto pressed = m_pressed;

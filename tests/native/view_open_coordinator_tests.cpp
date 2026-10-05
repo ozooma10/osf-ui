@@ -56,8 +56,7 @@ int main()
         presentation.CloseActiveMenu();
     }
 
-    // Runtime cleanup may discard any preparation stage, including an accepted
-    // completion whose after-close callback never arrived.
+    // Runtime cleanup may discard any stage, including an accepted completion whose after-close callback never came.
     for (const auto phase : { Phase::Loading, Phase::Rendering, Phase::Ready }) {
         opens.QueueMenu("mod/menu", 210.0, 46);
         opens.PendingMenu()->phase = phase;
@@ -74,8 +73,7 @@ int main()
     CHECK(!opens.TakeReadyMenu("mod/menu"));
     CHECK(opens.TakeReadyMenu("mod/menu", 47).has_value());
 
-    // Failure leaves the completion identity available for Runtime's common
-    // cleanup, rather than silently dropping a Settings waiter.
+    // Keep failed request IDs so Runtime can notify Settings during cleanup.
     for (const auto failure : { Readiness::Missing, Readiness::InputUnavailable }) {
         opens.QueueMenu("mod/menu", 230.0, 42);
         readiness["mod/menu"] = failure;
@@ -86,8 +84,7 @@ int main()
         CHECK(ready().empty()); // late readiness cannot revive a canceled open
     }
 
-    // Replacing/canceling a menu preserves unrelated HUD demand. Ready HUDs
-    // still complete at load readiness, including while a menu awaits a frame.
+    // Menu changes preserve HUD requests; loaded HUDs need not wait for a menu's first frame.
     opens.QueueHud("mod/hud");
     readiness["mod/hud"] = Readiness::Loading;
     opens.QueueMenu("mod/old", 300.0, 43);

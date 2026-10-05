@@ -13,7 +13,6 @@ namespace OSFUI
 		const auto folded = StringUtil::ToLowerAscii(a_mod);
 		auto       it = m_mods.find(folded);
 		if (it == m_mods.end()) {
-			// Check capacity before creating a caller-supplied mod bucket.
 			if (m_mods.size() >= kMaxMods) {
 				REX::WARN("RetainedStateStore: holding state for the maximum {} mods — "
 						  "'{}.{}' is delivered but not retained",
@@ -26,7 +25,6 @@ namespace OSFUI
 		const auto wanted = StringUtil::ToLowerAscii(a_key);
 		for (auto& entry : entries) {
 			if (StringUtil::EqualsCaseInsensitiveAscii(entry.key, wanted)) {
-				// Latest value and spelling win.
 				entry.key = std::string(a_key);
 				entry.value = std::move(a_value);
 				entry.sessionScoped = a_sessionScoped;

@@ -12,11 +12,11 @@
 
 namespace OSFUI
 {
-	// Dev worker polls, debounces, and mirrors off-thread; Runtime drains completions on Tick.
+	// Polls, debounces and mirrors off-thread; Runtime drains completions on Tick.
 	class DevViewReloadWorker
 	{
 	public:
-		// Refresh and completion IDs name whole mod folders, not individual views.
+		// IDs are mod folders, not views.
 		using Refresh = std::function<bool(std::string_view)>;
 
 		DevViewReloadWorker(std::filesystem::path a_viewsRoot, Refresh a_refresh);

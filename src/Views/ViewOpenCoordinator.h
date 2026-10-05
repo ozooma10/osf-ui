@@ -10,12 +10,12 @@
 
 namespace OSFUI
 {
-	// Runtime-owned. Preparing a frame does not grant input; an ordinary open consumes it.
-	// Runtime owns instantiation and presentation; this class never calls the engine, browser or native plugins.
+	// Runtime-owned; never calls the engine, browser or native plugins.
+	// Preparing a frame does not grant input; an ordinary open consumes it.
 	class ViewOpenCoordinator
 	{
 	public:
-		// Suspended: presentation refuses menus right now; the request stays queued.
+		// Keep requests queued while menus cannot open.
 		enum class Readiness { Missing, Suspended, Loading, WaitingForInput, InputUnavailable, Ready };
 		bool Contains(std::string_view a_view) const;
 		enum class Phase { Loading, Rendering, Ready };
@@ -31,11 +31,9 @@ namespace OSFUI
 		std::optional<MenuOpen> TakeMenu(); // Runtime completes or cleans up the returned operation.
 		std::optional<MenuOpen> TakeReadyMenu(std::string_view a_view, std::uint64_t a_requestId = 0);
 
-		// Call after instantiation succeeds. Replaces only the pending
-		// menu, leaving the currently presented menu and HUD requests untouched.
-		// Runtime must finish the previous operation before replacing it.
+		// Call after creating the view and finishing the previous pending menu.
 		void QueueMenu(std::string_view a_view, double a_deadline, std::uint64_t a_requestId = 0);
-		// HUDs always pass through the load gate, including startup and host recovery.
+		// HUDs must finish loading, including at startup and after browser recovery.
 		void QueueHud(std::string_view a_view);
 		std::vector<std::string> TakeReady(const std::function<Readiness(std::string_view)>& a_readiness);
 

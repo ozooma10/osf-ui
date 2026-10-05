@@ -2,11 +2,11 @@
 
 namespace OSFUI
 {
-	// Runtime-owned: retain one session layer and toggle its mask to gate every input device.
+	// Runtime owns one input layer to block player controls on all devices.
 	class ControlLayer
 	{
 	public:
-		// Drive the retained layer from each runtime tick, allocating it on first use.
+		// Call every runtime tick; allocates the layer on first use.
 		static void Apply(bool a_engage);
 
 	private:

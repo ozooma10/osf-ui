@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
-# Native desktop unit tests: compiles the REAL runtime sources under test
-# against stubs/pch.h (std umbrella + REX log stub) and runs them on the
-# desktop toolchain — no SFSE or game required. Requires a C++23 compiler;
-# fetches the locked nlohmann/json amalgamated headers on first run.
-#
-# The shared runtime/api sources are listed by many suites (Json.cpp drags in
-# the ~25k-line nlohmann/json header), so the build compiles each DISTINCT
-# translation unit exactly once to an object, fans those compiles across every
-# core, and only re-links per suite.
+# Native desktop unit tests: compiles the real runtime sources against stubs/pch.h and runs them
+# without SFSE or the game. Needs C++23; fetches pinned nlohmann/json headers on first run.
+# Each distinct translation unit compiles once, in parallel; suites only re-link.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -15,9 +9,7 @@ DEPS=.deps
 BUILD=.build
 NLOHMANN_VERSION=v3.11.3
 
-# The build dir is disposable and is rebuilt from scratch every run (there is
-# no cross-run incrementality to preserve). Recreating it also evicts binaries
-# of suites that no longer exist, which would otherwise remain runnable.
+# Rebuilt from scratch every run; this also evicts binaries of removed suites.
 rm -rf "$BUILD"
 mkdir -p "$DEPS/nlohmann" "$BUILD/obj"
 for header in json.hpp json_fwd.hpp; do
@@ -30,9 +22,7 @@ for header in json.hpp json_fwd.hpp; do
     fi
 done
 
-# Toolchain: a GNU-driver compiler (CXX, default clang++). On a Windows box
-# with no clang/g++ on PATH, fall back to MSVC cl through vcvars64 with the
-# same suite list, force-included stubs, and exit-code protocol.
+# Toolchain: CXX (default clang++); falls back to MSVC cl via vcvars64 when no clang/g++ is on PATH.
 MSVC=0
 if [[ -z "${CXX:-}" ]] && ! command -v clang++ >/dev/null 2>&1 && ! command -v g++ >/dev/null 2>&1; then
     VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
@@ -42,11 +32,9 @@ if [[ -z "${CXX:-}" ]] && ! command -v clang++ >/dev/null 2>&1 && ! command -v g
     fi
 fi
 CXX="${CXX:-clang++}"
-BASEFLAGS="-std=c++2b -Wall -Wextra -g -I ../../src -I ../../sdk -I ../../tools/webview2_shared -I $DEPS -I stubs"
+BASEFLAGS="-std=c++2b -Wall -Wextra -g -I stubs -I ../../src -I ../../sdk -I ../../tools/webview2_shared -I $DEPS"
 
-# Each suite is "<name> <translation units...>". Keep the source lists in sync
-# with what each suite actually exercises; duplicates across suites are free
-# (compiled once, see UNIQUE below).
+# Each suite is "<name> <translation units...>"; units shared across suites compile once.
 SUITES=(
 "json_tests json_tests.cpp ../../src/Core/Json.cpp"
 "settings_client_tests settings_client_tests.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/API/BridgeApi.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Core/Json.cpp"
@@ -63,7 +51,7 @@ SUITES=(
 "gamepad_session_tests gamepad_session_tests.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp"
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"
 "shared_frame_state_tests shared_frame_state_tests.cpp"
-"runtime_lifecycle_contract_tests runtime_lifecycle_contract_tests.cpp"
+"runtime_lifecycle_tests runtime_lifecycle_tests.cpp runtime_doubles.cpp ../../src/Views/ViewLoadTracker.cpp ../../src/Views/ViewRecoveryTracker.cpp ../../src/Runtime/Runtime.cpp ../../src/Runtime/RuntimeFrame.cpp ../../src/Views/RuntimeViews.cpp ../../src/Bridge/RuntimeBridge.cpp ../../src/Input/RuntimeInput.cpp ../../src/Input/InputCaptureController.cpp ../../src/Input/PointerInputState.cpp ../../src/Input/RelativePointerSession.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Views/ViewPresentationController.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewRevealGate.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/Core/Json.cpp"
 "view_reveal_gate_tests view_reveal_gate_tests.cpp ../../src/Views/ViewRevealGate.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"
 "wv2_messages_tests wv2_messages_tests.cpp ../../src/Core/Json.cpp"
@@ -77,10 +65,8 @@ SUITES=(
 "papyrus_call_tests papyrus_call_tests.cpp"
 )
 
-# Deterministic object path for a source (flatten dir separators into the name).
 objname() { printf '%s/obj/%s.o' "$BUILD" "$(printf '%s' "$1" | tr './ ' '___')"; }
 
-# --- Collect the distinct translation units across all suites.
 declare -A seen=()
 UNIQUE=()
 for suite in "${SUITES[@]}"; do
@@ -93,9 +79,8 @@ for suite in "${SUITES[@]}"; do
 done
 
 if [[ "$MSVC" == 1 ]]; then
-    # --- MSVC path: one generated cmd script runs vcvars64 once, compiles every
-    # distinct TU in one /MP invocation, then links each suite. cl's /Fo<dir>
-    # flattens objects to basenames, so refuse a basename collision up front.
+    # MSVC: one cmd script runs vcvars64 once, compiles every TU with /MP, then links each suite.
+    # /Fo<dir> flattens objects to basenames, so reject basename collisions.
     declare -A bybase=()
     for s in "${UNIQUE[@]}"; do
         b="$(basename "$s")"
@@ -112,7 +97,7 @@ if [[ "$MSVC" == 1 ]]; then
         echo '@echo off'
         echo "call \"$(cygpath -w "$VSROOT")\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul || exit /b 1"
         echo "cd /d \"$HERE_W\\$BUILD\" || exit /b 1"
-        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\webview2_shared\" /I \"$HERE_W\\$DEPS\" /I \"$HERE_W\\stubs\" /FI \"$HERE_W\\stubs\\pch.h\""
+        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\stubs\" /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\webview2_shared\" /I \"$HERE_W\\$DEPS\" /FI \"$HERE_W\\stubs\\pch.h\""
         printf 'cl %s /MP /c' "$FLAGS"
         for s in "${UNIQUE[@]}"; do printf ' "%s"' "$(winsrc "$s")"; done
         printf ' /Foobj\\ || exit /b 1\n'
@@ -126,8 +111,7 @@ if [[ "$MSVC" == 1 ]]; then
     echo "== MSVC (cl via vcvars64): compiling ${#UNIQUE[@]} translation units, linking ${#SUITES[@]} suites =="
     cmd //c "$(cygpath -w "$CMDFILE")"
 else
-    # --- Compile each distinct unit once, in parallel. xargs exits nonzero (so
-    # --- the pipeline fails under `set -o pipefail`) if any compile fails.
+    # Compile each distinct unit once, in parallel; xargs fails the pipeline if any compile fails.
     compile_one() {
         local src=$1 obj
         obj="$BUILD/obj/$(printf '%s' "$src" | tr './ ' '___').o"
@@ -141,7 +125,6 @@ else
     echo "== compiling ${#UNIQUE[@]} translation units (-P $JOBS) =="
     printf '%s\n' "${UNIQUE[@]}" | xargs -P "$JOBS" -n1 -I{} bash -c 'compile_one "$1"' _ {}
 
-    # --- Link each suite from its (already built) objects.
     echo "== linking ${#SUITES[@]} suites =="
     for suite in "${SUITES[@]}"; do
         read -r name srcs <<< "$suite"
@@ -151,14 +134,20 @@ else
     done
 fi
 
-# --- Run. exit code = number of failing checks.
+# Run. Exit code = number of failing checks.
 failures=0
 for suite in "${SUITES[@]}"; do
     read -r name _ <<< "$suite"
     echo "== $name =="
     bin="$BUILD/$name"
     [[ -f "$bin" ]] || bin="$bin.exe"
-    "$bin" || failures=$((failures + $?))
+    if [[ "$name" == runtime_lifecycle_tests ]]; then
+        for scenario in normal missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure; do
+            "$bin" "$scenario" || failures=$((failures + $?))
+        done
+    else
+        "$bin" || failures=$((failures + $?))
+    fi
 done
 if (( failures > 0 )); then
     echo "native checks failed: $failures" >&2

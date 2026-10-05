@@ -24,7 +24,7 @@ namespace OSFUI
 
     private:
 		std::unordered_map<std::string, GamepadSession::Mode> m_gamepadModes;
-		// Empty target means the view wants the synthetic Escape event. A non-empty target lets Runtime perform the menu handoff in the input tick.
+		// Empty target: synthesize Escape. Otherwise Runtime hands off to that menu in the input tick.
 		std::unordered_map<std::string, std::string>          m_backActions;
 	};
 }

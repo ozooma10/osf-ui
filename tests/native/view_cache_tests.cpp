@@ -82,8 +82,7 @@ int main()
 		source, cache, "runtime-v1", "second", error);
 	assert(again && again->reused && again->generation == first->generation);
 
-	// Documented limitation: the fingerprint is metadata only, so a same-size edit whose
-	// timestamp an archive or mod manager preserved still reuses the old generation.
+	// Known limitation: metadata-only fingerprint misses a same-size edit with a preserved timestamp.
 	const auto preservedTime = fs::last_write_time(source / "shared" / "osfui.js");
 	Write(source / "shared" / "osfui.js", "shared-v2");
 	fs::last_write_time(source / "shared" / "osfui.js", preservedTime);
@@ -104,8 +103,7 @@ int main()
 		source, cache, "runtime-v2", "fourth", error);
 	assert(resalted && !resalted->reused && resalted->generation != changed->generation);
 
-	// Incomplete target generations are never reused; Prepare replaces them only
-	// after rebuilding a complete staging tree.
+	// Incomplete generations are never reused; Prepare replaces them only after a complete staging rebuild.
 	const auto isolatedCache = root / "isolated-cache";
 	const auto isolatedFingerprint =
 		OSFUI::ViewCache::FingerprintTree(source, "runtime-v1", error);
@@ -119,8 +117,7 @@ int main()
 	assert(!fs::exists(repaired->generation / "stale.js"));
 	assert(Read(repaired->generation / "shared" / "osfui.js") == "shared-v2");
 
-	// Scavenging removes abandoned staging and old generations, retains the
-	// selected generation, and leaves unrelated folders alone.
+	// Scavenging removes abandoned staging and old generations, keeping the selected one and unrelated folders.
 	const auto staging = cache / "staging-abandoned";
 	const auto unrelated = cache / "unrelated";
 	Write(staging / "partial", "x");

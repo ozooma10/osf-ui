@@ -16,12 +16,12 @@ namespace OSFUI
 			std::uint32_t height{ 0 };
 		};
 
-		// The engine's current game window (Main::window), or null before Main exists. Any thread; the engine recreates it on a window-mode change, so don't cache it.
+		// Main::window, or null before Main exists. Any thread. Recreated on window-mode change; don't cache.
 		[[nodiscard]] HWND__* GameWindow();
 		// Install once from the runtime tick; never un-subclass another overlay's chain.
 		bool Install();
 		void RequestStateRefresh();
-		// Subclassed game window's client size, the authority for window-thread platform facts.
+		// Window-thread state; available before Install().
 		[[nodiscard]] std::optional<ClientSize> GameWindowClientSize();
 
 		namespace detail

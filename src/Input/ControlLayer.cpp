@@ -14,15 +14,15 @@ namespace OSFUI
 		RE::BSInputEnableLayer* g_layer{ nullptr };
 		bool                    g_engaged{ false };
 
-		// Keep Menu enabled while disabling the 1.16.244-proven player-control masks.
+		// Masks proven on 1.16.244. Menu stays enabled.
 		constexpr RE::USER_EVENT_FLAG kUserDisable =
 			RE::USER_EVENT_FLAG::Movement |     // Walking | Jumping
-			RE::USER_EVENT_FLAG::Looking |      // mouse-look / camera (proven)
+			RE::USER_EVENT_FLAG::Looking |
 			RE::USER_EVENT_FLAG::Fighting |
 			RE::USER_EVENT_FLAG::Sneaking |
-			RE::USER_EVENT_FLAG::Activation |   // activate / use (proven)
-			RE::USER_EVENT_FLAG::POVSwitch |    // 1st/3rd-person toggle (proven)
-			RE::USER_EVENT_FLAG::WheelZoom;     // zoom (proven)
+			RE::USER_EVENT_FLAG::Activation |
+			RE::USER_EVENT_FLAG::POVSwitch |
+			RE::USER_EVENT_FLAG::WheelZoom;
 
 		constexpr RE::OTHER_EVENT_FLAG kOtherDisable =
 			RE::OTHER_EVENT_FLAG::Activate |
@@ -69,14 +69,13 @@ namespace OSFUI
 		}
 		if (a_engage) {
 			if (!EnsureLayer()) {
-				return;  // not in gameplay yet; retry next tick
+				return;  // retry next tick
 			}
 			g_layer->EnableUserEvent(kUserDisable, false);
 			g_layer->EnableOtherEvent(kOtherDisable, false);
 			REX::DEBUG("ControlLayer: player controls disabled (layer {})", g_layer->GetLayerID());
 		} else {
 			if (g_layer) {
-				// Restore exactly this retained layer's disabled masks.
 				g_layer->EnableUserEvent(kUserDisable, true);
 				g_layer->EnableOtherEvent(kOtherDisable, true);
 			}

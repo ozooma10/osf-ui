@@ -300,8 +300,7 @@ int main()
     API::Papyrus::OnMainMenuOpened(); pump(); CHECK(providers.observers.empty());
     CHECK(providers.registrations == 0);
 
-    // Model the legacy helper's per-document cache. A reset must never be the
-    // last delivery for a key already republished in the current session.
+    // Models the legacy helper's per-document cache: a reset must never be the last delivery for a republished key.
     const std::string chartView = "x2357.ssse/chart";
     std::map<std::string, Json> pageData;
     const auto consumeState = [&] {
@@ -347,8 +346,7 @@ int main()
             CHECK(wire.empty()); // No unsolicited duplicate delivery on the following tick.
         }
     }
-    // If loading starts after replay, invalidation can run while suspended;
-    // current values must remain dirty so resuming restores the cleared cache.
+    // A load after replay can invalidate while suspended; values stay dirty so resume restores the cleared cache.
     Legacy::ResetSession();
     setInts(*vm, 0, {}, "x2357.ssse", "replay", {42});
     Legacy::ReplayState(bridge, view); consumeState();

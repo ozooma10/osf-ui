@@ -6,7 +6,6 @@
 
 namespace OSFUI
 {
-	// Runtime failure state and retry timing; transport ownership stays in the renderer.
 	class BrowserHostRecovery
 	{
 	public:
@@ -23,8 +22,7 @@ namespace OSFUI
 		static constexpr std::uint32_t kMaxAttempts = 3;
 		static constexpr double        kResponseTimeoutSeconds = 30.0;
 
-		// Only known transient failures in the helper can benefit from a restart.
-		// HRESULT values stay portable so this policy is tested without Windows/COM.
+		// Retry only known temporary helper failures. Raw HRESULTs avoid a COM dependency in tests.
 		[[nodiscard]] static constexpr bool IsRetryable(std::string_view a_stage, std::uint32_t a_code)
 		{
 			if (a_stage == "host-connection") return true;
@@ -52,7 +50,7 @@ namespace OSFUI
 			m_failureHandled = false;
 		}
 
-		// A load proves responsiveness, not stability. Keep the retry budget until the host stays healthy.
+		// A successful load does not reset retries; wait until the host stays healthy.
 		void OnResponse(double a_now)
 		{
 			if (!CanAcceptResponse()) return;
@@ -66,8 +64,7 @@ namespace OSFUI
 			if (m_phase == Phase::Healthy && a_now >= m_healthyUntil) Reset();
 		}
 
-		// Duplicates do not consume retries. A permanent error overrides a generic
-		// disconnect from the same host, regardless of which notification arrived first.
+		// Ignore duplicates. A permanent error overrides a disconnect, regardless of arrival order.
 		[[nodiscard]] bool OnFailure(double a_now, bool a_retryable)
 		{
 			if (m_failureHandled && (a_retryable || m_phase == Phase::Disabled)) {

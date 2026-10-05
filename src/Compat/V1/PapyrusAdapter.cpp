@@ -47,7 +47,7 @@ namespace OSFUI::Compat::V1::Papyrus
             Receiver receiver;
             std::string fn, mod, key;
             bool arrayArgs{true};
-            // Callbacks only increment an atomic; provider unsubscribe fences their lifetime.
+            // Callbacks only increment an atomic; unsubscribe waits for them to finish.
             std::vector<std::shared_ptr<KeyObserver>> observers;
         };
         struct Value
@@ -74,8 +74,7 @@ namespace OSFUI::Compat::V1::Papyrus
         };
         struct State
         {
-            // Also serializes VM enqueue against Unregister/reset. VM dispatch only queues;
-            // it never waits for Papyrus to execute. Provider callbacks never take this lock.
+            // Lock VM enqueue against unregister/reset. Dispatch only queues; provider callbacks never lock.
             std::recursive_mutex lock;
             std::map<std::int32_t, Entry> entries;
             std::vector<std::shared_ptr<KeyObserver>> retired;
@@ -136,7 +135,7 @@ namespace OSFUI::Compat::V1::Papyrus
             PruneDeadReceivers();
             for (const auto& [token, entry] : S().entries) {
                 if (entry.kind != kind || entry.mod != id) continue;
-                // The historical request contract is first-listener-wins, including repeat calls.
+                // v1.6 contract: the first request listener wins, including repeat calls.
                 if (kind == Kind::Request) return 0;
                 if (entry.receiver == *receiver && entry.fn == ToLowerAscii(fn.c_str()) &&
                     entry.key == ToLowerAscii(key.c_str()) && entry.arrayArgs == arrayArgs) return token;
@@ -348,8 +347,7 @@ namespace OSFUI::Compat::V1::Papyrus
             if (result != Settings::Status::Ok) return;
             for (auto& [_, entry] : S().entries) {
                 if (entry.kind != Kind::Hotkey) continue;
-                // Schema replacement can remove a key. Stop observing it without creating
-                // a replacement definition; OSF Settings remains the authority.
+                // Drop keys no longer defined by OSF Settings.
                 std::erase_if(entry.observers, [&](const auto& observer) {
                     if (std::ranges::find(keys, std::pair{observer->mod, observer->key}) != keys.end()) return false;
                     S().retired.push_back(observer);
@@ -427,8 +425,7 @@ namespace OSFUI::Compat::V1::Papyrus
             if (!admits(view) || name == payload.end() || !name->is_string() || !Text(name->get_ref<const std::string&>(), 64) || !args) {
                 b.Reject("invalid-request", "invalid legacy request or source view"); return;
             }
-            // The v1.6 default remains ten seconds. The adapted helper carries an explicit
-            // page timeout privately, bounded at 60s for Stock Exchange's slow chart walks.
+            // v1.6 default is 10 s; the adapted page helper may pass up to 60 s for slow requests.
             std::int64_t timeout = 10000;
             if (const auto ms = payload.find("__osfuiV1TimeoutMs"); ms != payload.end()) {
                 if (!ms->is_number_integer() || *ms < 1 || *ms > 60000) { b.Reject("invalid-request", "invalid legacy request timeout"); return; }
@@ -471,16 +468,13 @@ namespace OSFUI::Compat::V1::Papyrus
         }
         if (!S().resetKeys.empty()) {
             for (const auto& view : views) {
-                // A pre-hello page has no old cache. Queuing a reset there would instead
-                // erase its new-session replay when the event gate opens after hello.
+                // Pre-hello pages have no old cache; a reset would erase their post-hello replay.
                 if (!bridge.IsGreeted(view)) continue;
                 auto keys = Json::array();
                 for (const auto& address : S().resetKeys) {
                     if (!Ids::EqualsCaseInsensitiveAscii(address.first, Ids::ModOf(view))) continue;
                     keys.push_back(address.second);
-                    // A greeting may already have replayed this session's value.
-                    // Invalidate that delivery so fresh state follows this reset,
-                    // including when publication must wait until loading resumes.
+                    // Invalidate any greeting replay so fresh state follows this reset.
                     if (auto current = S().values.find(address); current != S().values.end()) {
                         current->second.delivered.erase(view);
                         current->second.dirty = true;

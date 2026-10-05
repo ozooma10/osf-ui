@@ -2,11 +2,11 @@
 
 namespace OSFUI
 {
-	// Runtime-owned: balance the MenuCursor free-cursor reference or gameplay mouse-look stays unpinned.
+	// Runtime owns one free-cursor reference; release it to restore mouse-look.
 	class FreeCursor
 	{
 	public:
-		// Drive the reference from each runtime tick, retrying until MenuCursor exists.
+		// Call every runtime tick; retries until MenuCursor exists.
 		static void Apply(bool a_desired);
 	};
 }

@@ -22,7 +22,7 @@ namespace OSFUI
 		bool CompleteLaunch(std::uint64_t a_requestId, bool a_ready, std::string_view a_reason = {});
 		[[nodiscard]] bool Available() const { return m_available; }
 		[[nodiscard]] bool DeveloperMode() const { return m_developerMode; }
-		// An empty value selects the browser default for Settings without language support.
+		// Empty selects the browser default (Settings without language support).
 		[[nodiscard]] std::optional<std::string> Language();
 		// Known codes get their user-facing text and severity from Describe; a_message titles anything else.
 		void ReportFailure(std::string_view a_id, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_context = nlohmann::json::object());

@@ -231,7 +231,6 @@ namespace OSFUI::Compat::V1
                 auto source = Document::parse(json, nullptr, false);
                 if (source.is_discarded() || !source.is_object()) return false;
                 std::lock_guard lock(mutex);
-                // Validate identity before using it as a path.
                 std::string error;
                 auto definition = TranslateSettings(source, Document::object(), error);
                 if (!definition) { REX::WARN("Legacy settings schema rejected: {}", error); return false; }

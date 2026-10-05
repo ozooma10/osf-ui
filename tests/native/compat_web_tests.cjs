@@ -1,4 +1,4 @@
-// No browser/game dependency: exercise the shipped facade against v2 envelopes.
+// Test the shipped helper with v2 messages; no browser or game needed.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

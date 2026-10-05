@@ -68,8 +68,7 @@ int main()
         return nullptr;
     };
 
-    // The shipped SomaticCameraSF 1.0.0.4 requests 1.8 before subscribing via
-    // the unchanged slot 9. Schema-only tests cannot detect a rejected request.
+    // SomaticCameraSF 1.0.0.4 requests 1.8 before subscribing via slot 9.
     auto* bridge = static_cast<IOSFUIBridge*>(OSFUI_RequestBridge(0x10008));
     CHECK(bridge != nullptr);
     if (!bridge) return g_failures;
@@ -92,7 +91,7 @@ int main()
     CHECK(received == std::vector<std::string>{"\"F4\""});
     CHECK(settings.changed != nullptr);
     if (!settings.changed) return g_failures;
-    settings.toggle = 0x75; // F6, the reported rebind
+    settings.toggle = 0x75; // F6
     settings.changed("somaticcamera.sf", "iToggleKey", settings.changedUser);
     Pump();
     CHECK(received.size() == 2 && received.back() == "\"F6\"");

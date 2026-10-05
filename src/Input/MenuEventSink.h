@@ -7,18 +7,17 @@
 
 namespace OSFUI
 {
-	// Observe RE::UI's native MenuOpenCloseEvent source without hooking.
 	class MenuEventSink final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 	{
 	public:
-		// Register on the first runtime tick after kPostPostDataLoad.
+		// First runtime tick after kPostPostDataLoad.
 		static bool Install();
 
 		RE::BSEventNotifyControl ProcessEvent(
 			const RE::MenuOpenCloseEvent& a_event,
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
 
-		// Any-thread semantic edge. Runtime consumes it on the runtime tick.
+		// Any thread.
 		[[nodiscard]] static bool ChargenOpen();
 		[[nodiscard]] static bool TransitionOpen();
 

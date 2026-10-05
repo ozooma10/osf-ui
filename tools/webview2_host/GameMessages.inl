@@ -19,7 +19,6 @@
 					FailHost("init", E_INVALIDARG, "init without userDataDir");
 					return;
 				}
-				// The game sends its adapter in every init; it never starts the host without one.
 				const LUID gameAdapter{ .LowPart = a_msg.adapterLuidLow, .HighPart = static_cast<LONG>(a_msg.adapterLuidHigh) };
 				if (!InitializeGraphics(gameAdapter)) {
 					RequestQuit("graphics-init-failed");

@@ -2,11 +2,11 @@
 
 namespace OSFUI
 {
-	// Runtime-owned: balance UI::ModifyMenuPauseCounter edges or a leaked increment pauses indefinitely.
+	// Runtime owns one pause-counter increment; release it to unpause.
 	class SimPause
 	{
 	public:
-		// Drive the pause counter from each runtime tick, retrying until RE::UI exists.
+		// Call every runtime tick; retries until RE::UI exists.
 		static void Apply(bool a_desired);
 	};
 }

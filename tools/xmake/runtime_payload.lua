@@ -34,8 +34,7 @@ local function sync_data(target)
         end
     end
 
-    -- views is shared with consumer mods in direct-to-game installs.
-    -- Replace only the web kit owned by OSF UI.
+    -- views is shared with consumer mods in direct-to-game installs; replace only our web kit.
     os.rm(path.join(views, "shared"))
     os.mkdir(path.join(views, "shared"))
     os.cp(path.join(sharedkit, "*"), path.join(views, "shared"))
@@ -53,7 +52,6 @@ local function sync_data(target)
     os.mkdir(path.join(scripts, "Source"))
     os.cp(path.join(projectdir, "build", "papyrus", "OSFUI.pex"), path.join(scripts, "OSFUI.pex"))
     os.cp(path.join(projectdir, "data", "Scripts", "Source", "OSFUI.psc"), path.join(scripts, "Source", "OSFUI.psc"))
-    -- Remove only the retired scripts owned by this mod from earlier deployments.
     for _, name in ipairs({ "OSFUI_View", "OSFUI_Settings" }) do
         os.rm(path.join(scripts, name .. ".pex"))
         os.rm(path.join(scripts, "Source", name .. ".psc"))

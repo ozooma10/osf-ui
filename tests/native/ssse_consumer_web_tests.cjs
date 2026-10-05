@@ -1,6 +1,5 @@
-// Optional integration test: execute the installed, unchanged consumer in memory.
-// Rendering is excluded; expose its existing closures instead of booting its DOM renderer.
-// This never writes to the consumer. Set OSFUI_SSSE_ROOT to the original mod directory.
+// Test the installed consumer in memory without rendering or changing its files.
+// Set OSFUI_SSSE_ROOT to the original mod directory.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

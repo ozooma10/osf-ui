@@ -7,7 +7,8 @@
 
 namespace OSFUI
 {
-	// One owner shared by the transport and compositor. No pipe writes or GPU waits under this lock. Ring handles wait here until all old reads complete.
+	// Shared by transport and compositor. Never write pipes or wait for the GPU under this lock.
+	// Hold new ring handles here until old GPU reads finish.
 	class SharedFrameConsumer
 	{
 	public:

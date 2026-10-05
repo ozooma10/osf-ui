@@ -225,7 +225,7 @@ namespace OSFUI
 	{
 		for (const auto& operation : a_requests) {
 			if (const auto* pointer = std::get_if<ViewRequestQueue::RelativePointerRequest>(&operation)) {
-				// Pointer ownership observes all preceding presentation requests.
+				// Apply earlier open/close requests before changing pointer capture.
 				CommitPresentation();
 				ApplyRelativePointerRequest(*pointer);
 				continue;
@@ -355,7 +355,7 @@ namespace OSFUI
 			return true;
 		}
 
-		// Creation stays hidden until CommitPresentation applies this intent.
+		// Keep the view hidden until CommitPresentation.
 
 		if (!InstantiateView(*manifest, a_reason)) return false;
 
@@ -401,7 +401,7 @@ namespace OSFUI
 				pending->phase = ViewOpenCoordinator::Phase::Ready;
 				REX::INFO("Runtime: menu frame prepared view='{}' request={}", pending->view, pending->requestId);
 				if (pending->requestId) {
-					// Settings may have been dismissed while loading. A rejected completion owns no handoff.
+					// Settings may have closed while loading; only open if it accepts completion.
 					if (!m_osfSettings.CompleteLaunch(pending->requestId, true)) {
 						FailPendingOpen("The launcher request is no longer waiting.");
 					} else {
@@ -411,7 +411,7 @@ namespace OSFUI
 				return;
 			}
 		}
-		// Bound loading and frame retention even when Settings disappears after accepting completion.
+		// Time out even if Settings disappears after accepting completion.
 		if (m_nowSeconds >= pending->deadline) {
 			FailPendingOpen("The interface did not open within 30 seconds.");
 		}
@@ -421,8 +421,7 @@ namespace OSFUI
 	{
 		const auto opening = m_viewOpens.TakeReadyMenu(a_view, a_requestId);
 		if (!opening) return;
-		// Settings queues this ordinary open from removal. Runtime consumes it only
-		// after the native message pump, including the resulting CursorMenu hides.
+		// Run after Settings and CursorMenu have processed their close messages.
 		m_renderer->Frames()->EndPreparation(true);
 		m_presentation.Open(opening->view);
 		m_presentation.Invalidate();
@@ -464,7 +463,7 @@ namespace OSFUI
 			return;
 		}
 		for (const auto& id : a_ids) {
-			// Do not re-register instantiated views and discard their page state.
+			// Re-registering would discard page state.
 			if (m_presentation.IsInstantiated(id)) {
 				REX::DEBUG("Runtime: plugin RegisterView('{}') — already instantiated, left untouched", id);
 				continue;
@@ -477,7 +476,6 @@ namespace OSFUI
 			if (HudAutoStartEligible(*m)) {
 				PrepareViewOpen(id, "via plugin RegisterView openOnStart");
 			} else {
-				// Discovery catalogues the view; registration validates intent without creating the page.
 				REX::DEBUG("Runtime: plugin RegisterView('{}') accepted; creation deferred until first open", id);
 			}
 		}
@@ -515,8 +513,7 @@ namespace OSFUI
 			m_renderer->SetViewOrder(layer.id, layer.z);
 		}
 		const auto active = m_presentation.ActiveMenu();
-		// Pending menus render without taking input. The target changes only after
-		// an ordinary open commits the prepared menu.
+		// Pending menus render without input; the target changes once an ordinary open commits.
 		if (active) {
 			m_renderer->SetInputTargetView(*active);
 		}
@@ -567,7 +564,7 @@ namespace OSFUI
 			}
 		}
 
-		// Engine capture and pause are settled before notifying native owners.
+		// Apply input capture and pause before notifying plugins.
 		ReconcileFrameState();
 		const std::string shown = (visible && active) ? *active : std::string();
 		if (shown != m_lastShownView) {
@@ -683,7 +680,7 @@ namespace OSFUI
 
 		m_presentation.CloseActiveMenu();
 		m_presentation.SetSuspended(true);
-		// Failure is an immediate release boundary, with no new opens or state drain.
+		// Release input immediately on failure; stop opening views and draining state.
 		ApplyViewPresentationPolicy();
 	}
 

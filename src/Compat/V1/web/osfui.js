@@ -1,58 +1,31 @@
 // OSF UI 1.6 helper, adapted to the v2 transport. Source: v1.6.0 shared kit.
-//
-// Load it like the shared stylesheet, BEFORE your view's own script:
-//   <script src="../../shared/osfui.js"></script>
-//
-// Decorates the native-injected `window.osfui` (creating a stub when no bridge
-// is present, e.g. a plain browser). Part of the frozen contract:
+// Load before the view's own script: <script src="../../shared/osfui.js"></script>
+// Decorates the injected `window.osfui` (a stub without a bridge). Frozen contract:
 //
 //   osfui.available()            -> bridge present (false = standalone preview)
-//   osfui.ready                  -> Promise of the runtime.ready payload
-//                                   (payload.version = the running OSF UI)
-//   osfui.send(command, fields)  -> fire-and-forget ui.command; returns false
-//                                   when no bridge is present
-//   osfui.emit(command, fields)  -> author-friendly alias for send()
-//   osfui.action(name, ...args)  -> fire a view ui.action (the JS half of
-//                                   Papyrus RegisterForViewActionsArgs); extra
-//                                   values ride as an args list. Returns false
-//                                   when no bridge is present.
-//   osfui.request(command, fields, { timeoutMs }) -> Promise of the reply
-//                                   message ({ type, payload, requestId }).
-//                                   Rejects (Error with .code) on ui.error, on
-//                                   ui.result { ok:false }, on timeout
-//                                   (default 10000 ms; 0 disables — e.g. a
-//                                   key capture that waits on the user), and
-//                                   immediately when no bridge is present.
-//   osfui.call(command, fields, opts) -> request(), resolving directly with
-//                                   the reply payload rather than its envelope.
-//   osfui.viewReady()            -> declare meaningful first-paint readiness
-//                                   for a manifest with readySignal:true;
-//                                   returns false when no bridge is present
-//   osfui.on(type, fn)           -> subscribe to a native->web message type;
-//                                   fn(payload, message); returns unsubscribe.
-//   osfui.data.on(key, fn)        -> subscribe to typed, cached Papyrus state;
-//                                   fn(value, payload, message). Replays the
-//                                   latest value immediately when available.
-//   osfui.data.get(key)           -> latest cached value, or undefined.
-//   osfui.papyrus.request(name, ...args) -> correlated request to the owning
-//                                   mod's Papyrus listener; resolves to value.
-//   osfui.applyAccent(el, hex)   -> apply a mod's `accent` hex to a subtree
-//                                   (derives the kit's linked --osf-accent-*
-//                                   set; invalid/missing hex clears it).
-//   osfui.t(address, english, vars) -> active-locale override or authored
-//                                   English, with {name} interpolation.
-//   osfui.localize(root)         -> apply data-i18n* attributes under root.
-//   osfui.i18nReady              -> first i18n.data catalog has arrived.
+//   osfui.ready                  -> Promise of the runtime.ready payload (payload.version)
+//   osfui.send(command, fields)  -> fire-and-forget ui.command; false without a bridge
+//   osfui.emit(command, fields)  -> alias for send()
+//   osfui.action(name, ...args)  -> view ui.action (Papyrus RegisterForViewActionsArgs);
+//                                   false without a bridge
+//   osfui.request(command, fields, { timeoutMs }) -> Promise of { type, payload, requestId }.
+//                                   Rejects (Error with .code) on ui.error, ui.result { ok:false },
+//                                   timeout (default 10000 ms; 0 disables), or no bridge.
+//   osfui.call(command, fields, opts) -> request(), resolving with the reply payload
+//   osfui.viewReady()            -> first-paint readiness for readySignal:true; false without a bridge
+//   osfui.on(type, fn)           -> fn(payload, message); returns unsubscribe
+//   osfui.data.on(key, fn)       -> fn(value, payload, message) for cached Papyrus state;
+//                                   replays the latest value immediately
+//   osfui.data.get(key)          -> latest cached value, or undefined
+//   osfui.papyrus.request(name, ...args) -> owning mod's Papyrus listener; resolves to value
+//   osfui.applyAccent(el, hex)   -> derive --osf-accent-* on a subtree; invalid/missing hex clears
+//   osfui.t(address, english, vars) -> locale override or English, with {name} interpolation
+//   osfui.localize(root)         -> apply data-i18n* attributes under root
+//   osfui.i18nReady              -> first i18n.data catalog arrived
 //
-// This helper owns `osfui.onMessage` — with it loaded, do not assign onMessage
-// yourself; use osfui.on(). Replies that resolve a request() also dispatch to
-// on() subscribers, so one render path can consume settings.data no matter who
-// asked. Commands with no reply type of their own resolve with
-// `ui.result { ok, command, code?, message? }`. The host sends that ack only
-// when the handler replied with nothing at all, so it settles a qualified
-// plugin request too — "delivered, not succeeded" (docs/native-plugin-api.md);
-// a handler that answers with its own typed message suppresses the ack and the
-// typed reply settles the request instead.
+// Owns `osfui.onMessage`; use osfui.on(). Request replies also reach on() subscribers.
+// Commands without a typed reply resolve with `ui.result { ok, command, code?, message? }`
+// ("delivered, not succeeded"); a typed reply suppresses that ack.
 
 "use strict";
 
@@ -109,11 +82,7 @@
   };
   g.emit = (command, fields) => g.send(command, fields);
 
-  // Fire a view ui.action: the JS counterpart to Papyrus
-  // RegisterForViewActionsArgs / OnUIAction(asAction, asArgs). Extra values ride
-  // as an args list; the native ui.action handler coerces non-string elements
-  // (protocol 1.3), so numbers can be passed as-is. A bare action omits `args`
-  // entirely. Returns false when no bridge is present (mirrors send()).
+  // Non-string args are coerced natively; a bare action omits `args`.
   g.action = (name, ...args) =>
     g.send("ui.action", args.length ? { action: name, args } : { action: name });
 
@@ -191,11 +160,7 @@
     },
   };
 
-  // Per-mod theming (api-freeze item 9): a schema/manifest `accent` is one hex,
-  // but the kit reads a linked set of four tokens (accent, hover, strong,
-  // quiet), so derive and set them together — or clear the whole set on a
-  // missing/invalid hex, so nothing leaks from a previously themed subtree.
-  // This is the only theming mechanism; the old theme-class enum is gone.
+  // Update all four accent colors together to clear the previous theme.
   const ACCENT_TOKENS = ["--osf-accent", "--osf-accent-hover", "--osf-accent-quiet", "--osf-accent-strong"];
   g.applyAccent = (el, hex) => {
     if (typeof hex === "string" && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hex)) {
@@ -231,8 +196,7 @@
     }
     if (!message || typeof message.type !== "string") return;
     if (message.type === "data.reset") {
-      // Hidden documents can outlive a save. Invalidate cached replay and current
-      // subscribers before state from the new session arrives.
+      // Hidden documents can outlive a save; clear cached state before the new session's arrives.
       const keys = message.payload && Array.isArray(message.payload.keys)
         ? message.payload.keys.map(dataKey) : [...dataState.keys()];
       const old = keys.map(key => dataState.get(key)).filter(Boolean);
@@ -266,17 +230,12 @@
         });
       }
     }
-    // Correlated reply: settle the request() promise.
     const rid = typeof message.requestId === "string" ? message.requestId : "";
     const req = rid && pending.get(rid);
     if (req) {
       const p = message.payload || {};
-      // The RegisterCommand auto-ack (`ui.result { ok:true, command }`) is sent
-      // only when the handler replied with nothing at all — any requestId-echoing
-      // reply suppresses it — so an ack naming this very command means nothing
-      // else is coming and must settle the request. Only an ack for some OTHER
-      // command keeps a qualified plugin request pending (defensive; the host
-      // always echoes the dispatched command today).
+      // Accept an auto-ack for this command when the handler sent no reply.
+      // Ignore acks for other commands.
       const foreignAck = req.pluginRequest && message.type === "ui.result" &&
         p.ok === true && p.command !== req.command;
       if (!foreignAck) {
@@ -292,7 +251,6 @@
         }
       }
     }
-    // Dispatch to type subscribers unconditionally, resolved request or not.
     const set = listeners.get(message.type);
     if (set) {
       for (const fn of [...set]) {
@@ -300,6 +258,6 @@
       }
     }
   };
-  // v2 readiness is page-initiated. Keep the legacy ready Promise above.
+  // v2 readiness is page-initiated.
   if (g.available()) g.send("osfui.hello");
 })();

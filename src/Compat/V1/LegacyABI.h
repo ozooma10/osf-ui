@@ -1,5 +1,4 @@
-// Frozen native ABI 1.8: the v1.6.0 ABI 1.7 prefix plus retained view state.
-// Keep every slot and payload layout unchanged.
+// Frozen native ABI 1.8 (v1.6.0's ABI 1.7 plus SetViewState). Never change slots or payload layouts.
 #pragma once
 #include <cstdint>
 #include <type_traits>

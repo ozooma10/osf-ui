@@ -153,8 +153,7 @@ int main()
 		script(L"next.value === '\u65e5\u672c'");
 		queue->Push("Emulation.setFocusEmulationEnabled", { { "enabled", false } });
 		drain();
-		// Turning off emulation is accepted, but does not necessarily force DOM
-		// blur. Production gates input and releases held keys independently.
+		// Disabling emulation need not blur the DOM; production gates input and releases held keys separately.
 		DWORD foregroundPid = 0;
 		::GetWindowThreadProcessId(::GetForegroundWindow(), &foregroundPid);
 		std::cout << "foreground before=" << originalForeground << " after=" << ::GetForegroundWindow()

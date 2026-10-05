@@ -159,7 +159,7 @@ int main()
         CHECK(!diagnostics.Has("startup.renderer"));
         const std::string longId(200, 'x');
         client.ReportFailure(longId, "test", "Long identity");
-        CHECK(diagnostics.Has(longId)); // Slim does not impose the former 64-byte limit.
+        CHECK(diagnostics.Has(longId));
         client.ClearFailure(longId);
         CHECK(!diagnostics.Has(longId));
     }

@@ -10,7 +10,6 @@ set_encodings("utf-8")
 add_rules("mode.debug", "mode.releasedbg")
 add_rules("plugin.vsxmake.autoupdate")
 
--- JSON for view manifests and the message bridge
 add_requires("nlohmann_json 3.11.3")
 
 -- The mirrored host is self-contained: static CRT and WebView2 loader.
@@ -170,6 +169,28 @@ target("osfui-browser-recovery-tests")
     add_tests("default")
     add_files("tests/native/browser_host_recovery_tests.cpp")
     add_includedirs("src", "tests/native/stubs")
+
+target("osfui-runtime-lifecycle-tests")
+    set_kind("binary")
+    set_default(false)
+    for _, scenario in ipairs({"normal", "missing-settings", "renderer-init-failure",
+        "input-hook-failure", "focus-menu-failure", "menu-events-failure", "suppression-failure",
+        "recovery", "game-device-failure"}) do
+        add_tests(scenario, {runargs = {scenario}})
+    end
+    add_files("tests/native/runtime_lifecycle_tests.cpp", "tests/native/runtime_doubles.cpp",
+        "src/Runtime/Runtime.cpp", "src/Runtime/RuntimeFrame.cpp", "src/Views/RuntimeViews.cpp",
+        "src/Bridge/RuntimeBridge.cpp", "src/Input/RuntimeInput.cpp", "src/Input/InputCaptureController.cpp",
+        "src/Input/PointerInputState.cpp", "src/Input/RelativePointerSession.cpp",
+        "src/Input/GamepadSession.cpp", "src/Input/ViewInputGrants.cpp",
+        "src/Views/ViewManifest.cpp", "src/Views/ViewManager.cpp", "src/Views/ViewPresentationController.cpp",
+        "src/Views/ViewOpenCoordinator.cpp", "src/Views/ViewRevealGate.cpp", "src/Views/ViewRequestQueue.cpp",
+        "src/Views/ViewLoadTracker.cpp", "src/Views/ViewRecoveryTracker.cpp",
+        "src/API/BridgeApi.cpp", "src/Bridge/MessageBridge.cpp", "src/Bridge/RetainedStateStore.cpp",
+        "src/Dependency/OSFSettingsClient.cpp", "src/Core/Json.cpp")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk", "tools/webview2_shared")
+    set_pcxxheader("tests/native/stubs/pch.h")
+    add_packages("nlohmann_json")
 
 target("osfui-settings-client-tests")
     set_kind("binary")

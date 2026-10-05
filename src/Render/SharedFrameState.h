@@ -12,8 +12,8 @@
 
 namespace OSFUI
 {
-	// All access is serialized by SharedFrameConsumer. Pending/current own a selection reference; recorded reads own references until GPU completion.
-	// A retired frame is one held only by reads. Its final release creates one host acknowledgement. Neither metadata snapshots nor submission release it.
+	// SharedFrameConsumer locks all access. Keep pending/current frames and frames still used by the GPU.
+	// Acknowledge a frame only after its last GPU read and selection reference are gone.
 	class SharedFrameState
 	{
 	public:
@@ -65,8 +65,7 @@ namespace OSFUI
 				m_pending.reset();
 				m_latest.reset();
 			}
-			// Record still checks the active ring and producer fence before adopting
-			// this frame. Keep it pinned until that first draw, even after handoff.
+			// Hold the frame until Record checks the ring and producer fence on the first draw.
 			m_preparation = a_commit ? Preparation::Committed : Preparation::None;
 		}
 		bool PreparationReady(std::uint64_t a_generation, std::uint64_t a_produced, std::uint32_t a_width, std::uint32_t a_height) const
@@ -108,7 +107,7 @@ namespace OSFUI
 
 		std::optional<FrameBufferView> Latest() const { return m_latest; }
 
-		// Reserve a read before the caller writes any GPU commands. Failure leaves selection unchanged. A list can read several frames; each is retained.
+		// Reserve every frame read before recording GPU commands; failure keeps the current selection.
 		std::optional<FrameBufferView> Record(std::uintptr_t a_list, std::uint64_t a_activeGeneration, std::uint64_t a_produced)
 		{
 			if (!m_visible || !a_list) return std::nullopt;
@@ -138,7 +137,7 @@ namespace OSFUI
 			return std::ranges::any_of(m_reads, [](const Read& a_read) { return a_read.list != 0; });
 		}
 
-		// queue == 0 means the completion signal failed: retain those reads until teardown, never turn an unknown GPU completion into a host release.
+		// queue == 0 means the completion signal failed. Keep those reads until teardown.
 		void Submitted(std::span<const std::uintptr_t> a_lists, std::uintptr_t a_queue, std::uint64_t a_value)
 		{
 			for (auto& read : m_reads) {

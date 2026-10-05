@@ -17,7 +17,7 @@ namespace OSFUI
 
 	std::optional<ViewManifest> ViewManifest::Parse(const std::filesystem::path& a_path, const nlohmann::json& a_document)
 	{
-		// Derive view identity from views/<modId>/<viewName>, never declared fields.
+		// View IDs come from folder names, not manifest fields.
 		const auto viewName = Utf8Path(a_path.parent_path().filename());
 		const auto modId = Utf8Path(a_path.parent_path().parent_path().filename());
 		if (!Ids::IsAcceptedModId(modId) || !Ids::IsValidViewName(viewName)) {
@@ -31,12 +31,12 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		// Nested paths identify v2; unknown keys remain forward-compatible developer INFO.
 		const auto versionIt = json->find("manifestVersion");
 		if (versionIt == json->end() || !versionIt->is_number_integer() || versionIt->get<std::int64_t>() != 1) {
 			REX::ERROR("ViewManifest: [content] {} requires manifestVersion 1", Utf8Path(a_path));
 			return std::nullopt;
 		}
+		// Unknown keys are INFO-only for forward compatibility.
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry", "launcher",
@@ -53,8 +53,6 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		// Ignore declared id; retain mod only as an authoring consistency check.
-
 		manifest.title = Json::Get(*json, "title", manifest.id);
 		manifest.description = Json::Get(*json, "description", "");
 		manifest.entry = Json::Get(*json, "entry", manifest.entry);
@@ -63,7 +61,6 @@ namespace OSFUI
 		manifest.height = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
 			Json::Get(*json, "height", manifest.height), 1, 16384));
 
-		// Unknown kinds are malformed rather than silently gaining menu/input privileges.
 		const auto kindStr = Json::Get(*json, "kind", "menu");
 		if (kindStr != "menu" && kindStr != "hud") {
 			REX::ERROR("ViewManifest: [content] {} kind '{}' must be 'menu' or 'hud'", Utf8Path(a_path), kindStr);
@@ -90,7 +87,6 @@ namespace OSFUI
 			}
 		}
 
-		// Reject entry paths that escape the view's asset folder.
 		const auto entryPath = std::filesystem::path(manifest.entry);
 		if (entryPath.is_absolute() ||
 			std::ranges::any_of(entryPath, [](const auto& part) { return part == ".."; })) {
@@ -98,7 +94,7 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		// Force HUDs passive so malformed manifests cannot capture input or pause.
+		// HUDs must never capture input or pause the game.
 		if (manifest.kind == ViewKind::Hud) {
 			if (manifest.capturesInput || manifest.pausesGame) {
 				REX::WARN("ViewManifest: [content] HUD '{}' cannot capture input or pause; forcing both off", manifest.id);

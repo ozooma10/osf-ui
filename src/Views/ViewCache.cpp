@@ -17,7 +17,7 @@ namespace OSFUI::ViewCache
 	{
 		constexpr std::uint64_t kFnvOffset = 1469598103934665603ull;
 		constexpr std::uint64_t kFnvPrime = 1099511628211ull;
-		// 2: generations are identified by file metadata instead of file content.
+		// Bump to invalidate existing caches.
 		constexpr std::uint64_t kCacheFormat = 2;
 
 		struct FileStamp
@@ -140,7 +140,7 @@ namespace OSFUI::ViewCache
 			return out.good();
 		}
 
-		// Keep the old entry until the new snapshot is complete, and restore it if publication fails.
+		// The old entry survives until the new one is published, and is restored on failure.
 		bool ReplaceEntry(const std::filesystem::path& a_staging, const std::filesystem::path& a_destination,
 			std::string& a_error)
 		{
@@ -179,7 +179,7 @@ namespace OSFUI::ViewCache
 			return out.empty() ? "unknown" : out;
 		}
 
-		// Streamed (the copy path already proven under USVFS) so a size change since the snapshot is caught.
+		// Streaming catches size changes since the snapshot, including through USVFS.
 		bool CopyCachedFile(const FileStamp& a_file, const std::filesystem::path& a_destination, std::string& a_error)
 		{
 			std::ifstream source(a_file.source, std::ios::binary);
@@ -234,8 +234,7 @@ namespace OSFUI::ViewCache
 					return Fail(a_error, a_destination / relative, ec);
 				}
 			}
-			// Every parent was created above. Keep small trees serial; bound large-tree
-			// copying so per-file opens/closes can overlap without flooding disk/USVFS.
+			// Limit copy workers to avoid flooding USVFS.
 			constexpr std::size_t kParallelCopyThreshold = 32;
 			const std::size_t workerCount = a_snapshot.files.size() >= kParallelCopyThreshold ? 4 : 1;
 			std::atomic_size_t next{ 0 };
@@ -346,7 +345,7 @@ namespace OSFUI::ViewCache
 			return std::nullopt;
 		}
 		prepared.copyMs = elapsedMs(copyStarted);
-		// A file added, removed or rewritten during the copy changes the metadata; never publish a mixed tree under the old name.
+		// Never publish a tree that changed mid-copy under the old name.
 		const auto verifyStarted = Clock::now();
 		const auto after = FingerprintTree(a_source, a_salt, a_error);
 		prepared.verifyMs = elapsedMs(verifyStarted);
@@ -449,7 +448,6 @@ namespace OSFUI::ViewCache
 			}
 			prepared.entries.push_back({ Utf8Path(name), file });
 		}
-		// Removing a mod must also remove its browser-visible files. Only this owned cache root is pruned.
 		for (std::filesystem::directory_iterator it(prepared.root, ec), end; !ec && it != end; it.increment(ec)) {
 			bool keep = false;
 			for (const auto& mod : prepared.entries) {

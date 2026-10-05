@@ -4,21 +4,21 @@
 #include <cstdint>
 #include <deque>
 #include <optional>
-#include <unordered_set>  // not in pch.h
+#include <unordered_set>
 
 #include <nlohmann/json.hpp>
 
-// Protocol 2 bridge with typed send/request endpoints and a page-initiated ready/state/event handshake.
+// Protocol 2: typed send/request endpoints; page-initiated ready/state/event handshake.
 
 namespace OSFUI
 {
 	class MessageBridge
 	{
 	public:
-		// Transport for native -> web text: deliver `a_json` to view `a_viewId`.
+		// Native -> web text transport.
 		using SendFn = std::function<void(std::string_view a_viewId, std::string_view a_json)>;
 
-		// Send handlers are notifications and never settle a response.
+		// Send handlers do not reply.
 		using SendHandler = std::function<void(const nlohmann::json& a_payload, MessageBridge& a_bridge)>;
 
 		// Request handlers must Respond, Reject, or Defer exactly once.
@@ -32,7 +32,7 @@ namespace OSFUI
 		using FallbackProbe = std::function<FallbackEndpointKind(std::string_view a_sourceViewId, std::string_view a_name)>;
 		using FallbackHandler = std::function<void(std::string_view a_name, const nlohmann::json& a_payload, MessageBridge& a_bridge)>;
 
-		// Runs after ready and before the event gate opens, preserving ready < state < events.
+		// Runs between ready and events, so state arrives before events.
 		using HelloHook = std::function<void(std::string_view a_viewId)>;
 
 		// Only faults marked a_viewFault count toward view.protocol-misuse.
@@ -42,25 +42,23 @@ namespace OSFUI
 
 		explicit MessageBridge(SendFn a_send);  // a_send must be callable; it is never null-checked
 
-		// Register or replace an exact endpoint; send and request names are disjoint.
+		// Replaces an existing endpoint of the same kind; send and request names are disjoint.
 		void RegisterSend(std::string a_name, SendHandler a_handler);
 		bool RegisterRequest(std::string a_name, RequestHandler a_handler);
 		void RemoveEndpoint(const std::string& a_name);
 
-		// Probe exact candidates supplied by the shared owner-first resolver.
+		// Try the owning mod's name first, then the global name.
 		void SetEndpointFallback(FallbackProbe a_probe, FallbackHandler a_send, FallbackHandler a_request);
 
-		// Reject malformed or non-whitelisted page input without making it fatal.
+		// Malformed or unknown page input is rejected, never fatal.
 		void HandleWebMessage(std::string_view a_viewId, std::string_view a_json);
 
-		// Answer the current request; calls outside an unsettled handler are ignored.
+		// Ignored unless the current handler still owes a reply.
 		void Respond(const nlohmann::json& a_payload);
-		// Fail the current request with a stable machine code and human message.
 		void Reject(std::string_view a_code, std::string_view a_message = {});
-		// Returns a token for bounded deferred settlement, or 0 outside an unsettled request.
-		// The bridge is the only owner of deferred requests; adapters just carry the token.
+		// Returns 0 outside a pending request. Adapters keep only the token.
 		[[nodiscard]] DeferToken Defer(std::chrono::milliseconds a_timeout = std::chrono::seconds(30));
-		// Runtime-thread liveness for adapters with a separate script-token ledger.
+		// Runtime thread.
 		[[nodiscard]] bool HasPending(DeferToken a_token) const { return m_pending.contains(a_token); }
 		[[nodiscard]] bool IsGreeted(std::string_view a_view) const
 		{
@@ -68,20 +66,20 @@ namespace OSFUI
 			return found != m_gates.end() && found->second.greeted;
 		}
 
-		// Stale, expired, and duplicate deferred-settlement tokens are ignored.
+		// Ignore stale, expired or duplicate reply tokens.
 		void RespondTo(DeferToken a_token, const nlohmann::json& a_payload);
 		void RespondJsonTo(DeferToken a_token, std::string_view a_payloadJson);
 		void RejectTo(DeferToken a_token, std::string_view a_code, std::string_view a_message = {});
-		// Settle every outstanding deferred request with the same error (e.g. a game load).
+		// Settles every deferred request with the same error (e.g. game load).
 		void RejectAll(std::string_view a_code, std::string_view a_message = {});
 
-		// Queue one-shot events until hello to preserve message-before-first-paint delivery.
+		// Queued until hello, so events sent before first paint still arrive.
 		void Emit(std::string_view a_viewId, std::string_view a_name, const nlohmann::json& a_payload);
 		void EmitJson(std::string_view a_viewId, std::string_view a_name, std::string_view a_payloadJson);
 		void Emit(const std::unordered_set<std::string>& a_viewIds, std::string_view a_name, const nlohmann::json& a_payload);
 		void EmitJson(const std::unordered_set<std::string>& a_viewIds, std::string_view a_name, std::string_view a_payloadJson);
 
-		// Publish latest-wins state only after hello; pre-hello documents receive replay instead.
+		// Keep the latest value; pages receive it through replay after hello.
 		void PublishState(std::string_view a_viewId, std::string_view a_mod, std::string_view a_key,
 			const nlohmann::json& a_value);
 		void PublishJsonState(std::string_view a_viewId, std::string_view a_mod, std::string_view a_key,
@@ -89,21 +87,20 @@ namespace OSFUI
 		void PublishState(const std::unordered_set<std::string>& a_viewIds, std::string_view a_mod,
 			std::string_view a_key, const nlohmann::json& a_value);
 
-		// Create a closed event gate that queues until the document says hello.
+		// Hold events until the document says hello.
 		void OnViewCreated(std::string_view a_viewId);
-		// Drop the gate, queued events, and deferred requests owned by the view.
+		// Clear the view's connection, queued events and pending requests.
 		void OnViewDestroyed(std::string_view a_viewId);
 
 		void SetHelloHook(HelloHook a_hook) { m_onHello = std::move(a_hook); }
 		void SetProtocolFaultSink(ProtocolFaultSink a_sink) { m_protocolFaultSink = std::move(a_sink); }
 
-		// Runtime update: expire overdue deferred requests with no-response.
+		// Runtime update: expires overdue deferred requests with no-response.
 		void Tick(std::chrono::steady_clock::time_point a_now = std::chrono::steady_clock::now());
 
 		// Source view of the in-flight message, or empty outside dispatch.
 		[[nodiscard]] std::string_view CurrentSource() const { return m_currentSource; }
 
-		// Set a_viewFault only when the view caused the reported runtime fault.
 		void ReportProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message,
 			const nlohmann::json& a_detail = nlohmann::json::object(), bool a_viewFault = true);
 
@@ -117,7 +114,7 @@ namespace OSFUI
 		};
 		struct Gate
 		{
-			// State opens during replay; events open afterward so replay cannot overtake the backlog.
+			// State opens during replay, events after, so replay cannot overtake the backlog.
 			bool                    greeted{ false };     // state may flow
 			bool                    eventsOpen{ false };  // events may flow
 			std::deque<std::string> queued;               // encoded event envelopes
@@ -140,12 +137,11 @@ namespace OSFUI
 		void DispatchRequest(const std::string& a_name, const std::string& a_id, const nlohmann::json& a_payload);
 		void SendReady(std::string_view a_viewId);
 		void DeliverEvent(std::string_view a_viewId, const std::string& a_encoded, std::string_view a_name);
-		// Fold settlement into the in-flight message's completion trace.
 		void NoteTracedReply(std::string_view a_what);
-		// Reject a malformed page message: logged, reported, and traced (it has no reply channel).
+		// No reply channel: logged, reported and traced.
 		void RejectInvalid(std::string_view a_viewId, std::string_view a_message, const nlohmann::json& a_detail = {});
 		void WarnUnknownEndpointOnce(const std::string& a_name, std::string_view a_what);
-		// Remove and return a deferred request; nullopt when already settled, expired, or its view is gone.
+		// nullopt if already answered, expired, or the view is gone.
 		[[nodiscard]] std::optional<Pending> TakePending(DeferToken a_token);
 
 		SendFn                                            m_send;

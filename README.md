@@ -49,6 +49,14 @@ xmake test
 node --test tests/native/compat_web_tests.cjs
 ```
 
+The lifecycle suite executes the real Runtime, bridge, presentation, and input-capture code with desktop doubles for the game, renderer, and peer services. Its nine scenarios cover startup ordering, failed dependencies and input integration, state replay and session reset, menu/HUD transitions, suppression leases, and browser recovery. Each scenario runs in a separate process to preserve the production singleton lifetimes.
+
+```powershell
+xmake test -j4 'osfui-runtime-lifecycle-tests/*'
+```
+
+The doubles supply load, engine-focus, and frame-readiness events. SFSE hook delivery, actual engine counters, WebView2 capture, and GPU completion still require in-game testing; these tests do not read or match source text.
+
 ## Release package
 
 ```powershell

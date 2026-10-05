@@ -23,7 +23,6 @@ namespace RE
 			return std::span<FORM_ENUM_STRING, 215>{ table };
 		}
 
-		// members
 		const char* formString{ nullptr };
 		FormType    formType{ FormType::kNONE };
 	};

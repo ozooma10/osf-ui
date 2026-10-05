@@ -242,7 +242,7 @@ namespace OSFUI
 				a_b.Reject("unknown-view", "view was not discovered");
 				return;
 			}
-			// Accept a close even if an earlier open in the inbox has not created it.
+			// Accepted even if a queued open has not created it yet.
 			EnqueueCloseView(manifest->id);
 			a_b.Respond(nlohmann::json::object());
 		});

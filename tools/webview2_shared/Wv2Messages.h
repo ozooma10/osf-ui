@@ -168,7 +168,7 @@ namespace osfui::wv2::msg
 
 #undef OSFUI_WV2_VIEW_ONLY_MESSAGE
 
-	// The host first offers Back to an open in-page select. Only an unhandled request returns to Runtime; the epoch prevents closing a replacement menu.
+	// Let an open select handle Back first. Return unhandled requests with the menu epoch.
 	struct Back
 	{
 		static constexpr std::string_view kType = "back";
@@ -294,7 +294,7 @@ namespace osfui::wv2::msg
 	{
 		static constexpr std::string_view kType = "postWeb";
 		std::string view;
-		// An already-serialized bridge envelope, carried as an opaque string.
+		// Serialized bridge JSON; pass through without parsing.
 		std::string json;
 
 		static constexpr auto kFields = std::tuple{
@@ -421,7 +421,7 @@ namespace osfui::wv2::msg
 	{
 		static constexpr std::string_view kType = "console";
 		std::string view;
-		// Raw Runtime.consoleAPICalled params, carried opaquely.
+		// Raw Runtime.consoleAPICalled params; pass through unchanged.
 		std::string json;
 
 		static constexpr auto kFields = std::tuple{

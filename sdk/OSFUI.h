@@ -9,12 +9,8 @@ static_assert(sizeof(void*) == 8, "OSFUI requires x64");
 
 namespace OSFUI::API
 {
-	// Packed major.minor ABI versions, independent of the plugin release version.
-	// OSF UI 2.0 release contract: API 2.0 through OSFUI_RequestAPI.
-	// Once 2.0 ships, freeze slots, signatures, payload layouts and enum values.
-	// Then compatible additions require a minor bump; incompatible changes require a new major interface.
-	// API 1.x was reused for incompatible development layouts and is rejected; rebuild those consumers.
-	// Legacy 1.6 consumers use the separate OSFUI_RequestBridge ABI 1.7 adapter.
+	// Packed major.minor ABI version, independent of the plugin release version. Additions bump minor;
+	// breaking changes need a new major. API 1.x is rejected; 1.6 consumers use OSFUI_RequestBridge (ABI 1.7).
 	inline constexpr std::uint32_t kVersion = 0x00020000u;
 	inline constexpr std::uint32_t kBaseVersion = 0x00020000u;
 	inline constexpr wchar_t kModuleName[] = L"OSFUI.dll";
@@ -76,32 +72,28 @@ namespace OSFUI::API
 
 	struct IUI
 	{
-		// True while at least one web document is live. Every other slot may be called before readiness.
-		// Global availability only; a document reload may leave this true. No readiness callback is exposed.
+		// True while any web document is live (stays true across a reload). Other slots may be called before readiness.
 		virtual bool IsReady() noexcept = 0;
 
-		// Endpoint names are exact and unique across sends and requests; reserved prefixes such as "osfui." are refused.
-		// Register once at load. false for a null, invalid, reserved, or already registered name (including Papyrus).
-		// Local page names resolve in the owning mod namespace before global names, across both registries.
+		// Register once at load. Names are exact and unique across sends, requests and Papyrus; false for null,
+		// invalid, reserved ("osfui.") or taken names. Page names resolve in the owning mod namespace first.
 		virtual bool RegisterSend(const char* name, SendFn callback, void* context) noexcept = 0;
 		virtual bool RegisterRequest(const char* name, RequestFn callback, void* context) noexcept = 0;
 
-		// Queues a transient event for a view; the page receives it through on(event). payloadJson must be valid JSON.
-		// false for an invalid view ID, event longer than 128 bytes, empty event, invalid JSON, or payload over 1 MiB.
-		// Oldest queued events per view are dropped under pressure.
+		// Transient event for page on(event); oldest per-view events drop under pressure. false for invalid view,
+		// empty or >128-byte event, invalid JSON, or payload over 1 MiB.
 		virtual bool EmitEvent(const char* viewId, const char* event, const char* payloadJson) noexcept = 0;
-		// Stores mod-scoped retained state and replays it to fresh documents. valueJson must be valid JSON.
-		// false for an invalid mod ID, empty or overlong key, invalid JSON, or a full pending queue.
+		// Mod-scoped retained state, replayed to fresh documents. false for invalid mod, empty/overlong key,
+		// invalid JSON, or a full pending queue.
 		virtual bool SetState(const char* modId, const char* key, const char* valueJson) noexcept = 0;
 
-		// Views are qualified "mod/view" IDs, matched case-insensitively.
-		// Queues an open or close for a discovered view; false when the view is unknown. Closing also cancels a queued/loading open. Repeated closes are harmless.
+		// viewId: "mod/view", case-insensitive. false for an unknown view; close also cancels a pending open.
 		virtual bool RequestMenu(const char* viewId, bool open) noexcept = 0;
-		// Loads and registers a shipped view folder. Repeated calls are safe; false for an invalid view or mod ID.
+		// Loads a shipped view folder; idempotent. false for an invalid view or mod ID.
 		virtual bool RegisterView(const char* viewId) noexcept = 0;
 
-		// One owner per exact view, first registration wins; false for an invalid ID, null callback, or an existing owner.
-		// Unregister accepts unknown views and cancels any active relative-pointer capture.
+		// First registration per view wins; false for invalid ID, null callback, or existing owner.
+		// Unregister accepts unknown views and cancels any active capture.
 		virtual bool RegisterRelativePointer(const char* viewId, RelativePointerFn callback, void* context) noexcept = 0;
 		virtual void UnregisterRelativePointer(const char* viewId) noexcept = 0;
 		virtual bool RegisterViewLifecycle(const char* viewId, ViewLifecycleFn callback, void* context) noexcept = 0;
@@ -111,13 +103,12 @@ namespace OSFUI::API
 		~IUI() = default;
 	};
 
-	// Returns a borrowed process-lifetime interface, or nullptr for an unsupported major/minor. outVersion is optional: actual ABI on success, zero on failure.
+	// Borrowed process-lifetime interface, or nullptr if unsupported. outVersion (optional): actual ABI, or 0 on failure.
 	using AcquireFn = void* (*)(std::uint32_t version, std::uint32_t* outVersion) noexcept;
 
 	inline IUI* RequestInterface(std::uint32_t version = kBaseVersion, std::uint32_t* outVersion = nullptr) noexcept
 	{
 		if (outVersion) *outVersion = 0;
-		// Never cast a development interface to the release IUI, even for an explicit request.
 		if (!Supports(version, kBaseVersion)) return nullptr;
 		const auto module = REX::W32::GetModuleHandleW(kModuleName);
 		if (!module) return nullptr;

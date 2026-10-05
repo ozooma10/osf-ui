@@ -47,7 +47,7 @@ namespace OSFUI
 		void OnPostPostDataLoad();
 		void Update();
 
-		// Published state, safe to query from the window-message thread.
+		// Safe to query from the window-message thread.
 		bool IsVisible() const;
 		bool IsInputCaptured() const;
 
@@ -55,17 +55,15 @@ namespace OSFUI
 		void EnqueuePresentationRequest(ViewPresentationRequest a_req);
 		void EnqueueOpenView(std::string a_viewId);
 		void EnqueueCloseView(std::string a_viewId);
-		// Browser transport threads only enqueue this ownership edge; Runtime applies
-		// it beside presentation work so native callbacks execute in the runtime update.
+		// Transport threads enqueue; the runtime tick applies.
 		void EnqueueRelativePointerCapture(std::string a_viewId, bool a_active);
 
-		// WndProc input entry points (window-message thread).
+		// Window-message thread.
 		bool OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key);
 		void OnGameWindowText(const osfui::wv2::msg::TextInput& a_text);
 		void OnGameWindowActivation(bool a_active);
 		void OnGameWindowRecreated();
 		void OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH);
-		// Accumulate one packet for the active relative-pointer owner.
 		bool OnGameWindowMouseRelative(int a_dx, int a_dy);
 		void OnGameWindowMouseButton(int a_button, bool a_down);
 		void OnGameWindowMouseWheel(int a_wheelDelta);
@@ -73,7 +71,6 @@ namespace OSFUI
 	private:
 		Runtime() = default;
 
-		// Independent setup, peer services, then runtime engine integration.
 		void LoadStartupContent();
 		void InitializeEngineIntegration();
 		bool InitializeWebRuntime();
@@ -93,7 +90,6 @@ namespace OSFUI
 		void ProcessRendererNotifications();
 		void ProcessRendererFrame();
 
-		// View requests, presentation and output geometry.
 		void ApplyPresentationRequests(const std::vector<ViewRequestQueue::Operation>& a_requests);
 		// A nonzero request ID prepares only; an ordinary open consumes the retained frame.
 		bool PrepareViewOpen(std::string_view a_id, std::string_view a_reason = "on demand", std::uint64_t a_requestId = 0);
@@ -123,9 +119,8 @@ namespace OSFUI
 		void RehydrateRendererAfterRestart();
 
 		// Input policy and routing (Input/RuntimeInput.cpp).
-		// Runtime applies presentation failure policy around capture reconciliation.
 		void ReconcileInputSuppression();
-		// Poll XInput and deliver events to the active document (`ui.gamepad` events).
+		// Delivers XInput to the active document as `ui.gamepad` events.
 		void RouteGamepadInput();
 
 		// Relative-pointer session; callbacks run on the runtime tick.
@@ -140,35 +135,27 @@ namespace OSFUI
 		void OnViewGreeted(std::string_view a_viewId);
 		void OnProtocolFault(std::string_view a_viewId, std::string_view a_code, std::string_view a_message, const nlohmann::json& a_detail, bool a_viewFault);
 
-		// Developer tools and view diagnostics.
 		void DriveDevTools();
 		void UpdateDevViewReloadMods();
 		void PumpDevViewReload();
 		nlohmann::json BuildViewsData() const;
 
-		// Ownership: ordinary mutable fields below belong to the runtime tick.
-		// This requires ordered, non-overlapping updates. OS thread affinity is not guaranteed.
-		// Startup initializes paths/catalog/settings before input hooks are installed;
-		// m_developerMode and the renderer pointer then stay stable.
-		// Renderer load/failure callbacks run when its queues drain on that tick.
+		// Fields below are updated by non-overlapping runtime ticks, which may run on different threads.
+		// m_developerMode and m_renderer are stable after startup; renderer callbacks run on the tick.
 
-		// Owned services. Keep their construction/destruction order explicit.
 		ViewManager m_views;
 		std::unique_ptr<WebView2HostWebRenderer> m_renderer;
 		std::unique_ptr<D3D12Compositor> m_compositor;
 		std::unique_ptr<MessageBridge> m_bridge;
 		OSFSettingsClient m_osfSettings;
-		// Runtime owns the worker; its synchronized interface owns cross-thread jobs.
 		std::unique_ptr<DevViewReloadWorker> m_devViewReload;
 
-		// Startup and frame lifecycle.
 		bool m_developerMode{ false };       // startup-latched; changes apply next launch
-		// Monotonic seconds sampled at the start of each update, never accumulated or clamped.
+		// Monotonic seconds, sampled once at the start of each update.
 		double m_nowSeconds{ 0.0 };
 		// SFSE lifecycle producer -> runtime consumer.
 		std::atomic_bool m_engineIntegrationPending{ false };
 
-		// View lifecycle and presentation.
 		ViewPresentationController m_presentation;
 		ViewOpenCoordinator m_viewOpens;
 		ViewLoadTracker m_viewLoads;
@@ -177,10 +164,9 @@ namespace OSFUI
 		std::string m_lastShownView;
 		std::atomic_bool m_visible{ false };  // runtime -> WndProc/frame-event producer
 
-		// Browser-host recovery.
 		BrowserHostRecovery m_browserHostRecovery;
 
-		// Input components own their state and cross-thread publication boundaries.
+		// Each input component synchronizes its shared state.
 		InputCaptureController m_inputCapture;
 		PointerInputState m_pointerInput;
 		RelativePointerSession m_relativePointer;
@@ -188,7 +174,6 @@ namespace OSFUI
 		XInputPoller m_gamepadSource;
 		GamepadSession m_gamepadSession;
 
-		// Bridge state and protocol diagnostics.
 		RetainedStateStore m_retainedState;
 		std::unordered_map<std::string, std::uint32_t> m_viewProtocolFaultCounts;
 		std::string m_lastViewsData;

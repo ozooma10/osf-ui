@@ -16,7 +16,7 @@ namespace OSFUI
 		if (m_engineIntegrationPending.exchange(false, std::memory_order_acq_rel)) {
 			InitializeEngineIntegration();
 		}
-		// The only menu admission gate; evaluated once per update.
+		// Check once per update whether menus can open.
 		const bool suspend = !m_inputCapture.MenuEventsAvailable() || MenuEventSink::TransitionOpen() || !m_browserHostRecovery.IsAvailable();
 		if (m_presentation.SetSuspended(suspend) && suspend) {
 			FailPendingOpen("The game is changing menus.");
@@ -25,7 +25,7 @@ namespace OSFUI
 
 	void Runtime::ProcessBackendState(const API::Papyrus::PendingBatch& a_papyrus, const std::vector<API::BridgeApi::ViewStateOp>& a_bridgeState)
 	{
-		// Retain owner state before the first WebView exists; its greeting will replay it.
+		// Save state even before a view exists; replay it when the page connects.
 		if (a_papyrus.sessionReset) {
 			m_retainedState.ClearSessionScoped();
 		}
@@ -47,7 +47,7 @@ namespace OSFUI
 	void Runtime::ProcessBackendMessages(const API::Papyrus::PendingBatch& a_papyrus)
 	{
 		if (m_bridge) {
-			// Reject before this batch's replies so an old-session answer queued after the reset finds its token gone.
+			// Cancel old requests before processing replies from the previous game session.
 			if (a_papyrus.sessionReset) {
 				m_bridge->RejectAll("game-load", "the request was canceled by a game load");
 			}
@@ -82,8 +82,7 @@ namespace OSFUI
 
 	void Runtime::CommitPresentation()
 	{
-		// Legacy ready callbacks may publish state while this batch is prepared.
-		// Consume only that state: callback-enqueued requests belong to the next batch.
+		// Legacy ready callbacks may publish state mid-batch; requests they enqueue belong to the next batch.
 		ApplyNativeState(API::BridgeApi::Get().TakePendingState());
 		DrivePendingOpen();
 		ApplyViewPresentationPolicy();
@@ -129,19 +128,16 @@ namespace OSFUI
 		const auto now = std::chrono::steady_clock::now();
 		m_nowSeconds = std::chrono::duration<double>(now.time_since_epoch()).count();
 		ProcessLifecycleWork();
-		// Browser handlers enqueue alongside native calls and hotkeys. Drain them
-		// before taking the single finite request batch for this update.
+		// Drain browser handlers before taking this update's single request batch.
 		ProcessRendererNotifications();
 		auto bridgeBatch = API::BridgeApi::Get().TakePendingBatch();
 		auto papyrusBatch = API::Papyrus::TakePendingBatch();
-		// Apply captured state before legacy ready callbacks can publish newer values.
-		// Messages still follow view registration.
+		// State before legacy ready callbacks can publish newer values; messages after view registration.
 		ProcessBackendState(papyrusBatch, bridgeBatch.state);
 		DrainViewRegistrations(bridgeBatch.viewRegistrations);
 		ProcessBackendMessages(papyrusBatch);
 		ApplyPresentationRequests(bridgeBatch.presentation);
-		// Observe queued host responses before deadlines; restart only after its
-		// notification callbacks have returned. Recovery only prepares hidden views.
+		// After notifications drain, before deadlines. Recovery only prepares hidden views.
 		if (m_renderer) {
 			DriveBrowserHostRecovery();
 			DriveRecovery();
@@ -149,7 +145,7 @@ namespace OSFUI
 		CommitPresentation();
 		RouteGamepadInput();
 		ProcessRendererFrame();
-		// Native, Papyrus and browser queues get to settle requests before timeout checks.
+		// Process queued replies before checking timeouts.
 		if (m_bridge) m_bridge->Tick(now);
 		m_relativePointer.Drain();
 		if (!m_lastShownView.empty()) {

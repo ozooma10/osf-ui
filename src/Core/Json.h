@@ -30,7 +30,7 @@ namespace OSFUI::Json
 		return parsed;
 	}
 
-	// Reads and parses a file. Returns std::nullopt on a missing file or bad JSON.
+	// std::nullopt on a missing file or bad JSON.
 	[[nodiscard]] std::optional<Value> ParseFile(const std::filesystem::path& a_path, std::string* a_outError = nullptr);
 
 	// Returns a_default for missing or wrong-typed fields without throwing.

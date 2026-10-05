@@ -2,7 +2,7 @@
 
 namespace OSFUI::API::Papyrus
 {
-	// Plugin load. Hooks GameVM's constructor so the OSFUI natives bind once, before any script runs.
-	// Returns false when the call site does not match this game build; Install() then binds on data load instead.
+	// Plugin load. Binds natives from GameVM's ctor before any script runs; false on call-site mismatch
+	// (Install() then binds on data load).
 	bool InstallBindHook();
 }

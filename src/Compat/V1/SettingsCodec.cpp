@@ -74,7 +74,7 @@ namespace OSFUI::Compat::V1
                     }
                     auto value = setting.at("default");
                     auto savedValue = saved.is_object() ? saved.find(key) : saved.end();
-                    // The old store accepted aliases on schema updates.
+                    // v1.6 accepted aliases on schema updates.
                     if (savedValue == saved.end() && authored.contains("aliases")) {
                         for (const auto& alias : authored.at("aliases")) {
                             const auto name = alias.get<std::string>();
@@ -116,8 +116,7 @@ namespace OSFUI::Compat::V1
 
     bool SaveValues(const SettingsDefinition& definition, const Document& values)
     {
-        // The frozen callers understand names, so never silently turn an
-        // unrepresentable native binding into UNBOUND on disk or in callbacks.
+        // Legacy callers use key names; reject keys that have no matching name.
         for (const auto& key : definition.keys) {
             const auto code = values.at(key).get<std::uint32_t>();
             if (KeyCode(KeyName(code)) != code) return false;

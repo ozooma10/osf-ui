@@ -86,7 +86,6 @@
   function focusEl(el) {
     el.focus();
     lastRect = el.getBoundingClientRect();
-    // Keep the element visible after spatial navigation moves focus.
     if (el.scrollIntoView) el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
@@ -194,7 +193,7 @@
   });
 
   window.padnav = {
-    // Forget the resume point (a fresh overlay visit starts navigation over).
+    // Start navigation over on the next visit.
     reset() { lastRect = null; },
     // Focus the first visible match of `selector` (or the first candidate).
     focusFirst(selector) {

@@ -3,19 +3,19 @@
 #include "Compat/V1/LegacyBridge.h"
 
 #include "API/BridgeApi.h"
-#include "Core/StringUtil.h"  // ToLowerAscii
+#include "Core/StringUtil.h"
 #include "Core/Version.h"
-#include "Core/Ids.h"  // opaque id safety validation + case-insensitive matching
+#include "Core/Ids.h"
 
 #include <atomic>
 #include <charconv>
 
-#include "RE/B/BSScriptUtil.h"       // BindNativeMethod marshaling, GameVM, VirtualMachine
-#include "RE/E/Events.h"             // TESLoadGameEvent
-#include "RE/F/FORM_ENUM_STRING.h"   // FormType -> record-signature table
-#include "RE/RTTI.h"                 // starfield_cast (TESForm -> TESFullName)
-#include "RE/T/TESForm.h"            // LookupByID + form identity reads
-#include "RE/T/TESFullName.h"        // display-name component
+#include "RE/B/BSScriptUtil.h"
+#include "RE/E/Events.h"
+#include "RE/F/FORM_ENUM_STRING.h"
+#include "RE/RTTI.h"
+#include "RE/T/TESForm.h"
+#include "RE/T/TESFullName.h"
 
 namespace OSFUI::API::Papyrus
 {
@@ -30,9 +30,8 @@ namespace OSFUI::API::Papyrus
 			kRequest,
 		};
 
-		// Weak receiver identity: a VM object handle plus its lower-cased script name, never a VM pointer or
-		// refcount. A zero handle selects a GLOBAL function on the script. The VM resolves the identity at
-		// dispatch time, so a receiver from a dead session simply fails to dispatch instead of being kept alive.
+		// Store a VM handle and script name without keeping the receiver alive.
+		// Resolve at dispatch; handle 0 selects a Global function.
 		struct Receiver
 		{
 			std::uint64_t handle{ 0 };
@@ -40,7 +39,7 @@ namespace OSFUI::API::Papyrus
 			bool          operator==(const Receiver&) const = default;
 		};
 
-		// Registrations live until the next game load or main-menu return; there is no per-entry removal.
+		// Lives until the next game load or main-menu return; no per-entry removal.
 		struct Entry
 		{
 			Kind              kind{ Kind::kSend };
@@ -50,7 +49,7 @@ namespace OSFUI::API::Papyrus
 			std::string       key;  // exact view endpoint
 		};
 
-		// Queue FormIDs, never TESForm pointers; serialize them in the runtime update.
+		// FormIDs, never TESForm pointers; serialized in the runtime update.
 		struct QueuedState
 		{
 			std::string                               mod;
@@ -60,7 +59,6 @@ namespace OSFUI::API::Papyrus
 			std::optional<std::vector<std::uint32_t>> formIds;
 		};
 
-		// Keep portable values/FormIDs only; serialize forms in the runtime update.
 		struct QueuedEvent
 		{
 			std::string        mod;
@@ -68,7 +66,7 @@ namespace OSFUI::API::Papyrus
 			std::vector<Value> args;
 		};
 
-		// A script answer waiting for the main-thread pump; the bridge decides whether it is still live.
+		// Queued for the main-thread pump; stale tokens are ignored.
 		struct QueuedViewReply
 		{
 			std::uint64_t                             token{ 0 };  // MessageBridge::Defer()'s token
@@ -79,7 +77,7 @@ namespace OSFUI::API::Papyrus
 			std::optional<std::uint32_t>              formId;
 			std::optional<std::vector<std::uint32_t>> formIds;
 		};
-		// Leak this VM-owned state intentionally because process-detach destruction is unsafe.
+		// Leaked: process-detach destruction is unsafe.
 		struct ProcessState
 		{
 			std::mutex                                          lock;
@@ -88,10 +86,9 @@ namespace OSFUI::API::Papyrus
 			std::vector<QueuedState>                            states;
 			std::vector<QueuedEvent>                            events;
 			std::vector<QueuedViewReply>                        replies;
-			// Raised on game load so Runtime::Update purges session-scoped retained state.
+			// Raised on game load; Runtime::Update purges session-scoped retained state.
 			bool                                                sessionReset{ false };
-			// Set while a world-replacing save/load operation is in flight; dispatch into the VM is refused until
-			// the new session is announced (TESLoadGameEvent) or the operation fails.
+			// Set during a world-replacing load; VM dispatch refused until TESLoadGameEvent or load failure.
 			std::atomic_bool                                    suspended{ false };
 			std::atomic_bool                                    nativesBound{ false };
 		};
@@ -107,10 +104,10 @@ namespace OSFUI::API::Papyrus
 			State().pending.store(true, std::memory_order_release);
 		}
 
-		// BSFixedString preserves process-first casing, so normalize before matching.
+		// BSFixedString keeps process-first casing; normalize before matching.
 		using StringUtil::ToLowerAscii;
 
-		// Registration results returned to Papyrus; documented in OSFUI.psc.
+		// Documented in OSFUI.psc.
 		enum RegisterResult : std::int32_t
 		{
 			kRegistered = 1,
@@ -123,7 +120,7 @@ namespace OSFUI::API::Papyrus
 
 		constexpr std::size_t kMaxEntries = 0xFFFF;
 
-		// Caller holds the process-state lock.
+		// State().lock held.
 		std::int32_t AddEntry(Kind a_kind, Receiver a_receiver, std::string_view a_fn, std::string_view a_modId, std::string_view a_key)
 		{
 			if (State().entries.size() >= kMaxEntries) {
@@ -164,7 +161,7 @@ namespace OSFUI::API::Papyrus
 
 		void PackValueArray(RE::BSScript::Variable& a_out, const std::vector<Value>& a_values)
 		{
-			// A Papyrus Var owns its pointed-to Variable. Allocate one inner value per element; the VM array takes ownership while PackVariable builds Var[].
+			// The VM array owns each heap-allocated Variable after packing.
 			std::vector<const RE::BSScript::Variable*> values;
 			values.reserve(a_values.size());
 			for (const auto& value : a_values) {
@@ -212,7 +209,6 @@ namespace OSFUI::API::Papyrus
 				if (e.kind != a_kind) {
 					continue;
 				}
-				// BSFixedString casing is process-global, so match filters case-insensitively.
 				if (!e.modId.empty() && !Ids::EqualsCaseInsensitiveAscii(e.modId, a_modId)) {
 					continue;
 				}
@@ -283,7 +279,6 @@ namespace OSFUI::API::Papyrus
 				return StaticDispatchResult::kVmUnavailable;
 			}
 
-			// The script's reply token is the bridge token itself, so nothing is tracked here.
 			const auto token = std::to_string(a_deferToken);
 			return DispatchOne(vm, a_target, MakeRequestArgs(RE::BSFixedString(std::string(a_name).c_str()), a_args, RE::BSFixedString(std::string(a_sourceViewId).c_str()), RE::BSFixedString(token.c_str()))) ?
 				StaticDispatchResult::kQueued : StaticDispatchResult::kTargetRejected;
@@ -355,7 +350,7 @@ namespace OSFUI::API::Papyrus
 			return token;
 		}
 
-		// VM thread. Late, duplicate and stale answers are filtered by the bridge on the main thread.
+		// VM thread. The bridge filters late, duplicate and stale answers on the main thread.
 		bool QueueViewReply(const RE::BSFixedString& a_token, QueuedViewReply a_reply)
 		{
 			constexpr std::size_t kMaxQueuedReplies = 256;
@@ -391,7 +386,7 @@ namespace OSFUI::API::Papyrus
 			return QueueViewReply(a_token, { .rejected = true,
 				.code = a_code.empty() ? "papyrus-error" : a_code.c_str(), .message = a_message.c_str() });
 		}
-		// VM thread; normalize BSFixedString casing before validating the target.
+		// VM thread.
 		std::optional<std::string> FoldTarget(const RE::BSFixedString& a_mod, const RE::BSFixedString& a_key, std::string_view a_native)
 		{
 			auto        mod = ToLowerAscii(a_mod.c_str());
@@ -404,11 +399,11 @@ namespace OSFUI::API::Papyrus
 			return mod;
 		}
 
-		// Queue on the VM thread and resolve any form identity in the runtime update.
+		// VM thread; forms resolve in the runtime update.
 		bool EnqueueState(QueuedState a_state)
 		{
 			std::lock_guard l{ State().lock };
-			// Bound this undrained queue when the runtime is disabled.
+			// Limit the queue because it is not drained while the runtime is disabled.
 			constexpr std::size_t kMaxPendingStates = 1024;
 			if (State().states.size() >= kMaxPendingStates) {
 				REX::WARN("PapyrusApi: pending view-state queue full; dropping {}.{}", a_state.mod, a_state.key);
@@ -464,7 +459,6 @@ namespace OSFUI::API::Papyrus
 			return out;
 		}
 
-		// Lightweight availability/version surface shared by OSFUI.psc.
 		bool IsAvailable(PapVM&, std::uint32_t, std::monostate)
 		{
 			return true;
@@ -472,7 +466,6 @@ namespace OSFUI::API::Papyrus
 
 		std::int32_t GetVersion(PapVM&, std::uint32_t, std::monostate)
 		{
-			// Zero remains the documented unavailable sentinel.
 			return static_cast<std::int32_t>(kOsfuiReleaseVersionMajor * 10000 +
 				kOsfuiReleaseVersionMinor * 100 + kOsfuiReleaseVersionPatch);
 		}
@@ -507,7 +500,7 @@ namespace OSFUI::API::Papyrus
 			return !first;
 		}
 
-		// VM thread. Accept only a live object the VM still binds to its handle under its own script type.
+		// VM thread. Require a live object bound to this handle and script type.
 		std::optional<Receiver> ResolveInstance(PapVM& a_vm, const RE::BSTSmartPointer<RE::BSScript::Object>& a_object)
 		{
 			if (!a_object || !a_object->IsValid() || !a_object->type) return std::nullopt;
@@ -521,7 +514,7 @@ namespace OSFUI::API::Papyrus
 			return Receiver{ handle, ToLowerAscii(typeName) };
 		}
 
-		// VM thread. A GLOBAL target must name a script the VM can load, so a typo fails here, not at dispatch.
+		// VM thread. Requires a loadable script so typos fail at registration, not dispatch.
 		std::optional<Receiver> ResolveGlobal(PapVM& a_vm, const RE::BSFixedString& a_script)
 		{
 			const char* name = a_script.c_str();
@@ -531,7 +524,7 @@ namespace OSFUI::API::Papyrus
 			return Receiver{ 0, ToLowerAscii(name) };
 		}
 
-		// Idempotent per receiver: re-registering an owned endpoint succeeds, and a new instance of the same script takes it over.
+		// Idempotent per receiver; a new instance of the same script takes over.
 		std::int32_t RegisterEndpoint(Kind a_kind, std::optional<Receiver> a_receiver, const RE::BSFixedString& a_modId, const RE::BSFixedString& a_name, std::string_view a_callback, std::string_view a_native)
 		{
 			if (!a_receiver) {
@@ -566,7 +559,7 @@ namespace OSFUI::API::Papyrus
 					REX::DEBUG("PapyrusApi: {}('{}') already registered by this script", a_native, qualified);
 					return kRegistered;
 				}
-				// A restarted quest is a new object of the same script; let it take over instead of being blocked by its dead predecessor.
+				// A restarted quest is a new object of the same script.
 				if (entry.receiver.handle && a_receiver->handle && entry.receiver.script == a_receiver->script) {
 					entry.receiver = std::move(*a_receiver);
 					REX::INFO("PapyrusApi: {}('{}') rebound to a new instance of script '{}'", a_native, qualified, entry.receiver.script);
@@ -618,7 +611,7 @@ namespace OSFUI::API::Papyrus
 			return values;
 		}
 
-		// Deliver one-shot events to instantiated views without caching or replay.
+		// Events are never cached or replayed.
 		bool EmitEvent(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString a_mod, RE::BSFixedString a_name, std::optional<std::vector<const RE::BSScript::Variable*>> a_args)
 		{
 			auto mod = FoldTarget(a_mod, a_name, "EmitEvent");
@@ -784,7 +777,7 @@ namespace OSFUI::API::Papyrus
 			return false;
 		}
 
-		// Entries hold no VM references, so clearing them touches nothing the old session owned.
+		// Entries hold no VM references, so clearing them is safe after a game load.
 		void ClearRegistrations(std::string_view a_reason)
 		{
 			Compat::V1::Papyrus::ResetSession();
@@ -794,7 +787,7 @@ namespace OSFUI::API::Papyrus
 				BridgeApi::Get().ReleasePapyrusEndpoint(e.modId + "." + e.key);
 			}
 			State().entries.clear();
-			// Old-session answers are void; sessionReset makes the main tick reject every in-flight request.
+			// sessionReset makes the main tick reject every in-flight request.
 			State().replies.clear();
 			State().states.clear();
 			State().events.clear();
@@ -813,8 +806,7 @@ namespace OSFUI::API::Papyrus
 			}
 		}
 
-		// Session boundaries: refuse VM dispatch while a world-replacing load is in flight, then clear stale
-		// registrations before the new session runs. Natives stay bound; the VM outlives the session.
+		// Suspends VM dispatch during world-replacing loads; clears registrations on load. Natives stay bound.
 		class SessionSink final :
 			public RE::BSTEventSink<RE::SaveLoadEvent>,
 			public RE::BSTEventSink<RE::TESLoadGameEvent>
@@ -863,7 +855,7 @@ namespace OSFUI::API::Papyrus
 
 	void Install()
 	{
-		// Fallback for a missing bind hook: by data load the VM exists, though scripts may already have run.
+		// Fallback if the bind hook missed: the VM exists by data load, but scripts may already have run.
 		if (!TryBindNatives()) {
 			REX::ERROR("PapyrusApi: GameVM unavailable at install; OSFUI natives not bound");
 		}
@@ -953,8 +945,7 @@ namespace OSFUI::API::Papyrus
 		std::vector<QueuedEvent> events;
 		std::vector<QueuedViewReply> completed;
 		{
-			// Clear the hint before locking. A racing producer may be included in this
-			// batch while leaving its bit set, which only causes one harmless extra pass.
+			// Hint cleared before locking; a racing producer costs at most one extra pass.
 			std::lock_guard l{ State().lock };
 			states.swap(State().states);
 			events.swap(State().events);

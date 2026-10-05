@@ -8,10 +8,9 @@
 #include "Core/Json.h"
 #include "API/PapyrusNames.h"
 
-// Validates untrusted papyrus.call payloads before JS-to-Papyrus marshalling.
 namespace OSFUI::PapyrusCall
 {
-	// Bound untrusted argument arrays even though Papyrus has no fixed limit.
+	// Papyrus has no fixed limit; bound untrusted input.
 	inline constexpr std::size_t kMaxArgs = 32;
 
 	struct Parsed
@@ -42,7 +41,6 @@ namespace OSFUI::PapyrusCall
 		}
 	}
 
-	// Validate one `papyrus.call` payload and marshal its arguments.
 	[[nodiscard]] inline Parsed Parse(const nlohmann::json& a_payload)
 	{
 		Parsed out;
@@ -51,7 +49,7 @@ namespace OSFUI::PapyrusCall
 		if (!PapyrusNames::IsScriptName(out.script) || !PapyrusNames::IsIdentifier(out.function)) {
 			return detail::Fail("invalid-request", "papyrus.call requires valid 'script' and 'function' names");
 		}
-		// Untrusted pages cannot call the native script directly and bypass per-view authority.
+		// Calling OSFUI directly would bypass view permissions.
 		if (StringUtil::EqualsCaseInsensitiveAscii(out.script, API::Papyrus::kPlatformScriptName)) {
 			return detail::Fail("forbidden", "papyrus.call cannot target OSFUI — use the public bridge APIs");
 		}
@@ -73,7 +71,7 @@ namespace OSFUI::PapyrusCall
 			} else if (value.is_boolean()) {
 				out.args.emplace_back(value.get<bool>());
 			} else if (value.is_number_unsigned()) {
-				// Check unsigned first because nlohmann integer conversion can wrap large values.
+				// Unsigned first: nlohmann integer conversion can wrap large values.
 				const auto integer = value.get<std::uint64_t>();
 				if (integer > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
 					return detail::Fail("invalid-request", "papyrus.call integer arguments must fit Papyrus int");
@@ -93,7 +91,7 @@ namespace OSFUI::PapyrusCall
 			} else if (value.is_object() && value.size() == 2 &&
 				Json::Get(value, "$papyrus", "") == "float" && value.contains("value") &&
 				value["value"].is_number()) {
-				// Tagged floats preserve whole-valued Papyrus float arguments.
+				// Keep floats as floats even when they have no fractional part.
 				if (!detail::AppendFloat(out.args, value["value"].get<double>())) {
 					return detail::Fail("invalid-request", "papyrus.call float arguments must be finite Papyrus floats");
 				}

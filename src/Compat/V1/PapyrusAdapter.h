@@ -11,9 +11,9 @@ namespace OSFUI { class MessageBridge; }
 
 namespace OSFUI::Compat::V1::Papyrus
 {
-    // Frozen OSFUI.psc natives, separate from the modern endpoint registry.
+    // Frozen OSFUI.psc natives.
     void BindNatives(RE::BSScript::IVirtualMachine& vm);
-    // Any thread. Weak VM identities and monotonic tokens never survive a session.
+    // Any thread. Clear VM handles and reply tokens when the game session ends.
     void ResetSession();
     void SetSuspended(bool suspended);
 

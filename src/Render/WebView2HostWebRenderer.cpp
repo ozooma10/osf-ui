@@ -58,7 +58,7 @@ namespace OSFUI
 			return out / "OSFUI";
 		}
 
-		// Use the real SFSE log directory shared by the plugin and unhooked browser host.
+		// Real SFSE log dir, shared with the unhooked browser host.
 		std::filesystem::path BrowserHostLogPath()
 		{
 			if (const auto dir = SFSE::log::log_directory()) {
@@ -93,7 +93,6 @@ namespace OSFUI
 			return found;
 		}
 
-		// Remove folders left by releases that mirrored per process or per version.
 		void RemoveLegacyMirrors(const std::filesystem::path& a_localRoot)
 		{
 			std::vector<std::filesystem::path> legacy;
@@ -122,7 +121,6 @@ namespace OSFUI
 			}
 		}
 
-		// Prepare each mod independently while retaining the existing browser URL layout.
 		std::optional<std::filesystem::path> PrepareModCaches(const std::filesystem::path& a_source,
 			const std::filesystem::path& a_cacheRoot, std::string_view a_label)
 		{
@@ -157,7 +155,6 @@ namespace OSFUI
 			return prepared->root;
 		}
 
-		// Read the browser-host log tail for pre-handshake failure diagnostics.
 		std::vector<std::string> ReadLogTail(const std::filesystem::path& a_file,
 			std::size_t a_maxLines)
 		{
@@ -206,7 +203,7 @@ namespace OSFUI
 			}
 		}
 
-		// Build shared wire structs from copied values; never retain ViewRec or string_view across stateMutex.
+		// Copy values while holding stateMutex; do not keep ViewRec references or string_views after unlocking.
 		namespace msg = osfui::wv2::msg;
 	}
 
@@ -227,9 +224,9 @@ namespace OSFUI
 		WebView2HostConfig    config;
 		std::string          language;  // Resolved before Start; immutable while the worker runs.
 		std::filesystem::path viewsRoot, mappedViewsRoot, legacyViewsRoot, mappedLegacyViewsRoot, userData;
-        // Serialize initial and dev-refresh writes to the real-path mirror.
+        // Guards writes to the real-path mirror.
         std::mutex            viewsMirrorMutex;
-		bool                  usesDevViewsMirror{ false };  // mutable views-dev tree, updated by explicit dev refreshes
+		bool                  usesDevViewsMirror{ false };  // mutable views-dev tree
 		std::shared_future<bool> viewFilesPreparation;  // Started by Runtime; consumed by the transport worker.
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
 		std::filesystem::path browserHostLog;  // set in Initialize; read by worker + notify drain
@@ -244,7 +241,7 @@ namespace OSFUI
 		// Game-thread only (Drain/setters).
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
-		// Preserve creation order for z ties; the worker snapshots state and callers send later diffs.
+		// Preserve creation order for equal z values; send later changes after the worker's snapshot.
 		struct ViewRec
 		{
 			std::string id;
@@ -253,14 +250,14 @@ namespace OSFUI
 			bool        hidden{ true };
 			bool settleColdOpen{ false };
 			int         order{ 0 };
-			// Authoring height defines browser rasterization scale against output height.
+			// Scale the page's CSS height to the output height.
 			std::uint32_t logicalHeight{ kDefaultViewHeight };
 		};
 		std::mutex           stateMutex;
 		std::vector<ViewRec> views;
 		std::string          inputTargetId;
 		bool                 allHidden{ true };  // no visible view => incoming frames are released
-		// Each hidden-to-visible presentation requires a post-reveal frame.
+		// Each show needs a new frame before becoming visible.
 		std::uint64_t        presentationEpoch{ 0 };
 		std::uint32_t        width{ 1 }, height{ 1 };
 		std::uint32_t        viewportWidth{ 1 }, viewportHeight{ 1 };
@@ -268,7 +265,7 @@ namespace OSFUI
 		bool                 focusRequested{ false };
 		bool                 windowActive{ true };  // last WM_SETFOCUS/WM_KILLFOCUS edge; the host trusts this value
 
-		// Single source of connection state: Running = connected, Stopping = stop requested, Failed = connection lost (held until RestartAfterFailure).
+		// Failed persists until RestartAfterFailure.
 		enum class Lifecycle : std::uint8_t
 		{
 			Stopped,
@@ -303,7 +300,7 @@ namespace OSFUI
 
 		void SignalDead(std::string_view a_reason)
 		{
-			// Only a live transport fails; a stop in progress or an earlier failure wins.
+			// Ignore failures after stopping or an earlier failure.
 			auto prior = lifecycle.load(std::memory_order_acquire);
 			bool failed = false;
 			while (prior == Lifecycle::Starting || prior == Lifecycle::Running) {
@@ -344,13 +341,13 @@ namespace OSFUI
 
 		void Send(const json& a_msg) { Enqueue(a_msg, false); }
 
-		// Atomically place the connection snapshot before bounded queued events.
+		// Queue the connection snapshot before any events.
 		void SendOrQueue(const json& a_msg) { Enqueue(a_msg, true); }
 
 		bool PublishConnected(std::vector<osfui::wv2::BoundedQueue<std::string>::Item> a_bootstrap)
 		{
 			// Prepend before Running: a Send that observes Running is ordered after the snapshot.
-			// A concurrent Stop or failure leaves the lifecycle off Starting and closes the queue.
+			// Stop or failure can cancel startup and close the queue.
 			if (!outbound.Prepend(std::move(a_bootstrap))) return false;
 			auto expected = Lifecycle::Starting;
 			return lifecycle.compare_exchange_strong(expected, Lifecycle::Running, std::memory_order_acq_rel);
@@ -392,7 +389,7 @@ namespace OSFUI
 			}
 		}
 
-		// stateMutex held. Frames rendered under an older epoch can no longer be revealed.
+		// Requires stateMutex. Reject frames from earlier presentations.
 		void BeginPresentation()
 		{
 			frames->SetPresentation(++presentationEpoch, !allHidden);
@@ -405,8 +402,7 @@ namespace OSFUI
 
 		// Startup (worker thread)
 
-		// Materialize views at a real path visible outside MO2's USVFS. Production caches each mod independently;
-		// developer hot reload uses a separate mutable tree and leaves the production caches intact.
+		// Copy views outside MO2's USVFS for the browser. Hot reload uses a separate copy.
 		void PrepareViewFiles()
 		{
 			if (viewFilesPreparation.valid()) return;
@@ -435,7 +431,6 @@ namespace OSFUI
 			RemoveLegacyMirrors(localRoot);
 			std::error_code legacyError;
 			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
-				// Legacy content (bundled games and the like) is the bulk of the cache; its cost must show in the log.
 				const auto legacy = PrepareModCaches(legacyViewsRoot, localRoot / "legacy-views-cache", "legacy views cache");
 				if (!legacy) return false;
 				mappedLegacyViewsRoot = *legacy;
@@ -459,13 +454,13 @@ namespace OSFUI
 			return true;
 		}
 
-        // Refresh the real-path mod mirror before navigating an unhooked browser.
+        // Refresh the browser's file copy before navigation.
 		bool RefreshModFiles(std::string_view a_mod)
 		{
 			std::scoped_lock mirrorLock(viewsMirrorMutex);
 			if (!usesDevViewsMirror) return true;
 
-			// Mirror the whole mod folder because view entries load sibling hashed assets.
+			// Copy the whole mod folder because views can share assets.
 			const auto modFolder = std::filesystem::path(a_mod);
 			const auto source = viewsRoot / modFolder;
 			const auto destination = mappedViewsRoot / modFolder;
@@ -477,7 +472,7 @@ namespace OSFUI
 			return true;
 		}
 
-		// Mirror the VFS-only host executable to a real versioned path before external launch.
+		// The host exe is VFS-only; mirror it to a real versioned path for external launch.
 		bool MirrorHostExe()
 		{
 			const auto mirrorDir = LocalOsfuiDir() / "bin";
@@ -560,7 +555,6 @@ namespace OSFUI
 			REX::DEBUG("WebView2HostWebRenderer: starting browser-host transport threads");
 			return true;
 		}
-		// After launch failure, report the failed stage and browser-host log tail.
 		void LogBrowserHostStartFailureDiagnostics(std::filesystem::file_time_type a_launchTime)
 		{
 			std::error_code ec;
@@ -693,7 +687,6 @@ namespace OSFUI
 				break;
 			}
 
-			// A wrong-typed protocol version falls back to 0 and fails this gate.
 			const auto greeting = msg::FromJson<msg::Hello>(hello);
 			if (Json::Get(hello, "type", "") != msg::Hello::kType ||
 				greeting.protocolVersion != osfui::wv2::kBrowserHostProtocolVersion) {
@@ -753,10 +746,8 @@ namespace OSFUI
 					addBootstrap(ToJson(msg::SetInputTarget{ .view = inputTargetId }));
 				}
 				addBootstrap(ToJson(msg::Focus{ .focused = focusRequested }));
-				// Setters hold stateMutex through their outbound enqueue. Publishing
-				// under the same lock makes the snapshot and later diffs one order.
+				// Hold stateMutex so the snapshot is queued before later changes.
 				if (!PublishConnected(std::move(bootstrap))) {
-					// No-op when a stop or failure already moved the lifecycle off Starting.
 					SignalDead("connection snapshot exceeded the outbound queue limit");
 					return;
 				}
@@ -788,7 +779,7 @@ namespace OSFUI
 				const auto parsed = Json::Parse(payload);
 				if (!parsed) continue;
 				const json& message = *parsed;
-				// Total message decoding prevents malformed page fields from escaping this worker thread.
+				// Malformed page data must not throw on the worker thread.
 				const auto type = Json::Get(message, "type", "");
 				if (type == msg::Heartbeat::kType) {
 					heartbeatDeadline = ::GetTickCount64() +
@@ -821,7 +812,7 @@ namespace OSFUI
 						.text = fatal.stage,
 						.detail = fatal.description,
 						.unsignedCode = fatal.code });
-					// A fatal host cannot certify later loads or publish more frames.
+					// Ignore loads and frames after the host has failed.
 					SignalDead("browser host reported a fatal error");
 					return;
 				} else if (type == msg::Console::kType) {
@@ -829,7 +820,7 @@ namespace OSFUI
 					Push(Notify{ .kind = Notify::Kind::Console,
 						.view = console.view, .text = console.json });
 				} else if (type == msg::Cursor::kType) {
-					// Contract allows renderer-thread delivery for cursor.
+					// Cursor callbacks run on the transport thread by contract.
 					if (onCursorChange) {
 						onCursorChange(msg::FromJson<msg::Cursor>(message).id);
 					}
@@ -887,7 +878,6 @@ namespace OSFUI
 			}
 		}
 
-		// Runtime notification dispatch
 
 		void DrainNotifications()
 		{
@@ -912,7 +902,7 @@ namespace OSFUI
 					}
 					break;
 				case Notify::Kind::Load:
-					// A failed connection cannot certify document load or recovery.
+					// Ignore load and recovery notifications from a failed connection.
 					if (lifecycle.load(std::memory_order_acquire) == Lifecycle::Failed) break;
 					if (onLoad) {
 						const LoadEvent event{
@@ -964,7 +954,7 @@ namespace OSFUI
 			if (found == consoleHandlers.end() || !found->second) return;
 			int         level = 0;
 			std::string text = a_payload;
-			// Parse arbitrary page-authored console payloads leniently without worker-thread escapes.
+			// Lenient parse: payloads are page-authored.
 			if (const auto parsed = Json::Parse(a_payload)) {
 				const auto type = Json::Get(*parsed, "type", "log");
 				level = type == "warning" ? 1 : type == "error" ? 2 :
@@ -978,9 +968,8 @@ namespace OSFUI
 			found->second(level, std::move(text));
 		}
 
-		// Teardown
 
-		// The host also exits on its own when the game process ends, so teardown never negotiates: close the transport, then terminate the verified host process.
+		// Close the transport before terminating the host.
 		void Stop()
 		{
 			auto prior = lifecycle.load(std::memory_order_acquire);
@@ -988,7 +977,7 @@ namespace OSFUI
 				if (prior == Lifecycle::Stopped || prior == Lifecycle::Stopping) return;
 			} while (!lifecycle.compare_exchange_weak(prior, Lifecycle::Stopping, std::memory_order_acq_rel));
 
-			// Close cancels pipe I/O before joins so the game thread cannot wait indefinitely.
+			// Close cancels pipe I/O so the joins cannot block.
 			outbound.Close();
 			pipe.Close();
 			if (worker.joinable()) worker.join();
@@ -997,7 +986,7 @@ namespace OSFUI
 
 			if (const HANDLE browserHostProcess = std::exchange(hostProcess, nullptr)) {
 				::TerminateProcess(browserHostProcess, 9);
-				// Termination is asynchronous; the bounded wait lets the host exit before a restart reuses its files.
+				// Termination is async; wait so a restart can reuse the host's files.
 				::WaitForSingleObject(browserHostProcess, 1000u);
 				::CloseHandle(browserHostProcess);
 			}
@@ -1084,7 +1073,6 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::CreateOrNavigateView(const ViewManifest& a_manifest)
 	{
-		// Derive stored and sent scale from the same clamp.
 		const auto logicalHeight = (std::max)(1u, a_manifest.height);
 		std::scoped_lock lock(m_impl->stateMutex);
 		auto* view = m_impl->FindView(a_manifest.id);
@@ -1095,7 +1083,7 @@ namespace OSFUI
 		view->entry = a_manifest.entry;
 		view->legacy = a_manifest.legacy;
 		view->logicalHeight = logicalHeight;
-		// Default input to the first instantiated view until runtime policy arrives.
+		// Use the first view for input until Runtime selects a target.
 		if (m_impl->inputTargetId.empty()) {
 			m_impl->inputTargetId = a_manifest.id;
 		}
@@ -1166,7 +1154,6 @@ namespace OSFUI
 
 	void WebView2HostWebRenderer::Update()
 	{
-		// Start and initialize the browser host while the overlay remains hidden.
 		if (m_impl->lifecycle.load(std::memory_order_acquire) ==
 			Impl::Lifecycle::Stopped) {
 			bool wantsView = false;
@@ -1183,7 +1170,7 @@ namespace OSFUI
 				}
 			}
 		}
-		// Tick-thread drain also runs while hidden. The consumer releases unused frames immediately and recorded frames only after their final GPU read.
+		// Tick thread, even while hidden. Release unused frames now; wait for GPU reads on recorded frames.
 		const auto released = m_impl->frames->TakeReleases();
 		for (std::uint32_t slot = 0; slot < released.size(); ++slot) {
 			if (released[slot]) m_impl->Send(ToJson(msg::FrameAck{ .slot = slot, .serial = released[slot] }));
@@ -1267,7 +1254,7 @@ namespace OSFUI
 	}
 	void WebView2HostWebRenderer::GameWindowChanged()
 	{
-		// Under stateMutex, like the connect snapshot that reads the same handle.
+		// The connection snapshot reads this handle under stateMutex too.
 		std::scoped_lock lock(m_impl->stateMutex);
 		m_impl->Send(ToJson(msg::GameWindow{
 			.hwnd = reinterpret_cast<std::uint64_t>(OverlayInputHook::GameWindow()) }));
@@ -1332,7 +1319,7 @@ namespace OSFUI
 		view->hidden = a_hidden;
 		m_impl->RecomputeAllHidden();
 		if (!a_hidden) {
-			// Every newly shown view is a new presentation, including menu-to-menu switches where another view kept the overlay visible.
+			// Every show is a new presentation, even when another view kept the overlay visible.
 			m_impl->BeginPresentation();
 		} else if (m_impl->allHidden) {
 			m_impl->frames->SetPresentation(m_impl->presentationEpoch, false);

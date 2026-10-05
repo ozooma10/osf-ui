@@ -36,10 +36,10 @@ namespace OSFUI::UiPass
 				a_desc.Width >= 256 && a_desc.Height >= 256;
 		}
 
-		// Runs after the native ScaleformEnd returns, while the UI texture is still in RENDER_TARGET and before the graph transitions it for its consumer.
+		// After native ScaleformEnd: the UI texture is still RENDER_TARGET, before the graph transitions it.
 		void RecordOverlayAfterEnd(void* a_graph)
 		{
-			// ScaleformBegin bound the UI layer as the HAL's target and End leaves it in place.
+			// ScaleformBegin binds the UI layer as the HAL target; End leaves it bound.
 			const auto* halTarget = RE::CreationRendererPrivate::ScaleformRenderTarget::GetCurrent();
 			const auto* renderTarget = halTarget && halTarget->data ? halTarget->data->colorTarget : nullptr;
 			if (!renderTarget || !renderTarget->texture || !renderTarget->texture->resource) {
@@ -49,7 +49,7 @@ namespace OSFUI::UiPass
 			if (!context || !context->commandList || !context->commandPool) {
 				return;
 			}
-			// ID 142968 only rebinds heaps for these command-pool flags. Skip before touching the list if its reset would leave our descriptor heap bound.
+			// ID 142968 only rebinds heaps for these pool flags; otherwise our descriptor heap would stay bound.
 			const auto poolFlags = *(static_cast<const std::uint8_t*>(context->commandPool) + 0x20);
 			if ((poolFlags & 0xFD) != 0) {
 				return;
@@ -66,7 +66,7 @@ namespace OSFUI::UiPass
 			}
 
 			if (!RecordOverlayIntoRenderTarget(list, resource)) {
-				// Early-outs occur before the compositor rebinds descriptor heaps.
+				// Early-outs happen before heaps are rebound.
 				return;
 			}
 			context->InvalidateCachedBindingsAndBindHeaps();

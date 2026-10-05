@@ -74,7 +74,7 @@ namespace OSFUI
 			int                        wheelDelta{ 0 };
 		};
 
-		// a_now is monotonic seconds; scrolling owns its elapsed-time clamp within the session.
+		// a_now: monotonic seconds.
 		[[nodiscard]] Frame Update(const XInputPoller::State& a_state, Mode a_mode, double a_now) noexcept;
 
 		[[nodiscard]] bool End() noexcept;

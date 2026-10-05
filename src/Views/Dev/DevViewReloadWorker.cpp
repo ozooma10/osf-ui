@@ -35,7 +35,6 @@ namespace OSFUI
 			if (m_mods == a_mods)
 				return;
 			m_mods = std::move(a_mods);
-			// Mark mods dirty before notifying the predicate-based wait.
 			m_modsChanged = true;
 		}
 		m_wake.notify_all();
@@ -64,7 +63,7 @@ namespace OSFUI
 
 			const auto now = std::chrono::steady_clock::now();
 			for (const auto& mod : mods) {
-				// Settle the whole mod because view entries load sibling hashed assets.
+				// Reload the whole mod because views can share assets.
 				const auto fingerprint =
 					DevViewFiles::Fingerprint(m_viewsRoot / mod);
 				if (!fingerprint)
@@ -73,8 +72,7 @@ namespace OSFUI
 				if (!state.initialized) {
 					state.fingerprint = *fingerprint;
 					state.initialized = true;
-					// A mod may first be watched after the source changed while it was
-					// unwatched. Refresh the mirror before treating this baseline as current.
+					// The source may have changed while unwatched; refresh the mirror once.
 					state.changedAt = now - kSettleTime;
 					state.pending = true;
 					continue;

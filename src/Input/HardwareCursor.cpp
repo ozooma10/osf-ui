@@ -95,7 +95,7 @@ namespace OSFUI::HardwareCursor
 		}
 		RaiseUntilShowing();
 		ApplyShape();
-		// Heal engine or resolution changes against the live cursor clip.
+		// Restore cursor clipping after engine or resolution changes.
 		RECT want{};
 		if (!ClientRectOnScreen(static_cast<HWND>(a_hwnd), want)) {
 			return;
@@ -113,8 +113,7 @@ namespace OSFUI::HardwareCursor
 		const auto id = g_systemCursorId.load(std::memory_order_relaxed);
 		// Resource ordinals are 16-bit; do not truncate an invalid incoming ID.
 		auto cursor = id <= 0xFFFF ? ::LoadCursorW(nullptr, MAKEINTRESOURCEW(id)) : nullptr;
-		// WebView2 reports 0 for custom CSS cursors. Keep the pointer visible on
-		// unsupported IDs or failed loads. These shared handles are not destroyed.
+		// WebView2 reports 0 for custom CSS cursors; fall back to the arrow. Shared handles: never destroyed.
 		if (!cursor) {
 			cursor = ::LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));  // IDC_ARROW
 		}

@@ -51,8 +51,7 @@ if ($unexpected) {
     throw 'OSF UI package owns Settings files other than schemas/osfui.json'
 }
 
-# Guard the synchronizer itself: it may replace OSF/UI/views/shared but must never
-# delete the shared OSF parent or any OSF Settings directory.
+# The synchronizer may replace OSF/UI/views/shared but must never delete the OSF parent or OSF Settings dirs.
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $sync = Get-Content -LiteralPath (Join-Path $repo 'tools\xmake\runtime_payload.lua') -Raw
 if ($sync -match 'os\.rm\(\s*(?:views|uidata|pluginsdir|settings)\s*\)') {

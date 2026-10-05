@@ -5,9 +5,8 @@
 
 namespace osfui::wv2::LanguageTag
 {
-	// Maps a Bethesda game language code (sLanguage:General, lower-cased: "en", "de", "ptbr", "zhhans") to the
-	// BCP-47 tag WebView2 expects for its environment language. Unknown shapes pass through unchanged when they
-	// are already tag-safe; anything else yields an empty string so the caller keeps the WebView2 default.
+	// Lower-cased sLanguage:General ("en", "ptbr", "zhhans") -> BCP-47. Unknown tag-safe codes pass through;
+	// anything else returns empty (keep the WebView2 default).
 	inline std::string FromGameLanguage(std::string_view a_game)
 	{
 		std::string code;

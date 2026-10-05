@@ -40,8 +40,7 @@ namespace
 
 int main()
 {
-	// Launcher preparation holds the old HUD and pins the first new frame until
-	// the GPU copy completes. New captures cannot displace the promised frame.
+	// Launcher prep holds the old HUD and pins the first new frame until its GPU copy completes; new captures cannot displace it.
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
@@ -69,8 +68,7 @@ int main()
 		CHECK(state.Record(listB, 1, 5)->sharedSlot == 1);
 		CHECK(state.Record(listB, 1, 6)->sharedSlot == 2);
 	}
-	// Cancellation drops the prepared view and rejects its late captures, while
-	// retaining the previous HUD until the restored scene produces a frame.
+	// Cancel drops the prepared view and its late captures, keeping the old HUD until the restored scene draws.
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
@@ -87,8 +85,7 @@ int main()
 		CHECK(Publish(state, 1, 4, 3) == Result::Accepted);
 		CHECK(state.Record(listB, 1, 4)->sharedSlot == 1);
 	}
-	// A cold launcher can prepare while the compositor is hidden. Resizing or
-	// replacing the host invalidates the promise and requires a new frame.
+	// Prepare while hidden; resize or host replacement cancels preparation.
 	{
 		auto state = Open();
 		state.SetVisible(false);
@@ -104,7 +101,7 @@ int main()
 		state.SetVisible(true);
 		CHECK(state.Record(listA, 2, 1)->sharedSlot == 0);
 	}
-	// Superseded/hidden/pre-reveal frames were never recorded and release now.
+	// Release unused frames immediately.
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
@@ -122,8 +119,7 @@ int main()
 		CHECK(state.TakeReleases()[2] == 4);
 	}
 
-	// A completed draw does not release Current. Repeated draws and pending
-	// replacement churn must never let the host reuse the displayed slot.
+	// Finishing a draw must not release the displayed slot.
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
@@ -150,8 +146,7 @@ int main()
 		CHECK(Publish(state, 0, 5) == Result::Accepted);
 	}
 
-	// All reads matter: hide while two lists reference the same frame, submit
-	// on separate queues, and complete them out of order.
+	// Keep a frame until both queues finish, even when they finish out of order.
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
@@ -189,8 +184,7 @@ int main()
 		CHECK(released[0] == 1 && released[1] == 2);
 	}
 
-	// Ring/host replacement invalidates selection, but old recorded work still
-	// blocks GPU resource adoption. Its eventual completion cannot ack new slots.
+	// Replacing the ring or host waits for old GPU reads, which cannot release new slots.
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 100) == Result::Accepted);
@@ -212,8 +206,7 @@ int main()
 		CHECK(state.HasReads());
 	}
 
-	// Saturate all four slots with delayed GPU reads. Completing a single
-	// retired slot permits progress without releasing Current or growing ring.
+	// All four slots busy: completing one retired slot allows progress without releasing Current or growing the ring.
 	{
 		auto state = Open();
 		for (std::uint32_t slot = 0; slot < 4; ++slot) {
@@ -232,8 +225,7 @@ int main()
 		CHECK(Publish(state, 3, 6) == Result::Invalid); // completed Current still held
 	}
 
-	// Four slots support bounded progress; a busy slot is never reused, even
-	// across many close/reopen cycles with delayed submission/completion.
+	// A busy slot is never reused, even across many close/reopen cycles with delayed submit/completion.
 	{
 		auto state = Open();
 		State::Releases busy{};
@@ -258,7 +250,7 @@ int main()
 			CHECK(!state.HasReads());
 		}
 	}
-	// One submission batch: lookup and submit take the whole list span, and unrelated lists in the batch are ignored.
+	// Ignore unrelated command lists in a submission batch.
 	{
 		auto state = Open();
 		constexpr std::uintptr_t unrelated = 99;

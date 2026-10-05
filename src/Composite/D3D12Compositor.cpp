@@ -27,7 +27,7 @@ namespace OSFUI
 
 		using osfui::win32::SafeRelease;
 
-		// Fullscreen triangle from SV_VertexID (no vertex buffer). UV (0,0) is the top-left so the texture's row 0 lands at the top of the screen.
+		// Fullscreen triangle from SV_VertexID; UV (0,0) is top-left.
 		constexpr const char* kVertexShader = R"(
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
 VSOut main(uint id : SV_VertexID) {
@@ -38,7 +38,7 @@ VSOut main(uint id : SV_VertexID) {
 }
 )";
 
-		// The overlay texture is BGRA8 premultiplied alpha. Sample straight through; the premultiplied-over blend is configured in the PSO.
+		// Premultiplied BGRA8; blending is in the PSO.
 		constexpr const char* kPixelShader = R"(
 Texture2D    gTex : register(t0);
 SamplerState gSmp : register(s0);
@@ -257,7 +257,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		DrawResources draw;
 		SharedRingResources sharedRing;
-		// A separate timeline per actual submission queue. Fence values from different queues cannot be treated as one ordered completion stream.
+		// Fence values from different queues cannot be compared.
 		struct QueueTimeline
 		{
 			ID3D12CommandQueue* queue;
@@ -305,7 +305,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		void OnExecuted(ID3D12CommandQueue* a_queue, UINT a_count, ID3D12CommandList* const* a_lists)
 		{
 			if (!a_queue || !a_lists || !a_count || !frames->HasRecorded()) return;
-			// Convert once so the lookup and the submit each take the consumer lock once per batch. Engine batches are small; oversized ones spill to the heap.
+			// Convert once so lookup and submit each take the consumer lock once per batch.
 			constexpr UINT kInlineLists = 32;
 			std::array<std::uintptr_t, kInlineLists> inlineLists;
 			std::vector<std::uintptr_t> spilledLists;
@@ -365,7 +365,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			return true;
 		}
 
-		// Tick thread. The draw lock prevents another record while SRVs are replaced. Old ring resources stay alive until every recorded read has actually completed, including lists submitted after the announcement.
+		// Tick thread. Lock drawing while replacing SRVs; keep old textures until all GPU reads finish.
 		void EnsureSharedRing()
 		{
 			std::scoped_lock ring(sharedRing.drawMutex);
@@ -419,7 +419,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			REX::INFO("D3D12Compositor: shared ring adopted ({}x{}, {} slots, generation {})", pending.width, pending.height, sharedRing.slotCount, pending.generation);
 		}
 
-		// Setup, on the tick thread.
+		// Tick thread.
 		void EnsureSetup()
 		{
 			if (setupAttempted) {
@@ -443,13 +443,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				return;
 			}
 			setupOk = true;
-			// Nothing is recorded, so nothing needs a completion signal, until this is published.
+			// No completion signals are needed until drawing starts.
 			g_overlay.store(this, std::memory_order_release);
 			REX::INFO("D3D12Compositor: UI-pass overlay armed (no IDXGISwapChain::Present hook)");
 		}
 
-		// Draws the overlay right after ScaleformEnd, while the target is still a render target.
-		// Anything that draws afterwards has to set its own render target, viewport and scissor.
+		// Call after ScaleformEnd, before the target transitions. Replaces RT, viewport and scissor.
 		[[nodiscard]] bool RecordOverlay(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)
 		{
 			if (!setupOk || !draw.rtvHeap || !a_buffer) {

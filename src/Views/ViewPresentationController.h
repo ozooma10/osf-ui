@@ -7,7 +7,7 @@
 
 namespace OSFUI
 {
-	// Track one active menu and any number of shown HUDs among instantiated views.
+	// One active menu; any number of visible HUDs.
 	class ViewPresentationController
 	{
 	public:
@@ -20,26 +20,24 @@ namespace OSFUI
 			int         order{ 0 };  // within-band z hint
 		};
 
-		// Add (or replace) an instantiated view by qualified id. Idempotent.
+		// Adds or replaces by qualified id.
 		void AddInstantiated(const InstantiatedView& a_view);
 
-		// Remove the view and report whether closing it requires policy reapplication.
+		// Returns true if policy must be reapplied.
 		bool RemoveInstantiated(std::string_view a_id);
 
-		// State transitions report changes; opening a menu replaces the active one while HUDs accumulate.
-		// Suspension is the single menu admission gate: menus are refused while suspended, HUD intent is kept.
+		// Transitions return whether state changed. A menu replaces the active one; HUDs accumulate.
+		// While suspended, menus are refused and HUD intent is kept.
 		bool Open(std::string_view a_id);
 		bool Close(std::string_view a_id);
 		bool CloseActiveMenu();                       // HUDs untouched
 		bool SetSuspended(bool a_suspended);          // retain HUD intent, close menus
 		bool Suspended() const { return m_suspended; }
 
-		// Runtime consumes changes at a presentation boundary. Idle ticks still
-		// reconcile engine input, but do not rebuild layers or resend view state.
+		// Clear after applying changes; unchanged ticks leave layers and view state alone.
 		bool TakeChanged();
 		void Invalidate() { m_changed = true; } // replay policy after host replacement
 
-		// Derived desired state — read in the runtime update after any change.
 		[[nodiscard]] bool DesiredVisible() const;  // any HUD shown || any menu open
 		[[nodiscard]] bool DesiredCapture() const;  // active menu && capturesInput
 		[[nodiscard]] bool DesiredPause() const;    // active menu && pausesGame
@@ -47,7 +45,7 @@ namespace OSFUI
 		[[nodiscard]] bool IsOpen(std::string_view a_id) const;
 		[[nodiscard]] bool IsInstantiated(std::string_view a_id) const;
 
-		// Return each view's visibility and z, with HUDs at 0..999 and the active menu at 1000.
+		// HUDs at z 0..999, the active menu at 1000.
 		struct Layer
 		{
 			std::string id;

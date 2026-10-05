@@ -10,7 +10,7 @@ namespace SettingsViewExample
         if (m_attempted) return m_initialized;
         m_attempted = true;
         if (!m_settings.Init() || !m_settings.IsReady() || !m_views.Init()) return false;
-        // IsReady is intentionally false before the first WebView exists.
+        // IsReady is false until the first WebView exists; registration does not need it.
         if (!m_views.RegisterView(kViewId)) return false;
         const auto subscription = m_settings.Subscribe(kModId, &OnSettingChanged, this, &m_subscription);
         if (subscription != OSFSettings::API::Status::Ok) return false;
@@ -33,7 +33,7 @@ namespace SettingsViewExample
             REX::WARN("Example setting read failed: {}", static_cast<unsigned>(status));
             return false;
         }
-        // Explicit, minimal forwarding. No schema, binding data, or other mods' settings enter the page.
+        // Forward only this value; no schema or other mods' settings reach the page.
         return m_views.SetState(kModId, "showDetails", showDetails ? "true" : "false");
     }
 
@@ -46,7 +46,7 @@ namespace SettingsViewExample
     void Consumer::OnHotkey(const char*, const char*, void* user) noexcept
     {
         auto& self = *static_cast<Consumer*>(user);
-        // SDK mutations enqueue work safely; this callback never calls the engine directly.
+        // SDK calls only enqueue work; never call the engine from this callback.
         if (self.PublishSettings() && !self.m_views.RequestMenu(kViewId, true)) {
             REX::WARN("Example view open could not be queued");
         }

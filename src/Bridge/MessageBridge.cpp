@@ -11,16 +11,14 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Reject invalid caller-supplied correlation ids rather than silently demoting requests.
 		constexpr std::size_t kMaxRequestIdLength = 64;
 
-		// Bound view-supplied endpoint names on a UTF-8 codepoint boundary before encoding.
+		// Echoes truncate on a UTF-8 codepoint boundary.
 		constexpr std::size_t kMaxEndpointNameLength = 128;
 
-		// Bound pre-hello events per view and drop the oldest on overflow.
+		// Pre-hello; oldest dropped on overflow.
 		constexpr std::size_t kMaxQueuedEventsPerView = 64;
 
-		// Bound concurrent deferred requests owned by one view.
 		constexpr std::size_t kMaxPendingRequestsPerView = 64;
 
 		// Process-wide so a late answer can never settle a request on a recreated bridge.
@@ -51,13 +49,13 @@ namespace OSFUI
 			std::function<void()> m_fn;
 		};
 
-		// JSON string literal for a value we control the bounds of.
+		// Callers limit a_s before parsing.
 		[[nodiscard]] std::string Quote(std::string_view a_s)
 		{
 			return Json::Dump(nlohmann::json(std::string(a_s)));
 		}
 
-		// Trace only low-volume unsolicited pushes; settlements fold into their inbound trace.
+		// Trace pushes here; replies are included in the request trace.
 		bool IsTracedState(std::string_view a_key)
 		{
 			return a_key == "views";
@@ -83,7 +81,7 @@ namespace OSFUI
 			REX::WARN("MessageBridge: [content] refused request endpoint '{}' — name already registered", a_name);
 			return false;
 		}
-		// BridgeApi owns public first-wins policy; this internal trampoline is replaceable.
+		// BridgeApi rejects duplicate registrations; internal handlers can be replaced.
 		m_requests[std::move(a_name)] = std::move(a_handler);
 		return true;
 	}
@@ -103,7 +101,6 @@ namespace OSFUI
 
 	void MessageBridge::HandleWebMessage(std::string_view a_viewId, std::string_view a_json)
 	{
-		// Remember the source so settlements route back to it.
 		m_currentSource = std::string(a_viewId);
 		m_currentRequestId.clear();
 		m_currentName.clear();
@@ -112,7 +109,7 @@ namespace OSFUI
 		m_sendDelivered = false;
 		m_trace.clear();
 
-		// Restore the in-flight context on exit so a later Respond/Reject cannot settle an abandoned request.
+		// Reset on exit so a later Respond/Reject cannot settle an abandoned request.
 		const ScopeExit cleanup([this] {
 			m_inMessage = false;
 			const auto result = m_trace.empty() ? std::string_view{ "(nothing)" } : std::string_view{ m_trace };
@@ -131,7 +128,7 @@ namespace OSFUI
 
 		const auto msg = Json::Parse(a_json);
 		if (!msg || !msg->is_object()) {
-			// Unparseable input has no correlation id, so report through logs and the view console.
+			// No correlation id: report via logs and the view console.
 			RejectInvalid(a_viewId, "malformed message");
 			return;
 		}
@@ -160,7 +157,7 @@ namespace OSFUI
 			return;
 		}
 
-		// Routing metadata sits beside the payload, so a payload field can never override it. The wire contract requires an object even when it is empty;
+		// Keep routing fields outside the payload so page data cannot overwrite them.
 		const auto payloadIt = msg->find("payload");
 		if (payloadIt == msg->end() || !payloadIt->is_object()) {
 			RejectInvalid(a_viewId, "payload is required and must be an object", { { "kind", kind }, { "name", name } });
@@ -171,7 +168,6 @@ namespace OSFUI
 		const auto idIt = msg->find("id");
 
 		if (kind == "send") {
-			// A send cannot carry an id because it never settles.
 			if (idIt != msg->end()) {
 				RejectInvalid(a_viewId, "send messages carry no id — use a request", { { "name", name } });
 				return;
@@ -266,9 +262,8 @@ namespace OSFUI
 		// Preserve pre-hello events here; only OnViewCreated discards an old queue.
 		m_gates[std::string(a_viewId)].greeted = true;
 
-		// 1. `ready`, before anything else this document will see.
 		SendReady(a_viewId);
-		// Mark greeted before replay so PublishState can deliver current values.
+		// greeted is already set so PublishState delivers during replay.
 		if (m_onHello) {
 			m_onHello(a_viewId);
 		}
@@ -303,7 +298,7 @@ namespace OSFUI
 	void MessageBridge::Reject(std::string_view a_code, std::string_view a_message)
 	{
 		if (m_currentRequestId.empty()) {
-			// Send endpoints have no settlement channel; use a request for outcomes.
+			// Sends have no reply channel.
 			REX::WARN("MessageBridge: Reject('{}') outside a request ('{}')", a_code, m_currentName);
 			return;
 		}
@@ -325,7 +320,7 @@ namespace OSFUI
 			return 0;
 		}
 		m_settled = true;
-		// Use a runtime token because page correlation ids are only document-local.
+		// Different pages can reuse request IDs.
 		const DeferToken token = g_nextDeferToken.fetch_add(1, std::memory_order_relaxed);
 		m_pending[token] = Pending{
 			.view = m_currentSource,
@@ -346,7 +341,6 @@ namespace OSFUI
 	{
 		const auto it = m_pending.find(a_token);
 		if (it == m_pending.end()) {
-			// Never deliver late or duplicate settlements, but keep them visible in logs.
 			REX::DEBUG("MessageBridge: dropped a settlement for '{}' — already settled, expired, or its view is gone", a_token);
 			return std::nullopt;
 		}
@@ -398,7 +392,6 @@ namespace OSFUI
 		if (a_viewIds.empty()) {
 			return;
 		}
-		// Encode once, hand the same text to every target transport.
 		const auto encoded = EncodeEvent(a_name, a_payloadJson);
 		for (const auto& id : a_viewIds) {
 			if (!id.empty()) {
@@ -435,7 +428,7 @@ namespace OSFUI
 		if (a_viewId.empty()) {
 			return;
 		}
-		// Pre-hello documents receive state through replay; do not queue stale values.
+		// Pre-hello documents get state via replay; don't queue stale values.
 		const auto it = m_gates.find(std::string(a_viewId));
 		if (it == m_gates.end() || !it->second.greeted) {
 			return;
@@ -465,7 +458,6 @@ namespace OSFUI
 		if (a_viewId.empty()) {
 			return;
 		}
-		// Ready identifies the runtime release, bridge protocol, view, and owning mod.
 		const nlohmann::json payload{
 			{ "game", "Starfield" },
 			{ "plugin", kPluginName },
@@ -487,7 +479,6 @@ namespace OSFUI
 	void MessageBridge::OnViewCreated(std::string_view a_viewId)
 	{
 		OnViewDestroyed(a_viewId);  // retire the previous document and all its deferred tokens
-		// Arm a closed gate so events wait for the new document's hello.
 		auto& gate = m_gates[std::string(a_viewId)];
 		gate.greeted = false;
 		gate.eventsOpen = false;
@@ -497,7 +488,7 @@ namespace OSFUI
 	void MessageBridge::OnViewDestroyed(std::string_view a_viewId)
 	{
 		m_gates.erase(std::string(a_viewId));
-		// Reap deferred requests whose destination view no longer exists; their late answers are ignored.
+		// Ignore replies after a request has been removed.
 		for (auto it = m_pending.begin(); it != m_pending.end();) {
 			if (it->second.view == a_viewId) {
 				REX::DEBUG("MessageBridge: reaped in-flight request '{}' — view '{}' went away",
@@ -540,7 +531,7 @@ namespace OSFUI
 			if (!req.view.empty()) {
 				m_send(req.view, EncodeError(req.requestId, "no-response", "the endpoint handler never answered"));
 			}
-			// Handler silence is reported to the page but never counted against the view.
+			// Report missing handler replies without penalizing the view.
 			ReportProtocolFault(req.view, "no-response",
 				std::format("'{}' never answered before its deadline", req.name),
 				{ { "name", req.name } }, /*a_viewFault*/ false);
@@ -575,7 +566,7 @@ namespace OSFUI
 		if (!m_inMessage) {
 			return;  // unsolicited push: not part of any message's trace
 		}
-		// Bound trace growth from handlers that attempt repeated settlement.
+		// Limit trace entries for handlers that reply repeatedly.
 		constexpr std::size_t kMaxTraceLength = 160;
 		if (m_trace.size() >= kMaxTraceLength) {
 			if (!m_trace.ends_with("...")) {
@@ -589,7 +580,7 @@ namespace OSFUI
 		m_trace.append(a_what);
 	}
 
-	// Splice serialized payloads into fixed-key-order envelopes without a deep copy.
+	// Insert serialized payloads directly to avoid copying JSON trees.
 
 	std::string MessageBridge::EncodeEvent(std::string_view a_name, std::string_view a_payloadJson)
 	{
@@ -637,7 +628,7 @@ namespace OSFUI
 	{
 		const auto id = Quote(a_requestId);
 		const auto code = Quote(BoundedEcho(a_code));
-		// Bound author text on a UTF-8 codepoint boundary before dump().
+		// Truncate on a UTF-8 codepoint boundary before dump().
 		const auto message = Quote(BoundedEcho(a_message));
 		std::string out;
 		out.reserve(id.size() + code.size() + message.size() + 56);

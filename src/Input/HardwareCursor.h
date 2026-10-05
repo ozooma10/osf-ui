@@ -4,22 +4,22 @@
 
 namespace OSFUI::HardwareCursor
 {
-	// Run cursor state on the window thread; only SetSystemCursorId is thread-safe for renderer callbacks.
+	// Window thread only, except SetSystemCursorId.
 
-	// Show, center, and clip the hardware pointer to the game client area.
+	// Show, center, and clip the pointer to the client area.
 	void Activate(void* a_hwnd);
 
-	// Undo only our ShowCursor raises and clip, then let the game restore its state.
+	// Undoes only our ShowCursor raises and clip.
 	void Deactivate();
 
 	[[nodiscard]] bool IsActive();
 
-	// Heal engine hide/clip changes on captured mouse messages.
+	// Restore cursor visibility and clipping when the engine changes them.
 	void Reassert(void* a_hwnd);
 
-	// After applying the page cursor on WM_SETCURSOR, return TRUE to prevent engine reset.
+	// On WM_SETCURSOR; caller returns TRUE so the engine doesn't reset it.
 	void ApplyShape();
 
-	// Thread-safe: record WebView2's system cursor ID for the next window-thread application.
+	// Any thread.
 	void SetSystemCursorId(std::uint32_t a_id);
 }

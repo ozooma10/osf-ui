@@ -31,8 +31,7 @@ namespace
 
 int main()
 {
-	// A commit consumes accumulated changes. No-op requests do not trigger new
-	// effects, but removing a hidden view or replacing host state must do so.
+	// A commit consumes accumulated changes; no-ops add no effects, but removing a hidden view or replacing host state does.
 	{
 		ViewPresentationController controller;
 		assert(!controller.TakeChanged());
@@ -87,7 +86,6 @@ int main()
 		assert(visibleMenus == 1);
 	}
 
-	// Derived policy follows the active menu's flags.
 	{
 		ViewPresentationController controller;
 		controller.AddInstantiated(Menu("a/pausing", /*captures=*/true, /*pauses=*/true));
@@ -120,13 +118,11 @@ int main()
 		assert(hud && !hud->hidden && hud->z == 5);
 		assert(hud2 && !hud2->hidden && hud2->z == 999);  // clamped
 		assert(menu && !menu->hidden && menu->z >= 1000);
-		// Closing the active menu leaves the HUDs shown.
 		assert(controller.CloseActiveMenu());
 		assert(controller.IsOpen("a/hud") && controller.IsOpen("a/hud2"));
 		assert(controller.DesiredVisible());
 	}
 
-	// Close() picks the right collection.
 	{
 		ViewPresentationController controller;
 		controller.AddInstantiated(Hud("a/hud"));

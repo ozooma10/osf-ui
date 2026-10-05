@@ -118,8 +118,7 @@ int main()
 	Write(path, R"({ "manifestVersion": 1, "kind": "future" })");
 	CHECK(!OSFUI::ViewManifest::Load(path));
 
-	// A Unicode install path is valid; identity folders must survive URL parsing
-	// unchanged. Exercise the real discovery loop so one bad folder cannot abort it.
+	// Unicode install paths are valid and survive URL parsing; one bad folder cannot abort discovery.
 	const auto viewsRoot = root / u8"\u6a21\u7ec4" / "views";
 	const auto addView = [&](const std::filesystem::path& a_mod, const std::filesystem::path& a_view) {
 		const auto manifestPath = viewsRoot / a_mod / a_view / "manifest.json";
@@ -157,8 +156,7 @@ int main()
 
 	const auto brokenPath = addView("broken", "main");
 	Write(brokenPath, "{ broken JSON");
-	// Both diagnostics paths must format Unicode filenames without throwing,
-	// including the parse-error catch block.
+	// Both diagnostics paths, including the parse-error catch, format Unicode filenames without throwing.
 	CHECK(!OSFUI::Json::ParseFile(brokenPath));
 	CHECK(!OSFUI::Json::ParseFile(viewsRoot / u8"\u4e0d\u5b58\u5728.json"));
 	CHECK(REX::test::Entries().back().find(OSFUI::Utf8Path(viewsRoot)) != std::string::npos);

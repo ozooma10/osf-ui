@@ -12,10 +12,9 @@ namespace OSFUI
 		// Runtime-owned; keep this owner's pause-counter contribution balanced.
 		bool g_engaged{ false };
 
-		// Name the engine's pause-counter bookkeeping records for us.
 		const RE::BSFixedString& PauseSourceName()
 		{
-			// The engine string table may already be tearing down at DLL detach.
+			// Leaked: the engine string table may be torn down before DLL detach.
 			static auto* const name = new RE::BSFixedString("OSFUI_SimPause");
 			return *name;
 		}
@@ -28,7 +27,7 @@ namespace OSFUI
 		}
 		auto* ui = RE::UI::GetSingleton();
 		if (!ui) {
-			// Retry at boot; no count can be stranded before the singleton exists.
+			// Retry until RE::UI exists.
 			static bool warned = false;
 			if (a_desired && !warned) {
 				warned = true;
@@ -37,8 +36,7 @@ namespace OSFUI
 			return;
 		}
 		if (!a_desired && ui->pauseRequestCount == 0) {
-			// A game/load teardown can reset the engine counter before our release.
-			// Do not wrap its unsigned count by sending an unmatched decrement.
+			// Load teardown can reset the counter first; an unmatched decrement would wrap it.
 			REX::WARN("SimPause: engine pause counter was already zero at release");
 			g_engaged = false;
 			return;

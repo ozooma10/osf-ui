@@ -139,7 +139,7 @@ namespace OSFUI
 				layer.z = 1000;
 			} else {
 				layer.hidden = true;
-				layer.z = 1000;  // menu band; hidden, so exact value is immaterial
+				layer.z = 1000;  // hidden; value immaterial
 			}
 			layer.hidden = layer.hidden || m_suspended;
 			layers.push_back(std::move(layer));

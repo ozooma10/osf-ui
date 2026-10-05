@@ -63,7 +63,7 @@ namespace osfui::wv2
 		return true;
 	}
 
-	// Parse only the virtual HTTPS URLs OSF UI creates. Explicit ports, userinfo, backslashes, and non-HTTPS schemes are rejected rather than normalized.
+	// Strict: only OSF UI's virtual HTTPS URLs; ports, userinfo, backslashes and other schemes are rejected.
 	[[nodiscard]] inline std::optional<HttpsUri> ParseHttpsUri(std::wstring_view a_uri)
 	{
 		constexpr std::wstring_view scheme = L"https://";

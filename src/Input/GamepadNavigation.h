@@ -4,7 +4,7 @@
 
 namespace OSFUI
 {
-	// Convert the analogue stick to one latched digital direction with deliberate hold repeat.
+	// Analogue stick -> one latched digital direction with hold repeat.
 	class GamepadNavigation
 	{
 	public:
@@ -56,7 +56,7 @@ namespace OSFUI
 		}
 
 	private:
-		// Separate engage and release thresholds suppress noisy repeat presses.
+		// Hysteresis suppresses noisy repeat presses.
 		static constexpr float  kEngageThreshold = 0.55f;
 		static constexpr float  kReleaseThreshold = 0.35f;
 		static constexpr double kInitialRepeatDelay = 0.55;

@@ -27,7 +27,6 @@ namespace
 		return payload;
 	}
 
-	// Refused with this code?
 	bool Refused(const nlohmann::json& a_payload, std::string_view a_code)
 	{
 		const auto parsed = Parse(a_payload);
@@ -54,7 +53,6 @@ int main()
 	Check(Parse(Call("OSFUIHelper", "Go")).ok,
 		"a script that merely starts with the platform name is fine");
 
-	// --- name grammar --------------------------------------------------------
 	Check(Parse(Call("MyMod:Sub:Script", "DoThing")).ok, "namespaced script names are accepted");
 	Check(Refused(Call("", "DoThing"), "invalid-request"), "an empty script is refused");
 	Check(Refused(Call("MyScript", ""), "invalid-request"), "an empty function is refused");
@@ -66,7 +64,6 @@ int main()
 		"names are length-bounded");
 	Check(Refused(nlohmann::json::object(), "invalid-request"), "a payload with no names is refused");
 
-	// --- argument shape ------------------------------------------------------
 	Check(Parse(Call("S", "F")).ok && Parse(Call("S", "F")).args.empty(),
 		"omitting args means no args");
 	Check(Refused(Call("S", "F", "nope"), "invalid-request"), "a non-array args is refused");
@@ -84,7 +81,6 @@ int main()
 		Check(Refused(Call("S", "F", many), "invalid-request"), "33 arguments are refused");
 	}
 
-	// --- scalar types survive the boundary -----------------------------------
 	{
 		const auto parsed = Parse(Call("S", "F", nlohmann::json::array({ "text", 7, -7, true, false, 1.5 })));
 		Check(parsed.ok && parsed.args.size() == 6, "a mixed scalar list marshals");
@@ -140,7 +136,6 @@ int main()
 		Check(!parsed.ok, "a u32 value above INT32_MAX is refused, not reinterpreted");
 	}
 
-	// --- float finiteness ----------------------------------------------------
 	Check(Refused(Call("S", "F", nlohmann::json::array({ 1e300 })), "invalid-request"),
 		"a double beyond float range is refused");
 	Check(Parse(Call("S", "F", nlohmann::json::array({ 3.4e38 }))).ok, "a value inside float range is kept");

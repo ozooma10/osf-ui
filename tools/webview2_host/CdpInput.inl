@@ -104,8 +104,7 @@
 						Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 							[this, request, input, epoch, done](HRESULT result, LPCWSTR value) -> HRESULT {
 								auto* current = CdpInputTarget();
-								// Navigation replaces the input queue. Hide, target changes and
-								// focus loss also invalidate a pending browser decision.
+								// Navigation, hide, target change and focus loss invalidate a pending browser decision.
 								if (quit.load() || !current || !current->domSeen || current->id != request.view || current->cdpInput != input || presentationEpoch != epoch) {
 									done(true);
 									return S_OK;
@@ -113,7 +112,7 @@
 								if (FAILED(result) || !value || (std::wstring_view(value) != L"true" && std::wstring_view(value) != L"false")) {
 									done(false);
 								} else if (std::wstring_view(value) == L"true") {
-									// The query and the complete Escape tap are one queued task: later keys cannot overtake the picker dismissal.
+									// Queue the check and Escape together so later keys cannot run between them.
 									DispatchBackKey(current->webView.Get(), true, done);
 								} else {
 									Send(msg::ToJson(msg::BackUnhandled{ .view = request.view, .presentationEpoch = request.presentationEpoch }));

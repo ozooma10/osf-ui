@@ -10,8 +10,7 @@
 
 namespace osfui::wv2
 {
-	// CDP completion order is not guaranteed unless calls are serialized. This
-	// queue is confined to the browser STA; Close makes late callbacks harmless.
+	// Serialize CDP calls to preserve order. Browser STA only; ignore callbacks after Close.
 	class CdpInputQueue : public std::enable_shared_from_this<CdpInputQueue>
 	{
 	public:
@@ -32,7 +31,7 @@ namespace osfui::wv2
 			});
 		}
 
-		// Browser decisions that precede input share the same ordering, bounds, cancellation and timeout as the CDP commands they guard.
+		// Queue browser checks with their CDP commands so ordering and cancellation match.
 		void PushTask(Task a_task)
 		{
 			if (m_closed) return;
@@ -119,8 +118,7 @@ namespace osfui::wv2
 		std::map<std::pair<std::uint32_t, std::uint32_t>, msg::Keyboard> m_keys;
 	};
 
-	// WM_CHAR carries UTF-16 code units. Never put half of a surrogate pair on
-	// the UTF-8 JSON wire, including when a menu closes between its two messages.
+	// WM_CHAR supplies UTF-16 units. Send only complete characters, even if a menu closes mid-pair.
 	class Utf16Input
 	{
 	public:

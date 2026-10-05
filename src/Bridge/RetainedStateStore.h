@@ -2,14 +2,14 @@
 
 #include <nlohmann/json.hpp>
 
-// Runtime, latest-wins state replayed to each document owned by the publishing mod.
+// Replay each mod's latest state to its pages.
 
 namespace OSFUI
 {
 	class RetainedStateStore
 	{
 	public:
-		// Match keys case-insensitively but preserve the publisher's latest spelling.
+		// Keys match case-insensitively; the latest spelling is kept.
 		struct Entry
 		{
 			std::string    key;    // as the publisher spelled it
@@ -21,21 +21,18 @@ namespace OSFUI
 		// Existing keys still update after a mod reaches this capacity.
 		static constexpr std::size_t kMaxKeysPerMod = 1024;
 
-		// Bound caller-supplied mod buckets as well as keys within each bucket.
 		static constexpr std::size_t kMaxMods = 256;
 
-		// Returns false when a new value is delivered live but cannot be retained at capacity.
+		// false when at capacity: the value is still delivered live but not retained.
 		bool Set(std::string_view a_mod, std::string_view a_key, nlohmann::json a_value,
 			bool a_sessionScoped = false);
 
-		// Returns one mod's values in deterministic insertion order.
 		[[nodiscard]] const std::vector<Entry>* Find(std::string_view a_mod) const;
 
-		// Drop session-scoped entries while retaining native state.
 		void ClearSessionScoped();
 
 	private:
-		// Canonical lowercase mod id -> bounded entries in insertion order.
+		// Lower-cased mod id -> entries in insertion order.
 		std::unordered_map<std::string, std::vector<Entry>> m_mods;
 	};
 }

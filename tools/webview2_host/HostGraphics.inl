@@ -175,7 +175,7 @@
 				desc.Usage = D3D11_USAGE_DEFAULT;
 				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 				desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
-				// No keyed-mutex fallback: the game reads slots without AcquireSync, so a keyed-mutex ring would be read unsynchronized. Fail cleanly instead.
+				// No keyed-mutex fallback: the game reads slots without AcquireSync.
 				for (auto& slot : ring) {
 					if (const auto hr = device->CreateTexture2D(&desc, nullptr, &slot.texture); FAILED(hr)) {
 						FailHost("capture-ring", hr, "shared texture creation failed");
@@ -200,7 +200,6 @@
 				ringHeight = a_height;
 				ringWrite = 0;
 
-				// Duplicate everything into the game and announce the new ring.
 				std::vector<std::uint64_t> slots;
 				slots.reserve(kRingSlots);
 				std::vector<HANDLE> remoteHandles;
@@ -263,8 +262,7 @@
 				pendingCaptureEpoch = 0; // a newer capture supersedes any queued pixels
 				if (TryPublishFrame(a_source, a_width, a_height, a_presentationEpoch)) return;
 				if (captureClosing) return;
-				// WGC's pool will recycle a_source. Keep one private copy so the final
-				// frame can be retried after cold-open settling or a slot acknowledgement.
+				// WGC reuses a_source; copy it so the final frame can be retried when a slot is free.
 				D3D11_TEXTURE2D_DESC desc{};
 				if (pendingCapture) pendingCapture->GetDesc(&desc);
 				if (desc.Width != a_width || desc.Height != a_height) pendingCapture.Reset();
@@ -298,7 +296,7 @@
 				}
 			}
 
-			// Acknowledgement means the consumer has stopped using the slot and every GPU read has completed. Current stays reserved.
+			// An ack releases a slot after all GPU reads finish. Keep the current slot reserved.
 			bool TryPublishFrame(ID3D11Texture2D* a_source, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_presentationEpoch)
 			{
 				if (captureClosing) return false;
@@ -351,7 +349,7 @@
 				return true;
 			}
 
-			// The game allocates epochs monotonically, but reveals and viewport changes complete out of order here.
+			// Epochs increase in the game, but show and resize operations can finish out of order here.
 			bool AdvancePresentation(std::uint64_t a_epoch)
 			{
 				if (a_epoch <= presentationEpoch) return false;
@@ -372,7 +370,7 @@
 			bool AdvanceChangedPresentation(std::uint64_t a_epoch)
 			{
 				if (a_epoch <= presentationEpoch) return false;
-				// STA serialization prevents races, but queued pixels still belong to the old layout. Discard them before assigning the new epoch, even when capture dimensions are unchanged.
+				// Discard the old layout's pixels even if the new layout has the same dimensions.
 				if (framePool) {
 					try {
 						framePool.Recreate(captureDevice, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, winrt::Windows::Graphics::SizeInt32{ static_cast<std::int32_t>(width), static_cast<std::int32_t>(height) });
@@ -403,8 +401,7 @@
 			{
 				if (!captureOpening.view.empty()) return; // opening requires a fresh capture, never an old ring frame
 				if (!ring[0].texture || ring[lastSlot].lastSerial == 0) return;
-				// Copying from a held slot is read-only. If the source itself is free, publication can reuse its pixels without a self-copy.
-				// A full ring keeps these pixels as the pending capture, retried on the next acknowledgement.
+				// Reading a held slot is safe; wait for an ack if no output slot is free.
 				PublishFrame(ring[lastSlot].texture.Get(), ringWidth, ringHeight, presentationEpoch);
 			}
 

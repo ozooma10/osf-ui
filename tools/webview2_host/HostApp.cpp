@@ -61,7 +61,6 @@ namespace osfui::wv2
 
 		namespace Json = OSFUI::Json;
 
-		// Wire message shapes, compiled by the game side too (Wv2Messages.h).
 		namespace msg = osfui::wv2::msg;
 
 		struct Logger
@@ -151,7 +150,6 @@ namespace osfui::wv2
 			std::atomic_bool pipeDead{ false };
 			std::uint64_t nextHeartbeatAt{ 0 };  // STA thread only
 
-			// Init state from the game.
 			bool                  initialized{ false };
 			HWND                  gameTopLevel{ nullptr };
 			std::filesystem::path viewsRoot, legacyViewsRoot, userData;
@@ -159,7 +157,7 @@ namespace osfui::wv2
 			std::uint32_t         viewportWidth{ 1 }, viewportHeight{ 1 };
 			bool                  devMode{ false };
 			std::string           language;  // game language code from init; empty keeps the WebView2 default
-			bool                  windowActive{ true };  // reported by the game (windowActive)
+			bool                  windowActive{ true };
 
 			HWND bootstrapWindow{ nullptr };
 			HWND hostWindow{ nullptr };
@@ -380,7 +378,7 @@ namespace osfui::wv2
 				a_view.hidden = true;
 				RefreshCaptureVisibility();
 				a_view.pendingPresentationEpoch = 0;
-				a_view.revealPending = false;  // cancel an in-flight reveal
+				a_view.revealPending = false;
 				a_view.revealToken.clear();
 				if (a_view.visual) a_view.visual.IsVisible(false);
 				if (a_view.controller) a_view.controller->put_IsVisible(FALSE);
@@ -604,7 +602,6 @@ namespace osfui::wv2
 				FailHost("composition-controller", a_hr, a_description, a_view.id);
 			}
 
-			// The host refuses to run without its complete browser security policy.
 			void ReportSecurityFailure(View& a_view, HRESULT a_hr,
 				std::string_view a_description)
 			{
@@ -1017,8 +1014,7 @@ namespace osfui::wv2
 							COREWEBVIEW2_WEB_ERROR_STATUS status{};
 							a_args->get_IsSuccess(&success);
 							a_args->get_WebErrorStatus(&status);
-							// Origin-guard cancellations and superseded navigations are not
-							// page failures and must not consume the plugin's recovery budget.
+							// Canceled or replaced navigations must not count as recovery failures.
 							if (status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) return S_OK;
 							LPWSTR raw = nullptr;
 							std::string source;
@@ -1200,7 +1196,7 @@ namespace osfui::wv2
 					const auto framePresentationEpoch = presentationEpoch;
 					const auto capturedFrame = a_pool.TryGetNextFrame();
 					if (!capturedFrame) return;
-					// Draining keeps the WGC pool current while closed; no surface access, GPU copy, fence signal, serialization, or pipe write is useful without a visible view.
+					// Drain captures while hidden so the WGC pool stays current.
 					if (!captureHasVisibleView) return;
 					if (!captureOpening.view.empty() &&
 						(framePresentationEpoch != captureOpening.epoch || AnyRevealPending())) return;
@@ -1220,7 +1216,7 @@ namespace osfui::wv2
 
 			void DrainQueuedViewWork(View& a_view)
 			{
-				// The controller arrives before the async network guard completes and FinishControllerSetup installs the event handlers and bridge shim.
+				// The controller arrives before the async network guard and FinishControllerSetup complete.
 				if (!a_view.webView || !a_view.securityReady) return;
 				if (a_view.pendingNavigate) {
 					a_view.domSeen = false;
@@ -1541,8 +1537,7 @@ namespace osfui::wv2
 						if (quit.load()) break;
 						TickReveals();
 						MSG message{};
-						// Focus callbacks can post more window messages. Keep servicing native
-						// commands (especially focus revocation) even while that queue stays busy.
+						// Limit callback processing so native commands can still revoke focus.
 						for (std::size_t dispatched = 0; dispatched < 64 &&
 							::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++dispatched) {
 							::TranslateMessage(&message);

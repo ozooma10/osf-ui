@@ -36,7 +36,7 @@ namespace OSFUI::API
 		bool          SetState(const char* a_modId, const char* a_key, const char* a_payloadJson) noexcept override;
 		bool          RequestMenu(const char* a_viewId, bool a_open) noexcept override;
 		bool          RegisterView(const char* a_viewId) noexcept override;
-		// Start a Settings launch; loading and frame retention stay private to Runtime.
+		// Settings launcher open; loading and frame retention stay in Runtime.
 		bool          RequestLauncherOpen(const char* a_viewId, std::uint64_t a_requestId) noexcept;
 		// Shared internal inbox for native, browser, and game-input requests.
 		ViewRequestQueue& ViewRequests() { return m_viewRequests; }
@@ -65,18 +65,16 @@ namespace OSFUI::API
 		void SetBridgeAvailability(bool a_available);
 		void PumpRuntimeCallbacks();
 		void RemoveOwnedEndpoint(const char* a_name, void* a_owner);
-		// Internal support for the frozen V1 setter; absent from the modern SDK.
+		// Frozen V1 ABI only.
 		using LegacyReadyFn = void (*)(void* a_user) noexcept;
 		void SetLegacyReadyCallback(LegacyReadyFn a_callback, void* a_user) noexcept;
-		// Shared reply queue for the frozen native ABI adapter.
+		// Also used by the frozen V1 ABI adapter.
 		void ReplyRequest(std::uint64_t, const char*) noexcept;
 		void RejectRequest(std::uint64_t, const char*, const char*) noexcept;
 
-		// Runtime relative-pointer dispatch.
 		[[nodiscard]] bool HasRelativePointer(std::string_view a_viewId);
 		bool DispatchRelativePointer(std::string_view a_viewId, RelativePointerPhase a_phase, float a_dx = 0.0f, float a_dy = 0.0f, float a_wheel = 0.0f);
 
-		// Menu lifecycle dispatch.
 		bool DispatchViewLifecycle(const std::string& a_viewId, ViewLifecyclePhase a_phase);
 
 	private:
@@ -112,7 +110,7 @@ namespace OSFUI::API
 			RequestFn fn{ nullptr };
 			void* user{ nullptr };
 		};
-		// A plugin answer waiting for the main-thread pump; the bridge decides whether it is still live.
+		// Queued for the main-thread pump; stale tokens are ignored.
 		struct QueuedReply
 		{
 			std::uint64_t token{ 0 };  // MessageBridge::Defer()'s token
@@ -126,12 +124,11 @@ namespace OSFUI::API
 		static void RejectThunk(std::uint64_t, const char*, const char*) noexcept;
 		void QueueReply(QueuedReply) noexcept;
 		void DispatchRequest(const std::string&, const RequestRegistration&, const nlohmann::json&, MessageBridge&);
-		// m_mutex held. Rejects reserved names and names any endpoint kind already owns.
+		// Requires m_mutex. Reject reserved names and names already in use.
 		[[nodiscard]] bool CanRegisterEndpointLocked(const std::string& a_name, std::string_view a_caller) const;
 		std::unordered_set<std::string> m_papyrusEndpoints;
 		std::mutex                                    m_mutex;
-		// Unregister and the legacy setter wait for callbacks dispatched on another thread.
-		// Recursive so a callback may unregister or replace itself without deadlocking.
+		// Wait for active callbacks; recursive locking lets a callback unregister itself.
 		std::recursive_mutex                          m_callbackDispatchMutex;
 		std::unordered_map<std::string, Registration>        m_sends;
 		std::unordered_map<std::string, RequestRegistration> m_requests;

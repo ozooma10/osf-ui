@@ -56,8 +56,7 @@ namespace OSFUI
 		}
 		API::BridgeApi::Get().DispatchRelativePointer(m_view, a_phase);
 		m_view.clear();
-		// A WndProc packet that observed the old active edge can finish its atomic
-		// add after the exchanges above. Never let that tail leak into a later owner.
+		// A racing WndProc add may land after the exchanges above; don't leak it to the next owner.
 		m_dx.store(0.0f, std::memory_order_relaxed);
 		m_dy.store(0.0f, std::memory_order_relaxed);
 		m_wheel.store(0.0f, std::memory_order_relaxed);

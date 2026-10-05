@@ -26,9 +26,7 @@ namespace OSFUI::OverlayInputHook
 		std::atomic<HWND> g_hwnd{ nullptr };
 
 		bool g_chainCycleLogged{ false };
-		// Absolute raw-input devices report a normalized position rather than a
-		// movement delta. Keep the last client position so relative-pointer owners
-		// still receive motion on touchpads, virtual mice, and remapped devices.
+		// Absolute raw devices (touchpads, virtual mice) report positions; derive relative motion from the last one.
 		POINT g_lastAbsoluteClient{};
 		bool  g_hasLastAbsoluteClient{ false };
 		bool g_keyboardCaptured{ false };
@@ -93,7 +91,7 @@ namespace OSFUI::OverlayInputHook
 				g_hasLastAbsoluteClient = false;
 			}
 
-			// Heal engine cursor changes on the next visible input packet.
+			// Restore the cursor on the next visible input packet.
 			HardwareCursor::Reassert(a_hwnd);
 			// Sync every packet so clicks without prior movement land correctly.
 			POINT pt{};
@@ -152,7 +150,6 @@ namespace OSFUI::OverlayInputHook
 			return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 		}
 
-		// Pass a message down the chain below us.
 		LRESULT ForwardDown(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 		{
 			const auto current = reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(a_hwnd, GWLP_WNDPROC));
@@ -164,7 +161,7 @@ namespace OSFUI::OverlayInputHook
 				return ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
 			}
 
-			// Forwarding can synchronously deliver different messages (for example, WM_ACTIVATE -> WM_SETFOCUS); they must traverse our normal handler too.
+			// Messages sent synchronously while forwarding (WM_ACTIVATE -> WM_SETFOCUS) must still pass through WndProc.
 			const auto original = g_originalProc.load(std::memory_order_acquire);
 			return original ? ::CallWindowProcW(original, a_hwnd, a_msg, a_wparam, a_lparam) : ForwardToGame(a_hwnd, a_msg, a_wparam, a_lparam);
 		}
@@ -173,7 +170,7 @@ namespace OSFUI::OverlayInputHook
 		{
 			auto& runtime = Runtime::Get();
 
-			// Reconcile the runtime capture edge on the window thread.
+			// Apply capture changes on the window thread.
 			const bool wantHwCursor = runtime.IsInputCaptured() && ::GetForegroundWindow() == a_hwnd;
 			const bool keyboardCaptured = runtime.IsInputCaptured();
 			if (keyboardCaptured != g_keyboardCaptured) {
@@ -199,7 +196,6 @@ namespace OSFUI::OverlayInputHook
 
 			if (const auto refresh = osfui::wv2::RefreshInputStateMessage();
 				refresh && a_msg == refresh) {
-				// The capture/cursor edge was already reconciled above.
 				return 0;
 			}
 			if (const auto restore = osfui::wv2::RestoreGameFocusMessage();
@@ -291,7 +287,6 @@ namespace OSFUI::OverlayInputHook
 				}
 				break;
 			case WM_SETCURSOR:
-				// Apply the page cursor and prevent engine reset if legacy WM_SETCURSOR arrives.
 				if (HardwareCursor::IsActive()) {
 					HardwareCursor::ApplyShape();
 					return TRUE;
@@ -309,7 +304,7 @@ namespace OSFUI::OverlayInputHook
 					break; // forward releases whose down reached the game before capture
 				}
 				if (runtime.IsInputCaptured()) {
-					// Route to the overlay and use DefWindowProc only to release the raw-input buffer.
+					// DefWindowProc only releases the raw-input buffer.
 					if (::GetForegroundWindow() == a_hwnd) RouteRawMouse(a_hwnd, a_lparam);
 					return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);
 				}
@@ -318,7 +313,7 @@ namespace OSFUI::OverlayInputHook
 			case WM_NCDESTROY: {
 				// Forward first so this window's own chain sees its final message.
 				const LRESULT result = ForwardDown(a_hwnd, a_msg, a_wparam, a_lparam);
-				// On a window-mode change the engine publishes a new window (Main::window) and then destroys this one: move the hook along.
+				// Window-mode change: the engine publishes a new Main::window, then destroys this one. Follow it.
 				if (const HWND next = GameWindow(); next && next != a_hwnd && Subclass(next)) {
 					runtime.OnGameWindowRecreated();
 				}
@@ -326,7 +321,7 @@ namespace OSFUI::OverlayInputHook
 			}
 			default:
 				if (IsLegacyMouseMessage(a_msg) && runtime.IsInputCaptured()) {
-					// Block legacy duplicates because WM_INPUT is authoritative.
+					// WM_INPUT already handled these mouse events.
 					return 0;
 				}
 				break;
@@ -335,10 +330,9 @@ namespace OSFUI::OverlayInputHook
 			return ForwardDown(a_hwnd, a_msg, a_wparam, a_lparam);
 		}
 
-		// Hook a_hwnd's WndProc; on success g_hwnd names the hooked window.
 		bool Subclass(HWND a_hwnd)
 		{
-			// Keys already held when the hook is installed belong to the game. A recreated window's predecessor already reset per-window input state on WM_KILLFOCUS.
+			// Keys held at install belong to the game. WM_KILLFOCUS already reset state for a recreated window.
 			for (std::uint32_t vk = 1; vk < 256; ++vk) {
 				if (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) {
 					g_keyOwnership.Consume(vk, true, false);
@@ -351,7 +345,7 @@ namespace OSFUI::OverlayInputHook
 			if (!gameProc) {
 				REX::WARN("OverlayInputHook: could not read the game window's class WndProc; recursive third-party hook recovery will fall back to DefWindowProc");
 			}
-			// Seed the forwarding target before publishing WndProc to the window thread. SetWindowLongPtr returns the actual predecessor immediately after.
+			// Seed the forwarding target before publishing WndProc; SetWindowLongPtr returns the real predecessor.
 			g_originalProc.store(reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(a_hwnd, GWLP_WNDPROC)), std::memory_order_release);
 			const auto original = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(a_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WndProc)));
 			if (!original) {

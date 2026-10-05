@@ -24,7 +24,7 @@ namespace OSFUI
 			return;
 		}
 
-		// Scan views/<modId>/<viewName>/manifest.json; only child manifests define views.
+		// Only <modId>/<viewName>/manifest.json defines a view.
 		std::filesystem::directory_iterator modIt(
 			a_viewsDir, std::filesystem::directory_options::skip_permission_denied, ec);
 		const std::filesystem::directory_iterator end;
@@ -66,7 +66,7 @@ namespace OSFUI
 				}
 			}
 		}
-		// Sort qualified ids so creation, catalogs, and equal-order z ties are deterministic.
+		// Keep creation and display order stable, including equal z values.
 		std::ranges::sort(m_views, {}, &ViewManifest::id);
 		REX::INFO("ViewManager: {} view(s) discovered under {}", m_views.size(), Utf8Path(a_viewsDir));
 	}

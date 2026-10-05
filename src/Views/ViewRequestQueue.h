@@ -48,7 +48,7 @@ namespace OSFUI
         void EnqueueLauncherOpen(std::string a_viewId, std::uint64_t a_requestId);
         void EnqueueRelativePointer(std::string a_viewId, bool a_active);
         void EnqueueBackUnhandled(std::string a_viewId, std::uint64_t a_epoch);
-        // One finite FIFO batch. Callback-enqueued work stays for the next take.
+        // Take one batch in order; work added by callbacks waits for the next batch.
         std::vector<Operation> Take();
 
     private:

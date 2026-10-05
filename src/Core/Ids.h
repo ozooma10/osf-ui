@@ -4,20 +4,18 @@
 
 namespace OSFUI::Ids
 {
-	// Mod ids use bounded, URL-unreserved ASCII Windows filename components.
+	// Mod IDs must be safe in both URLs and Windows filenames.
 
 	inline constexpr std::size_t kMaxModIdLen = 64;
 	inline constexpr std::size_t kMaxViewNameLen = 64;
 
 	constexpr std::string_view kBuiltInModId = "osfui";
-	// These 1.x built-ins no longer exist. Keep the names reserved so stale packages
-	// fail at discovery/registration instead of silently becoming ordinary web views.
+	// Reserved so stale 1.x packages fail registration instead of loading as plain web views.
 	constexpr std::string_view kStaleSettingsViewId = "osfui/settings";
 	constexpr std::string_view kStaleKeybindingsViewId = "osfui/keybinds";
 
 	using StringUtil::EqualsCaseInsensitiveAscii;
 
-	// One lowercase grammar segment: [a-z0-9-]+.
 	inline bool IsValidSegment(std::string_view a_s)
 	{
 		if (a_s.empty()) {
@@ -37,13 +35,13 @@ namespace OSFUI::Ids
 		return a_id == kBuiltInModId;
 	}
 
-	// Reserve the platform id case-insensitively to prevent casing aliases.
+	// Case-insensitive, so casing cannot bypass reserved names.
 	inline bool IsReservedModId(std::string_view a_id)
 	{
 		return EqualsCaseInsensitiveAscii(a_id, kBuiltInModId);
 	}
 
-	// These exclusions are filesystem, qualified-id, and virtual-host safety boundaries.
+	// Ids double as filenames, qualified-id prefixes and virtual hosts.
 	inline bool IsValidModId(std::string_view a_id)
 	{
 		if (a_id.empty() || a_id.size() > kMaxModIdLen || IsReservedModId(a_id) ||
@@ -71,7 +69,7 @@ namespace OSFUI::Ids
 		return true;
 	}
 
-	// Only load-time validation accepts the canonical built-in id.
+	// Only load-time validation accepts the built-in ID.
 	inline bool IsAcceptedModId(std::string_view a_id)
 	{
 		return IsValidModId(a_id) || IsBuiltInModId(a_id);

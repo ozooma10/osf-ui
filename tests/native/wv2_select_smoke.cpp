@@ -1,4 +1,4 @@
-// Real WebView2 + WGC proof; never grants the browser native focus or launches Starfield.
+// Test real WebView2 captures without browser focus or Starfield.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
@@ -183,7 +183,7 @@ int wmain(int argc, wchar_t** argv)
         check(L"CSS.supports('appearance','base-select') && getComputedStyle(plain).appearance==='base-select' && getComputedStyle(list).appearance!=='base-select'");
         PumpUntil([&] { return script(L"!!game.contentDocument?.querySelector('#wager')") == true; });
         check(L"getComputedStyle(game.contentDocument.querySelector('#wager')).appearance==='base-select'");
-        // An unmistakable test-only marker. Only an expanded picker paints it.
+        // Only an expanded picker paints this test marker.
         check(L"(()=>{for(const d of [document,game.contentDocument]){const s=new d.defaultView.CSSStyleSheet();s.replaceSync('select::picker(select){background:rgb(240,0,220)!important;color:white!important} option{background:transparent!important}');d.adoptedStyleSheets.push(s)}return true})()");
 
         ComPtr<ID3D11Device> device;
@@ -209,9 +209,7 @@ int wmain(int argc, wchar_t** argv)
         winrt::check_hresult(device->CreateTexture2D(&desc, nullptr, &staging));
         unsigned phase = 0;
         auto pixels = [&](bool open, const char* name) {
-            // A new visible stamp is painted after the DOM assertion. An older
-            // queued WGC frame cannot satisfy this step, even if a prior popup
-            // happened to paint the same marker colour.
+            // Stamp each step so an older capture cannot pass the check.
             ++phase;
             script((L"stamp.style.backgroundColor='rgb(17," + std::to_wstring(phase) + L",33)'").c_str());
             std::size_t marked = 0;
@@ -277,8 +275,7 @@ int wmain(int argc, wchar_t** argv)
         PumpUntil([&] { return script(L"game.contentDocument.querySelector('#wager').value==='500'") == true; });
         check(L"!game.contentDocument.querySelector('#wager').matches(':open') && exits===0");
         pixels(false, "starcade-selected");
-        // Also retain a human-readable capture with the authored page styling,
-        // after removing only the diagnostic stylesheet installed above.
+        // Also keep a capture with authored styling (diagnostic stylesheet removed).
         check(L"(()=>{for(const d of [document,game.contentDocument])d.adoptedStyleSheets.pop();return true})()");
         click(L"(()=>{const r=game.contentDocument.querySelector('#wager').getBoundingClientRect(),f=game.getBoundingClientRect();return [Math.round(f.x+r.x+r.width/2),Math.round(f.y+r.y+r.height/2)]})()");
         PumpUntil([&] { return script(L"game.contentDocument.querySelector('#wager').matches(':open')") == true; });

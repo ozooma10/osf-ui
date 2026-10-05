@@ -23,7 +23,6 @@ namespace
 		}
 	}
 
-	// Serialize then parse back: what the peer actually receives.
 	template <class T>
 	[[nodiscard]] T RoundTrip(const T& a_msg)
 	{
@@ -48,7 +47,6 @@ int main()
 			"Back request and reply retain view and presentation identity");
 		Check(msg::Back::kType != msg::BackUnhandled::kType, "Back request and reply have distinct types");
 	}
-	// ---- every message stamps its own type, and the types are distinct.
 	{
 		Check(msg::ToJson(msg::Init{}).at("type") == "init", "init stamps type");
 		Check(msg::ToJson(msg::Heartbeat{}).at("type") == "heartbeat", "fieldless message stamps type");
@@ -60,7 +58,6 @@ int main()
 		Check(msg::Heartbeat::kType != msg::DestroyView::kType, "distinct types");
 	}
 
-	// ---- round-trip fidelity across every field kind: u64, u32, i32, bool, string.
 	{
 		const msg::Init sent{
 			.topLevelHwnd = 0x7FFF'FFFF'FFFF'FFFFull,
@@ -140,7 +137,7 @@ int main()
 		Check(got.produceFence == sent.produceFence, "produce fence handle survives");
 	}
 	{
-		// Opaque already-serialized payloads must not be re-escaped or reparsed.
+		// Serialized payloads must pass through unchanged.
 		const std::string inner = R"({"kind":"event","name":"x","payload":{"a":[1,2]}})";
 		const auto        got = RoundTrip(msg::PostWeb{ .view = "acme.mod/v", .json = inner });
 		Check(got.json == inner, "opaque bridge envelope survives byte-for-byte");
@@ -216,7 +213,7 @@ int main()
 			.runtimeVersion = "120.0.0.0" });
 		Check(got.protocolVersion == osfui::wv2::kBrowserHostProtocolVersion, "hello carries the protocol version");
 		Check(got.runtimeVersion == "120.0.0.0", "hello carries the runtime version");
-		// A garbage hello must land on 0 so the gate rejects rather than admits.
+		// Malformed hello versions become 0 and must be rejected.
 		const auto junk = msg::FromJson<msg::Hello>(json{ { "type", "hello" }, { "protocolVersion", "six" } });
 		Check(junk.protocolVersion == 0, "an unreadable protocol version reads as 0 so the gate fails closed");
 	}

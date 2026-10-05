@@ -15,7 +15,7 @@ namespace OSFUI::DevViewFiles
 
 	std::optional<std::uint64_t> Fingerprint(const std::filesystem::path& a_viewDir)
 	{
-		// Same walk the views cache uses; manifests are excluded at every depth because their discovery is restart-only.
+		// Same walk as the views cache; manifests are excluded because discovery is restart-only.
 		std::string error;
 		const auto fingerprint = ViewCache::FingerprintTree(a_viewDir, {}, error, [](const std::filesystem::path& a_file) {
 			return a_file.filename() == "manifest.json";

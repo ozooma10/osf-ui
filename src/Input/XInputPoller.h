@@ -4,7 +4,7 @@
 
 namespace OSFUI
 {
-	// Starfields input delivery stops when webview2 has focus, so poll XInput directly for gamepad events.
+	// Engine gamepad delivery stops while WebView2 has focus, so poll XInput directly.
 	class XInputPoller
 	{
 	public:

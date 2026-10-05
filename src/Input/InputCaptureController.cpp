@@ -69,7 +69,7 @@ namespace OSFUI
 			return;
 		}
 		REX::WARN("FocusMenu: engine state diverged from requested (want {}, engine {}) for {:.1f}s; re-sending {} (watchdog)", wantOpen ? "open" : "closed", wantOpen ? "closed" : "open", a_now - m_focusMenuMismatchSince, wantOpen ? "kShow" : "kHide");
-		m_focusMenuMismatchSince = -1.0;  // re-arm: another full window before the next retry
+		m_focusMenuMismatchSince = -1.0;  // re-arm the grace window
 		if (wantOpen) {
 			FocusMenu::Open();
 		} else {
@@ -84,8 +84,7 @@ namespace OSFUI
 			return;
 		}
 		const bool wantsCapture = a_visible && CaptureRequested() && a_hasActiveMenu;
-		// Grant browser input only after the menu stack admits the input-owning
-		// sentinel. In forwarded mode this grant does not transfer OS focus.
+		// Grant only once the engine admits FocusMenu. In forwarded mode this doesn't move OS focus.
 		const bool want = wantsCapture && a_focusMenuInEngine;
 		if (want == m_browserFocusGranted) {
 			return;

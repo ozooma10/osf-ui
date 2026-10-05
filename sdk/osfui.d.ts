@@ -1,4 +1,4 @@
-/** OSF UI 2.0 web-view contract. Settings are intentionally not exposed. */
+/** OSF UI 2.0 web-view contract. Settings are not exposed. */
 
 export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -60,7 +60,7 @@ export interface ReadyEnvelope {
     plugin: "OSF UI";
     /** Product release version; independent of the browser protocol and native ABI. */
     version: string;
-    /** Integer browser wire protocol identity. */
+    /** Browser protocol version. */
     protocolVersion: 2;
     mod: string;
     view: string;

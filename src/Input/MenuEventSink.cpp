@@ -33,7 +33,6 @@ namespace OSFUI
 		RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
 	{
 		const std::string_view name = a_event.menuName;
-		// Keep the rare console edge visible in the default log for hotkey diagnosis.
 		if (name == "Console") {
 			REX::INFO("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
 		}

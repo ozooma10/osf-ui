@@ -37,9 +37,8 @@ namespace OSFUI
 
 	RE::UI_MESSAGE_RESULT FocusMenu::ProcessMessage(RE::UIMessageData& a_message)
 	{
-		// The base answers kIgnore to kShow for a menu without a movie, which refuses stack admission.
-		// Every other message must reach the base: kHide's active-array teardown lives there, and
-		// skipping it leaves UI::menuArray desynced.
+		// Base answers kIgnore to kShow without a movie, refusing stack admission.
+		// Everything else must reach the base: skipping kHide desyncs UI::menuArray.
 		if (a_message.type == RE::UI_MESSAGE_TYPE::kShow) {
 			return RE::UI_MESSAGE_RESULT::kHandled;
 		}

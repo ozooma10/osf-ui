@@ -7,8 +7,7 @@ namespace OSFUI
 	class OSFSettingsClient;
 	class WebView2HostWebRenderer;
 
-	// Runtime engine integration and focus bookkeeping. Only CaptureRequested
-	// is queried by WndProc; Runtime retains presentation and failure policy.
+	// Runtime owns capture state; WndProc reads only CaptureRequested.
 	class InputCaptureController
 	{
 	public:

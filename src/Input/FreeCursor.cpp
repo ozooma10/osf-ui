@@ -19,7 +19,7 @@ namespace OSFUI
 		}
 		auto* cursor = RE::MenuCursor::GetSingleton();
 		if (!cursor) {
-			// Retry at boot; no reference can be stranded before the singleton exists.
+			// Retry until MenuCursor exists.
 			static bool warned = false;
 			if (a_desired && !warned) {
 				warned = true;

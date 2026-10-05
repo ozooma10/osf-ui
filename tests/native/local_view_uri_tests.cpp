@@ -21,8 +21,7 @@ int main()
 	assert(!IsHttpsUriForHost(L"https://evil.com/osfui.example/", host));
 	assert(!IsHttpsUriForHost(L"https://osfui.example\\acme.widgets\\inventory\\index.html", host));
 
-	// One WebView may navigate and send native messages only within its assigned
-	// mod/view document subtree, despite all static files sharing one origin.
+	// A WebView may navigate/message only within its own mod/view subtree, though all files share one origin.
 	assert(IsTrustedViewDocumentUri(
 		L"https://osfui.example/acme.widgets/inventory/index.html", host, modId, viewName));
 	assert(IsTrustedViewDocumentUri(
@@ -42,8 +41,7 @@ int main()
 	assert(!IsTrustedViewDocumentUri(
 		L"https://osfui.example/shared/osfui.js", host, modId, viewName));
 
-	// Static subresources deliberately share the root mapping. The network guard
-	// still rejects every other host and unsafe virtual path.
+	// Subresources share the root mapping; other hosts and unsafe paths are still rejected.
 	assert(IsAllowedViewResourceUri(L"https://osfui.example/shared/osfui.css", host));
 	assert(IsAllowedViewResourceUri(L"https://osfui.example/acme.widgets/inventory/app.js", host));
 	assert(IsAllowedViewResourceUri(L"https://osfui.example/other.mod/other/app.js", host));

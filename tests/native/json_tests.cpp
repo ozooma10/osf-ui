@@ -41,7 +41,6 @@ int main()
 		{ "null", nullptr },
 	};
 
-	// ---- reads of the right type
 	Check(Json::Get(obj, "s", "fallback") == "text", "string read");
 	Check(Json::Get(obj, "b", false) == true, "bool read");
 	Check(Json::Get(obj, "i", 0) == 42, "int read");
@@ -50,7 +49,6 @@ int main()
 	Check(Json::Get(obj, "big", std::uint64_t{ 0 }) == 9007199254740993ull,
 		"u64 above 2^53 survives exactly");
 
-	// ---- a missing key yields the caller's default, whatever the type
 	Check(Json::Get(obj, "nope", "fallback") == "fallback", "missing string");
 	Check(Json::Get(obj, "nope", true) == true, "missing bool keeps true");
 	Check(Json::Get(obj, "nope", 99) == 99, "missing int");
@@ -69,18 +67,15 @@ int main()
 	Check(Json::Get(obj, "whole", 0.0) == 2.0, "integer into a double target is accepted");
 	Check(Json::Get(obj, "f", 0.0) == 2.5, "double into a double target");
 
-	// ---- a negative must never wrap into an unsigned target.
 	Check(Json::Get(obj, "neg", std::uint32_t{ 1 }) == 1u,
 		"negative into u32 keeps the default, no modular wrap");
 	Check(Json::Get(obj, "neg", std::uint64_t{ 7 }) == 7ull, "negative into u64 keeps the default");
 	Check(Json::Get(obj, "i", std::uint32_t{ 1 }) == 42u, "positive into u32 still reads");
-	// The signed path is unaffected.
 	Check(Json::Get(obj, "neg", std::int32_t{ 0 }) == -7, "negative into i32 reads");
 	Check(Json::Get(obj, "big", std::uint32_t{ 9 }) == 9u, "large unsigned into u32 keeps default");
 	Check(Json::Get(obj, "u64max", std::int64_t{ 9 }) == 9, "u64 max into i64 keeps default");
 	Check(Json::Get(obj, "i64min", std::int32_t{ 9 }) == 9, "i64 min into i32 keeps default");
 
-	// ---- a non-object receiver reads as all-defaults instead of throwing.
 	for (const Value& notAnObject : { Value(Value::array({ 1 })), Value("str"), Value(7), Value() }) {
 		Check(Json::Get(notAnObject, "k", "fallback") == "fallback", "non-object receiver, string");
 		Check(Json::Get(notAnObject, "k", 5) == 5, "non-object receiver, int");

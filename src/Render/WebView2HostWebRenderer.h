@@ -47,7 +47,7 @@ namespace OSFUI
 		using CursorChangeHandler = std::function<void(std::uint32_t a_id)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
 		using BackHandler = std::function<void(std::string_view a_viewId, std::uint64_t a_presentationEpoch)>;
-		// Update drains game-thread callbacks; cursor callbacks run on the transport thread.
+		// DrainNotifications runs callbacks on the runtime tick; cursor callbacks use the transport thread.
 
 		WebView2HostWebRenderer();
 		~WebView2HostWebRenderer();

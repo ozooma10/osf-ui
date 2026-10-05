@@ -12,7 +12,7 @@ namespace OSFUI
 	{
 		float NormalizeThumb(SHORT a_value)
 		{
-			// The negative endpoint has one extra representable value. Clamping keeps both sides in the bridge's documented -1..1 range.
+			// Clamp: -32768 would exceed the bridge's documented -1..1 range.
 			return std::clamp(static_cast<float>(a_value) / 32767.0f, -1.0f, 1.0f);
 		}
 
@@ -66,7 +66,7 @@ namespace OSFUI
 				firstConnected = ToState(state);
 			}
 		}
-		// An idle connected pad must stay polled every update so its first press latches it.
+		// Poll idle connected pads every update so the first press latches.
 		m_nextDiscoveryAt = firstConnected.connected ? 0.0 : a_now + kDiscoveryIntervalSeconds;
 		return firstConnected;
 	}

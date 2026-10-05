@@ -23,9 +23,7 @@ namespace OSFUI
 		};
 	}
 
-	// Chargen's Scaleform composite contains its source in a centered 16:9
-	// viewport. Keep capture output-sized and lay out the browser document in
-	// this viewport so the shared ring never resizes on menu transitions.
+	// Chargen uses a centered 16:9 viewport. Resize page layout, not capture textures, on menu changes.
 	[[nodiscard]] constexpr ViewSize ViewSizeForOutput(
 		const ViewSize a_output, const bool a_fixed16By9)
 	{

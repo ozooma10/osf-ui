@@ -47,7 +47,7 @@ namespace OSFUI
 	void Runtime::OnViewLoad(std::string_view a_viewId, bool a_failed, std::string_view a_url, std::string_view a_description, int a_errorCode)
 	{
 		const std::string id(a_viewId);
-		// A navigation creates a fresh document; no pointer ownership crosses that boundary.
+		// Pointer ownership never survives a navigation.
 		m_relativePointer.Cancel(id);
 		if (!a_failed && m_browserHostRecovery.CanAcceptResponse()) {
 			const auto attempts = m_browserHostRecovery.Attempts();
@@ -95,15 +95,13 @@ namespace OSFUI
 		m_viewLoads.BeginLoad(id);
 		m_viewInputGrants.ResetPage(id);
 		if (m_bridge) {
-			// Discard old correlations before starting the new document. A cancellation
-			// message sent after navigation could otherwise hit a reused page request id.
+			// Cancel old requests first; the new page may reuse their IDs.
 			m_bridge->OnViewCreated(id);
 			Compat::V1::Papyrus::CloseView(*m_bridge, id);
 		}
 		m_renderer->CreateOrNavigateView(a_manifest);
 		API::BridgeApi::Get().SetViewInstantiated(id, true);
-		// Geometry is renderer-wide, retained across restart and replayed in its
-		// connection snapshot. Navigation does not need to resend unchanged sizes.
+		// The renderer keeps geometry across navigation and resends it on reconnect.
 	}
 
 	void Runtime::DriveRecovery()

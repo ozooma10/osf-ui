@@ -69,7 +69,7 @@ namespace OSFUI
 		Frame frame;
 		frame.axes = { a_state.lx, a_state.ly, a_state.rx, a_state.ry };
 		const bool started = !m_active;
-		// Never integrate time spent outside this input mode, or catch up scrolling after a stall.
+		// Skip time spent in other modes or stalled updates.
 		constexpr double kMaxScrollDeltaSeconds = 0.1;
 		const double scrollDelta = started || m_mode != a_mode ? 0.0 :
 			std::clamp(a_now - m_lastSampleTime, 0.0, kMaxScrollDeltaSeconds);
@@ -140,7 +140,7 @@ namespace OSFUI
 		}
 		const bool dpadHeld = dpadLeft || dpadRight || dpadUp || dpadDown;
 		const auto navigation = NavigationAction(m_navigation.Update(navigationX, navigationY, a_now));
-		// Prime navigation after the first D-pad edge so deliberate holds can repeat.
+		// Start repeat timing on the first D-pad press.
 		if (!dpadPressed && !(started && dpadHeld))
 		{
 			frame.navigationAction = navigation;

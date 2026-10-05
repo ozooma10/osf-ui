@@ -98,8 +98,7 @@ int main()
 	EditorIdForm bare{ 0x00000010, RE::FormType::kNONE, "MyEditorId" };
 	NamedForm unmapped{ 0x00000020, static_cast<RE::FormType>(0xC8), "Oddity" };
 
-	// Typed Form[] state preserves ordering and None slots; scalar Var carries a
-	// Form without exposing a separate resolver API.
+	// Typed Form[] state preserves order and None slots; scalar Var carries a Form.
 	CHECK(setStateForms(*vm, 0, {}, "T.Forms", "catalog", { &keyword, nullptr, &weapon }));
 	Var scalarForm;
 	RE::BSScript::PackVariable(scalarForm, &keyword);
@@ -194,7 +193,7 @@ int main()
 		CHECK(vm->calls[0].args.back() == "other.mod/view");
 	}
 
-	// Scalar and typed-array Form replies share the same request ledger.
+	// Scalar and Form[] replies use the same request tracking.
 	const auto registerRequest = vm->GetNative<std::int32_t (*)(IVM&, std::uint32_t,
 		std::monostate, Str, Str, Str)>("RegisterRequestStatic");
 	const auto reply = vm->GetNative<bool (*)(IVM&, std::uint32_t, std::monostate,
@@ -210,7 +209,7 @@ int main()
 	std::string token = vm->calls.empty() ? "" : vm->calls[0].args.back();
 	CHECK(token == "101");
 	CHECK(reply(*vm, 0, {}, token, &scalarForm));
-	// Malformed tokens are refused at the native; liveness is the bridge's call.
+	// The native rejects malformed tokens; the bridge checks whether requests still exist.
 	CHECK(!reply(*vm, 0, {}, "p101", &scalarForm));
 	CHECK(!reply(*vm, 0, {}, "0", &scalarForm));
 	CHECK(!reply(*vm, 0, {}, "", &scalarForm));

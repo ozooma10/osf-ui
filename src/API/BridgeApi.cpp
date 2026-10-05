@@ -231,7 +231,6 @@ namespace OSFUI::API
 		const std::string id = known ? *known : std::string(a_viewId);
 		if (a_instantiated) {
 			m_instantiatedViews.emplace(id);
-			// Includes replacing a document under an existing view ID.
 			m_legacyReadyFired = false;
 		}
 		else {
@@ -274,7 +273,7 @@ namespace OSFUI::API
 	void BridgeApi::RejectThunk(std::uint64_t token, const char* code,
 		const char* message) noexcept { Get().RejectRequest(token, code, message); }
 
-	// Any thread. Late, duplicate and stale answers are filtered by the bridge on the main thread.
+	// Any thread. The bridge filters late, duplicate and stale answers on the main thread.
 	void BridgeApi::ReplyRequest(std::uint64_t token, const char* json) noexcept
 	{
 		const auto parsed = json ? Json::Parse(json) : std::nullopt;
@@ -389,7 +388,7 @@ namespace OSFUI::API
 				m_dirty = false;
 			}
 			if (m_bridgeAvailable.load(std::memory_order_acquire)) {
-				// Single stable compaction pass: retained sends keep their order.
+				// Keep the remaining sends in order.
 				auto kept = m_pendingSends.begin();
 				for (auto& send : m_pendingSends) {
 					if (const auto* canonical = FindIdCaseInsensitive(m_instantiatedViews, send.view)) {
@@ -430,8 +429,7 @@ namespace OSFUI::API
 				}
 			}
 		}
-		// Only the frozen V1 API has a readiness callback. The dispatch lock ensures
-		// replacing or clearing it waits for any invocation already in progress.
+		// Frozen V1 readiness callback; the dispatch lock makes replacing it wait for an in-flight call.
 		std::lock_guard dispatchLock(m_callbackDispatchMutex);
 		LegacyReadyFn ready = nullptr;
 		void* readyUser = nullptr;
