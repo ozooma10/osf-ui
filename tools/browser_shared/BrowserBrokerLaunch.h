@@ -22,7 +22,7 @@ namespace osfui::browser
 
 	[[nodiscard]] const char* LaunchMethodName(LaunchMethod a_method);
 
-	[[nodiscard]] LaunchResult LaunchDetached(const std::wstring& a_exe, const std::wstring& a_args, bool a_preferBroker, const std::function<bool()>& a_cancelled = {});
+	[[nodiscard]] LaunchResult LaunchDetached(const std::wstring& a_exe, const std::wstring& a_args, const std::wstring& a_broker, bool a_preferBroker, const std::function<bool()>& a_cancelled = {});
 	// Only the disposable launcher process calls COM. Exit code is LaunchMethod or zero.
 	[[nodiscard]] LaunchResult RunLaunchBroker(const std::wstring& a_exe, const std::wstring& a_args);
 }

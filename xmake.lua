@@ -30,13 +30,23 @@ target("osfui-cef-host")
     end)
 
 -- The mirrored host is self-contained: static CRT and WebView2 loader.
+target("osfui-browser-broker")
+    set_kind("binary")
+    set_basename("osfui_browser_broker")
+    set_default(false)
+    set_runtimes("MT")
+    add_files("tools/browser_broker/main.cpp", "tools/browser_shared/BrowserBrokerLaunch.cpp")
+    add_includedirs("tools/browser_shared")
+    add_syslinks("user32", "shell32", "ole32", "oleaut32", "uuid", "advapi32", "taskschd", "comsuppw")
+    add_ldflags("/SUBSYSTEM:WINDOWS", {force=true})
+
 target("osfui-webview2-host")
     set_kind("binary")
     set_basename("osfui_webview2_host")
     set_default(false)
     set_runtimes("MT")
     add_rules("utils.bin2c")
-    add_files("tools/webview2_host/**.cpp", "tools/browser_shared/BrowserPipe.cpp", "tools/browser_shared/BrowserBrokerLaunch.cpp")
+    add_files("tools/webview2_host/**.cpp", "tools/browser_shared/BrowserPipe.cpp")
     add_files("tools/webview2_host/scripts/**.js", { rule = "utils.bin2c" })
     add_files("src/Compat/V1/web-transport.js", { rule = "utils.bin2c" })
     add_headerfiles("tools/webview2_host/**.h", "tools/browser_shared/**.h")
@@ -130,6 +140,7 @@ target("OSF UI")
     end)
 
     -- The host must exist before data deployment packages it.
+    add_deps("osfui-browser-broker")
     if get_config("browser_backend") == "cef" then
         add_deps("osfui-cef-host")
     else

@@ -100,6 +100,7 @@ try {
             }
             Remove-Item -LiteralPath $bin -Recurse -Force
             New-Item -ItemType Directory -Path $bin | Out-Null
+            Copy-Item -LiteralPath (Join-Path $baseUi 'bin/broker') -Destination (Join-Path $bin 'broker') -Recurse
             if ($edition -eq 'cef') {
                 Copy-Item -LiteralPath (Join-Path $RepoRoot 'build/cef-host/runtime') -Destination (Join-Path $bin 'cef') -Recurse
             } else {
@@ -108,7 +109,7 @@ try {
             Copy-Item -LiteralPath (Join-Path $RepoRoot "packaging/backends/$edition.json") -Destination (Join-Path $ui 'backend.json') -Force
             & (Join-Path $RepoRoot 'tests/package/test-package.ps1') -DataRoot $data -ExpectedBackend $edition
             $files = FileManifest $data
-            $shared = @($files | Where-Object { $_.path -ne 'SFSE/Plugins/OSF/UI/backend.json' -and -not $_.path.StartsWith('SFSE/Plugins/OSF/UI/bin/') })
+            $shared = @($files | Where-Object { $_.path -ne 'SFSE/Plugins/OSF/UI/backend.json' -and (-not $_.path.StartsWith('SFSE/Plugins/OSF/UI/bin/') -or $_.path.StartsWith('SFSE/Plugins/OSF/UI/bin/broker/')) })
             $sharedJson = ConvertTo-Json -InputObject $shared -Depth 4 -Compress
             if ($null -eq $commonHashes) { $commonHashes = $sharedJson }
             elseif ($commonHashes -ne $sharedJson) { throw 'The editions do not contain identical common files' }

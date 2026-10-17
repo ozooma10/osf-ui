@@ -18,4 +18,6 @@ namespace OSFUI
         std::string& error);
     std::optional<std::filesystem::path> PrepareHostExecutable(osfui::browser::Backend backend,
         const std::filesystem::path& source, const std::filesystem::path& localRoot);
+    std::optional<std::filesystem::path> PrepareBrowserBroker(const std::filesystem::path& dataDir,
+        const std::filesystem::path& localRoot);
 }

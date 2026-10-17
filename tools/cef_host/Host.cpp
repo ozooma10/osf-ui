@@ -26,7 +26,6 @@
 #include "FrameTimer.h"
 #include "LocalAssets.h"
 #include "Scripts.h"
-#include "BrowserBrokerLaunch.h"
 #include "BrowserLocalUri.h"
 #include "BrowserPipe.h"
 #include "Win32Util.h"
@@ -794,11 +793,6 @@ namespace osfui::cefhost
         const auto logPath = command->GetSwitchValue("log").ToWString();
         const auto pid = static_cast<DWORD>(wcstoul(pidText.c_str(), nullptr, 10));
         if (pipeName.empty() || !pid || !sandbox) return 1;
-        if (command->HasSwitch("launch-broker")) {
-            const auto launchArgs = L"--pipe=" + pipeName + L" --game-pid=" + pidText + L" --log=\"" + logPath + L"\"";
-            const auto launch = browser::RunLaunchBroker(win32::ModulePath().wstring(), launchArgs);
-            return launch.ok ? static_cast<int>(launch.method) : 0;
-        }
         Host host;
         host.log.open(std::filesystem::path(logPath), std::ios::trunc);
         host.pipe.PrepareForOpen();

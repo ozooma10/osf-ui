@@ -222,6 +222,7 @@ namespace OSFUI
 		bool                  usesDevViewsMirror{ false };  // mutable views-dev tree
 		std::shared_future<bool> viewFilesPreparation;  // Started by Runtime; consumed by the transport worker.
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
+		std::filesystem::path browserBrokerExe;
 		std::filesystem::path browserHostLog;  // set in Initialize; read by worker + notify drain
 		std::uint32_t adapterLuidLow{ 0 }, adapterLuidHigh{ 0 };
 		bool          adapterLuidKnown{ false };
@@ -470,6 +471,9 @@ namespace OSFUI
             const auto prepared = PrepareHostExecutable(config.backend, browserHostExeSource, LocalOsfuiDir());
             if (!prepared) return false;
             browserHostExeMirror = *prepared;
+            const auto broker = PrepareBrowserBroker(config.dataDir, LocalOsfuiDir());
+            if (!broker) return false;
+            browserBrokerExe = *broker;
             return true;
         }
 
@@ -592,7 +596,7 @@ namespace OSFUI
 			}
 			const auto launchTime = std::filesystem::file_time_type::clock::now();
 			const auto launch = osfui::browser::LaunchDetached(
-				browserHostExeMirror.native(), args, /*a_preferBroker=*/usvfs, [this] { return !IsStarting(); });
+				browserHostExeMirror.native(), args, browserBrokerExe.native(), /*a_preferBroker=*/usvfs, [this] { return !IsStarting(); });
 			if (!launch.ok) {
 				REX::ERROR("BrowserHostClient: browser-host launch failed [{}]", launch.detail);
 				SignalDead("browser-host launch failed");

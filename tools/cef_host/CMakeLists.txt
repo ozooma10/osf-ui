@@ -18,8 +18,7 @@ endif()
 
 # CEF 138+ supplies the sandbox in bootstrap.exe. Our entry point lives in a DLL.
 add_library(osfui_cef_host SHARED Host.cpp Graphics.cpp
-  "${REPO}/tools/browser_shared/BrowserPipe.cpp"
-  "${REPO}/tools/browser_shared/BrowserBrokerLaunch.cpp")
+  "${REPO}/tools/browser_shared/BrowserPipe.cpp")
 SET_LIBRARY_TARGET_PROPERTIES(osfui_cef_host)
 target_compile_features(osfui_cef_host PRIVATE cxx_std_23)
 target_compile_options(osfui_cef_host PRIVATE /EHsc /utf-8)

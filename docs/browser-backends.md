@@ -16,7 +16,7 @@ Each archive supplies `SFSE/Plugins/OSF/UI/backend.json`:
 
 The alternative backend value is `webview2`. Selection is read once at startup. The former `cefPrototype` player setting is ignored and no longer appears in OSF Settings. No renderer toggle or separate configuration step is needed. Missing or invalid package selection stops browser initialization with an installation diagnostic; OSF UI does not silently fall back to another engine.
 
-CEF requires its complete matched runtime folder: the bootstrap EXE, host DLL, `libcef.dll`, supporting libraries, resources, locales, lock file, manifest, and notices. The WebView2 edition contains only its helper. Browser profiles remain separate, so browser-local storage is not migrated when switching; game/mod-owned data and the public API are unchanged.
+CEF requires its complete matched runtime folder: the bootstrap EXE, host DLL, `libcef.dll`, supporting libraries, resources, locales, lock file, manifest, and notices. The WebView2 edition contains its helper. Both include the same small launcher under `bin/broker`. Browser profiles remain separate, so browser-local storage is not migrated when switching; game/mod-owned data and the public API are unchanged.
 
 ## Build and package
 
@@ -55,6 +55,7 @@ The packager installs the common payload once, then creates each edition from it
 - `src/Runtime`, `src/Views`, `src/Bridge`, `src/Input`, and `src/Composite` own game policy and the public API.
 - `src/Render/BrowserBackendConfig` reads the package selection. `BrowserHostClient` owns shared IPC, notifications, demand, and recovery transport. `BrowserHostRuntime` handles backend-specific layout and launch preparation.
 - `tools/browser_shared` contains the common protocol, messages, pipe, launch broker, local URI rules, and input data. CDP input remains private to `tools/webview2_host`.
+- `tools/browser_broker` is the shared disposable launcher. Under MO2, this process inherits USVFS and asks the desktop broker to launch the selected host outside that environment. Neither browser executable doubles as the injected launcher. In-game testing found that using CEF's sandbox bootstrap for that first injected process crashes before the host handshake. The separate launcher preserves the CEF sandbox and keeps COM launch calls out of Starfield.
 - `tools/webview2_host` owns WebView2 controllers/capture; `tools/cef_host` owns CEF callbacks and accelerated off-screen rendering.
 - Private host protocol 4 identifies the backend separately from the runtime version and requires shared textures, frame acknowledgments, and presentation epochs. Game DLL and helpers must be installed as one matching package. Public API versions are unchanged.
 

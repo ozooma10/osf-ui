@@ -13,6 +13,7 @@ if (-not (Test-Path -LiteralPath $root -PathType Container)) {
 $required = @(
     'SFSE\Plugins\OSFUI.dll',
     'SFSE\Plugins\OSF\UI\backend.json',
+    'SFSE\Plugins\OSF\UI\bin\broker\osfui_browser_broker.exe',
     'SFSE\Plugins\OSF\UI\views\shared\osfui.js',
     'SFSE\Plugins\OSF\UI\views\shared\osfui.css',
     'SFSE\Plugins\OSF\UI\views\shared\gamepadnav.js',
@@ -35,14 +36,16 @@ if ($selection.schemaVersion -ne 1 -or $selection.backend -notin @('webview2', '
 }
 if ($ExpectedBackend -and $selection.backend -ne $ExpectedBackend) { throw 'Package selects the wrong backend' }
 $bin = Join-Path $ui 'bin'
+$brokerFiles = @(Get-ChildItem -LiteralPath (Join-Path $bin 'broker') -Recurse -File)
+if ($brokerFiles.Count -ne 1) { throw 'Shared broker directory contains unexpected payload' }
 if ($selection.backend -eq 'webview2') {
-    $runtimeFiles = @(Get-ChildItem -LiteralPath $bin -Recurse -File)
+    $runtimeFiles = @(Get-ChildItem -LiteralPath $bin -Recurse -File | Where-Object DirectoryName -ne (Join-Path $bin 'broker'))
     if ($runtimeFiles.Count -ne 1 -or $runtimeFiles[0].FullName -ne (Join-Path $bin 'osfui_webview2_host.exe')) {
         throw 'WebView2 edition must contain exactly its selected browser helper'
     }
 } else {
     $cef = [IO.Path]::GetFullPath((Join-Path $bin 'cef'))
-    if (@(Get-ChildItem -LiteralPath $bin).Count -ne 1) { throw 'CEF edition contains another browser payload' }
+    if (@(Get-ChildItem -LiteralPath $bin).Count -ne 2) { throw 'CEF edition contains another browser payload' }
     foreach ($name in 'osfui_cef_host.exe', 'osfui_cef_host.dll', 'libcef.dll', 'icudtl.dat', 'resources.pak',
             'cef.lock.json', 'runtime-manifest.json', 'CEF-LICENSE.txt', 'CREDITS.html', 'locales/en-US.pak') {
         if (-not (Test-Path -LiteralPath (Join-Path $cef $name) -PathType Leaf)) { throw "Incomplete CEF runtime: $name" }
@@ -77,6 +80,8 @@ Get-ChildItem -LiteralPath (Join-Path $ui 'views') -Recurse -Filter 'manifest.js
 foreach ($relative in 'SFSE\Plugins\OSFUI\settings', 'SFSE\Plugins\OSFUI\views\osfui',
         'SFSE\Plugins\OSFSettings.dll',
         'SFSE\Plugins\OSFUISettingsExample.dll', 'SFSE\Plugins\OSF\UI\views\osfui-example',
+        'SFSE\Plugins\OSFUIBackendTest.dll', 'SFSE\Plugins\OSF\UI\views\osfui-backend-test',
+        'Scripts\OSFUIBackendPapyrus.pex',
         'Scripts\OSFUI_Settings.pex', 'Scripts\OSFUI_View.pex',
         'Scripts\Source\OSFUI_Settings.psc', 'Scripts\Source\OSFUI_View.psc') {
     if (Test-Path -LiteralPath (Join-Path $root $relative)) {

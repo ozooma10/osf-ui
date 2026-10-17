@@ -64,6 +64,10 @@ local function copy_host(target, required)
     assert(backend == "webview2" or backend == "cef", "Unknown browser backend")
     local uidata = path.join(target:installdir(), "SFSE", "Plugins", "OSF", "UI")
     local bindir = path.join(uidata, "bin")
+    local broker = project.target("osfui-browser-broker")
+    if not broker or not os.isfile(broker:targetfile()) then raise("OSF UI browser broker was not built") end
+    os.mkdir(path.join(bindir, "broker"))
+    os.cp(broker:targetfile(), path.join(bindir, "broker", "osfui_browser_broker.exe"))
     if backend == "cef" then
         local runtime = path.join(os.projectdir(), "build", "cef-host", "runtime")
         for _, name in ipairs({"osfui_cef_host.exe", "osfui_cef_host.dll", "libcef.dll", "cef.lock.json", "runtime-manifest.json"}) do

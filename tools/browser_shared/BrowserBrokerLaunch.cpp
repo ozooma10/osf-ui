@@ -280,7 +280,7 @@ namespace osfui::browser
 		return result;
 	}
 	LaunchResult LaunchDetached(const std::wstring& a_exe, const std::wstring& a_args,
-		bool a_preferBroker, const std::function<bool()>& a_cancelled)
+		const std::wstring& a_broker, bool a_preferBroker, const std::function<bool()>& a_cancelled)
 	{
 		LaunchResult result;
 		if (!a_preferBroker) {
@@ -288,12 +288,12 @@ namespace osfui::browser
 			if (result.ok) result.method = LaunchMethod::kDirect;
 			return result;
 		}
-		std::wstring command = L"\"" + a_exe + L"\" --launch-broker " + a_args;
+		std::wstring command = L"\"" + a_broker + L"\" --host=\"" + a_exe + L"\" " + a_args;
 		STARTUPINFOW startup{ sizeof(startup) };
 		startup.dwFlags = STARTF_USESHOWWINDOW;
 		startup.wShowWindow = SW_HIDE;
 		PROCESS_INFORMATION process{};
-		if (!::CreateProcessW(a_exe.c_str(), command.data(), nullptr, nullptr, FALSE,
+		if (!::CreateProcessW(a_broker.c_str(), command.data(), nullptr, nullptr, FALSE,
 			CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &startup, &process)) {
 			result.detail = "launcher CreateProcess=" + std::to_string(::GetLastError());
 			return result;

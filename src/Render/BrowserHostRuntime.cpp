@@ -24,6 +24,19 @@ namespace OSFUI
         return { dataDir / "bin" / "osfui_webview2_host.exe", "WebView2", "OSF UI.webview2-host.log" };
     }
 
+    std::optional<std::filesystem::path> PrepareBrowserBroker(const std::filesystem::path& dataDir,
+        const std::filesystem::path& localRoot)
+    {
+        std::string error;
+        const auto prepared = ViewCache::Prepare(dataDir / "bin" / "broker", localRoot / "browser-broker",
+            "osfui-browser-broker-1", std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64()), error);
+        if (!prepared) {
+            REX::ERROR("Browser broker preparation failed: {}", error);
+            return std::nullopt;
+        }
+        return prepared->generation / "osfui_browser_broker.exe";
+    }
+
     bool ValidateHostPayload(osfui::browser::Backend backend, const std::filesystem::path& executable, std::string& error)
     {
         std::error_code ec;
@@ -33,6 +46,8 @@ namespace OSFUI
             return false;
         };
         if (!require(executable)) return false;
+        const auto bin = backend == osfui::browser::Backend::Cef ? executable.parent_path().parent_path() : executable.parent_path();
+        if (!require(bin / "broker" / "osfui_browser_broker.exe")) return false;
         if (backend == osfui::browser::Backend::Cef) {
             for (const auto* name : { "osfui_cef_host.dll", "libcef.dll", "icudtl.dat", "resources.pak", "cef.lock.json" })
                 if (!require(executable.parent_path() / name)) return false;

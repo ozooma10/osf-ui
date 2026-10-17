@@ -21,6 +21,12 @@ function ExpectFailure([string]$Data, [string]$Backend, [string]$Message) {
     $script:checks++
 }
 ExpectFailure $wv 'cef' 'wrong backend'
+$broker = Join-Path $wv "$uiRelative/bin/broker/osfui_browser_broker.exe"
+$brokerBytes = [IO.File]::ReadAllBytes($broker)
+try {
+    Remove-Item -LiteralPath $broker
+    ExpectFailure $wv 'webview2' 'Missing OSF UI-owned package path'
+} finally { [IO.File]::WriteAllBytes($broker, $brokerBytes) }
 $selection = Join-Path $cef "$uiRelative/backend.json"
 $original = [IO.File]::ReadAllBytes($selection)
 try {
