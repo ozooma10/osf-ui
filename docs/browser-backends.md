@@ -9,7 +9,7 @@ OSF UI has one game DLL and one public HTML/JavaScript, C++, and Papyrus API. Tw
 | WebView2 — recommended default | Smaller download and lower measured browser CPU and memory overhead. | Requires Microsoft's WebView2 Evergreen Runtime, which updates independently of OSF UI. |
 | CEF — bundled-runtime alternative | A Chromium runtime included and versioned with OSF UI; no WebView2 runtime dependency. | Larger download and higher measured CPU and memory overhead; browser updates must ship with OSF UI. |
 
-This recommendation reflects the current implementations and measured workloads, not a claim that one engine is always faster. CEF delivered more new frames in the single-view animation tests; WebView2 had better median delivery with three animated views. See the measured results below.
+This recommendation reflects the measured implementations and workloads, not a claim that one engine is always faster. In the baseline below, CEF delivered more new frames in the single-view animation tests; WebView2 had better median delivery with three animated views. The [CEF compositing optimization follow-up](cef-compositing-profile.md) records subsequent changes, exploratory results and the remaining validation work.
 
 Both editions have a [production-package game acceptance suite](../tests/game/README.md) covering rendering, modern and legacy APIs, native/Papyrus messaging, input, save/load, recovery, and shutdown. Results include exact package and helper hashes. Stock-renderer acceptance does not establish every GPU, HDR, physical-controller, or IME configuration.
 
@@ -98,7 +98,7 @@ node --test tests/native/cef_bridge_tests.cjs
 
 These cover local-file containment, frame deadline coalescing and stall recovery, package-based WebView2/CEF selection through the real Runtime, and both JavaScript SDKs against the injected bridge. A symlink containment check explicitly reports a skip on systems that deny symlink creation. They do not start CEF or Starfield and do not prove native callback ordering or GPU synchronization.
 
-### Measured tradeoffs — October 17, 2026
+### Baseline tradeoffs before CEF optimization — October 17, 2026
 
 The [desktop backend benchmark](../tools/profiling/backend-bench/README.md) completed twelve sessions on the packaged helpers from commit `ae48b6793997efae777b00d7ab24c8f960cfd275`: three repetitions per backend at 1080p and 1440p, with three seconds of warmup and ten seconds measured per workload. The machine used a Ryzen 9 7950X and RTX 3080 on Windows 11. Runtime versions were WebView2 `155.0.4283.60` and CEF `150.0.22` / Chromium `150.0.7871.256`.
 

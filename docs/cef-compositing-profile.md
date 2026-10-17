@@ -73,3 +73,18 @@ Pending: repeated clean renderer/lifecycle runs, final performance comparison of
 both backends, exact-package in-game acceptance, and final validation manifests.
 No publication is authorized or performed. Desktop output rates are not game FPS;
 private commitment is not resident RAM or VRAM.
+
+Both candidate packages were built/staged from clean implementation commit
+`575848a49fd95896b34933af57f47d0ccca3f764` and verified locally under
+`build/cef-optimization/packages/`. Common payloads are byte-identical; actual
+DLL API acquisition, all 55 compiled Papyrus signatures, CEF runtime manifest and
+ZIP content hashes passed. These packages have not been tested in-game or deployed.
+
+| Candidate | ZIP SHA-256 |
+| --- | --- |
+| `OSF-UI-v2.0.0-cef-opt-webview2.zip` | `1081B17675D45A6308EAABD536C2B829A5E16C6AFD66B9E1F9C8D8CF9FEC77CA` |
+| `OSF-UI-v2.0.0-cef-opt-cef.zip` | `C156DC9A916971328F0E9090DF1DBE6ACF99528F9291291DE424BA63AABFA99F` |
+
+`build/cef-optimization/validation.json` records this checkpoint. Other Starfield
+sessions repeatedly started during validation; the runner retained and rejected
+the contended repeat. Further renderer and game tests await a clear desktop.
