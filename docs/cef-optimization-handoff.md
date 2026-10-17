@@ -1,5 +1,9 @@
 # CEF optimization handoff — 2026-10-17
 
+Completed on the new PC: see the local validation result at the end and the final
+section of `cef-compositing-profile.md`. The original handoff instructions and
+checkpoints below are retained for provenance. Nothing was pushed or published.
+
 Continue on the new Windows PC. The user requested the move before final runtime
 testing. Commit focused fixes as work proceeds. Do not push, tag, upload or publish
 without a new request. Keep the shared OSFUI.dll/public API and the two automatic
@@ -123,40 +127,56 @@ branch. Do not overwrite an existing branch with that name. The bundle contains
 all local `dev` commits after the original PC's `origin/dev`, including the
 earlier shared-backend/package work. It contains no ignored runtime or test data.
 
-## Local continuation checkpoint
+## Local validation result
 
-The new PC obtained `6cba68e` from origin directly and created
-`osf/cef-optimization-handoff`, preserving local `dev`. Evidence lives under
-`build/resume-20261017/`. The shared DLL, both production hosts, the diagnostic
-host, benchmark, and game consumer build; all 29 native and nine bridge tests
-pass. The independently rebuilt `575848a` CEF baseline is at
-`build/resume-20261017/baseline-cef/runtime/osfui_cef_host.exe`.
+The new PC obtained `6cba68efc3c84072530d381a96f83167e9bc74bd` from origin directly
+and created `osf/cef-optimization-handoff`, preserving local `dev`. The transferred
+bundle was not present and was not needed. Production CEF remains pinned. The
+shared DLL and both hosts rebuilt locally; all 29 native and nine bridge tests
+passed. An isolated `575848a` CEF baseline was rebuilt on this PC under
+`build/resume-20261017/baseline-cef/` without replacing the current helper.
 
-The baseline runs exposed capture color conversion in the measurement fixture.
-Read the continuation section of `cef-compositing-profile.md`: binary markers
-and same-frame HUD references replace exact RGB assumptions. Their offline
-checks pass. Corrected-fixture smoke checks passed all six workloads for both
-baseline helpers at 1080p in `color-probe-smoke/`; earlier short runs and their
-inspected captures remain failed. Unrelated games repeatedly started during
-preparation, including before the baseline lifecycle run; the guards refused
-those attempts before helper launch. Never stop those sessions.
+The completed sequence is retained under `build/resume-20261017/`:
 
-Use the isolated sibling harness at
-`C:\Modding\Starfield\OSF Test Harness UI Validation` (`8a57a3d`); the original
-harness checkout remains on its existing branch. Its current AGENTS/README and
-BACKGROUND instructions were read, both native helpers rebuilt, its 25 offline
-control checks passed, and the copied disposable save/sidecar hashes match the
-local seed. Pass that directory as `-HarnessRoot`, and use
+1. Marker/HUD smoke runs exposed capture color conversion. Binary RGB block
+   markers and same-frame HUD references replaced exact-color assumptions.
+   Lifecycle overlap colors were also changed to neutral grays, retaining the
+   same alpha/z-order assertions and tolerance. All earlier failed evidence and
+   captures are preserved; see the profile report for the diagnoses.
+2. `baseline-lifecycle-final/` and `current-lifecycle-final/`: 18 clean sessions,
+   three repeats per helper/resolution, all 15 checks each passed.
+3. `baseline-performance-final/` and `current-performance-final/`: 18 clean
+   sessions covering all six workloads at 1080p/1440p, three repeats per case.
+   Every marker/HUD probe passed and static overlays remained unchanged.
+4. `copy-audit-final/`: three dirty and three forced-full sessions at 1440p with
+   GPU queries, all passed. Copies remained 98.6–100% of a frame on average in
+   this fixture. The results do not establish a general speed or memory benefit;
+   timing variation, including a 49.38 frames/s three-view production run, is
+   retained in the report. Completion waits remain intact.
+5. Exact final packages from clean implementation `3282d02c` were rebuilt and
+   verified in `packages-3282d02c/`. Common payloads are byte-identical; native
+   API, 55 compiled Papyrus signatures, runtime manifest and ZIP hashes pass.
+6. Both packages passed the stock-graphics in-game suite at 2560×1440 on
+   Starfield 1.16.244.0, with the default 120-second soak, clean helper exits and
+   visual inspection of all 18 game captures.
+
+Game evidence is under `build/backend-validation/game/`:
+`20261017-170611-841-webview2-stock/` and `20261017-170943-978-cef-stock/`.
+Package hashes, binary hashes, capture reviews and limitations are in
+`build/resume-20261017/validation.json` and `docs/cef-compositing-profile.md`.
+The original PC's exact `575848a` packages were not transferred; no game acceptance
+is claimed for those bytes. Stock tests do not establish Luma/HDR/frame-generation,
+controller/IME, multi-GPU or long-session behavior.
+
+The isolated sibling harness is
+`C:\Modding\Starfield\OSF Test Harness UI Validation` at `8a57a3d`;
+the original harness checkout remains on its prior branch. Its AGENTS/README and
+BACKGROUND instructions were read, both native helpers rebuilt, and all 25
+background-control checks passed. The private Settings test DLL is
 `C:\Modding\Starfield\MO2\mods\OSF Testing - Settings\SFSE\Plugins\OSFSettings.dll`
-as `-SettingsTestDll` (private values support verified; SHA-256
-`4C6EC6CC300133323BD3713B1BB6DAD4B1940EA6004B8B7A8260CBCAC9A32DFF`).
-
-Final candidates from clean implementation revision `f1dc9300` are verified in
-`build/resume-20261017/packages-f1dc9300/`, with hashes in the profile report and
-`build/resume-20261017/validation.json`. Both remain untested in-game.
-
-Remaining order: repeated baseline/current lifecycle and six-workload runs at both resolutions; diagnostic
-dirty/fullcopy comparison; both exact final packages in-game with the default
-120-second soak; capture review and final evidence manifest. Use fresh evidence
-directories. No accepted same-PC timing comparison or final game result exists
-yet, and the original PC's exact `575848a` ZIPs were not transferred.
+(SHA-256 `4C6EC6CC300133323BD3713B1BB6DAD4B1940EA6004B8B7A8260CBCAC9A32DFF`).
+The runner now disables competing DLL owners regardless of their release-folder
+names, only inside its fresh private profile. Existing games were never stopped
+or driven; accepted runs began after the desktop was clear. No live mod/profile
+contents were edited. The shared DLL/API, WebView2 default and bundled CEF
+alternative are unchanged. All requested final validation gates are complete.

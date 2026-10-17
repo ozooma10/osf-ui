@@ -33,6 +33,7 @@ run sequentially and the first case rotates between repetitions.
 | --- | --- |
 | `stock` | Original built CEF helper, no instrumentation |
 | `baseline` | Stage timings only; current production scheduler |
+| `fullcopy` | Same timings and scheduler, forcing every borrowed paint to copy the full visible frame |
 | `reuse` | Same timings, with Chromium's same-site renderer process reuse switch |
 | `copyonly` | During measured intervals, retain CEF paint copies but suppress output composition/publication |
 | `discard` | During measured intervals, count CEF paint callbacks without touching their borrowed textures; suppress output |
