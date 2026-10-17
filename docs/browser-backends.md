@@ -2,7 +2,7 @@
 
 OSF UI has one game DLL and one public HTML/JavaScript, C++, and Papyrus API. Two mutually exclusive packages provide WebView2 or CEF browser hosting. Both use the same view lifecycle, bridge, input policy, recovery, and D3D12 compositor. Browser engines remain in separate helper processes.
 
-WebView2 is the recommended default and uses Microsoft's Evergreen runtime. CEF bundles its Chromium runtime and does not require WebView2. CEF is still awaiting fresh Starfield acceptance; building and packaging it does not establish rendering, input, GPU compatibility, or shutdown behavior in the game.
+WebView2 is the default and uses Microsoft's Evergreen runtime. CEF bundles its Chromium runtime and does not require WebView2. Both editions have a [production-package game acceptance suite](../tests/game/README.md) covering rendering, modern and legacy APIs, native/Papyrus messaging, input, save/load, recovery, and shutdown. Results include exact package and helper hashes. Stock-renderer acceptance does not establish every GPU, HDR, physical-controller, or IME configuration.
 
 ## Install or switch editions
 

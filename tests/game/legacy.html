@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><script src="../../shared/osfui.js"></script>
+<style>body{color:white;font:24px Arial;background:transparent}main{position:absolute;inset:15%;padding:48px;background:#12243bee;border:4px solid #67dafa}#marker,#green{position:absolute;width:48px;height:48px;background:#ff00ff;left:24px;top:24px}#green{background:#00ff00;left:auto;top:auto;right:24px;bottom:24px}</style></head>
+<body><main><h1>Legacy OSF UI bridge</h1><p id="status">Waiting for legacy readiness...</p></main><div id="marker"></div><div id="green"></div><script>
+const evidence={document:crypto.randomUUID(),complete:false,errors:[],events:[],state:null};
+function report(){osfui.send('backend.legacy-report',evidence);}
+osfui.data.on('legacy', value=>{evidence.state=value;report();});
+osfui.on('backend.event', value=>{evidence.events.push(value);report();});
+osfui.ready.then(async()=>{
+  try{
+    const reply=await osfui.request('backend.legacy-echo',{number:73});
+    if(reply.type!=='backend.reply'||reply.payload.number!==73)throw Error('Legacy typed response mismatch');
+    evidence.complete=true;
+  }catch(error){evidence.errors.push(error.message);}
+  document.getElementById('status').textContent=evidence.errors.length?evidence.errors.join('; '):'Legacy native request/reply passed.';
+  report();setInterval(report,250);
+});
+</script></body></html>

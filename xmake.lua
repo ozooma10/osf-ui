@@ -147,6 +147,17 @@ target("OSF UI")
         add_deps("osfui-webview2-host")
     end
 
+target("osfui-game-consumer")
+    set_default(false)
+    set_basename("OSFUIBackendTest")
+    add_rules("commonlibsf.plugin", {
+        name = "OSF UI Backend Test", author = "OSF UI",
+        description = "Disposable public API acceptance consumer"
+    })
+    add_files("tests/game/Consumer.cpp")
+    add_includedirs("sdk")
+    add_packages("nlohmann_json")
+
 target("osfui-manifest-tests")
     add_undefines("NDEBUG")
     set_kind("binary")

@@ -22,7 +22,7 @@ A web view framework for Starfield.
 
 ## Runtime
 
-Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and the Edge WebView2 Evergreen Runtime for the default backend. The [CEF edition](docs/browser-backends.md) bundles Chromium instead and selects it automatically. Install one edition; the game DLL and public APIs are identical. CEF still requires fresh in-game acceptance. During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the selected browser helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
+Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and the Edge WebView2 Evergreen Runtime for the default backend. The [CEF edition](docs/browser-backends.md) bundles Chromium instead and selects it automatically. Install one edition; the game DLL and public APIs are identical. Both editions use the [packaged in-game acceptance suite](tests/game/README.md). During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the selected browser helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
 
 
 - HUD autostart waits for page load. Loading and main-menu transitions suspend requested HUDs; they resume afterward and after successful browser recovery. Explicit close requests remain closed.
