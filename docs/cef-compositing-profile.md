@@ -117,3 +117,37 @@ completed reveal, and delayed refreshes remain bound to their original token.
 All 29 registered native suites and nine bridge/compatibility tests pass; the
 frame pacing/scheduling/reveal test contains 45 checks. Production and diagnostic
 helpers build successfully. These offline checks do not replace helper/game runs.
+
+## Same-PC continuation — Ryzen 9 5900X / RTX 3080
+
+The new checkout fetched `6cba68efc3c84072530d381a96f83167e9bc74bd` directly
+from origin and preserved local `dev` on a separate
+`osf/cef-optimization-handoff` branch. The named transfer bundle was not found;
+no bundle import or verification was needed to obtain the already-published tip.
+The pinned CEF archive passed SHA-256 verification. Both production helpers,
+the shared DLL, and the benchmark rebuilt locally; all 29 native and nine bridge
+tests passed. A separate CEF runtime was rebuilt from `575848a` under
+`build/resume-20261017/baseline-cef`, using an archived source snapshot. It does
+not replace the current helper or identify the original machine's ZIP bytes.
+
+The first baseline comparison failed WebView2 canvas marker validation. Its
+capture was inspected and showed rendered content. The diagnostic retry recorded
+raw marker `0x1000d5` where the page's serial encoded red channel `0x11`:
+capture color conversion can shift that channel down to `0x10`. Raw RGB serials
+therefore cannot reliably establish freshness on this desktop. Evidence remains
+in `baseline-performance/` and `marker-probe/` under the continuation directory;
+neither is an accepted performance result.
+
+The benchmark now encodes each 24-bit serial across two pixels using channel
+nibbles centered 16 levels apart. The decoder tolerates at most two levels per
+channel and rejects invalid bins or alpha. Decoder checks pass; new baseline
+and current-helper runtime validation remain required. Measurements using the
+old encoding must not be combined with the corrected fixture. An unrelated
+Starfield session started before the corrected smoke run; the guard refused
+the run and that game was left untouched.
+
+The existing harness checkout predates native console dispatch. Its fetched
+`8a57a3d` revision is isolated in sibling `OSF Test Harness UI Validation`;
+the original harness branch is unchanged. The local disposable save and SFSE
+sidecar match their pinned hashes. The separate harness build and all 25 offline
+background-control checks pass. Packaged game acceptance remains pending.

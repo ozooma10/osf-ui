@@ -9,7 +9,16 @@
   const markerCanvas=document.querySelector('#marker'), marker=markerCanvas.getContext('2d');
   const view=location.pathname.split('/')[2], layer=['main','second','third'].indexOf(view);
   let mode='idle',serial=0x110000,frames=0,next=0,angle=0;
-  function mark(){serial=(serial+1)&0xffffff;marker.fillStyle='#'+serial.toString(16).padStart(6,'0');marker.fillRect(0,0,32,32);}
+  function mark(){
+    serial=(serial+1)&0xffffff;
+    // Two RGB pixels carry six nibbles at bin centers. WGC color conversion can
+    // shift a channel by one level; raw RGB serials then invent or lose frames.
+    for(let half=0;half<2;half++){
+      const value=serial>>((1-half)*12);
+      marker.fillStyle='rgb('+[8+((value>>8)&15)*16,8+((value>>4)&15)*16,8+(value&15)*16].join(',')+')';
+      marker.fillRect(half*16,0,16,32);
+    }
+  }
   function resize(){canvas.width=innerWidth*devicePixelRatio;canvas.height=innerHeight*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);}
   resize();addEventListener('resize',resize);
   function send(name,payload){api.postMessage(JSON.stringify({kind:'send',name,payload}));}

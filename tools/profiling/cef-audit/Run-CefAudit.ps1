@@ -45,6 +45,7 @@ $metadata = [ordered]@{
     hosts = $hosts; stockHostOverride = [bool]$StockHost
     hashes = @(Get-FileHash -LiteralPath $exe,(Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.dll'),(Join-Path (Split-Path $hosts.stock -Parent) 'osfui_cef_host.dll'),$hosts.webview2,(Join-Path $assets 'bench\main\index.html') | Select-Object Path,Hash)
 }
+$metadata.hashes += Get-FileHash -LiteralPath (Join-Path $PSScriptRoot '..\backend-bench\main.cpp'),(Join-Path $PSScriptRoot '..\backend-bench\Marker.h') | Select-Object Path,Hash
 $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutDir 'metadata.json') -Encoding utf8
 Copy-Item -LiteralPath (Join-Path $repo 'build\cef-audit\source\source-hashes.json') -Destination $OutDir
 $sourceEvidence = Join-Path $OutDir 'diagnostic-sources'

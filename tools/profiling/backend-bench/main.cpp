@@ -23,6 +23,7 @@
 #include "BrowserPipe.h"
 #include "BrowserMessages.h"
 #include "Win32Util.h"
+#include "Marker.h"
 
 using Microsoft::WRL::ComPtr;
 using json=nlohmann::json;
@@ -84,7 +85,7 @@ struct Consumer {
         HANDLE h=reinterpret_cast<HANDLE>(ring.produceFence);auto hr=device5->OpenSharedFence(h,IID_PPV_ARGS(&produce));CloseHandle(h);Check(hr,"open produce fence");
         D3D11_TEXTURE2D_DESC desc{};slots.at(0)->GetDesc(&desc);desc.MiscFlags=0;desc.BindFlags=0;
         Check(device->CreateTexture2D(&desc,nullptr,&owned),"owned consumer texture");
-        desc.Width=4;desc.Height=1;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        desc.Width=7;desc.Height=1;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
         Check(device->CreateTexture2D(&desc,nullptr,&pixel),"marker staging");
     }
     std::array<UINT,4> Consume(const msg::Frame& frame,bool mixed){
@@ -92,15 +93,18 @@ struct Consumer {
         Check(context4->Wait(produce.Get(),frame.serial),"wait produce");
         context->CopyResource(owned.Get(),slots[frame.slot].Get());
         for(UINT i=0;i<(mixed?3u:1u);++i){
-            const UINT x=width*i/3+8;const D3D11_BOX box{x,8,0,x+1,9,1};
-            context->CopySubresourceRegion(pixel.Get(),0,i,0,0,owned.Get(),0,&box);
+            for(UINT half=0;half<2;++half){
+                const UINT x=width*i/3+8+half*16;const D3D11_BOX box{x,8,0,x+1,9,1};
+                context->CopySubresourceRegion(pixel.Get(),0,i*2+half,0,0,owned.Get(),0,&box);
+            }
         }
-        if(mixed){const UINT x=width/3+200;const D3D11_BOX box{x,60,0,x+1,61,1};context->CopySubresourceRegion(pixel.Get(),0,3,0,0,owned.Get(),0,&box);}
+        if(mixed){const UINT x=width/3+200;const D3D11_BOX box{x,60,0,x+1,61,1};context->CopySubresourceRegion(pixel.Get(),0,6,0,0,owned.Get(),0,&box);}
         Check(context4->Signal(done.Get(),++serial),"signal consumer");context->Flush();
         if(done->GetCompletedValue()<serial){Check(done->SetEventOnCompletion(serial,event),"consumer event");if(WaitForSingleObject(event,3000)!=WAIT_OBJECT_0)throw std::runtime_error("consumer GPU timeout");}
         D3D11_MAPPED_SUBRESOURCE mapped{};Check(context->Map(pixel.Get(),0,D3D11_MAP_READ,0,&mapped),"marker read");
         std::array<UINT,4> values{};
-        for(UINT i=0;i<(mixed?4u:1u);++i){const auto* p=static_cast<unsigned char*>(mapped.pData)+i*4;values[i]=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;}
+        for(UINT i=0;i<(mixed?3u:1u);++i)values[i]=bench::DecodeMarker(static_cast<const std::uint8_t*>(mapped.pData)+i*8);
+        if(mixed){const auto* p=static_cast<const std::uint8_t*>(mapped.pData)+24;values[3]=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;}
         context->Unmap(pixel.Get(),0);return values;
     }
     // Outside performance windows. Read actual premultiplied BGRA output,
@@ -160,7 +164,7 @@ struct Bench {
         if(!pipe.WaitForClient(20000))throw std::runtime_error("host did not connect: "+pipe.LastErrorText());
         reader=std::thread([this]{std::string payload;while(pipe.ReadMessage(payload)){auto value=json::parse(payload,nullptr,false);if(value.is_discarded())continue;const auto now=Seconds();{std::lock_guard lock(mutex);messages.push_back({std::move(value),now});}SetEvent(wake);}disconnected=true;SetEvent(wake);});
         result["adapter"]=consumer.adapterName;result["width"]=width;result["height"]=height;result["pid"]=pi.dwProcessId;
-        result["consumer"]="D3D11 GPU copy plus 1 marker (3 and a HUD erase probe for mixed views) in one readback; acknowledgements after GPU completion";
+        result["consumer"]="D3D11 GPU copy plus 2 marker pixels (6 and a HUD erase probe for mixed views) in one readback; acknowledgements after GPU completion";
         Send(msg::Init{.topLevelHwnd=reinterpret_cast<UINT64>(window),.viewsPath=osfui::win32::ToUtf8(assets.wstring()),.legacyViewsPath=osfui::win32::ToUtf8(assets.wstring()),.width=width,.height=height,.userDataDir=osfui::win32::ToUtf8(profile.wstring()),.devMode=false,.language="en",.adapterLuidLow=consumer.adapter.LowPart,.adapterLuidHigh=static_cast<UINT>(consumer.adapter.HighPart)});
         Send(msg::WindowActive{.active=true});Send(msg::Viewport{.width=width,.height=height,.presentationEpoch=1});
         Send(msg::Navigate{.id="bench/main",.entry="index.html",.logicalHeight=height});
@@ -189,7 +193,7 @@ struct Bench {
                 if(holdAcks)heldAcks.push_back(ack);else Send(ack);lastEpoch=frame.presentationEpoch;if(!firstFrame)firstFrame=received.time;
                 const bool valid=marker>=0x110000&&marker<0x200000;if(valid&&!firstContent)firstContent=received.time;
                 if(measuring){frames++;consumeTimes.push_back(cost);if(previousFrame)intervals.push_back((received.time-previousFrame)*1000);previousFrame=received.time;
-                    if(!valid){invalid++;if(lifecycle)events<<json{{"seconds",received.time-start},{"invalid_marker",marker},{"epoch",frame.presentationEpoch},{"phase",phase}}.dump()<<'\n';}else if(marker!=lastMarker){unique++;if(previousUnique)uniqueIntervals.push_back((received.time-previousUnique)*1000);previousUnique=received.time;}}
+                    if(!valid){invalid++;if(invalid<=16)events<<json{{"seconds",received.time-start},{"invalid_marker",marker},{"epoch",frame.presentationEpoch},{"phase",phase}}.dump()<<'\n';}else if(marker!=lastMarker){unique++;if(previousUnique)uniqueIntervals.push_back((received.time-previousUnique)*1000);previousUnique=received.time;}}
                 lastMarker=marker;
                 if(mixed){
                     for(size_t i=0;i<3;++i){

@@ -6,7 +6,7 @@ Build both helpers first (`xmake build 'OSF UI'` with the WebView2 edition selec
 
 Close Starfield normally first. The runner checks before starting and once per second during each session. If the game starts, the current session finishes and is marked with `contention.json`; the comparison stops and the summarizer rejects it. The runner never closes the game. Other background GPU work can also distort results and should be avoided.
 
-The consumer selects the high-performance DXGI adapter and passes its LUID to both helpers. Each completed frame is copied on the GPU into an owned texture. A single encoded pixel is read after a completion fence, before acknowledging the ring slot. This verifies nonblank content and counts changed frames rather than duplicated captures. Screenshots are read outside measurement windows. The benchmark's own process and copy cost are excluded from reported browser CPU, but the extra GPU work remains part of this environment.
+The consumer selects the high-performance DXGI adapter and passes its LUID to both helpers. Each completed frame is copied on the GPU into an owned texture. Two encoded pixels are read after a completion fence, before acknowledging the ring slot. They encode the full 24-bit serial in six channel nibbles, with two levels of conversion tolerance per channel. This avoids false frame changes or invalid IDs when WGC shifts RGB channels slightly. Invalid bins or nonopaque pixels are rejected. This verifies nonblank content and counts changed frames rather than duplicated captures. Screenshots are read outside measurement windows. The benchmark's own process and copy cost are excluded from reported browser CPU, but the extra GPU work remains part of this environment. Run the decoder checks with `ctest --test-dir build/backend-bench -C Release --output-on-failure`.
 
 Measurements:
 
@@ -21,7 +21,7 @@ Workloads in `view.html`: static 160-card menu; 700-circle canvas animation targ
 
 Two mixed cases combine a 60 Hz animated DOM menu, a small transparent HUD at
 10 or 30 Hz, and a static translucent overlay. Separate markers expose each
-layer through the others. Three markers and a HUD erase pixel are read in one GPU completion/map,
+layer through the others. Three two-pixel markers and a HUD erase pixel are read in one GPU completion/map,
 with independent freshness and gap statistics in `layers`; the main FPS column
 describes the menu. Both animated layers must advance, every marker must remain
 valid, and the static marker must remain unchanged. The HUD alternates widths;

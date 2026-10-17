@@ -6,3 +6,8 @@ target_compile_definitions(osfui_backend_bench PRIVATE WIN32_LEAN_AND_MEAN NOMIN
 target_compile_options(osfui_backend_bench PRIVATE /EHsc /utf-8)
 target_include_directories(osfui_backend_bench PRIVATE "${JSON_INCLUDE}" ../../../src ../../browser_shared)
 target_link_libraries(osfui_backend_bench PRIVATE d3d11 dxgi psapi pdh ole32 windowscodecs user32)
+
+enable_testing()
+add_executable(marker_tests marker_tests.cpp)
+target_compile_features(marker_tests PRIVATE cxx_std_17)
+add_test(NAME marker_tests COMMAND marker_tests)

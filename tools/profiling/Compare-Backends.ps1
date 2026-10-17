@@ -63,6 +63,7 @@ foreach ($file in @($exe, $hosts.webview2, $hosts.cef, (Join-Path (Split-Path $h
 foreach ($header in 'PaintDamage.h','FrameSchedule.h','RevealState.h') {
     $metadata.hashes += Get-FileHash -LiteralPath (Join-Path $repo "tools\cef_host\$header") -Algorithm SHA256 | Select-Object Path,Hash
 }
+$metadata.hashes += Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'backend-bench\Marker.h') -Algorithm SHA256 | Select-Object Path,Hash
 $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutDir 'metadata.json') -Encoding utf8
 foreach ($height in $Heights) {
     $width = [int]($height * 16 / 9)
