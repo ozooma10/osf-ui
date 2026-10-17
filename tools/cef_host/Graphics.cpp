@@ -87,7 +87,7 @@ namespace osfui::cefhost
         Check(device_->CreateShaderResourceView(surface.texture.Get(), nullptr, &surface.resource), "Create surface SRV");
         surface.width = width; surface.height = height;
     }
-    void Graphics::CopyPaint(HANDLE borrowed, const RECT& visible, Surface& destination)
+    void Graphics::CopyPaint(HANDLE borrowed, PaintRect visible, PaintRect copy, Surface& destination)
     {
         ComPtr<ID3D11Texture2D> source;
         Check(device1_->OpenSharedResource1(borrowed, IID_PPV_ARGS(&source)), "Open CEF paint texture on game adapter");
@@ -96,13 +96,18 @@ namespace osfui::cefhost
         if (desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM || desc.SampleDesc.Count != 1 || desc.ArraySize != 1 || desc.MipLevels != 1)
             throw GraphicsError(E_INVALIDARG, "Unsupported CEF paint texture format");
         // CEF's allocation may include padding outside the visible frame.
-        if (visible.left < 0 || visible.top < 0 || visible.right <= visible.left || visible.bottom <= visible.top ||
-            static_cast<UINT>(visible.right) > desc.Width || static_cast<UINT>(visible.bottom) > desc.Height)
+        if (visible.x < 0 || visible.y < 0 || visible.width <= 0 || visible.height <= 0 ||
+            visible.Right() > desc.Width || visible.Bottom() > desc.Height)
             throw GraphicsError(E_INVALIDARG, "Invalid CEF visible texture rectangle");
-        EnsureSurface(destination, visible.right - visible.left, visible.bottom - visible.top);
-        const D3D11_BOX box{ static_cast<UINT>(visible.left), static_cast<UINT>(visible.top), 0,
-            static_cast<UINT>(visible.right), static_cast<UINT>(visible.bottom), 1 };
-        context_->CopySubresourceRegion(destination.texture.Get(), 0, 0, 0, 0, source.Get(), 0, &box);
+        if (copy.x < visible.x || copy.y < visible.y || copy.width <= 0 || copy.height <= 0 ||
+            copy.Right() > visible.Right() || copy.Bottom() > visible.Bottom())
+            throw GraphicsError(E_INVALIDARG, "Invalid CEF damage rectangle");
+        // A newly allocated surface has no unchanged pixels to preserve.
+        if (!destination.texture || destination.width != static_cast<UINT>(visible.width) || destination.height != static_cast<UINT>(visible.height)) copy = visible;
+        EnsureSurface(destination, visible.width, visible.height);
+        const D3D11_BOX box{ static_cast<UINT>(copy.x), static_cast<UINT>(copy.y), 0,
+            static_cast<UINT>(copy.Right()), static_cast<UINT>(copy.Bottom()), 1 };
+        context_->CopySubresourceRegion(destination.texture.Get(), 0, copy.x - visible.x, copy.y - visible.y, 0, source.Get(), 0, &box);
         // CEF may reuse the source after this callback. Submitting a copy is not completion.
         const auto serial = ++copySerial_;
         const auto signalled = context4_->Signal(copyFence_.Get(), serial);

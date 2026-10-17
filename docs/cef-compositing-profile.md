@@ -98,3 +98,13 @@ markers, with 10 and 30 Hz HUD cases. It compiles; complete performance validati
 is pending. `baseline-performance/webview2-1440p-r1/contention.json` rejects the
 first performance session because another Starfield session started during it.
 The already-built candidate ZIPs still need their packaged in-game acceptance.
+
+Dirty copying now preserves the owned surface outside CEF's damaged region. It
+unions/clips damage in coded texture coordinates, translates into the visible
+surface, and copies the full frame after allocation, a changed visible rectangle,
+missing/discontinuous capture counters, or unusable damage. View and popup
+histories are independent and clear with their textures. The borrowed-resource
+completion wait is unchanged. The host builds and all 20 damage-planner checks
+pass, including pixel preservation after a dropped capture and erased content.
+Diagnostics now record copied MiB and the fraction of the visible frame copied.
+Runtime correctness and performance remain to be measured on a clear desktop.

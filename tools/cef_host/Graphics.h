@@ -7,6 +7,7 @@
 #include <span>
 #include <stdexcept>
 #include "BrowserMessages.h"
+#include "PaintDamage.h"
 
 namespace osfui::cefhost
 {
@@ -23,7 +24,8 @@ namespace osfui::cefhost
         ComPtr<ID3D11Texture2D> texture;
         ComPtr<ID3D11ShaderResourceView> resource;
         UINT width{}, height{};
-        void Clear() { texture.Reset(); resource.Reset(); width = height = 0; }
+        PaintDamage damage;
+        void Clear() { texture.Reset(); resource.Reset(); width = height = 0; damage = {}; }
     };
     struct Layer
     {
@@ -38,7 +40,7 @@ namespace osfui::cefhost
         Graphics() = default;
         ~Graphics();
         void Initialize(LUID adapter, HANDLE game, Send send);
-        void CopyPaint(HANDLE borrowed, const RECT& visible, Surface& destination);
+        void CopyPaint(HANDLE borrowed, PaintRect visible, PaintRect copy, Surface& destination);
         bool Publish(std::span<const Layer> layers, UINT width, UINT height, std::uint64_t epoch);
         void Acknowledge(UINT slot, std::uint64_t serial);
 

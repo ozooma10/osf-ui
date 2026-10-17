@@ -662,13 +662,17 @@ namespace osfui::cefhost
     }
     void View::OnPaint(CefRefPtr<CefBrowser>, PaintElementType, const RectList&, const void*, int, int)
     { owner.Fatal("cef-paint", E_NOTIMPL, "CEF supplied software pixels; this prototype requires accelerated OSR"); }
-    void View::OnAcceleratedPaint(CefRefPtr<CefBrowser>, PaintElementType type, const RectList&, const CefAcceleratedPaintInfo& info)
+    void View::OnAcceleratedPaint(CefRefPtr<CefBrowser>, PaintElementType type, const RectList& dirtyRects, const CefAcceleratedPaintInfo& info)
     {
         if (closing || hidden || owner.stopping) return;
         try {
             const auto& rect = info.extra.visible_rect;
-            owner.graphics.CopyPaint(info.shared_texture_handle,
-                RECT{ rect.x, rect.y, rect.x + rect.width, rect.y + rect.height }, type == PET_POPUP ? popup : surface);
+            const PaintRect visible{ rect.x, rect.y, rect.width, rect.height };
+            const auto counter = info.extra.has_capture_counter ? std::optional<std::uint64_t>(info.extra.capture_counter) : std::nullopt;
+            auto& target = type == PET_POPUP ? popup : surface;
+            const auto copy = target.damage.Select(visible, dirtyRects, counter);
+            owner.graphics.CopyPaint(info.shared_texture_handle, visible, copy, target);
+            target.damage.Copied(visible, counter);
             if (type == PET_VIEW) { ++paintSerial; lastPaint = FramePacer::Clock::now(); }
             if (type == PET_VIEW && revealSeen) awaitingPaint = false;
             if (!hidden && (type == PET_VIEW || popupShown)) owner.MarkDirty();
