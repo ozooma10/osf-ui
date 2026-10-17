@@ -14,7 +14,7 @@ Measurements:
 - New output frames per second, delivered messages, frame-gap percentiles, and consumer copy/wait timing. A static page producing zero new frames is expected.
 - Native-to-JavaScript echo round-trip latency at 10 Hz. This does not measure mouse/controller input-to-photon latency.
 - CPU time summed across the helper and its descendants. 100% means one logical CPU; divide by logical CPU count for whole-machine percentage. Exited discovered processes remain in the CPU accounting.
-- Summed process-private committed memory, working set, and process counts. Private commit is not resident RAM or VRAM. Summed working set may count shared pages multiple times.
+- Summed process-private committed memory, working set, and process counts, with per-process memory snapshots for attribution. Private commit is not resident RAM or VRAM. Summed working set may count shared pages multiple times.
 - Optional Windows GPU Engine counters, summed across descendant processes/engines. This is not a whole-GPU utilization percentage, and excludes DWM and other shared services.
 
 Workloads in `view.html`: static 160-card menu; 700-circle canvas animation targeting 60 updates/s; animated DOM transforms and width changes; three overlapping full-size canvas views. The static page retains a lightweight requestAnimationFrame callback, one stats message per second, and the 10 Hz echo. Browser animation timers and OS composition cadence can limit output below the page's target update rate.
@@ -29,6 +29,6 @@ For an explicitly requested scheduler/lifecycle check, run this separately from 
 & tools/profiling/Compare-Backends.ps1 -SkipBuild -Lifecycle -Backends cef -Repetitions 1 -Heights 1080 -OutDir build/cef-scheduling/lifecycle-check
 ```
 
-This fills the actual output ring, checks that bridge traffic stays responsive, switches to static content while blocked, and verifies that releasing acknowledgments publishes the pending pixels without a continuing paint stream. It then exercises hide/show, a 300-message burst, resize while blocked, destroy/reopen, and normal shutdown. Lifecycle results have no performance phases and should not be passed to the performance summarizer.
+This fills the actual output ring, checks that bridge traffic stays responsive, switches to static content while blocked, and verifies that releasing acknowledgments publishes the pending pixels without a continuing paint stream. It then exercises hide/show, a 300-message burst, resize while blocked, destroy/reopen, and normal shutdown. Three additional static views use red, half-transparent green and half-transparent blue areas. Pixel reads verify all layers and their overlap, z-order changes, hide/reshow, and destroying the top layer. Screenshots retain the layer test output. Lifecycle results have no performance phases and should not be passed to the performance summarizer.
 
 The results do not establish Starfield FPS, D3D12 compositing cost, MO2 materialization time, disk footprint, long-session stability, or performance of a particular mod's UI. Use the existing in-game capture workflow for those questions.

@@ -12,10 +12,16 @@
   function resize(){canvas.width=innerWidth*devicePixelRatio;canvas.height=innerHeight*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);}
   resize();addEventListener('resize',resize);
   function send(name,payload){api.postMessage(JSON.stringify({kind:'send',name,payload}));}
+  function layers(){
+    const view=location.pathname.split('/')[2];
+    ctx.clearRect(0,0,innerWidth,innerHeight);
+    ctx.fillStyle=view==='main'?'#ff0000':view==='second'?'rgba(0,255,0,.5)':'rgba(0,0,255,.5)';
+    ctx.fillRect(view==='third'?innerWidth/3:0,0,view==='main'?innerWidth:innerWidth*2/3,innerHeight);
+  }
   api.onMessage=text=>{const m=JSON.parse(text);if(m.name==='bench.ping')send('bench.pong',m.payload);
     if(m.name==='bench.marker'){serial=m.payload.serial-1;mark();}
-    if(m.name==='bench.mode'){mode=m.payload.mode;frames=0;next=0;angle=0;panel.style.display=mode==='canvas'?'none':'block';ctx.clearRect(0,0,innerWidth,innerHeight);cards.forEach(c=>c.style.transform='');mark();send('bench.modeReady',{mode});}}
-  function tick(now){requestAnimationFrame(tick);if(mode==='idle')return;if(now+0.5<next)return;next=Math.max(next+1000/60,now-1000/60);angle+=1/60;
+    if(m.name==='bench.mode'){mode=m.payload.mode;frames=0;next=0;angle=0;panel.style.display=(mode==='canvas'||mode==='layers')?'none':'block';ctx.clearRect(0,0,innerWidth,innerHeight);cards.forEach(c=>c.style.transform='');if(mode==='layers')layers();mark();send('bench.modeReady',{mode});}}
+  function tick(now){requestAnimationFrame(tick);if(mode==='idle'||mode==='layers')return;if(now+0.5<next)return;next=Math.max(next+1000/60,now-1000/60);angle+=1/60;
     if(mode==='canvas'){ctx.fillStyle='#101b29';ctx.fillRect(0,0,innerWidth,innerHeight);for(let i=0;i<700;i++){const x=(i*97+angle*(30+i%80))%innerWidth,y=(i*53+Math.sin(angle+i)*60+innerHeight)%innerHeight;ctx.fillStyle='hsl('+(i*17%360)+' 65% 55% / .7)';ctx.beginPath();ctx.arc(x,y,8+i%22,0,Math.PI*2);ctx.fill();}}
     else if(mode==='dom'){for(let i=0;i<cards.length;i++){cards[i].style.transform='translateX('+Math.sin(angle*3+i)*12+'px)';cards[i].querySelector('.bar').style.width=(50+40*Math.sin(angle+i))+'%';}}
     frames++;mark();}

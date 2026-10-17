@@ -8,6 +8,7 @@
 #include <pdh.h>
 #include <pdhmsg.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -51,7 +52,7 @@ struct Processes {
     json Sample(){
         Discover();double cpu=0,rootCpu=0,commit=0,working=0;UINT live=0;json perProcess=json::object();
         for(auto [id,h]:handles){FILETIME create{},exit{},kernel{},user{};if(GetProcessTimes(h,&create,&exit,&kernel,&user)){const auto seconds=(FileTicks(kernel)+FileTicks(user))/1e7;cpu+=seconds;if(id==root)rootCpu=seconds;perProcess[std::to_string(id)]["cpu_seconds"]=seconds;}
-            if(WaitForSingleObject(h,0)==WAIT_TIMEOUT){live++;PROCESS_MEMORY_COUNTERS_EX m{};if(GetProcessMemoryInfo(h,reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&m),sizeof(m))){commit+=m.PrivateUsage;working+=m.WorkingSetSize;}}}
+            if(WaitForSingleObject(h,0)==WAIT_TIMEOUT){live++;PROCESS_MEMORY_COUNTERS_EX m{};if(GetProcessMemoryInfo(h,reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&m),sizeof(m))){commit+=m.PrivateUsage;working+=m.WorkingSetSize;perProcess[std::to_string(id)]["private_commit_mib"]=m.PrivateUsage/1048576.0;perProcess[std::to_string(id)]["working_set_mib"]=m.WorkingSetSize/1048576.0;}}}
         double gpuTotal=0;bool gpuValid=false;
         if(gpu&&PdhCollectQueryData(query)==ERROR_SUCCESS){DWORD bytes=0,count=0;if(PdhGetFormattedCounterArrayW(gpu,PDH_FMT_DOUBLE|PDH_FMT_NOCAP100,&bytes,&count,nullptr)==PDH_MORE_DATA){
             std::vector<unsigned char> memory(bytes);auto data=reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W*>(memory.data());
@@ -95,6 +96,13 @@ struct Consumer {
         if(done->GetCompletedValue()<serial){Check(done->SetEventOnCompletion(serial,event),"consumer event");if(WaitForSingleObject(event,3000)!=WAIT_OBJECT_0)throw std::runtime_error("consumer GPU timeout");}
         D3D11_MAPPED_SUBRESOURCE mapped{};Check(context->Map(pixel.Get(),0,D3D11_MAP_READ,0,&mapped),"marker read");
         auto* p=static_cast<unsigned char*>(mapped.pData);const UINT value=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;context->Unmap(pixel.Get(),0);return value;
+    }
+    // Outside performance windows. Read actual premultiplied BGRA output,
+    // including alpha, so a correct top marker cannot hide broken lower layers.
+    std::array<int,4> Pixel(UINT x,UINT y){
+        const D3D11_BOX box{x,y,0,x+1,y+1,1};context->CopySubresourceRegion(pixel.Get(),0,0,0,0,owned.Get(),0,&box);
+        D3D11_MAPPED_SUBRESOURCE mapped{};Check(context->Map(pixel.Get(),0,D3D11_MAP_READ,0,&mapped),"layer pixel read");
+        const auto* p=static_cast<unsigned char*>(mapped.pData);std::array<int,4> value{p[2],p[1],p[0],p[3]};context->Unmap(pixel.Get(),0);return value;
     }
     void Save(const fs::path& path){
         if(!owned)return;
@@ -223,6 +231,39 @@ struct Bench {
         const auto settledInvalid=invalid;RunFor(.2);
         require(invalid==settledInvalid,"destroy and reopen publishes fresh stable document pixels");
         consumer.Save(output/"reopened.png");
+        phase="layers";modeReady.clear();
+        Send(msg::SetOrder{.view="bench/main",.order=0});
+        for(const auto* id:{"bench/second","bench/third"}){
+            Send(msg::Navigate{.id=id,.entry="index.html",.logicalHeight=720});
+            Send(msg::SetOrder{.view=id,.order=std::string(id)=="bench/second"?1:2});
+            Send(msg::SetHidden{.view=id,.hidden=false,.presentationEpoch=6});
+        }
+        WaitUntil([&]{return ready.size()==3;},10,"layer documents ready");
+        for(const auto& view:ready)SetMode(view,"layers");
+        WaitUntil([&]{return modeReady.size()==3;},5,"layer fixtures ready");
+        auto matches=[&](UINT x,std::array<int,4> expected){
+            auto actual=consumer.Pixel(x,consumer.height/2);
+            for(size_t i=0;i<4;++i)if(std::abs(actual[i]-expected[i])>2)return false;
+            return true;
+        };
+        auto layered=[&]{return matches(consumer.width/6,{127,128,0,255})&&
+            matches(consumer.width/2,{63,64,128,255})&&matches(consumer.width*5/6,{127,0,128,255});};
+        WaitUntil(layered,5,"three transparent layers");
+        require(true,"three views preserve transparency and every overlapping layer");consumer.Save(output/"layers.png");
+        Send(msg::SetOrder{.view="bench/second",.order=3});
+        WaitUntil([&]{return matches(consumer.width/2,{63,128,64,255});},5,"changed layer order");
+        require(true,"z-order changes recomposite static layers");
+        // The shared client advances presentation epochs on show, not on hide.
+        Send(msg::SetHidden{.view="bench/second",.hidden=true,.presentationEpoch=6});
+        WaitUntil([&]{return lastEpoch==6&&matches(consumer.width/6,{255,0,0,255})&&matches(consumer.width/2,{127,0,128,255});},5,"hide middle layer");
+        require(true,"hiding a layer exposes the correct pixels below it");
+        Send(msg::SetOrder{.view="bench/second",.order=1});
+        Send(msg::SetHidden{.view="bench/second",.hidden=false,.presentationEpoch=8});
+        WaitUntil([&]{return lastEpoch==8&&layered();},5,"reshow static layer");
+        require(true,"reshowing a static layer restores fresh complete composition");
+        Send(msg::DestroyView{.view="bench/third"});
+        WaitUntil([&]{return matches(consumer.width/2,{127,128,0,255})&&matches(consumer.width*5/6,{255,0,0,255});},5,"destroy top layer");
+        require(true,"destroying the top layer preserves lower views");
         SetMode("bench/main","canvas"); // Shut down with live paints and scheduled work.
         measuring=false;
     }

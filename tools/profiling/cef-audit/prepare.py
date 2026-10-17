@@ -1,7 +1,7 @@
 """Generate a diagnostic helper from current sources, failing on source drift.
 
-Production sources and installed binaries are never modified. The three modes
-share one instrumented binary: baseline, immediate messages, coalesced events.
+Production sources and installed binaries are never modified. Baseline instruments
+the current scheduler; copyonly and discard are diagnostic output ablations.
 """
 import hashlib
 import json
@@ -35,52 +35,33 @@ text = replace(text, 'add_subdirectory("${CEF_LIBCEF_DLL_WRAPPER_PATH}" libcef_d
 
 text = (SRC / "Host.cpp").read_text()
 text = replace(text, '#include "Graphics.h"', '#include "Graphics.h"\n#include "Audit.h"')
+text = replace(text, 'command->AppendSwitchWithValue("use-angle", "d3d11");', '''command->AppendSwitchWithValue("use-angle", "d3d11");
+            if (audit::Env("OSFUI_CEF_AUDIT_MODE") == "reuse") command->AppendSwitch("process-per-site");''')
 text = replace(text, 'std::deque<std::string> queue;', '''struct Queued { std::string text; double arrival; };
         std::deque<Queued> queue;
-        std::atomic_bool messageWake{};
-        bool composeWake{};
-        double newestPaint{};
-        void WakeMessages() {
-            if (audit::EventMessages() && !messageWake.exchange(true))
-                CefPostTask(TID_UI, new Task([this] { messageWake = false; DrainMessages(); if (audit::EventPaint()) Compose(); }));
-        }
-        void WakeCompose() {
-            if (audit::EventPaint() && !composeWake) {
-                composeWake = true;
-                CefPostTask(TID_UI, new Task([this] { composeWake = false; Compose(); }));
-            }
-        }
-        void DrainMessages() {
-            for (int count = 0; !stopping && count < 128; ++count) {
-                Queued value;
-                { std::scoped_lock lock(queueMutex); if (queue.empty()) break;
-                  value = std::move(queue.front()); queue.pop_front(); queueBytes -= value.text.size(); }
-                if (auto parsed = Json::Parse(value.text)) {
-                    const auto type = Json::Get(*parsed, "type", "");
-                    audit::Record("queue_ms." + type, (audit::Now() - value.arrival) * 1000);
-                    audit::Span span("handle_ms." + type); Handle(*parsed);
-                }
-            }
-        }''')
+        double newestPaint{};''')
 text = replace(text, 'const bool ok = pipe.WriteMessage(Json::Dump(value))', 'audit::Span span("pipe_send_ms");\n            const bool ok = pipe.WriteMessage(Json::Dump(value))')
-text = replace(text, 'stopping = true;\n            closeDeadline', 'stopping = true;\n            audit::Write();\n            audit::EndTrace();\n            closeDeadline')
+text = replace(text, 'stopping = true;\n            closeDeadline', 'stopping = true;\n            audit::traceFinished = [this] { CheckShutdown(); };\n            audit::EndTrace();\n            closeDeadline')
 text = replace(text, 'closeDeadline = GetTickCount64() + 5000;', 'closeDeadline = GetTickCount64() + (audit::traceDone ? 5000 : 30000);')
-text = replace(text, 'queueBytes += payload.size(); queue.push_back(std::move(payload));', 'queueBytes += payload.size(); queue.push_back({std::move(payload), audit::Now()});\n                WakeMessages();')
+text = replace(text, 'queueBytes += payload.size(); queue.push_back(std::move(payload));', 'queueBytes += payload.size(); queue.push_back({std::move(payload), audit::Now()});')
+text = replace(text, 'std::string payload;\n                { std::scoped_lock lock(queueMutex);', 'Queued payload;\n                { std::scoped_lock lock(queueMutex);')
+text = replace(text, 'queueBytes -= payload.size();', 'queueBytes -= payload.text.size();')
+text = replace(text, 'if (auto value = Json::Parse(payload)) Handle(*value);', '''if (auto value = Json::Parse(payload.text)) {
+                    const auto type = Json::Get(*value, "type", "");
+                    audit::Record("queue_ms." + type, (audit::Now() - payload.arrival) * 1000);
+                    audit::Span span("handle_ms." + type); Handle(*value);
+                }''')
 text = replace(text, 'else if (type == msg::PostWeb::kType) view->Deliver(msg::FromJson<msg::PostWeb>(raw).json);',
                'else if (type == msg::PostWeb::kType) { const auto text = msg::FromJson<msg::PostWeb>(raw).json; if (!audit::Control(text)) view->Deliver(text); }')
-start = text.index('                for (int count = 0; !stopping && count < 128; ++count) {', text.index('        void Pump()'))
-end = text.index('                Compose();', start)
-text = text[:start] + '                DrainMessages();\n' + text[end:]
-text = replace(text, 'void Pump()\n        {\n            try {', 'void Pump()\n        {\n            audit::Interval("pump_interval_ms");\n            audit::Span span("pump_ms");\n            try {')
-text = replace(text, 'if (!open) { CefQuitMessageLoop(); return; }', 'if (!open && audit::traceDone) { CefQuitMessageLoop(); return; }')
+text = replace(text, 'if (!open) { tasksAlive->store(false);', 'if (!open && audit::traceDone) { tasksAlive->store(false);')
 text = replace(text, 'if (!dirty || stopping) return;', 'if (!dirty || stopping || audit::NoOutput()) return;\n            audit::Span span("compose_ms");')
-text = replace(text, 'if (graphics.Publish(layers, width, height, epoch)) dirty = false;', '''if (graphics.Publish(layers, width, height, epoch)) {
-                dirty = false; audit::Count("published"); audit::Interval("publish_interval_ms");
+text = replace(text, 'dirty = false;\n                framePacer.Published', '''dirty = false; audit::Count("published"); audit::Interval("publish_interval_ms");
                 if (newestPaint) audit::Record("newest_paint_to_publish_ms", (audit::Now() - newestPaint) * 1000);
-            } else audit::Count("ring_backpressure");''')
+                framePacer.Published''')
+text = replace(text, '} else frameBlocked = true;', '} else { frameBlocked = true; audit::Count("ring_backpressure"); }')
 text = replace(text, 'if (closing || owner.stopping) return;\n        try {', 'if (closing || owner.stopping) return;\n        audit::Span span("paint_callback_ms");\n        audit::Interval("paint_interval_ms." + id);\n        audit::Count("paint_count." + id);\n        if (audit::DiscardPaint()) return;\n        try {')
-text = replace(text, 'owner.dirty = true;\n        } catch (const GraphicsError& error)', 'owner.dirty = true; owner.newestPaint = audit::Now(); owner.WakeCompose();\n        } catch (const GraphicsError& error)')
-text = replace(text, 'void Application::OnContextInitialized() { if (host) host->Pump(); }', 'void Application::OnContextInitialized() { audit::BeginTrace(); if (host) host->Pump(); }')
+text = replace(text, 'if (type == PET_VIEW && revealSeen)', 'owner.newestPaint = audit::Now();\n            if (type == PET_VIEW && revealSeen)')
+text = replace(text, 'void Application::OnContextInitialized() {', 'void Application::OnContextInitialized() { audit::BeginTrace();')
 text = replace(text, 'Host host;\n        host.log.open', 'audit::Init(std::filesystem::path(logPath));\n        Host host;\n        host.log.open')
 text = replace(text, 'CefShutdown();\n        app->host', 'audit::Write();\n        CefShutdown();\n        app->host')
 (OUT / "Host.cpp").write_text(text)

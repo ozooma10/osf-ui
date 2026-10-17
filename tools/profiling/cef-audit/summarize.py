@@ -17,6 +17,8 @@ for root in map(Path, args.roots):
     for run in sorted(root.iterdir()):
         if not (run / "result.json").exists():
             continue
+        if (run / "contention.json").exists():
+            raise RuntimeError(f"Game contention invalidated {run}")
         result = json.loads((run / "result.json").read_text())
         audit = json.loads((run / "audit.json").read_text()) if (run / "audit.json").exists() else {}
         for phase in result["phases"]:

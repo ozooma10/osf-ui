@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string[]]$Cases = @('baseline', 'messages', 'events'),
+    [ValidateSet('baseline','reuse','copyonly','discard','stock','webview2')]
+    [string[]]$Cases = @('stock', 'baseline'),
     [int]$Repetitions = 3,
     [int]$Height = 1080,
     [double]$Seconds = 6,
@@ -11,14 +12,15 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+function RunningGame { @(Get-Process -Name Starfield -ErrorAction SilentlyContinue | Select-Object Id,StartTime) }
+if (@(RunningGame).Count) { throw 'Close Starfield normally before profiling browser helpers.' }
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 $OutDir = [IO.Path]::GetFullPath($OutDir)
 if (Test-Path -LiteralPath $OutDir) { throw 'Use a fresh evidence directory.' }
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 $hosts = @{
     baseline = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
-    messages = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
-    events = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
+    reuse = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
     copyonly = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
     discard = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
     stock = (Join-Path $repo 'build\cef-host\runtime\osfui_cef_host.exe')
@@ -53,6 +55,7 @@ try {
         # Rotate the first variant each repetition to reduce ordering bias.
         for ($offset = 0; $offset -lt $Cases.Count; $offset++) {
             $case = $Cases[($offset + $repeat - 1) % $Cases.Count]
+            if (@(RunningGame).Count) { throw 'Starfield started during this desktop audit.' }
             if (-not $hosts.ContainsKey($case)) { throw "Unknown case: $case" }
             $env:OSFUI_CEF_AUDIT_MODE = if ($case -in @('stock','webview2')) { $null } else { $case }
             $name = "$case-${Height}p-r$repeat"
@@ -62,7 +65,17 @@ try {
             $arguments = @('--backend', $(if ($case -eq 'webview2') { 'webview2' } else { 'cef' }), '--host', ('"' + $hosts[$case] + '"'), '--out', ('"' + $run + '"'), '--views', ('"' + $assets + '"'), '--profile', ('"' + (Join-Path $OutDir "profiles\$name") + '"'), '--width', ([int]($Height * 16 / 9)), '--height', $Height, '--seconds', $Seconds, '--warmup', $Warmup)
             if ($case -in @('copyonly','discard')) { $arguments += @('--allow-no-output', 'true') }
             $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $run 'stdout.log') -RedirectStandardError (Join-Path $run 'stderr.log')
-            if (-not $process.WaitForExit([int](1000 * (90 + 4 * ($Seconds + $Warmup))))) { $process.Kill(); throw "Timed out: $name" }
+            $wait = [Diagnostics.Stopwatch]::StartNew()
+            $contendingGames = @{}
+            do {
+                $exited = $process.WaitForExit(1000)
+                foreach ($gameProcess in @(RunningGame)) { $contendingGames[$gameProcess.Id] = $gameProcess }
+                if (-not $exited -and $wait.Elapsed.TotalSeconds -gt (90 + 4 * ($Seconds + $Warmup))) { $process.Kill(); throw "Timed out: $name" }
+            } while (-not $exited)
+            if ($contendingGames.Count) {
+                @{reason='Starfield ran during the desktop audit.';processes=@($contendingGames.Values)} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $run 'contention.json')
+                throw "Game contention invalidated $name; evidence retained."
+            }
             if ($process.ExitCode -ne 0) { Get-Content -LiteralPath (Join-Path $run 'stderr.log'); throw "Failed: $name" }
             Get-Content -LiteralPath (Join-Path $run 'stdout.log')
         }

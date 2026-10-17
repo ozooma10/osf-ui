@@ -7,6 +7,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@ inline double Now() { LARGE_INTEGER n{}, f{}; QueryPerformanceCounter(&n); Query
 inline std::string Env(const char* name) { char text[256]{}; GetEnvironmentVariableA(name, text, sizeof(text)); return text; }
 inline std::string mode = "baseline", phase = "unmeasured";
 inline bool traceStarted{}, traceDone = true, gpuEnabled{};
+inline std::function<void()> traceFinished;
 inline std::filesystem::path directory;
 inline json boundaries = json::array();
 inline std::map<std::string, std::map<std::string, std::vector<double>>> metrics;
@@ -32,8 +34,6 @@ struct Span {
     explicit Span(std::string n) : p(phase), name(std::move(n)), start(Now()) {}
     ~Span() { RecordFor(p, name, (Now() - start) * 1000); }
 };
-inline bool EventMessages() { return mode == "messages" || mode == "events"; }
-inline bool EventPaint() { return mode == "events"; }
 inline bool NoOutput() { return phase != "unmeasured" && (mode == "copyonly" || mode == "discard"); }
 inline bool DiscardPaint() { return phase != "unmeasured" && mode == "discard"; }
 inline void Init(const std::filesystem::path& log) {
@@ -56,7 +56,7 @@ inline void BeginTrace() {
     }
 }
 class TraceEnd final : public CefEndTracingCallback {
-    void OnEndTracingComplete(const CefString&) override { traceDone = true; }
+    void OnEndTracingComplete(const CefString&) override { traceDone = true; if (traceFinished) traceFinished(); }
     IMPLEMENT_REFCOUNTING(TraceEnd);
 };
 inline void EndTrace() { if (traceStarted) { traceStarted = false; if (!CefEndTracing((directory / "chromium-trace.json").wstring(), new TraceEnd)) traceDone = true; } }

@@ -2,14 +2,13 @@
 
 This is a desktop diagnostic, not a production backend change. It never deploys
 or launches Starfield. `prepare.py` copies the current CEF helper into
-`build/cef-audit/source`, checks every patch anchor, and adds instrumentation and
-experimental scheduling there. The original sources and runtime stay intact.
+`build/cef-audit/source`, checks every patch anchor, and adds instrumentation
+there. The original sources, scheduler and runtime stay intact.
 
-The patch anchors describe the pre-October-17 polling helper. Production now has
-event-driven scheduling and paced coalescing, so `prepare.py` intentionally fails
-on those changed anchors until its diagnostic hooks are ported. Existing audit
-runs retain their generated sources and binaries for the historical results.
-Use `Compare-Backends.ps1` for the current uninstrumented helpers.
+The hooks follow the event-driven scheduler and shared 60 Hz publication deadline.
+Historical polling/message/event experiments retain their generated sources and
+binaries in their original runs. Use `Compare-Backends.ps1` for uninstrumented
+comparisons. Close Starfield before either runner; game contention invalidates a run.
 
 The audit requires the normal CEF host to have been built first. It reuses that
 build's Release `libcef_dll_wrapper.lib` and the pinned `external/cef` SDK.
@@ -33,9 +32,8 @@ run sequentially and the first case rotates between repetitions.
 | Mode | Difference from the original helper |
 | --- | --- |
 | `stock` | Original built CEF helper, no instrumentation |
-| `baseline` | Stage timings only; original 16 ms polling/publication |
-| `messages` | Reader posts a coalesced UI task to drain messages immediately; publication keeps polling |
-| `events` | Immediate message dispatch plus coalesced UI tasks to publish dirty paint output; polling remains as a fallback |
+| `baseline` | Stage timings only; current production scheduler |
+| `reuse` | Same timings, with Chromium's same-site renderer process reuse switch |
 | `copyonly` | During measured intervals, retain CEF paint copies but suppress output composition/publication |
 | `discard` | During measured intervals, count CEF paint callbacks without touching their borrowed textures; suppress output |
 | `webview2` | Original WebView2 helper as a contemporaneous reference |
@@ -57,7 +55,7 @@ removing integration work, not a usable or validated rendering optimization.
   and compositor commands. Resolution is asynchronous with `DONOTFLUSH`; no
   extra GPU wait is introduced. These runs are a separate diagnostic group.
 - The consumer records total and root-process CPU, plus per-process cumulative
-  CPU snapshots. CPU 100% means one logical core. The CEF root contains OSF code
+  CPU, private commitment and working-set snapshots. CPU 100% means one logical core. The CEF root contains OSF code
   AND Chromium browser-process code. Child CPU contains JavaScript, layout,
   raster, driver and browser infrastructure work, not just CEF framework cost.
 - `-Trace` captures Chromium categories through CEF's official tracing API.
@@ -76,9 +74,8 @@ removing integration work, not a usable or validated rendering optimization.
 - A nonzero helper exit now fails the benchmark even if rendering completed.
   Older runs must be checked using `exit_code`, not just their `status` label.
 
-The diagnostic `events` implementation is an experiment without the production
-scheduler's shared 60 Hz deadline. The newer production implementation has
-separate desktop lifecycle, shutdown, visibility and backpressure checks;
-in-game validation remains outstanding.
 The borrowed CEF texture lifetime and copy-completion wait remain intact in all
 functional variants.
+
+`write_report.py` renders the historical polling-versus-event experiment only;
+use `summarize.py` for current audit data.
