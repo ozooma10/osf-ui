@@ -21,10 +21,12 @@ Workloads in `view.html`: static 160-card menu; 700-circle canvas animation targ
 
 Two mixed cases combine a 60 Hz animated DOM menu, a small transparent HUD at
 10 or 30 Hz, and a static translucent overlay. Separate markers expose each
-layer through the others. Three pixels are read in the same GPU completion/map,
+layer through the others. Three markers and a HUD erase pixel are read in one GPU completion/map,
 with independent freshness and gap statistics in `layers`; the main FPS column
 describes the menu. Both animated layers must advance, every marker must remain
-valid, and the static marker must remain unchanged. These synthetic cases exercise
+valid, and the static marker must remain unchanged. The HUD alternates widths;
+its marker determines whether the probe must show the bar or the cleared menu
+background, detecting trails from incomplete damage copies. These synthetic cases exercise
 sparse painting and mixed cadences; they do not represent a specific content mod.
 
 The runner records binary, fixture and CEF scheduling source hashes, OS/CPU/GPU details, and actual runtime versions. The bundled CEF runtime and installed Evergreen may use different Chromium versions: results compare these shipped implementations, not CEF and WebView2 in the abstract. Developer mode stays off. Each helper and its children belong to a benchmark-owned kill-on-close job; normal pipe shutdown is attempted first and reported. A failed workload stops the run and preserves evidence.

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('baseline','reuse','copyonly','discard','stock','webview2')]
+    [ValidateSet('baseline','fullcopy','reuse','copyonly','discard','stock','webview2')]
     [string[]]$Cases = @('stock', 'baseline'),
     [int]$Repetitions = 3,
     [int]$Height = 1080,
@@ -22,6 +22,7 @@ if (Test-Path -LiteralPath $OutDir) { throw 'Use a fresh evidence directory.' }
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 $hosts = @{
     baseline = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
+    fullcopy = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
     reuse = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
     copyonly = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
     discard = (Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.exe')
@@ -76,7 +77,7 @@ try {
             do {
                 $exited = $process.WaitForExit(1000)
                 foreach ($gameProcess in @(RunningGame)) { $contendingGames[$gameProcess.Id] = $gameProcess }
-                if (-not $exited -and $wait.Elapsed.TotalSeconds -gt (90 + 4 * ($Seconds + $Warmup))) { $process.Kill(); throw "Timed out: $name" }
+                if (-not $exited -and $wait.Elapsed.TotalSeconds -gt (90 + 6 * ($Seconds + $Warmup))) { $process.Kill(); throw "Timed out: $name" }
             } while (-not $exited)
             if ($contendingGames.Count) {
                 @{reason='Starfield ran during the desktop audit.';processes=@($contendingGames.Values)} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $run 'contention.json')

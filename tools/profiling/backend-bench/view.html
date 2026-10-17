@@ -40,7 +40,8 @@
     else if(mixed&&layer===1){
       // A small transparent HUD damages only its previous/current bar and marker.
       ctx.clearRect(innerWidth/3,40,260,64);ctx.fillStyle='rgba(20,210,100,.75)';
-      ctx.fillRect(innerWidth/3+8,48,80+80*(1+Math.sin(angle*3)),40);
+      // Alternate widths so output pixels can prove that shrinking clears old paint.
+      ctx.fillRect(innerWidth/3+8,48,(serial+1)&1?80:240,40);
     }
     else if(mode==='dom'||mixed){for(let i=0;i<cards.length;i++){cards[i].style.transform='translateX('+Math.sin(angle*3+i)*12+'px)';cards[i].querySelector('.bar').style.width=(50+40*Math.sin(angle+i))+'%';}}
     frames++;mark();}

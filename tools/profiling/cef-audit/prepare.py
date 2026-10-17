@@ -79,7 +79,8 @@ text = (SRC / "Graphics.cpp").read_text()
 text = replace(text, '#include "Graphics.h"', '#include "Graphics.h"\n#include "Audit.h"')
 text = replace(text, 'ComPtr<ID3D11Texture2D> source;\n        Check(device1_', 'audit::Span full("copy_total_ms");\n        auto opened = audit::Now();\n        ComPtr<ID3D11Texture2D> source;\n        Check(device1_')
 text = replace(text, 'D3D11_TEXTURE2D_DESC desc{};\n        source->GetDesc', 'audit::Record("copy_open_ms", (audit::Now() - opened) * 1000);\n        D3D11_TEXTURE2D_DESC desc{};\n        source->GetDesc')
-text = replace(text, 'const D3D11_BOX box{ static_cast<UINT>(copy.x)', '''audit::Record("copy_fraction", double(copy.width) * copy.height / (double(visible.width) * visible.height));
+text = replace(text, 'const D3D11_BOX box{ static_cast<UINT>(copy.x)', '''if (audit::mode == "fullcopy") copy = visible;
+        audit::Record("copy_fraction", double(copy.width) * copy.height / (double(visible.width) * visible.height));
         audit::Record("copy_mib", double(copy.width) * copy.height * 4 / 1048576.0);
         const D3D11_BOX box{ static_cast<UINT>(copy.x)''')
 text = replace(text, 'context_->CopySubresourceRegion(destination.texture.Get()', 'audit::GpuSpan gpu(device_.Get(), context_.Get(), "copy_gpu_ms");\n        const auto submitted = audit::Now();\n        context_->CopySubresourceRegion(destination.texture.Get()')

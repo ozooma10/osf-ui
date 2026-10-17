@@ -38,6 +38,7 @@ foreach ($height in $metadata.heights) {
             $row = [ordered]@{ height=$height; backend=$backend; phase=$phase }
             foreach ($metric in $metrics) { $row[$metric] = Stats @($values | ForEach-Object { $_.$metric }) }
             if ($phase -in 'mixed10','mixed30') {
+                if (@($values | Where-Object { $_.PSObject.Properties.Name -contains 'invalid_hud_pixels' -and $_.invalid_hud_pixels -ne 0 }).Count) { throw "Incorrect HUD erase pixels: $backend/$phase" }
                 $row.layers = @(foreach ($layer in 'menu','hud','static_overlay') {
                     $measurements = @($values | ForEach-Object { $_.layers | Where-Object { $_.name -eq $layer } })
                     if ($measurements.Count -ne $selected.Count -or @($measurements | Where-Object { $_.invalid_markers -ne 0 }).Count) { throw "Missing/invalid mixed layer: $backend/$phase/$layer" }
@@ -99,7 +100,7 @@ $null=$html.Append(@'
 <li>Canvas: 700 moving translucent circles at a target 60 updates/s. Animated menu: 160 DOM cards with transforms and bar-width changes. Three-view case renders three full-size overlapping canvas documents; visible frame counts describe the topmost output.</li>
 <li>Mixed cases: animated menu at 60 Hz, small transparent HUD at 10 or 30 Hz, and a static translucent overlay. Each layer has a separate visible marker. The main table reports menu freshness; the layer table reports all three. Static-overlay changes must remain zero. This is a synthetic workload, not a measured content mod.</li>
 <li>All phases include a 10 Hz bridge echo and a 1 Hz page statistics message. Static mode has no pixel changes but retains a lightweight requestAnimationFrame callback. Developer mode is off.</li>
-<li>The consumer opens the real shared textures/fence, performs a GPU copy, reads one pixel (three in mixed cases) in one completed readback, then acknowledges the slot. That common consumer overhead is outside reported browser CPU. There is no Starfield scene, D3D12 blend, game contention, frame generation, or MO2 cache preparation in these numbers.</li>
+<li>The consumer opens the real shared textures/fence, performs a GPU copy, reads one pixel (three layer markers and a HUD erase probe in mixed cases) in one completed readback, then acknowledges the slot. That common consumer overhead is outside reported browser CPU. There is no Starfield scene, D3D12 blend, game contention, frame generation, or MO2 cache preparation in these numbers.</li>
 <li>CPU and memory cover the helper and its discovered descendants. Shared DWM/system services are excluded. The GPU column sums per-process engine counters; it can exceed 100% and is not total GPU utilization. It does not capture all Windows composition work, so do not use it alone to rank total GPU cost.</li>
 <li>Completed texture markers were valid and both helpers exited normally in every included run. These short synthetic runs do not establish long-session stability, real-mod performance, controller behavior, or multi-GPU compatibility.</li>
 </ul><h2>Reproducibility</h2><p>Full samples, frame timing statistics, process counts, screenshots, and event logs are retained beside this report. <a href="summary.json">Aggregated data</a> · <a href="metadata.json">Machine and binary hashes</a></p><table><thead><tr><th>File</th><th>SHA-256</th></tr></thead><tbody>

@@ -84,10 +84,10 @@ struct Consumer {
         HANDLE h=reinterpret_cast<HANDLE>(ring.produceFence);auto hr=device5->OpenSharedFence(h,IID_PPV_ARGS(&produce));CloseHandle(h);Check(hr,"open produce fence");
         D3D11_TEXTURE2D_DESC desc{};slots.at(0)->GetDesc(&desc);desc.MiscFlags=0;desc.BindFlags=0;
         Check(device->CreateTexture2D(&desc,nullptr,&owned),"owned consumer texture");
-        desc.Width=3;desc.Height=1;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        desc.Width=4;desc.Height=1;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
         Check(device->CreateTexture2D(&desc,nullptr,&pixel),"marker staging");
     }
-    std::array<UINT,3> Consume(const msg::Frame& frame,bool mixed){
+    std::array<UINT,4> Consume(const msg::Frame& frame,bool mixed){
         if(frame.slot>=slots.size()||!produce)throw std::runtime_error("frame before ring");
         Check(context4->Wait(produce.Get(),frame.serial),"wait produce");
         context->CopyResource(owned.Get(),slots[frame.slot].Get());
@@ -95,11 +95,12 @@ struct Consumer {
             const UINT x=width*i/3+8;const D3D11_BOX box{x,8,0,x+1,9,1};
             context->CopySubresourceRegion(pixel.Get(),0,i,0,0,owned.Get(),0,&box);
         }
+        if(mixed){const UINT x=width/3+200;const D3D11_BOX box{x,60,0,x+1,61,1};context->CopySubresourceRegion(pixel.Get(),0,3,0,0,owned.Get(),0,&box);}
         Check(context4->Signal(done.Get(),++serial),"signal consumer");context->Flush();
         if(done->GetCompletedValue()<serial){Check(done->SetEventOnCompletion(serial,event),"consumer event");if(WaitForSingleObject(event,3000)!=WAIT_OBJECT_0)throw std::runtime_error("consumer GPU timeout");}
         D3D11_MAPPED_SUBRESOURCE mapped{};Check(context->Map(pixel.Get(),0,D3D11_MAP_READ,0,&mapped),"marker read");
-        std::array<UINT,3> values{};
-        for(UINT i=0;i<(mixed?3u:1u);++i){const auto* p=static_cast<unsigned char*>(mapped.pData)+i*4;values[i]=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;}
+        std::array<UINT,4> values{};
+        for(UINT i=0;i<(mixed?4u:1u);++i){const auto* p=static_cast<unsigned char*>(mapped.pData)+i*4;values[i]=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;}
         context->Unmap(pixel.Get(),0);return values;
     }
     // Outside performance windows. Read actual premultiplied BGRA output,
@@ -137,6 +138,7 @@ struct Bench {
     bool mixed{};std::array<UINT,3> layerMarkers{};
     std::array<size_t,3> layerChanges{},layerInvalid{};std::array<double,3> layerPrevious{};
     std::array<std::vector<double>,3> layerIntervals;
+    size_t invalidHudPixels{};
     std::vector<double> intervals,uniqueIntervals,consumeTimes,pingTimes;
     std::map<int,double> pings;int nextPing{};std::vector<json> pageStats;
     ~Bench(){Stop();if(window)DestroyWindow(window);if(wake)CloseHandle(wake);}
@@ -158,7 +160,7 @@ struct Bench {
         if(!pipe.WaitForClient(20000))throw std::runtime_error("host did not connect: "+pipe.LastErrorText());
         reader=std::thread([this]{std::string payload;while(pipe.ReadMessage(payload)){auto value=json::parse(payload,nullptr,false);if(value.is_discarded())continue;const auto now=Seconds();{std::lock_guard lock(mutex);messages.push_back({std::move(value),now});}SetEvent(wake);}disconnected=true;SetEvent(wake);});
         result["adapter"]=consumer.adapterName;result["width"]=width;result["height"]=height;result["pid"]=pi.dwProcessId;
-        result["consumer"]="D3D11 GPU copy plus 1 marker (3 for mixed views) in one readback; acknowledgements after GPU completion";
+        result["consumer"]="D3D11 GPU copy plus 1 marker (3 and a HUD erase probe for mixed views) in one readback; acknowledgements after GPU completion";
         Send(msg::Init{.topLevelHwnd=reinterpret_cast<UINT64>(window),.viewsPath=osfui::win32::ToUtf8(assets.wstring()),.legacyViewsPath=osfui::win32::ToUtf8(assets.wstring()),.width=width,.height=height,.userDataDir=osfui::win32::ToUtf8(profile.wstring()),.devMode=false,.language="en",.adapterLuidLow=consumer.adapter.LowPart,.adapterLuidHigh=static_cast<UINT>(consumer.adapter.HighPart)});
         Send(msg::WindowActive{.active=true});Send(msg::Viewport{.width=width,.height=height,.presentationEpoch=1});
         Send(msg::Navigate{.id="bench/main",.entry="index.html",.logicalHeight=height});
@@ -197,7 +199,13 @@ struct Bench {
                             else if(markers[i]!=layerMarkers[i]){++layerChanges[i];if(layerPrevious[i])layerIntervals[i].push_back((received.time-layerPrevious[i])*1000);layerPrevious[i]=received.time;}
                         }
                     }
-                    layerMarkers=markers;
+                    if(measuring){
+                        const UINT expected=(markers[1]&1)?0x101b29:0x13a455;
+                        bool matches=true;
+                        for(UINT shift:{0u,8u,16u})if(std::abs(int((markers[3]>>shift)&255)-int((expected>>shift)&255))>2)matches=false;
+                        if(!matches)++invalidHudPixels;
+                    }
+                    std::copy_n(markers.begin(),3,layerMarkers.begin());
                 }
             }else if(type=="webMessage"){
                 const auto m=json::parse(v.value("json",""),nullptr,false);if(m.is_discarded())continue;const auto name=m.value("name","");const auto view=v.value("view","");
@@ -312,7 +320,7 @@ struct Bench {
         for(const auto& view:ready)SetMode(view,mode);
         WaitUntil([this,count]{return modeReady.size()==count;},10,"mode ack");RunFor(warmup);
         frames=unique=invalid=0;previousFrame=previousUnique=0;intervals.clear();uniqueIntervals.clear();consumeTimes.clear();pingTimes.clear();pageStats.clear();pings.clear();
-        layerChanges={};layerInvalid={};layerPrevious={};for(auto& gaps:layerIntervals)gaps.clear();
+        layerChanges={};layerInvalid={};layerPrevious={};invalidHudPixels=0;for(auto& gaps:layerIntervals)gaps.clear();
         std::vector<json> samples;auto first=processes.Sample();const double begin=Seconds(),end=begin+duration;double sampleAt=begin+1,pingAt=begin;
         AuditPhase(true);measuring=true;
         while(Seconds()<end){WaitForSingleObject(wake,5);Drain();const auto now=Seconds();
@@ -330,6 +338,7 @@ struct Bench {
             {"private_commit_mean_mib",Mean(memory)},{"private_commit_peak_mib",Quantile(memory,1)},{"processes",last["processes"]},
             {"gpu_engine_sum_mean_percent",gpu.empty()?json(nullptr):json(Mean(gpu))},{"samples",samples},{"page_stats",pageStats}};
         if(mixed){
+            row["invalid_hud_pixels"]=invalidHudPixels;
             row["layers"]=json::array();
             const char* names[]{"menu","hud","static_overlay"};
             for(size_t i=0;i<3;++i)row["layers"].push_back({{"name",names[i]},{"target_hz",i==0?60:i==1?(mode=="mixed10"?10:30):0},
@@ -340,7 +349,7 @@ struct Bench {
         result["phases"].push_back(row);if(!allowNoOutput)consumer.Save(output/(name+".png"));Write();
         std::cout<<name<<" fps="<<row["unique_fps"]<<" CPU="<<row["cpu_core_percent"]<<" mem="<<row["private_commit_mean_mib"]<<std::endl;
         if(invalid||(!allowNoOutput&&!unique&&mode!="idle"))throw std::runtime_error("rendered workload validation failed");
-        if(mixed&&!allowNoOutput&&(layerInvalid[0]||layerInvalid[1]||layerInvalid[2]||!layerChanges[0]||!layerChanges[1]||layerChanges[2]||layerMarkers[2]!=0x130001))
+        if(mixed&&!allowNoOutput&&(invalidHudPixels||layerInvalid[0]||layerInvalid[1]||layerInvalid[2]||!layerChanges[0]||!layerChanges[1]||layerChanges[2]||layerMarkers[2]!=0x130001))
             throw std::runtime_error("mixed layer freshness/static preservation failed");
     }
     void Write(){std::ofstream(output/"result.json")<<result.dump(2);}

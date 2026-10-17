@@ -46,6 +46,13 @@ removing integration work, not a usable or validated rendering optimization.
 
 ## Measurements and limits
 
+`-Cases baseline,fullcopy` compares damage copying with a forced full-copy
+control in the same diagnostic build. `copy_fraction` and `copy_mib` record
+actual submitted regions; normal production contains no diagnostic switch.
+Use uninstrumented old/new helpers for throughput claims, because diagnostics
+can change scheduling. Mixed cases validate all three layer markers and the
+shrinking HUD's erased pixels as well as recording each layer's freshness.
+
 - `audit.json` contains per-workload wall-time distributions for queue residence,
   message handling, borrowed-texture open/copy/fence wait, paint callbacks,
   composition/publication, frame cadence and ring backpressure. Nested metrics
@@ -59,7 +66,7 @@ removing integration work, not a usable or validated rendering optimization.
   host records `owned_paint_mib`: live copied view/popup texture pixel storage
   (width × height × 4), excluding the output ring, driver overhead and Chromium's
   own resources. It is not a measure of total VRAM or process-private commitment.
-  Retention runs are separate from the four-workload performance comparison.
+  Retention runs are separate from the six-workload performance comparison.
 - The consumer records total and root-process CPU, plus per-process cumulative
   CPU, private commitment and working-set snapshots. CPU 100% means one logical core. The CEF root contains OSF code
   AND Chromium browser-process code. Child CPU contains JavaScript, layout,
