@@ -9,7 +9,8 @@
 #include "Input/HardwareCursor.h"
 #include "Input/MenuEventSink.h"
 #include "Core/Paths.h"
-#include "Render/WebView2HostWebRenderer.h"
+#include "Render/BrowserHostClient.h"
+#include "Render/BrowserBackendConfig.h"
 #include "Render/SharedFrameConsumer.h"
 #include "Composite/EngineD3D12.h"
 #include "Composite/D3D12Prologue.h"
@@ -52,18 +53,24 @@ namespace OSFUI
 
 	bool Runtime::InitializeRenderer()
 	{
-		auto renderer = std::make_unique<WebView2HostWebRenderer>();
+        std::string backendError;
+        const auto backend = ReadBrowserBackend(Paths::DataDir(), backendError);
+        if (!backend) {
+            m_osfSettings.ReportFailure("renderer.package", "webview.package-invalid", backendError);
+            return false;
+        }
+        auto renderer = std::make_unique<BrowserHostClient>();
 
 		const auto initialWidth = kDefaultViewWidth;
 		const auto initialHeight = kDefaultViewHeight;
 
 		m_pointerInput.Initialize({ initialWidth, initialHeight });
 
-		WebView2HostConfig rendererConfig{
+		BrowserHostConfig rendererConfig{
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = m_developerMode,
-			.cefPrototype = m_osfSettings.CefPrototype(),
+			.backend = *backend,
 			.resolveLanguage = [this] { return m_osfSettings.Language(); },
 			.dataDir = Paths::DataDir(),
 		};
@@ -79,11 +86,11 @@ namespace OSFUI
 
 	void Runtime::WireRendererLifecycleCallbacks()
 	{
-		m_renderer->SetLoadHandler([this](const WebView2HostWebRenderer::LoadEvent& a_e) {
+		m_renderer->SetLoadHandler([this](const BrowserHostClient::LoadEvent& a_e) {
 			OnViewLoad(a_e.viewId, a_e.failed, a_e.url, a_e.description, a_e.errorCode);
 		});
 
-		m_renderer->SetFailureHandler([this](const WebView2HostWebRenderer::FailureEvent& a_e) {
+		m_renderer->SetFailureHandler([this](const BrowserHostClient::FailureEvent& a_e) {
 			OnRendererFailure(a_e);
 		});
 
@@ -655,7 +662,7 @@ namespace OSFUI
 		REX::INFO("Runtime: replayed {} instantiated view(s) to the replacement browser host; menus stay closed and requested HUDs await load", reloaded);
 	}
 
-	void Runtime::OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event)
+	void Runtime::OnRendererFailure(const BrowserHostClient::FailureEvent& a_event)
 	{
 		FailPendingOpen("The interface renderer failed.");
 		const bool retryable = m_renderer && BrowserHostRecovery::IsRetryable(a_event.stage, a_event.errorCode);

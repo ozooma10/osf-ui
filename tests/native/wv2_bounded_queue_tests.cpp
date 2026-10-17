@@ -1,4 +1,4 @@
-#include "../../tools/webview2_shared/Wv2BoundedQueue.h"
+#include "../../tools/browser_shared/BrowserBoundedQueue.h"
 
 #include "check.h"
 
@@ -9,8 +9,8 @@
 #include <thread>
 #include <vector>
 
-using osfui::wv2::BoundedQueue;
-using osfui::wv2::GameMessageCoalesceKey;
+using osfui::browser::BoundedQueue;
+using osfui::browser::GameMessageCoalesceKey;
 using namespace std::chrono_literals;
 
 int main()

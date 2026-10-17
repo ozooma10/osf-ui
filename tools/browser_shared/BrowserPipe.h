@@ -16,7 +16,7 @@
 #endif
 #include <Windows.h>
 
-namespace osfui::wv2
+namespace osfui::browser
 {
 	class Pipe
 	{

@@ -3,7 +3,7 @@
 #include <string>
 #include <functional>
 
-namespace osfui::wv2
+namespace osfui::browser
 {
 	enum class LaunchMethod
 	{

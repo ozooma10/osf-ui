@@ -19,13 +19,13 @@
 #include <mutex>
 #include <set>
 #include <thread>
-#include "Wv2Pipe.h"
-#include "Wv2Messages.h"
+#include "BrowserPipe.h"
+#include "BrowserMessages.h"
 #include "Win32Util.h"
 
 using Microsoft::WRL::ComPtr;
 using json=nlohmann::json;
-namespace msg=osfui::wv2::msg;
+namespace msg=osfui::browser::msg;
 namespace fs=std::filesystem;
 using Clock=std::chrono::steady_clock;
 double Seconds() { return std::chrono::duration<double>(Clock::now().time_since_epoch()).count(); }
@@ -111,10 +111,11 @@ struct Consumer {
 };
 
 struct Bench {
-    osfui::wv2::Pipe pipe;Consumer consumer;Processes processes;
+    osfui::browser::Pipe pipe;Consumer consumer;Processes processes;
     HANDLE process{},job{},wake=CreateEventW(nullptr,FALSE,FALSE,nullptr);HWND window{};
     std::thread reader;std::atomic_bool disconnected{};std::mutex mutex;
     struct Received{json value;double time;};std::deque<Received> messages;
+    osfui::browser::Backend backend = osfui::browser::Backend::WebView2;
     fs::path output,assets,profile,host;UINT width=1920,height=1080;double duration=10,warmup=3,start{},firstFrame{},firstContent{},loaded{};
     json result={{"phases",json::array()}};std::ofstream events;
     std::set<std::string> ready,modeReady;std::string phase;bool measuring=false,allowNoOutput=false,lifecycle=false,holdAcks=false;
@@ -123,7 +124,7 @@ struct Bench {
     std::vector<double> intervals,uniqueIntervals,consumeTimes,pingTimes;
     std::map<int,double> pings;int nextPing{};std::vector<json> pageStats;
     ~Bench(){Stop();if(window)DestroyWindow(window);if(wake)CloseHandle(wake);}
-    void Send(const json& value){if(pipe.WriteMessage(value.dump())!=osfui::wv2::Pipe::WriteResult::Written)throw std::runtime_error("pipe write failed");}
+    void Send(const json& value){if(pipe.WriteMessage(value.dump())!=osfui::browser::Pipe::WriteResult::Written)throw std::runtime_error("pipe write failed");}
     template<class T>void Send(const T& value){Send(msg::ToJson(value));}
     void Start(){
         fs::create_directories(output);fs::create_directories(profile);events.open(output/"events.jsonl");
@@ -160,7 +161,7 @@ struct Bench {
         std::deque<Received> batch;{std::lock_guard lock(mutex);batch.swap(messages);}
         for(auto& received:batch){auto& v=received.value;const auto type=v.value("type","");
             if(type!="frame"&&type!="heartbeat")events<<json{{"seconds",received.time-start},{"message",v}}.dump()<<'\n';
-            if(type=="hello"){result["runtime"]=v.value("runtimeVersion","");result["hello_ms"]=(received.time-start)*1000;}
+            if(type=="hello"){if(!msg::IsCompatibleHello(msg::FromJson<msg::Hello>(v),backend))throw std::runtime_error("browser host handshake mismatch"); result["runtime"]=v.value("runtimeVersion","");result["hello_ms"]=(received.time-start)*1000;}
             else if(type=="fatal")throw std::runtime_error("host fatal: "+v.dump());
             else if(type==msg::LoadEvent::kType){if(v.value("failed",false))throw std::runtime_error("load failure: "+v.dump());if(!loaded)loaded=received.time;}
             else if(type=="textures")consumer.Ring(msg::FromJson<msg::Textures>(v));
@@ -192,7 +193,7 @@ struct Bench {
         auto ping=[this]{const int id=++nextPing;pings[id]=Seconds();Send(msg::PostWeb{.view="bench/main",.json=json{{"kind","event"},{"name","bench.ping"},{"payload",{{"id",id}}}}.dump()});WaitUntil([&]{return !pings.contains(id);},3,"bridge echo");};
         modeReady.clear();SetMode("bench/main","canvas");WaitUntil([&]{return modeReady.size()==1;},5,"animation ready");RunFor(.3);
         holdAcks=true;RunFor(.4);const auto blockedFrames=frames;const auto blockedMarker=lastMarker;RunFor(.2);
-        require(heldAcks.size()==osfui::wv2::kRingSlots&&frames==blockedFrames,"full ring stops publication");
+        require(heldAcks.size()==osfui::browser::kRingSlots&&frames==blockedFrames,"full ring stops publication");
         ping();require(true,"messages remain responsive under backpressure");
         modeReady.clear();SetMode("bench/main","idle");WaitUntil([&]{return modeReady.size()==1;},5,"static ready");RunFor(.1);
         holdAcks=false;for(const auto& ack:heldAcks)Send(ack);heldAcks.clear();
@@ -205,7 +206,7 @@ struct Bench {
         for(int i=0;i<300;i++)Send(msg::SetOrder{.view="bench/main",.order=i});ping();
         require(true,"message burst drains beyond one 128-message batch");
         modeReady.clear();SetMode("bench/main","canvas");WaitUntil([&]{return modeReady.size()==1;},5,"animation restart");RunFor(.2);
-        holdAcks=true;RunFor(.3);require(heldAcks.size()==osfui::wv2::kRingSlots,"ring filled before resize");
+        holdAcks=true;RunFor(.3);require(heldAcks.size()==osfui::browser::kRingSlots,"ring filled before resize");
         Send(msg::Resize{.width=1280,.height=720});Send(msg::Viewport{.width=1280,.height=720,.presentationEpoch=4});
         WaitUntil([&]{return lastEpoch==4;},5,"resize while backpressured");
         holdAcks=false;for(const auto& ack:heldAcks)Send(ack);heldAcks.clear();RunFor(.15);
@@ -252,7 +253,7 @@ struct Bench {
 int wmain(int argc,wchar_t** argv){
     CoInitializeEx(nullptr,COINIT_MULTITHREADED);SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     try{Bench bench;
-        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";}
+        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";}
         if(bench.host.empty()||bench.output.empty()||bench.assets.empty()||bench.profile.empty())throw std::runtime_error("required: --host --out --views --profile");
         try{bench.Start();if(bench.lifecycle)bench.Lifecycle();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);}bench.result["status"]="passed";}
         catch(const std::exception& e){bench.result["status"]="failed";bench.result["error"]=e.what();std::cerr<<e.what()<<std::endl;}

@@ -1,6 +1,6 @@
 #include "Runtime/Runtime.h"
 #include "RuntimeDoubles.h"
-#include "Wv2Messages.h"
+#include "BrowserMessages.h"
 #include "check.h"
 
 #include <thread>
@@ -17,6 +17,7 @@ namespace
             const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
             env.dataDir = std::filesystem::temp_directory_path() / ("osfui-lifecycle-" + std::to_string(suffix));
             if (!std::filesystem::create_directory(env.dataDir)) throw std::runtime_error("fixture directory already exists");
+            std::ofstream(env.dataDir / "backend.json") << R"({"schemaVersion":1,"backend":"webview2"})";
             Write("acme/menu", R"({"manifestVersion":1,"kind":"menu"})");
             Write("acme/second", R"({"manifestVersion":1,"kind":"menu"})");
             Write("acme/hud", R"({"manifestVersion":1,"kind":"hud","openOnStart":true})");
@@ -36,6 +37,8 @@ namespace
             std::ofstream(directory / "manifest.json") << json;
         }
     };
+
+    bool expectedCef = false;
 
     Runtime& runtime() { return Runtime::Get(); }
     API::BridgeApi& api() { return API::BridgeApi::Get(); }
@@ -106,7 +109,7 @@ namespace
     {
         runtime().OnPostLoad();
         CHECK(env.rendererInitializations == 1 && env.compositorCreations == 1);
-        CHECK(env.rendererUsesCef == env.settings.values.at("cefPrototype"));
+        CHECK(env.rendererUsesCef == expectedCef);
         CHECK(env.navigations.empty()); // Preparing services does not navigate/start a host.
         CHECK(env.papyrusInstalls == 0 && env.inputHookInstallations == 0);
     }
@@ -396,10 +399,14 @@ int main(int argc, char** argv)
     FixtureFiles files;
     SettingsTest::Install(&env.settings, &env.diagnostics);
     if (scenario == "cef") {
-        env.settings.values["cefPrototype"] = true;
+        std::ofstream(env.dataDir / "backend.json") << R"({"schemaVersion":1,"backend":"cef"})";
+        expectedCef = true;
         NormalLifecycle();
     }
-    else if (scenario == "normal") NormalLifecycle();
+    else if (scenario == "normal") {
+        env.settings.values["cefPrototype"] = true; // Obsolete setting cannot override the installed edition.
+        NormalLifecycle();
+    }
     else if (scenario == "missing-settings" || scenario == "renderer-init-failure") StartupFailure(scenario);
     else if (scenario == "input-hook-failure" || scenario == "focus-menu-failure" || scenario == "menu-events-failure") InputFailure(scenario);
     else if (scenario == "suppression-failure") SuppressionFailure();

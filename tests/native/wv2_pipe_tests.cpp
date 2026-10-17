@@ -1,5 +1,5 @@
-#include "Wv2Pipe.h"
-#include "Wv2Protocol.h"
+#include "BrowserPipe.h"
+#include "BrowserProtocol.h"
 
 #include <atomic>
 #include <chrono>
@@ -9,7 +9,7 @@
 #include <vector>
 #include "check.h"
 
-using osfui::wv2::Pipe;
+using osfui::browser::Pipe;
 using namespace std::chrono_literals;
 
 namespace
@@ -100,7 +100,7 @@ int main()
 	CHECK(ConnectPair(server, client));
 	CHECK(server.ClientProcessId() == ::GetCurrentProcessId());
 	CHECK(client.ServerProcessId() == ::GetCurrentProcessId());
-	CHECK(server.WriteMessage(std::string(osfui::wv2::kMaxMessageBytes + 1, 'x')) == Pipe::WriteResult::InvalidPayload);
+	CHECK(server.WriteMessage(std::string(osfui::browser::kMaxMessageBytes + 1, 'x')) == Pipe::WriteResult::InvalidPayload);
 	CHECK(server.WriteMessage("") == Pipe::WriteResult::InvalidPayload);
 	CHECK(server.WriteMessage("round-trip") == Pipe::WriteResult::Written);
 	std::string payload;
@@ -138,7 +138,7 @@ int main()
 	bool queuedWrote = true;
 	std::thread writer([&] {
 		wrote = server.WriteMessage(
-			std::string(osfui::wv2::kMaxMessageBytes, 'x')) == Pipe::WriteResult::Written;
+			std::string(osfui::browser::kMaxMessageBytes, 'x')) == Pipe::WriteResult::Written;
 	});
 	std::this_thread::sleep_for(25ms);
 	std::thread queuedWriter([&] {

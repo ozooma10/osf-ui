@@ -10,10 +10,11 @@
 
 #include <nlohmann/json.hpp>
 
-#include "Wv2Protocol.h"  // kDefaultLogicalHeight
+#include "BrowserBackend.h"
+#include "BrowserProtocol.h"  // kDefaultLogicalHeight
 #include "Core/Json.h"
 
-namespace osfui::wv2::msg
+namespace osfui::browser::msg
 {
 	// One wire field: the JSON key and the member it binds to.
 	template <class S, class M>
@@ -320,12 +321,23 @@ namespace osfui::wv2::msg
 		static constexpr std::string_view kType = "hello";
 		std::uint32_t protocolVersion{ 0 };
 		std::string   runtimeVersion;
+        std::string backend;
+        std::uint32_t capabilities{};
 
 		static constexpr auto kFields = std::tuple{
 			F("protocolVersion", &Hello::protocolVersion),
 			F("runtimeVersion", &Hello::runtimeVersion),
+            F("backend", &Hello::backend),
+            F("capabilities", &Hello::capabilities),
 		};
 	};
+
+    inline bool IsCompatibleHello(const Hello& hello, Backend expected)
+    {
+        return hello.protocolVersion == kBrowserHostProtocolVersion &&
+            hello.backend == BackendName(expected) &&
+            (hello.capabilities & kRequiredHostCapabilities) == kRequiredHostCapabilities;
+    }
 
 	struct Heartbeat
 	{

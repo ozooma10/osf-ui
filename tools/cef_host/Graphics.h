@@ -6,7 +6,7 @@
 #include <functional>
 #include <span>
 #include <stdexcept>
-#include "Wv2Messages.h"
+#include "BrowserMessages.h"
 
 namespace osfui::cefhost
 {
@@ -54,7 +54,7 @@ namespace osfui::cefhost
             HANDLE handle{};
             std::uint64_t serial{}, acknowledged{};
         };
-        std::array<Slot, wv2::kRingSlots> slots_;
+        std::array<Slot, browser::kRingSlots> slots_;
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11Device1> device1_;
         ComPtr<ID3D11Device5> device5_;

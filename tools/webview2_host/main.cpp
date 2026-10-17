@@ -1,5 +1,5 @@
 #include "HostApp.h"
-#include "Wv2BrokerLaunch.h"
+#include "BrowserBrokerLaunch.h"
 #include <format>
 
 #include <shellapi.h>
@@ -16,7 +16,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 
 	const std::wstring executable(argv[0]);
 	bool broker = false;
-	osfui::wv2::HostOptions options;
+	osfui::webview2::HostOptions options;
 	for (int i = 1; i < argc; ++i) {
 		const std::wstring_view arg(argv[i]);
 		if (arg == L"--launch-broker") {
@@ -37,8 +37,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 	if (broker) {
 		const auto args = std::format(L"--pipe={} --game-pid={} --log=\"{}\"",
 			options.pipeName, options.gamePid, options.logFile.native());
-		const auto result = osfui::wv2::RunLaunchBroker(executable, args);
+		const auto result = osfui::browser::RunLaunchBroker(executable, args);
 		return result.ok ? static_cast<int>(result.method) : 0;
 	}
-	return osfui::wv2::RunHost(options);
+	return osfui::webview2::RunHost(options);
 }

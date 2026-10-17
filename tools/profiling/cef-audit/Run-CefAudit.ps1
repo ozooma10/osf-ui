@@ -59,7 +59,7 @@ try {
             $run = Join-Path $OutDir $name
             New-Item -ItemType Directory -Path $run | Out-Null
             Write-Host "Running $name"
-            $arguments = @('--host', ('"' + $hosts[$case] + '"'), '--out', ('"' + $run + '"'), '--views', ('"' + $assets + '"'), '--profile', ('"' + (Join-Path $OutDir "profiles\$name") + '"'), '--width', ([int]($Height * 16 / 9)), '--height', $Height, '--seconds', $Seconds, '--warmup', $Warmup)
+            $arguments = @('--backend', $(if ($case -eq 'webview2') { 'webview2' } else { 'cef' }), '--host', ('"' + $hosts[$case] + '"'), '--out', ('"' + $run + '"'), '--views', ('"' + $assets + '"'), '--profile', ('"' + (Join-Path $OutDir "profiles\$name") + '"'), '--width', ([int]($Height * 16 / 9)), '--height', $Height, '--seconds', $Seconds, '--warmup', $Warmup)
             if ($case -in @('copyonly','discard')) { $arguments += @('--allow-no-output', 'true') }
             $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $run 'stdout.log') -RedirectStandardError (Join-Path $run 'stderr.log')
             if (-not $process.WaitForExit([int](1000 * (90 + 4 * ($Seconds + $Warmup))))) { $process.Kill(); throw "Timed out: $name" }

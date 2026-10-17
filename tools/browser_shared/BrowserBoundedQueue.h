@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace osfui::wv2
+namespace osfui::browser
 {
 	inline std::string GameMessageCoalesceKey(std::string_view a_type,
 		std::string_view a_kind = {}, std::string_view a_identity = {})

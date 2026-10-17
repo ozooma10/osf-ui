@@ -6,7 +6,7 @@
 
 #include <limits>
 
-namespace osfui::wv2
+namespace osfui::webview2
 {
 	namespace
 	{

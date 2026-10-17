@@ -1,8 +1,10 @@
-#include "Wv2CdpInput.h"
+#include "../../tools/webview2_host/Wv2CdpInput.h"
+#include "BrowserTextInput.h"
 #include <cassert>
 #include <iostream>
 
-using namespace osfui::wv2;
+using namespace osfui::browser;
+using namespace osfui::webview2;
 
 int main()
 {

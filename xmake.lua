@@ -37,11 +37,11 @@ target("osfui-webview2-host")
     set_default(false)
     set_runtimes("MT")
     add_rules("utils.bin2c")
-    add_files("tools/webview2_host/**.cpp", "tools/webview2_shared/Wv2Pipe.cpp", "tools/webview2_shared/Wv2BrokerLaunch.cpp")
+    add_files("tools/webview2_host/**.cpp", "tools/browser_shared/BrowserPipe.cpp", "tools/browser_shared/BrowserBrokerLaunch.cpp")
     add_files("tools/webview2_host/scripts/**.js", { rule = "utils.bin2c" })
     add_files("src/Compat/V1/web-transport.js", { rule = "utils.bin2c" })
-    add_headerfiles("tools/webview2_host/**.h", "tools/webview2_shared/**.h")
-    add_includedirs("src", "tools/webview2_shared")
+    add_headerfiles("tools/webview2_host/**.h", "tools/browser_shared/**.h")
+    add_includedirs("src", "tools/browser_shared")
     add_packages("nlohmann_json")
     add_syslinks(
         "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",
@@ -68,7 +68,7 @@ target("wv2-cdp-smoke")
     set_default(false)
     set_runtimes("MT")
     add_files("tests/native/wv2_cdp_smoke.cpp")
-    add_includedirs("src", "tools/webview2_shared")
+    add_includedirs("src", "tools/browser_shared")
     add_packages("nlohmann_json")
     add_syslinks("ole32", "user32", "version", "shlwapi", "advapi32")
     on_load(function(target)
@@ -81,8 +81,8 @@ target("wv2-cdp-smoke")
 target("wv2-pipe-tests")
     set_kind("binary")
     set_default(false)
-    add_files("tests/native/wv2_pipe_tests.cpp", "tools/webview2_shared/Wv2Pipe.cpp")
-    add_includedirs("tools/webview2_shared", "tests/native/stubs")
+    add_files("tests/native/wv2_pipe_tests.cpp", "tools/browser_shared/BrowserPipe.cpp")
+    add_includedirs("tools/browser_shared", "tests/native/stubs")
     add_syslinks("advapi32")
 
 -- target name == repo folder == MO2 mod folder (deploy goes to XSE_SF_MODS_PATH\<target name>)
@@ -105,7 +105,7 @@ target("OSF UI")
 
     add_files("src/**.cpp")
     add_headerfiles("src/**.h", "sdk/**.h")
-    add_includedirs("src", "tools/webview2_shared", "sdk")
+    add_includedirs("src", "tools/browser_shared", "sdk")
     set_pcxxheader("src/pch.h")
 
     before_build(function(target)
@@ -197,6 +197,15 @@ target("osfui-hardware-cursor-tests")
     add_includedirs("tests/native/cursor_stubs", "tests/native/stubs", "src")
     set_pcxxheader("tests/native/stubs/pch.h")
 
+target("osfui-browser-backend-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/browser_backend_tests.cpp", "src/Render/BrowserBackendConfig.cpp", "src/Core/Json.cpp")
+    add_includedirs("tests/native/stubs", "src", "tools/browser_shared")
+    add_packages("nlohmann_json")
+    set_pcxxheader("tests/native/stubs/pch.h")
+
 target("osfui-cef-assets-tests")
     set_kind("binary")
     set_default(false)
@@ -220,7 +229,7 @@ target("osfui-runtime-lifecycle-tests")
         add_tests(scenario, {runargs = {scenario}})
     end
     add_files("tests/native/runtime_lifecycle_tests.cpp", "tests/native/runtime_doubles.cpp",
-        "src/Runtime/Runtime.cpp", "src/Runtime/RuntimeFrame.cpp", "src/Views/RuntimeViews.cpp",
+        "src/Render/BrowserBackendConfig.cpp", "src/Runtime/Runtime.cpp", "src/Runtime/RuntimeFrame.cpp", "src/Views/RuntimeViews.cpp",
         "src/Bridge/RuntimeBridge.cpp", "src/Input/RuntimeInput.cpp", "src/Input/InputCaptureController.cpp",
         "src/Input/PointerInputState.cpp", "src/Input/RelativePointerSession.cpp",
         "src/Input/GamepadSession.cpp", "src/Input/ViewInputGrants.cpp",
@@ -229,7 +238,7 @@ target("osfui-runtime-lifecycle-tests")
         "src/Views/ViewLoadTracker.cpp", "src/Views/ViewRecoveryTracker.cpp",
         "src/API/BridgeApi.cpp", "src/Bridge/MessageBridge.cpp", "src/Bridge/RetainedStateStore.cpp",
         "src/Dependency/OSFSettingsClient.cpp", "src/Core/Json.cpp")
-    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk", "tools/webview2_shared")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk", "tools/browser_shared")
     set_pcxxheader("tests/native/stubs/pch.h")
     add_packages("nlohmann_json")
 
@@ -248,7 +257,7 @@ target("osfui-wv2-message-tests")
     set_default(false)
     add_tests("default")
     add_files("tests/native/wv2_messages_tests.cpp", "src/Core/Json.cpp")
-    add_includedirs("src", "tests/native/stubs", "tools/webview2_shared")
+    add_includedirs("src", "tests/native/stubs", "tools/browser_shared")
     set_pcxxheader("tests/native/stubs/pch.h")
     add_packages("nlohmann_json")
 

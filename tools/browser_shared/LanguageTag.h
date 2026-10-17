@@ -3,7 +3,7 @@
 #include <string>
 #include <string_view>
 
-namespace osfui::wv2::LanguageTag
+namespace osfui::browser::LanguageTag
 {
 	// Lower-cased sLanguage:General ("en", "ptbr", "zhhans") -> BCP-47. Unknown tag-safe codes pass through;
 	// anything else returns empty (keep the WebView2 default).

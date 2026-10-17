@@ -1,11 +1,11 @@
-#include "../../tools/webview2_shared/Wv2LocalUri.h"
+#include "../../tools/browser_shared/BrowserLocalUri.h"
 
 #include <cassert>
 #include <iostream>
 
 int main()
 {
-	using namespace osfui::wv2;
+	using namespace osfui::browser;
 	const std::wstring host(kViewHost);
 	const std::wstring modId = L"acme.widgets";
 	const std::wstring viewName = L"inventory";

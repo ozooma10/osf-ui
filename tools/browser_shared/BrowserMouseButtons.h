@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace osfui::wv2
+namespace osfui::browser
 {
 	enum class SyntheticMouseButton : std::uint8_t
 	{

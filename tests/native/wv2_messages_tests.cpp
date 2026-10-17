@@ -1,12 +1,12 @@
 
 #include "LanguageTag.h"
-#include "Wv2Messages.h"
+#include "BrowserMessages.h"
 
 #include <cassert>
 #include <iostream>
 #include <string>
 
-namespace msg = osfui::wv2::msg;
+namespace msg = osfui::browser::msg;
 using nlohmann::json;
 
 namespace
@@ -84,7 +84,7 @@ int main()
 		Check(got.adapterLuidHigh == 7, "adapter luid survives");
 	}
 	{
-		using osfui::wv2::LanguageTag::FromGameLanguage;
+		using osfui::browser::LanguageTag::FromGameLanguage;
 		Check(FromGameLanguage("en") == "en" && FromGameLanguage("DE") == "de", "two-letter game codes pass through lower-cased");
 		Check(FromGameLanguage("ptbr") == "pt-BR" && FromGameLanguage("esmx") == "es-MX", "packed region codes become BCP-47");
 		Check(FromGameLanguage("zhhans") == "zh-Hans" && FromGameLanguage("zhhant") == "zh-Hant", "Chinese script codes map explicitly");
@@ -151,7 +151,7 @@ int main()
 	{
 		const auto got = msg::FromJson<msg::Navigate>(json{ { "type", "navigate" } });
 		Check(got.entry == "index.html", "navigate.entry defaults to index.html");
-		Check(got.logicalHeight == osfui::wv2::kDefaultLogicalHeight, "navigate.logicalHeight defaults to the shared constant");
+		Check(got.logicalHeight == osfui::browser::kDefaultLogicalHeight, "navigate.logicalHeight defaults to the shared constant");
 		Check(got.id.empty(), "navigate.id defaults empty (the caller rejects it)");
 	}
 	{
@@ -183,7 +183,7 @@ int main()
 		});
 		Check(got.id == "acme.mod/v", "good field still read alongside bad ones");
 		Check(got.entry == "index.html", "wrong-typed string falls back to default");
-		Check(got.logicalHeight == osfui::wv2::kDefaultLogicalHeight, "wrong-typed number falls back to default");
+		Check(got.logicalHeight == osfui::browser::kDefaultLogicalHeight, "wrong-typed number falls back to default");
 	}
 	{
 		Check(msg::FromJson<msg::Focus>(json::array({ 1, 2 })).focused == false, "array document reads as defaults");
@@ -209,9 +209,9 @@ int main()
 
 	{
 		const auto got = RoundTrip(msg::Hello{
-			.protocolVersion = osfui::wv2::kBrowserHostProtocolVersion,
+			.protocolVersion = osfui::browser::kBrowserHostProtocolVersion,
 			.runtimeVersion = "120.0.0.0" });
-		Check(got.protocolVersion == osfui::wv2::kBrowserHostProtocolVersion, "hello carries the protocol version");
+		Check(got.protocolVersion == osfui::browser::kBrowserHostProtocolVersion, "hello carries the protocol version");
 		Check(got.runtimeVersion == "120.0.0.0", "hello carries the runtime version");
 		// Malformed hello versions become 0 and must be rejected.
 		const auto junk = msg::FromJson<msg::Hello>(json{ { "type", "hello" }, { "protocolVersion", "six" } });

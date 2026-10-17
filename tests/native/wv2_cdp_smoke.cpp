@@ -13,7 +13,7 @@
 
 using Microsoft::WRL::ComPtr;
 using Microsoft::WRL::Callback;
-using namespace osfui::wv2;
+using namespace osfui::browser;
 
 static void Require(bool ok, const char* message)
 {

@@ -44,12 +44,10 @@ int main()
         OSFSettingsClient client;
         CHECK(client.Initialize());
         CHECK(client.DeveloperMode());
-        CHECK(client.CefPrototype());
         settings.values["developerMode"] = false;
         settings.values["cefPrototype"] = false;
         CHECK(client.DeveloperMode()); // Startup-only, no live subscription.
-        CHECK(client.CefPrototype());
-        CHECK(settings.reads == 2 && !settings.changed);
+        CHECK(settings.reads == 1 && !settings.changed);
     }
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;

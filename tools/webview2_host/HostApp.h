@@ -13,7 +13,7 @@
 #endif
 #include <Windows.h>
 
-namespace osfui::wv2
+namespace osfui::webview2
 {
 	struct HostOptions
 	{

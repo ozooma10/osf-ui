@@ -5,7 +5,7 @@
 namespace OSFUI
 {
 	class OSFSettingsClient;
-	class WebView2HostWebRenderer;
+	class BrowserHostClient;
 
 	// Runtime owns capture state; WndProc reads only CaptureRequested.
 	class InputCaptureController
@@ -21,7 +21,7 @@ namespace OSFUI
 		void ReconcileFocusMenu(bool a_wantsCapture, bool a_engineOpen, double a_now);
 		void PublishCapture(bool a_wantsCapture);
 		bool CaptureRequested() const;
-		void ReconcileBrowserFocus(WebView2HostWebRenderer* a_renderer, bool a_visible, bool a_hasActiveMenu, bool a_focusMenuInEngine);
+		void ReconcileBrowserFocus(BrowserHostClient* a_renderer, bool a_visible, bool a_hasActiveMenu, bool a_focusMenuInEngine);
 		void ResetBrowserFocus();
 		void ReconcileControlLayer(bool a_wantsCapture, bool a_inputCaptured);
 

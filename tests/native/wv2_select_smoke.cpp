@@ -24,7 +24,7 @@
 
 using Microsoft::WRL::ComPtr;
 using Microsoft::WRL::Callback;
-using namespace osfui::wv2;
+using namespace osfui::browser;
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 

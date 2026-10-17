@@ -4,13 +4,13 @@
 
 #include "Core/Ids.h"
 #include "Core/Json.h"
-#include "Wv2BoundedQueue.h"
-#include "Wv2LocalUri.h"
-#include "Wv2Messages.h"
+#include "BrowserBoundedQueue.h"
+#include "BrowserLocalUri.h"
+#include "BrowserMessages.h"
 #include "Wv2CdpInput.h"
-#include "Wv2MouseButtons.h"
-#include "Wv2Pipe.h"
-#include "Wv2Protocol.h"
+#include "BrowserMouseButtons.h"
+#include "BrowserPipe.h"
+#include "BrowserProtocol.h"
 #include "Win32Util.h"
 
 #include <algorithm>
@@ -52,8 +52,9 @@ using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 using nlohmann::json;
 
-namespace osfui::wv2
+namespace osfui::webview2
 {
+	using namespace osfui::browser;
 	namespace
 	{
 		using osfui::win32::ToUtf8;
@@ -61,7 +62,7 @@ namespace osfui::wv2
 
 		namespace Json = OSFUI::Json;
 
-		namespace msg = osfui::wv2::msg;
+		namespace msg = osfui::browser::msg;
 
 		struct Logger
 		{
@@ -388,7 +389,7 @@ namespace osfui::wv2
 			void ShowView(View& a_view)
 			{
 				if (!a_view.hidden) {
-					log.Info(std::format("view '{}': show — already visible (visual={})",
+					log.Info(std::format("view '{}': show â€” already visible (visual={})",
 						a_view.id, a_view.visual && a_view.visual.IsVisible()));
 					if (captureOpening.view == a_view.id) {
 						PromoteChangedPresentation(a_view); // require a fresh capture even when already shown
@@ -408,7 +409,7 @@ namespace osfui::wv2
 					a_view.revealPending = true;
 					a_view.revealToken = NewRevealToken();
 					a_view.revealDeadline = ::GetTickCount64() + kRevealTimeoutMs;
-					log.Info(std::format("view '{}': show — reveal pending ({} ms timeout)",
+					log.Info(std::format("view '{}': show â€” reveal pending ({} ms timeout)",
 						a_view.id, kRevealTimeoutMs));
 					const auto revealScript = std::format(
 						L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
@@ -419,7 +420,7 @@ namespace osfui::wv2
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
 				} else {
 					log.Info(std::format(
-						"view '{}': show — direct (visual={} webView={} domSeen={})", a_view.id,
+						"view '{}': show â€” direct (visual={} webView={} domSeen={})", a_view.id,
 						a_view.visual != nullptr, a_view.webView != nullptr, a_view.domSeen));
 					if (a_view.visual) a_view.visual.IsVisible(true);
 					PromoteChangedPresentation(a_view);
@@ -433,9 +434,9 @@ namespace osfui::wv2
 				a_view.revealToken.clear();
 				if (a_timedOut) {
 					log.Info(std::format(
-						"view '{}': reveal sentinel timed out — showing anyway", a_view.id));
+						"view '{}': reveal sentinel timed out â€” showing anyway", a_view.id));
 				} else {
-					log.Info(std::format("view '{}': reveal sentinel arrived — showing", a_view.id));
+					log.Info(std::format("view '{}': reveal sentinel arrived â€” showing", a_view.id));
 				}
 				if (a_view.visual && !a_view.hidden) a_view.visual.IsVisible(true);
 				PromoteChangedPresentation(a_view);
@@ -688,7 +689,7 @@ namespace osfui::wv2
 					settings->put_AreDevToolsEnabled(devMode ? TRUE : FALSE);
 					settings->put_IsZoomControlEnabled(FALSE);
 				} else {
-					log.Warn(std::format("view '{}': settings unavailable — the browser "
+					log.Warn(std::format("view '{}': settings unavailable â€” the browser "
 						"context menu stays enabled", a_view.id));
 				}
 				a_view.controller->put_Bounds(
@@ -851,7 +852,7 @@ namespace osfui::wv2
 								warned.insert(ToUtf8(UriHost(uri))).second) {
 								log.Warn(std::format("view '{}': blocked network egress to {} (further denials for this origin are silent)", view->id, ToUtf8(uri)));
 								if (warned.size() == kMaxEgressWarnsPerView) {
-									log.Warn(std::format("view '{}': {} distinct blocked origins — further " "egress denials for this view are silent", view->id, kMaxEgressWarnsPerView));
+									log.Warn(std::format("view '{}': {} distinct blocked origins â€” further " "egress denials for this view are silent", view->id, kMaxEgressWarnsPerView));
 								}
 							}
 							return S_OK;
@@ -1246,7 +1247,7 @@ namespace osfui::wv2
 				if (!a_view.controller) return;
 				ComPtr<ICoreWebView2Controller4> controller4;
 				if (FAILED(a_view.controller.As(&controller4)) || !controller4) {
-					log.Warn(std::format("view '{}': ICoreWebView2Controller4 unavailable — "
+					log.Warn(std::format("view '{}': ICoreWebView2Controller4 unavailable â€” "
 						"rasterization scale not applied (WebView2 Runtime too old)", a_view.id));
 					return;
 				}
@@ -1512,7 +1513,7 @@ namespace osfui::wv2
 							return false;
 						}
 						log.Info(std::format(
-							"game process exited (code 0x{:08X}) — shutting down", code));
+							"game process exited (code 0x{:08X}) â€” shutting down", code));
 						return true;
 					};
 					while (!quit.load()) {
@@ -1530,7 +1531,7 @@ namespace osfui::wv2
 							break;
 						}
 						if (pipeDead.load()) {
-							if (!captureGameExit()) log.Info("game pipe closed — shutting down");
+							if (!captureGameExit()) log.Info("game pipe closed â€” shutting down");
 							break;
 						}
 						DrainGameMessages();
@@ -1628,9 +1629,11 @@ namespace osfui::wv2
 		} else {
 			app.log.Warn("WebView2 Runtime version unavailable; environment creation will report the failure to OSF Settings.");
 		}
-		if (!app.Send(osfui::wv2::msg::ToJson(osfui::wv2::msg::Hello{
+		if (!app.Send(osfui::browser::msg::ToJson(osfui::browser::msg::Hello{
 				.protocolVersion = kBrowserHostProtocolVersion,
 				.runtimeVersion = webView2RuntimeVersion,
+                .backend = "webview2",
+                .capabilities = kRequiredHostCapabilities,
 			}))) {
 			app.log.Error("hello write failed: " + app.pipe.LastErrorText());
 			return 7;

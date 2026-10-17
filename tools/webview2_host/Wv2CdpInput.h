@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Wv2Messages.h"
+#include "BrowserMessages.h"
 #include <chrono>
 #include <deque>
 #include <functional>
@@ -8,8 +8,9 @@
 #include <memory>
 #include <utility>
 
-namespace osfui::wv2
+namespace osfui::webview2
 {
+	using namespace osfui::browser;
 	// Serialize CDP calls to preserve order. Browser STA only; ignore callbacks after Close.
 	class CdpInputQueue : public std::enable_shared_from_this<CdpInputQueue>
 	{
@@ -119,20 +120,4 @@ namespace osfui::wv2
 	};
 
 	// WM_CHAR supplies UTF-16 units. Send only complete characters, even if a menu closes mid-pair.
-	class Utf16Input
-	{
-	public:
-		void Reset() { m_high = 0; }
-		std::u16string Push(char16_t c)
-		{
-			if (c >= 0xD800 && c <= 0xDBFF) { m_high = c; return {}; }
-			const auto high = std::exchange(m_high, 0);
-			if (c >= 0xDC00 && c <= 0xDFFF) {
-				return high ? std::u16string{ high, c } : std::u16string{};
-			}
-			return std::u16string{ c };
-		}
-	private:
-		char16_t m_high{ 0 };
-	};
 }

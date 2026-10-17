@@ -24,7 +24,7 @@
 #include "Input/ViewInputGrants.h"
 #include "Input/XInputPoller.h"
 #include "Render/BrowserHostRecovery.h"
-#include "Render/WebView2HostWebRenderer.h"
+#include "Render/BrowserHostClient.h"
 #include "Views/Dev/DevViewReloadWorker.h"
 #include "Views/ViewLoadTracker.h"
 #include "Views/ViewManager.h"
@@ -59,8 +59,8 @@ namespace OSFUI
 		void EnqueueRelativePointerCapture(std::string a_viewId, bool a_active);
 
 		// Window-message thread.
-		bool OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key);
-		void OnGameWindowText(const osfui::wv2::msg::TextInput& a_text);
+		bool OnGameWindowKeyboard(const osfui::browser::msg::Keyboard& a_key);
+		void OnGameWindowText(const osfui::browser::msg::TextInput& a_text);
 		// Activation messages and the runtime's foreground reconciliation both publish here.
 		void OnGameWindowActivation(bool a_active);
 		void OnGameWindowRecreated();
@@ -114,7 +114,7 @@ namespace OSFUI
 		void DriveRecovery();
 
 		// Browser-host recovery; distinct from a single view failing to load.
-		void OnRendererFailure(const WebView2HostWebRenderer::FailureEvent& a_event);
+		void OnRendererFailure(const BrowserHostClient::FailureEvent& a_event);
 		// Deferred until the failure callback has returned; recreates every instantiated view.
 		void DriveBrowserHostRecovery();
 		void RehydrateRendererAfterRestart();
@@ -145,7 +145,7 @@ namespace OSFUI
 		// m_developerMode and m_renderer are stable after startup; renderer callbacks run on the tick.
 
 		ViewManager m_views;
-		std::unique_ptr<WebView2HostWebRenderer> m_renderer;
+		std::unique_ptr<BrowserHostClient> m_renderer;
 		std::unique_ptr<D3D12Compositor> m_compositor;
 		std::unique_ptr<MessageBridge> m_bridge;
 		OSFSettingsClient m_osfSettings;

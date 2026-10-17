@@ -1,4 +1,4 @@
-#include "Wv2BrokerLaunch.h"
+#include "BrowserBrokerLaunch.h"
 #include "Win32Util.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -26,7 +26,7 @@
 
 using Microsoft::WRL::ComPtr;
 
-namespace osfui::wv2
+namespace osfui::browser
 {
 	namespace
 	{

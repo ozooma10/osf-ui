@@ -1,6 +1,6 @@
 #include "Runtime/Runtime.h"
 
-#include "Wv2Messages.h"
+#include "BrowserMessages.h"
 
 namespace OSFUI
 {
@@ -15,7 +15,7 @@ namespace OSFUI
 		return m_inputCapture.CaptureRequested() && m_visible.load();
 	}
 
-	bool Runtime::OnGameWindowKeyboard(const osfui::wv2::msg::Keyboard& a_key)
+	bool Runtime::OnGameWindowKeyboard(const osfui::browser::msg::Keyboard& a_key)
 	{
 		if (m_developerMode && IsInputCaptured() && a_key.vk == kVkF12) {
 			if (a_key.down && !a_key.repeat) m_devToolsRequested.store(true);
@@ -30,7 +30,7 @@ namespace OSFUI
 		return true;
 	}
 
-	void Runtime::OnGameWindowText(const osfui::wv2::msg::TextInput& a_text)
+	void Runtime::OnGameWindowText(const osfui::browser::msg::TextInput& a_text)
 	{
 		if (!IsInputCaptured()) return;
 		if (m_renderer) m_renderer->InjectText(a_text);

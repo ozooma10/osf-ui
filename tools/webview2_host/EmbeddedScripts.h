@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace osfui::wv2
+namespace osfui::webview2
 {
 	enum class EmbeddedScript
 	{

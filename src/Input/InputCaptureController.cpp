@@ -6,7 +6,7 @@
 #include "Input/FocusMenu.h"
 #include "Input/MenuEventSink.h"
 #include "Input/OverlayInputHook.h"
-#include "Render/WebView2HostWebRenderer.h"
+#include "Render/BrowserHostClient.h"
 
 namespace OSFUI
 {
@@ -78,7 +78,7 @@ namespace OSFUI
 	}
 
 	void InputCaptureController::ReconcileBrowserFocus(
-		WebView2HostWebRenderer* a_renderer, bool a_visible, bool a_hasActiveMenu, bool a_focusMenuInEngine)
+		BrowserHostClient* a_renderer, bool a_visible, bool a_hasActiveMenu, bool a_focusMenuInEngine)
 	{
 		if (!a_renderer) {
 			return;

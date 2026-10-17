@@ -6,8 +6,8 @@
 #include "Input/KeyOwnership.h"
 #include "Win32Util.h"
 #include "Runtime/Runtime.h"
-#include "Wv2Messages.h"
-#include "Wv2CdpInput.h"
+#include "BrowserMessages.h"
+#include "BrowserTextInput.h"
 
 // Keep <Windows.h> here with NOGDI to avoid wingdi's ERROR macro.
 #define WIN32_LEAN_AND_MEAN
@@ -15,7 +15,7 @@
 #define NOMINMAX
 #include <Windows.h>
 #include <imm.h>
-#include "Wv2Protocol.h"
+#include "BrowserProtocol.h"
 
 namespace OSFUI::OverlayInputHook
 {
@@ -33,7 +33,7 @@ namespace OSFUI::OverlayInputHook
 		KeyOwnership g_keyOwnership;
 		KeyOwnership g_rawKeyOwnership;
 		bool g_imeComposing{ false };
-		osfui::wv2::Utf16Input g_textInput;
+		osfui::browser::Utf16Input g_textInput;
 
 		std::wstring ImeString(HIMC a_context, DWORD a_kind)
 		{
@@ -207,11 +207,11 @@ namespace OSFUI::OverlayInputHook
 				}
 			}
 
-			if (const auto refresh = osfui::wv2::RefreshInputStateMessage();
+			if (const auto refresh = osfui::browser::RefreshInputStateMessage();
 				refresh && a_msg == refresh) {
 				return 0;
 			}
-			if (const auto restore = osfui::wv2::RestoreGameFocusMessage();
+			if (const auto restore = osfui::browser::RestoreGameFocusMessage();
 				restore && a_msg == restore) {
 				// Never activate Starfield over another foreground application.
 				if (::GetForegroundWindow() == a_hwnd) ::SetFocus(a_hwnd);
@@ -405,7 +405,7 @@ namespace OSFUI::OverlayInputHook
 	void RequestStateRefresh()
 	{
 		if (const HWND hwnd = g_hwnd.load(std::memory_order_acquire)) {
-			if (const auto message = osfui::wv2::RefreshInputStateMessage()) {
+			if (const auto message = osfui::browser::RefreshInputStateMessage()) {
 				::PostMessageW(hwnd, message, 0, 0);
 			}
 		}

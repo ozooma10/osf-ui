@@ -1,13 +1,13 @@
-#include "Wv2Pipe.h"
+#include "BrowserPipe.h"
 
-#include "Wv2Protocol.h"
+#include "BrowserProtocol.h"
 
 #include <algorithm>
 #include <utility>
 
 #include <sddl.h>
 
-namespace osfui::wv2
+namespace osfui::browser
 {
 	namespace
 	{

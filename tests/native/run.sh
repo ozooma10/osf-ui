@@ -32,7 +32,7 @@ if [[ -z "${CXX:-}" ]] && ! command -v clang++ >/dev/null 2>&1 && ! command -v g
     fi
 fi
 CXX="${CXX:-clang++}"
-BASEFLAGS="-std=c++2b -Wall -Wextra -g -I stubs -I ../../src -I ../../sdk -I ../../tools/webview2_shared -I $DEPS"
+BASEFLAGS="-std=c++2b -Wall -Wextra -g -I stubs -I ../../src -I ../../sdk -I ../../tools/browser_shared -I $DEPS"
 
 # Each suite is "<name> <translation units...>"; units shared across suites compile once.
 SUITES=(
@@ -50,8 +50,9 @@ SUITES=(
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
 "gamepad_session_tests gamepad_session_tests.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp"
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"
+"browser_backend_tests browser_backend_tests.cpp ../../src/Render/BrowserBackendConfig.cpp ../../src/Core/Json.cpp"
 "shared_frame_state_tests shared_frame_state_tests.cpp"
-"runtime_lifecycle_tests runtime_lifecycle_tests.cpp runtime_doubles.cpp ../../src/Views/ViewLoadTracker.cpp ../../src/Views/ViewRecoveryTracker.cpp ../../src/Runtime/Runtime.cpp ../../src/Runtime/RuntimeFrame.cpp ../../src/Views/RuntimeViews.cpp ../../src/Bridge/RuntimeBridge.cpp ../../src/Input/RuntimeInput.cpp ../../src/Input/InputCaptureController.cpp ../../src/Input/PointerInputState.cpp ../../src/Input/RelativePointerSession.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Views/ViewPresentationController.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewRevealGate.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/Core/Json.cpp"
+"runtime_lifecycle_tests runtime_lifecycle_tests.cpp runtime_doubles.cpp ../../src/Render/BrowserBackendConfig.cpp ../../src/Views/ViewLoadTracker.cpp ../../src/Views/ViewRecoveryTracker.cpp ../../src/Runtime/Runtime.cpp ../../src/Runtime/RuntimeFrame.cpp ../../src/Views/RuntimeViews.cpp ../../src/Bridge/RuntimeBridge.cpp ../../src/Input/RuntimeInput.cpp ../../src/Input/InputCaptureController.cpp ../../src/Input/PointerInputState.cpp ../../src/Input/RelativePointerSession.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Views/ViewPresentationController.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewRevealGate.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/Core/Json.cpp"
 "view_reveal_gate_tests view_reveal_gate_tests.cpp ../../src/Views/ViewRevealGate.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"
 "wv2_messages_tests wv2_messages_tests.cpp ../../src/Core/Json.cpp"
@@ -99,7 +100,7 @@ if [[ "$MSVC" == 1 ]]; then
         echo '@echo off'
         echo "call \"$(cygpath -w "$VSROOT")\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul || exit /b 1"
         echo "cd /d \"$HERE_W\\$BUILD\" || exit /b 1"
-        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\stubs\" /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\webview2_shared\" /I \"$HERE_W\\$DEPS\" /FI \"$HERE_W\\stubs\\pch.h\""
+        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\stubs\" /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\browser_shared\" /I \"$HERE_W\\$DEPS\" /FI \"$HERE_W\\stubs\\pch.h\""
         printf 'cl %s /MP /c' "$FLAGS"
         for s in "${UNIQUE[@]}"; do printf ' "%s"' "$(winsrc "$s")"; done
         printf ' /Foobj\\ || exit /b 1\n'

@@ -1,6 +1,6 @@
 #pragma once
 
-namespace osfui::wv2
+namespace osfui::webview2
 {
     // Check the focused page and its iframes for an open picker when Back is pressed.
     inline constexpr wchar_t kHasOpenSelectScript[] = LR"JS((() => {

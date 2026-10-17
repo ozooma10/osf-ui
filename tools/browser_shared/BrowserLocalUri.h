@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-namespace osfui::wv2
+namespace osfui::browser
 {
 	inline constexpr std::wstring_view kViewHost = L"osfui.example";
 

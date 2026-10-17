@@ -69,7 +69,7 @@ foreach ($height in $Heights) {
             New-Item -ItemType Directory -Path $run | Out-Null
             $profile = Join-Path $OutDir "profiles\$name"
             Write-Host "Running $name ($Seconds seconds per workload)"
-            $arguments = @('--host', ('"' + $hosts[$backend] + '"'), '--out', ('"' + $run + '"'), '--views', ('"' + $assets + '"'), '--profile', ('"' + $profile + '"'), '--width', $width, '--height', $height, '--seconds', $Seconds, '--warmup', $Warmup)
+            $arguments = @('--backend', $backend, '--host', ('"' + $hosts[$backend] + '"'), '--out', ('"' + $run + '"'), '--views', ('"' + $assets + '"'), '--profile', ('"' + $profile + '"'), '--width', $width, '--height', $height, '--seconds', $Seconds, '--warmup', $Warmup)
             if ($Lifecycle) { $arguments += @('--lifecycle', 'true') }
             $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $run 'stdout.log') -RedirectStandardError (Join-Path $run 'stderr.log')
             $wait = [Diagnostics.Stopwatch]::StartNew()

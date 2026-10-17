@@ -141,7 +141,7 @@ namespace osfui::cefhost
         std::vector<HANDLE> remote;
         HANDLE localFence{};
         try {
-            wv2::msg::Textures message{ .width = width, .height = height,
+            browser::msg::Textures message{ .width = width, .height = height,
                 .adapterLuidLow = adapter_.LowPart, .adapterLuidHigh = static_cast<UINT>(adapter_.HighPart) };
             D3D11_TEXTURE2D_DESC desc{};
             desc.Width = width; desc.Height = height;
@@ -166,7 +166,7 @@ namespace osfui::cefhost
             CloseHandle(localFence); localFence = nullptr;
             remote.push_back(duplicated);
             message.produceFence = reinterpret_cast<UINT64>(duplicated);
-            if (!send_(wv2::msg::ToJson(message))) throw GraphicsError(E_FAIL, "Send CEF texture ring");
+            if (!send_(browser::msg::ToJson(message))) throw GraphicsError(E_FAIL, "Send CEF texture ring");
             remote.clear(); // ownership transferred to the game
             width_ = width; height_ = height;
         } catch (...) {
@@ -182,13 +182,13 @@ namespace osfui::cefhost
     bool Graphics::Publish(std::span<const Layer> layers, UINT width, UINT height, std::uint64_t epoch)
     {
         EnsureRing(width, height);
-        UINT index = wv2::kRingSlots;
+        UINT index = browser::kRingSlots;
         for (UINT i = 0; i < slots_.size(); ++i) {
             const auto candidate = (nextSlot_ + i) % static_cast<UINT>(slots_.size());
             const auto& slot = slots_[candidate];
             if (!slot.serial || slot.acknowledged >= slot.serial) { index = candidate; break; }
         }
-        if (index == wv2::kRingSlots) return false; // normal backpressure; retain owned view surfaces
+        if (index == browser::kRingSlots) return false; // normal backpressure; retain owned view surfaces
         auto& slot = slots_[index];
         constexpr float transparent[4]{};
         context_->ClearRenderTargetView(slot.target.Get(), transparent);
@@ -215,7 +215,7 @@ namespace osfui::cefhost
         context_->Flush();
         slot.serial = serial;
         nextSlot_ = (index + 1) % static_cast<UINT>(slots_.size());
-        if (!send_(wv2::msg::ToJson(wv2::msg::Frame{ .slot = index, .serial = serial,
+        if (!send_(browser::msg::ToJson(browser::msg::Frame{ .slot = index, .serial = serial,
             .width = width, .height = height, .presentationEpoch = epoch })))
             throw GraphicsError(E_FAIL, "Send CEF frame");
         return true;

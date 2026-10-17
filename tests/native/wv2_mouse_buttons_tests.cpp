@@ -1,9 +1,9 @@
-#include "Wv2MouseButtons.h"
+#include "BrowserMouseButtons.h"
 
 #include <cassert>
 #include <string>
 
-using namespace osfui::wv2;
+using namespace osfui::browser;
 
 int main()
 {

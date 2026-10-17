@@ -1,7 +1,7 @@
 #pragma once
 
 #include "API/PapyrusApi.h"
-#include "Render/WebView2HostWebRenderer.h"
+#include "Render/BrowserHostClient.h"
 #include "SettingsServices.h"
 
 #include <deque>
@@ -55,9 +55,9 @@ namespace RuntimeTest
         std::vector<std::uint32_t> keys;
         std::vector<bool> backWindowActive;
         std::vector<SentMessage> sent;
-        OSFUI::WebView2HostWebRenderer::LoadHandler load;
-        OSFUI::WebView2HostWebRenderer::FailureHandler failure;
-        OSFUI::WebView2HostWebRenderer::WebMessageHandler message;
+        OSFUI::BrowserHostClient::LoadHandler load;
+        OSFUI::BrowserHostClient::FailureHandler failure;
+        OSFUI::BrowserHostClient::WebMessageHandler message;
         std::deque<std::function<void()>> notifications;
         OSFUI::API::Papyrus::PendingBatch papyrus;
     };

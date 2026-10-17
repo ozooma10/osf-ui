@@ -25,7 +25,6 @@ namespace OSFUI
 			return false;
 		}
 		ReadStartupBool("developerMode", m_developerMode);
-		ReadStartupBool("cefPrototype", m_cefPrototype);
 		ClearFailure("dependency");
 		return true;
 	}

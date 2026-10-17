@@ -18,7 +18,7 @@
 #include "Input/XInputPoller.h"
 #include "Render/SharedFrameConsumer.h"
 #include "Views/Dev/DevViewReloadWorker.h"
-#include "Wv2Messages.h"
+#include "BrowserMessages.h"
 #include "check.h"
 
 namespace RuntimeTest
@@ -50,79 +50,79 @@ using RuntimeTest::env;
 namespace OSFUI
 {
     // All renderer methods use the real class declaration so interface drift fails compilation.
-    struct WebView2HostWebRenderer::Impl
+    struct BrowserHostClient::Impl
     {
         std::shared_ptr<SharedFrameConsumer> frames = std::make_shared<SharedFrameConsumer>();
     };
-    WebView2HostWebRenderer::WebView2HostWebRenderer() : m_impl(std::make_unique<Impl>()) {}
-    WebView2HostWebRenderer::~WebView2HostWebRenderer() = default;
-    bool WebView2HostWebRenderer::Initialize(const WebView2HostConfig& config)
+    BrowserHostClient::BrowserHostClient() : m_impl(std::make_unique<Impl>()) {}
+    BrowserHostClient::~BrowserHostClient() = default;
+    bool BrowserHostClient::Initialize(const BrowserHostConfig& config)
     {
         ++env.rendererInitializations;
-        env.rendererUsesCef = config.cefPrototype;
+        env.rendererUsesCef = config.backend == osfui::browser::Backend::Cef;
         CHECK(env.settings.reads > 0); // Settings must be acquired before renderer setup.
         return env.rendererInitializes;
     }
-    void WebView2HostWebRenderer::PrepareViewFiles() { ++env.filePreparations; }
-    void WebView2HostWebRenderer::RestartAfterFailure()
+    void BrowserHostClient::PrepareViewFiles() { ++env.filePreparations; }
+    void BrowserHostClient::RestartAfterFailure()
     {
         ++env.restarts;
         env.hidden.clear();
         env.browserFocus = false;
         env.preparedFrameReady = false;
     }
-    void WebView2HostWebRenderer::CreateOrNavigateView(const ViewManifest& manifest)
+    void BrowserHostClient::CreateOrNavigateView(const ViewManifest& manifest)
     {
         env.navigations.push_back(manifest.id);
         env.hidden[manifest.id] = true;
     }
-    bool WebView2HostWebRenderer::RefreshModFiles(std::string_view) { return true; }
-    void WebView2HostWebRenderer::SetInputTargetView(std::string_view id)
+    bool BrowserHostClient::RefreshModFiles(std::string_view) { return true; }
+    void BrowserHostClient::SetInputTargetView(std::string_view id)
     {
         CHECK(!env.settings.blocks.empty()); // Suppression must precede input focus.
         env.inputTarget = id;
     }
-    void WebView2HostWebRenderer::Resize(std::uint32_t, std::uint32_t) {}
-    void WebView2HostWebRenderer::SetViewport(std::uint32_t, std::uint32_t) {}
-    void WebView2HostWebRenderer::ResetPresentation() { env.preparedFrameReady = false; }
-    void WebView2HostWebRenderer::SetPointerInputEnabled(bool) {}
-    void WebView2HostWebRenderer::DrainNotifications()
+    void BrowserHostClient::Resize(std::uint32_t, std::uint32_t) {}
+    void BrowserHostClient::SetViewport(std::uint32_t, std::uint32_t) {}
+    void BrowserHostClient::ResetPresentation() { env.preparedFrameReady = false; }
+    void BrowserHostClient::SetPointerInputEnabled(bool) {}
+    void BrowserHostClient::DrainNotifications()
     {
         auto pending = std::exchange(env.notifications, {});
         for (const auto& notify : pending) notify();
     }
-    void WebView2HostWebRenderer::Update() {}
-    std::shared_ptr<SharedFrameConsumer> WebView2HostWebRenderer::Frames() const { return m_impl->frames; }
-    void WebView2HostWebRenderer::SendMessageToWeb(std::string_view view, std::string_view json)
+    void BrowserHostClient::Update() {}
+    std::shared_ptr<SharedFrameConsumer> BrowserHostClient::Frames() const { return m_impl->frames; }
+    void BrowserHostClient::SendMessageToWeb(std::string_view view, std::string_view json)
     {
         env.sent.push_back({ std::string(view), nlohmann::json::parse(json) });
     }
-    void WebView2HostWebRenderer::SetWebMessageHandler(WebMessageHandler handler) { env.message = std::move(handler); }
-    void WebView2HostWebRenderer::SetLoadHandler(LoadHandler handler) { env.load = std::move(handler); }
-    void WebView2HostWebRenderer::SetFailureHandler(FailureHandler handler) { env.failure = std::move(handler); }
-    void WebView2HostWebRenderer::SetCursorChangeHandler(CursorChangeHandler) {}
-    void WebView2HostWebRenderer::SetBackHandler(BackHandler) {}
-    void WebView2HostWebRenderer::RequestBack(std::string_view) { env.backWindowActive.push_back(env.rendererWindowActive); }
-    bool WebView2HostWebRenderer::IsCurrentInputPresentation(std::string_view, std::uint64_t) const { return true; }
-    void WebView2HostWebRenderer::SetInputFocus(bool focused)
+    void BrowserHostClient::SetWebMessageHandler(WebMessageHandler handler) { env.message = std::move(handler); }
+    void BrowserHostClient::SetLoadHandler(LoadHandler handler) { env.load = std::move(handler); }
+    void BrowserHostClient::SetFailureHandler(FailureHandler handler) { env.failure = std::move(handler); }
+    void BrowserHostClient::SetCursorChangeHandler(CursorChangeHandler) {}
+    void BrowserHostClient::SetBackHandler(BackHandler) {}
+    void BrowserHostClient::RequestBack(std::string_view) { env.backWindowActive.push_back(env.rendererWindowActive); }
+    bool BrowserHostClient::IsCurrentInputPresentation(std::string_view, std::uint64_t) const { return true; }
+    void BrowserHostClient::SetInputFocus(bool focused)
     {
         if (focused) CHECK(!env.settings.blocks.empty() && env.engineFocus);
         env.browserFocus = focused;
     }
-    void WebView2HostWebRenderer::InjectKeyEvent(std::uint32_t, bool) {}
-    void WebView2HostWebRenderer::InjectKeyboard(const osfui::wv2::msg::Keyboard& key) { env.keys.push_back(key.vk); }
-    void WebView2HostWebRenderer::InjectText(const osfui::wv2::msg::TextInput&) {}
-    void WebView2HostWebRenderer::SetWindowActive(bool active) { env.rendererWindowActive = active; }
-    void WebView2HostWebRenderer::GameWindowChanged() {}
-    void WebView2HostWebRenderer::InjectMouseMove(int, int) {}
-    void WebView2HostWebRenderer::InjectMouseButton(int, int, int, bool) {}
-    void WebView2HostWebRenderer::InjectMouseWheel(int, int, int) {}
-    void WebView2HostWebRenderer::InjectPhysicalMouseWheel(int, int, int) {}
-    void WebView2HostWebRenderer::OpenDevTools(std::string_view) {}
-    void WebView2HostWebRenderer::SetConsoleHandler(std::string_view, ConsoleHandler) {}
-    void WebView2HostWebRenderer::SetViewHidden(std::string_view view, bool hidden, bool) { env.hidden[std::string(view)] = hidden; }
-    void WebView2HostWebRenderer::SetViewOrder(std::string_view, int) {}
-    void WebView2HostWebRenderer::DestroyView(std::string_view view) { env.hidden.erase(std::string(view)); }
+    void BrowserHostClient::InjectKeyEvent(std::uint32_t, bool) {}
+    void BrowserHostClient::InjectKeyboard(const osfui::browser::msg::Keyboard& key) { env.keys.push_back(key.vk); }
+    void BrowserHostClient::InjectText(const osfui::browser::msg::TextInput&) {}
+    void BrowserHostClient::SetWindowActive(bool active) { env.rendererWindowActive = active; }
+    void BrowserHostClient::GameWindowChanged() {}
+    void BrowserHostClient::InjectMouseMove(int, int) {}
+    void BrowserHostClient::InjectMouseButton(int, int, int, bool) {}
+    void BrowserHostClient::InjectMouseWheel(int, int, int) {}
+    void BrowserHostClient::InjectPhysicalMouseWheel(int, int, int) {}
+    void BrowserHostClient::OpenDevTools(std::string_view) {}
+    void BrowserHostClient::SetConsoleHandler(std::string_view, ConsoleHandler) {}
+    void BrowserHostClient::SetViewHidden(std::string_view view, bool hidden, bool) { env.hidden[std::string(view)] = hidden; }
+    void BrowserHostClient::SetViewOrder(std::string_view, int) {}
+    void BrowserHostClient::DestroyView(std::string_view view) { env.hidden.erase(std::string(view)); }
 
     // Capture/GPU readiness is supplied by the test; no GPU completion is simulated.
     SharedFrameConsumer::~SharedFrameConsumer() = default;

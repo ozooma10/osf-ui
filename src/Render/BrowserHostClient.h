@@ -5,25 +5,25 @@
 #include <optional>
 
 #include "Views/ViewManifest.h"
+#include "BrowserBackend.h"
 
-namespace osfui::wv2::msg { struct Keyboard; struct TextInput; }
+namespace osfui::browser::msg { struct Keyboard; struct TextInput; }
 
 namespace OSFUI
 {
 	class SharedFrameConsumer;
-	struct WebView2HostConfig
+	struct BrowserHostConfig
 	{
 		std::uint32_t width{ kDefaultViewWidth };
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
-		bool          cefPrototype{ false };
+		osfui::browser::Backend backend{ osfui::browser::Backend::WebView2 };
 		std::function<std::optional<std::string>()> resolveLanguage;
 		std::filesystem::path dataDir;
 	};
 
-	// Shared browser-host transport. The experimental CEF helper implements the same private protocol.
-	// Keep this class name while the prototype is evaluated to avoid a wide runtime/test-double rename.
-	class WebView2HostWebRenderer
+	// Backend-neutral transport and browser lifetime. Both helpers implement the same private protocol.
+	class BrowserHostClient
 	{
 	public:
 		struct LoadEvent
@@ -51,10 +51,10 @@ namespace OSFUI
 		using BackHandler = std::function<void(std::string_view a_viewId, std::uint64_t a_presentationEpoch)>;
 		// DrainNotifications runs callbacks on the runtime tick; cursor callbacks use the transport thread.
 
-		WebView2HostWebRenderer();
-		~WebView2HostWebRenderer();
+		BrowserHostClient();
+		~BrowserHostClient();
 
-		bool Initialize(const WebView2HostConfig& a_config);
+		bool Initialize(const BrowserHostConfig& a_config);
 		// Runtime-thread call: prepare files asynchronously once per session, without starting a browser.
 		void PrepareViewFiles();
 		void RestartAfterFailure();
@@ -81,8 +81,8 @@ namespace OSFUI
 		bool IsCurrentInputPresentation(std::string_view a_viewId, std::uint64_t a_epoch) const;
 		void SetInputFocus(bool a_focused);
 		void InjectKeyEvent(std::uint32_t a_vkCode, bool a_down);
-		void InjectKeyboard(const osfui::wv2::msg::Keyboard& a_key);
-		void InjectText(const osfui::wv2::msg::TextInput& a_text);
+		void InjectKeyboard(const osfui::browser::msg::Keyboard& a_key);
+		void InjectText(const osfui::browser::msg::TextInput& a_text);
 		void SetWindowActive(bool a_active);
 		// Re-send OverlayInputHook::GameWindow() after the game recreates its window.
 		void GameWindowChanged();

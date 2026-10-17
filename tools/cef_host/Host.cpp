@@ -26,15 +26,15 @@
 #include "FrameTimer.h"
 #include "LocalAssets.h"
 #include "Scripts.h"
-#include "Wv2BrokerLaunch.h"
-#include "Wv2LocalUri.h"
-#include "Wv2Pipe.h"
+#include "BrowserBrokerLaunch.h"
+#include "BrowserLocalUri.h"
+#include "BrowserPipe.h"
 #include "Win32Util.h"
 #include "LanguageTag.h"
 
 namespace osfui::cefhost
 {
-    namespace msg = wv2::msg;
+    namespace msg = browser::msg;
     namespace Json = OSFUI::Json;
     using json = nlohmann::json;
     using win32::ToWide;
@@ -61,7 +61,7 @@ namespace osfui::cefhost
         {
             if (arguments.size() != 1 || !arguments[0]->IsString()) return false;
             const auto text = arguments[0]->GetStringValue();
-            if (text.length() > wv2::kMaxMessageBytes / 4) { exception = "OSF UI message too large"; return true; }
+            if (text.length() > browser::kMaxMessageBytes / 4) { exception = "OSF UI message too large"; return true; }
             auto context = CefV8Context::GetCurrentContext();
             if (!context || !context->GetFrame()->IsMain()) return false;
             auto message = CefProcessMessage::Create(name == "__osfCefPost" ? "osfui.post" : "osfui.reveal");
@@ -107,7 +107,7 @@ namespace osfui::cefhost
             const auto found = documents_.find(browser->GetIdentifier());
             if (!frame->IsMain() || found == documents_.end()) return;
             const auto& [id, legacy] = found->second;
-            if (!wv2::IsTrustedViewDocumentUri(frame->GetURL().ToWString(), wv2::kViewHost,
+            if (!browser::IsTrustedViewDocumentUri(frame->GetURL().ToWString(), browser::kViewHost,
                 ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id)))) return;
             auto handler = CefRefPtr<Binding>(new Binding);
             const auto attributes = static_cast<cef_v8_propertyattribute_t>(V8_PROPERTY_ATTRIBUTE_READONLY | V8_PROPERTY_ATTRIBUTE_DONTDELETE);
@@ -196,13 +196,13 @@ namespace osfui::cefhost
         void OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, int status) override;
         void OnLoadError(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, ErrorCode code, const CefString& text, const CefString& url) override;
         bool OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool, bool) override
-        { return !Trusted(request->GetURL()) && !(!frame->IsMain() && wv2::IsAllowedBlankFrameUri(request->GetURL().ToWString())); }
+        { return !Trusted(request->GetURL()) && !(!frame->IsMain() && browser::IsAllowedBlankFrameUri(request->GetURL().ToWString())); }
         CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
             CefRefPtr<CefRequest>, bool, bool, const CefString&, bool& disableDefault) override
         { disableDefault = true; return this; }
         ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request,
             CefRefPtr<CefCallback>) override
-        { return wv2::IsAllowedViewResourceUri(request->GetURL().ToWString(), wv2::kViewHost) ? RV_CONTINUE : RV_CANCEL; }
+        { return browser::IsAllowedViewResourceUri(request->GetURL().ToWString(), browser::kViewHost) ? RV_CONTINUE : RV_CANCEL; }
         CefRefPtr<CefResourceHandler> GetResourceHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request) override;
         void OnRenderProcessTerminated(CefRefPtr<CefBrowser>, TerminationStatus status, int code, const CefString& text) override;
         bool OnRenderProcessUnresponsive(CefRefPtr<CefBrowser>, CefRefPtr<CefUnresponsiveProcessCallback> callback) override
@@ -228,7 +228,7 @@ namespace osfui::cefhost
     class Host
     {
     public:
-        wv2::Pipe pipe;
+        browser::Pipe pipe;
         Graphics graphics;
         msg::Init init;
         HANDLE game{};
@@ -292,7 +292,7 @@ namespace osfui::cefhost
         void MarkDirty() { dirty = true; ScheduleFrame(); }
         bool Send(const json& value)
         {
-            const bool ok = pipe.WriteMessage(Json::Dump(value)) == wv2::Pipe::WriteResult::Written;
+            const bool ok = pipe.WriteMessage(Json::Dump(value)) == browser::Pipe::WriteResult::Written;
             if (!ok) disconnected.store(true);
             return ok;
         }
@@ -365,7 +365,7 @@ namespace osfui::cefhost
         {
             if (!OSFUI::Ids::IsValidQualifiedViewId(nav.id)) { Fatal("cef-navigation", E_INVALIDARG, "Invalid view ID"); return; }
             const auto url = "https://osfui.example/" + nav.id + "/" + nav.entry;
-            if (!wv2::IsTrustedViewDocumentUri(ToWide(url), wv2::kViewHost,
+            if (!browser::IsTrustedViewDocumentUri(ToWide(url), browser::kViewHost,
                 ToWide(OSFUI::Ids::ModOf(nav.id)), ToWide(ViewName(nav.id)))) {
                 Fatal("cef-navigation", E_INVALIDARG, "Invalid view entry"); return;
             }
@@ -606,7 +606,7 @@ namespace osfui::cefhost
             if (disconnected.load() || WaitForSingleObject(game, 0) != WAIT_TIMEOUT) Stop();
             if (!stopping) {
                 Send(msg::ToJson(msg::Heartbeat{}));
-                Post([this] { Maintenance(); }, wv2::kHeartbeatIntervalMs);
+                Post([this] { Maintenance(); }, browser::kHeartbeatIntervalMs);
             }
         }
     };
@@ -615,7 +615,7 @@ namespace osfui::cefhost
         owner(host), id(nav.id), root(std::move(assets)), legacy(nav.legacy), logicalHeight((std::max)(1u, nav.logicalHeight)) {}
     double View::Scale() const { return static_cast<double>(owner.viewportHeight) / logicalHeight; }
     bool View::Trusted(const CefString& url) const
-    { return wv2::IsTrustedViewDocumentUri(url.ToWString(), wv2::kViewHost, ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id))); }
+    { return browser::IsTrustedViewDocumentUri(url.ToWString(), browser::kViewHost, ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id))); }
     void View::OnBeforeClose(CefRefPtr<CefBrowser>)
     {
         browser = nullptr; surface.Clear(); popup.Clear();
@@ -684,7 +684,7 @@ namespace osfui::cefhost
     void View::Deliver(std::string payload)
     {
         if (!loaded || !browser) {
-            if (pendingWeb.size() >= 64 || pendingBytes + payload.size() > wv2::kMaxMessageBytes) {
+            if (pendingWeb.size() >= 64 || pendingBytes + payload.size() > browser::kMaxMessageBytes) {
                 owner.Fatal("cef-bridge", E_OUTOFMEMORY, "CEF pending bridge queue overflow"); return;
             }
             pendingBytes += payload.size(); pendingWeb.push_back(std::move(payload)); return;
@@ -716,8 +716,8 @@ namespace osfui::cefhost
     CefRefPtr<CefResourceHandler> View::GetResourceHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request)
     {
         if (request->GetMethod() != "GET" && request->GetMethod() != "HEAD") return nullptr;
-        const auto uri = wv2::ParseHttpsUri(request->GetURL().ToWString());
-        if (!uri || uri->host != wv2::kViewHost) return nullptr;
+        const auto uri = browser::ParseHttpsUri(request->GetURL().ToWString());
+        if (!uri || uri->host != browser::kViewHost) return nullptr;
         const auto decoded = CefURIDecode(uri->path, false, static_cast<cef_uri_unescape_rule_t>(UU_NORMAL | UU_SPACES | UU_URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS)).ToWString();
         const auto file = ResolveAsset(root, decoded);
         if (!file) return nullptr; // default network handling is disabled
@@ -744,7 +744,7 @@ namespace osfui::cefhost
     {
         if (source != PID_RENDERER || !frame->IsMain() || !Trusted(frame->GetURL()) || closing) return false;
         const auto payload = message->GetArgumentList()->GetString(0).ToString();
-        if (payload.size() > wv2::kMaxMessageBytes / 2) return true;
+        if (payload.size() > browser::kMaxMessageBytes / 2) return true;
         if (message->GetName() == "osfui.post") {
             const auto now = GetTickCount64();
             if (now - pageWindow >= 1000) { pageWindow = now; pageMessages = 0; }
@@ -796,7 +796,7 @@ namespace osfui::cefhost
         if (pipeName.empty() || !pid || !sandbox) return 1;
         if (command->HasSwitch("launch-broker")) {
             const auto launchArgs = L"--pipe=" + pipeName + L" --game-pid=" + pidText + L" --log=\"" + logPath + L"\"";
-            const auto launch = wv2::RunLaunchBroker(win32::ModulePath().wstring(), launchArgs);
+            const auto launch = browser::RunLaunchBroker(win32::ModulePath().wstring(), launchArgs);
             return launch.ok ? static_cast<int>(launch.method) : 0;
         }
         Host host;
@@ -805,7 +805,7 @@ namespace osfui::cefhost
         if (!host.pipe.Connect(pipeName, 15000) || host.pipe.ServerProcessId() != pid) return 2;
         host.game = OpenProcess(PROCESS_DUP_HANDLE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (!host.game) { host.Fatal("cef-init", HRESULT_FROM_WIN32(GetLastError()), "Cannot open game process"); return 3; }
-        host.Send(msg::ToJson(msg::Hello{ .protocolVersion = wv2::kBrowserHostProtocolVersion, .runtimeVersion = "CEF " CEF_VERSION }));
+        host.Send(msg::ToJson(msg::Hello{ .protocolVersion = browser::kBrowserHostProtocolVersion, .runtimeVersion = "CEF " CEF_VERSION, .backend = "cef", .capabilities = browser::kRequiredHostCapabilities }));
         std::string initial;
         if (!host.pipe.ReadMessage(initial, 10000)) return 4;
         const auto parsed = Json::Parse(initial);
@@ -829,14 +829,14 @@ namespace osfui::cefhost
         CefString(&settings.root_cache_path) = profile.wstring();
         CefString(&settings.cache_path) = (profile / "Default").wstring();
         CefString(&settings.log_file) = logPath + L".chromium.log";
-        const auto language = wv2::LanguageTag::FromGameLanguage(host.init.language);
+        const auto language = browser::LanguageTag::FromGameLanguage(host.init.language);
         if (!language.empty()) CefString(&settings.locale) = language;
         app->host = &host;
         if (!CefInitialize(args, settings, app, sandbox)) return CefGetExitCode();
         host.initialized = true;
         try { host.frameTimer.Start([&host] { host.Post([&host] { host.FrameReady(); }); }); }
         catch (const std::exception& error) { host.Fatal("cef-timer", E_FAIL, error.what()); }
-        host.Log("CEF " CEF_VERSION "; accelerated off-screen rendering; sandbox enabled; shared host protocol 3; event-driven messages; coalesced 60 Hz output");
+        host.Log("CEF " CEF_VERSION "; accelerated off-screen rendering; sandbox enabled; shared host protocol 4; event-driven messages; coalesced 60 Hz output");
         host.reader = std::thread([&host] { host.Reader(); });
         CefRunMessageLoop();
         host.tasksAlive->store(false);

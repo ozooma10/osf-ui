@@ -18,14 +18,14 @@ endif()
 
 # CEF 138+ supplies the sandbox in bootstrap.exe. Our entry point lives in a DLL.
 add_library(osfui_cef_host SHARED Host.cpp Graphics.cpp
-  "${REPO}/tools/webview2_shared/Wv2Pipe.cpp"
-  "${REPO}/tools/webview2_shared/Wv2BrokerLaunch.cpp")
+  "${REPO}/tools/browser_shared/BrowserPipe.cpp"
+  "${REPO}/tools/browser_shared/BrowserBrokerLaunch.cpp")
 SET_LIBRARY_TARGET_PROPERTIES(osfui_cef_host)
 target_compile_features(osfui_cef_host PRIVATE cxx_std_23)
 target_compile_options(osfui_cef_host PRIVATE /EHsc /utf-8)
 target_compile_definitions(osfui_cef_host PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(osfui_cef_host PRIVATE "${CEF_ROOT}" "${JSON_INCLUDE}"
-  "${REPO}/src" "${REPO}/tools/webview2_shared" "${CMAKE_CURRENT_BINARY_DIR}")
+  "${REPO}/src" "${REPO}/tools/browser_shared" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(osfui_cef_host PRIVATE libcef_dll_wrapper "${CEF_ROOT}/Release/libcef.lib"
   ${CEF_STANDARD_LIBS} d3d11 dxgi d3dcompiler user32 shell32 ole32 oleaut32 uuid advapi32 taskschd comsuppw)
 

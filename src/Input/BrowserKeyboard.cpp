@@ -1,6 +1,6 @@
 #include "Input/BrowserKeyboard.h"
 #include "Win32Util.h"
-#include "Wv2Messages.h"
+#include "BrowserMessages.h"
 
 namespace OSFUI
 {
@@ -78,13 +78,13 @@ namespace OSFUI
 		}
 	}
 
-	osfui::wv2::msg::Keyboard BrowserKeyboardEvent(std::uint32_t a_vk, bool a_down,
+	osfui::browser::msg::Keyboard BrowserKeyboardEvent(std::uint32_t a_vk, bool a_down,
 		bool a_system, std::intptr_t a_lparam)
 	{
 		const auto scan = static_cast<UINT>((a_lparam >> 16) & 0xFF);
 		const bool extended = (a_lparam & 0x01000000) != 0;
 		const auto held = [](int vk) { return (::GetKeyState(vk) & 0x8000) != 0; };
-		osfui::wv2::msg::Keyboard event;
+		osfui::browser::msg::Keyboard event;
 		event.vk = a_vk;
 		event.down = a_down;
 		event.repeat = a_down && (a_lparam & 0x40000000) != 0;
@@ -111,9 +111,9 @@ namespace OSFUI
 		return event;
 	}
 
-	osfui::wv2::msg::Keyboard BrowserNavigationKeyEvent(std::uint32_t a_vk, bool a_down)
+	osfui::browser::msg::Keyboard BrowserNavigationKeyEvent(std::uint32_t a_vk, bool a_down)
 	{
-		osfui::wv2::msg::Keyboard event;
+		osfui::browser::msg::Keyboard event;
 		event.vk = a_vk;
 		event.down = a_down;
 		event.key = NamedKey(a_vk);

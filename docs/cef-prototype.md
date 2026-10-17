@@ -32,7 +32,7 @@ That archive has `-cef-prototype` in its name and still defaults to WebView2 at 
 
 ## Implementation
 
-- The game continues using the existing browser-host protocol, view lifecycle, bridge, recovery, and D3D12 compositor. `WebView2HostWebRenderer` retains its historical name but selects either helper at startup. Consumer HTML, C++, and Papyrus APIs do not change.
+- The game continues using the existing browser-host protocol, view lifecycle, bridge, recovery, and D3D12 compositor. `BrowserHostClient` retains its historical name but selects either helper at startup. Consumer HTML, C++, and Papyrus APIs do not change.
 - CEF's sandbox-enabled bootstrap EXE loads `osfui_cef_host.dll`. Renderer and GPU subprocesses use that same distribution. The helper creates windowless browsers with transparent accelerated rendering and sends input through CEF's keyboard, mouse, and IME APIs.
 - Each accelerated callback opens the borrowed texture, copies its visible rectangle into a helper-owned D3D11 surface, and waits for that copy to complete before returning. The helper composites view/popup surfaces into the existing shared-texture ring. Game frame acknowledgments prevent premature ring reuse. No CEF-owned handle is sent to Starfield.
 - Pipe arrivals wake a coalesced CEF UI task immediately; each task handles at most 128 messages before yielding. Dirty visible surfaces share one pending publication and one 60 Hz deadline for the complete view stack. A one-shot high-resolution Windows timer wakes the CEF UI thread only when a dirty frame has a future deadline. New paints replace the pending surfaces instead of queuing redundant composites. Hidden paint callbacks do not request output.
