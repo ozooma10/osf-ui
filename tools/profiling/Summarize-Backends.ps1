@@ -28,14 +28,22 @@ function Stats($Values) {
 }
 $metrics = @('unique_fps','delivered_fps','cpu_core_percent','private_commit_mean_mib','private_commit_peak_mib','bridge_rtt_p50_ms','bridge_rtt_p95_ms','frame_interval_p95_ms','unique_interval_p95_ms','consumer_copy_p95_ms','gpu_engine_sum_mean_percent','processes')
 $rows = @(); $startup = @()
+$phaseNames = @($runs[0].data.phases | ForEach-Object { $_.name })
 foreach ($height in $metadata.heights) {
     foreach ($backend in $metadata.backends) {
         $selected = @($runs | Where-Object { $_.backend -eq $backend -and $_.data.height -eq $height })
         $startup += [pscustomobject]@{ height=$height; backend=$backend; runtime=$selected[0].data.runtime; first_content_ms=(Stats @($selected | ForEach-Object { $_.data.startup_ms.first_content })); shutdown_ms=(Stats @($selected | ForEach-Object { $_.data.shutdown_ms })) }
-        foreach ($phase in 'idle','canvas','dom','three_views') {
+        foreach ($phase in $phaseNames) {
             $values = @($selected | ForEach-Object { $_.data.phases | Where-Object { $_.name -eq $phase } })
             $row = [ordered]@{ height=$height; backend=$backend; phase=$phase }
             foreach ($metric in $metrics) { $row[$metric] = Stats @($values | ForEach-Object { $_.$metric }) }
+            if ($phase -in 'mixed10','mixed30') {
+                $row.layers = @(foreach ($layer in 'menu','hud','static_overlay') {
+                    $measurements = @($values | ForEach-Object { $_.layers | Where-Object { $_.name -eq $layer } })
+                    if ($measurements.Count -ne $selected.Count -or @($measurements | Where-Object { $_.invalid_markers -ne 0 }).Count) { throw "Missing/invalid mixed layer: $backend/$phase/$layer" }
+                    [pscustomobject]@{ name=$layer; unique_fps=(Stats @($measurements.unique_fps)); gap_p95_ms=(Stats @($measurements.unique_interval_p95_ms)) }
+                })
+            }
             $rows += [pscustomobject]$row
         }
     }
@@ -59,16 +67,23 @@ $null = $html.Append(@'
 '@)
 foreach ($height in $metadata.heights) {
     $null=$html.Append("<h2>$([int]($height*16/9)) × $height</h2><div class='scroll'><table><thead><tr><th>Workload</th><th>Backend</th><th>New frames/s</th><th>Output/s</th><th>CPU (% of one core)</th><th>Private commit (MiB)</th><th>Bridge p95 (ms)</th><th>New-frame gap p95 (ms)</th><th>GPU engine sum (%)</th></tr></thead><tbody>")
-    foreach ($phase in 'idle','canvas','dom','three_views') {
+    foreach ($phase in $phaseNames) {
         foreach ($backend in $metadata.backends) {
             $row=$rows | Where-Object { $_.height -eq $height -and $_.backend -eq $backend -and $_.phase -eq $phase }
-            $label=@{idle='Static menu';canvas='Canvas animation';dom='Animated menu';three_views='Three canvas views'}[$phase]
+            $label=@{idle='Static menu';canvas='Canvas animation';dom='Animated menu';three_views='Three canvas views';mixed10='Menu + 10 Hz HUD + static overlay';mixed30='Menu + 30 Hz HUD + static overlay'}[$phase]
             $null=$html.Append("<tr class='$backend'><td>$label</td><td>$backend</td>")
             foreach ($metric in 'unique_fps','delivered_fps','cpu_core_percent','private_commit_mean_mib','bridge_rtt_p95_ms','unique_interval_p95_ms','gpu_engine_sum_mean_percent') { $null=$html.Append((Cell $row.$metric)) }
             $null=$html.Append('</tr>')
         }
     }
     $null=$html.Append('</tbody></table></div>')
+    if ('mixed10' -in $phaseNames) {
+        $null=$html.Append('<h3>Mixed-view freshness by layer</h3><table><tr><th>Workload / layer</th><th>Backend</th><th>New frames/s</th><th>Gap p95 (ms)</th></tr>')
+        foreach ($row in @($rows | Where-Object { $_.height -eq $height -and $_.phase -in 'mixed10','mixed30' })) {
+            foreach ($layer in $row.layers) { $null=$html.Append("<tr><td>$($row.phase) / $($layer.name)</td><td>$($row.backend)</td>$(Cell $layer.unique_fps)$(Cell $layer.gap_p95_ms)</tr>") }
+        }
+        $null=$html.Append('</table>')
+    }
 }
 $variable = @($rows | Where-Object { $_.unique_fps.median -gt 0 -and $_.unique_fps.min -lt $_.unique_fps.median * 0.8 })
 if ($variable.Count) {
@@ -82,8 +97,9 @@ $null=$html.Append(@'
 </tbody></table><h2>Method and limits</h2><ul>
 <li>Identical local pages, viewport size, profiles created fresh per session, and default production helpers. Order alternates by repetition. OS disk caches are warm; startup is not a cold-boot measurement. CEF 150 and installed WebView2 155 use different Chromium versions.</li>
 <li>Canvas: 700 moving translucent circles at a target 60 updates/s. Animated menu: 160 DOM cards with transforms and bar-width changes. Three-view case renders three full-size overlapping canvas documents; visible frame counts describe the topmost output.</li>
+<li>Mixed cases: animated menu at 60 Hz, small transparent HUD at 10 or 30 Hz, and a static translucent overlay. Each layer has a separate visible marker. The main table reports menu freshness; the layer table reports all three. Static-overlay changes must remain zero. This is a synthetic workload, not a measured content mod.</li>
 <li>All phases include a 10 Hz bridge echo and a 1 Hz page statistics message. Static mode has no pixel changes but retains a lightweight requestAnimationFrame callback. Developer mode is off.</li>
-<li>The consumer opens the real shared textures/fence, performs a GPU copy, reads one pixel after completion, then acknowledges the slot. That common consumer overhead is outside reported browser CPU. There is no Starfield scene, D3D12 blend, game contention, frame generation, or MO2 cache preparation in these numbers.</li>
+<li>The consumer opens the real shared textures/fence, performs a GPU copy, reads one pixel (three in mixed cases) in one completed readback, then acknowledges the slot. That common consumer overhead is outside reported browser CPU. There is no Starfield scene, D3D12 blend, game contention, frame generation, or MO2 cache preparation in these numbers.</li>
 <li>CPU and memory cover the helper and its discovered descendants. Shared DWM/system services are excluded. The GPU column sums per-process engine counters; it can exceed 100% and is not total GPU utilization. It does not capture all Windows composition work, so do not use it alone to rank total GPU cost.</li>
 <li>Completed texture markers were valid and both helpers exited normally in every included run. These short synthetic runs do not establish long-session stability, real-mod performance, controller behavior, or multi-GPU compatibility.</li>
 </ul><h2>Reproducibility</h2><p>Full samples, frame timing statistics, process counts, screenshots, and event logs are retained beside this report. <a href="summary.json">Aggregated data</a> · <a href="metadata.json">Machine and binary hashes</a></p><table><thead><tr><th>File</th><th>SHA-256</th></tr></thead><tbody>

@@ -2,7 +2,7 @@
 
 This runs the built WebView2 and CEF helpers against the same desktop consumer of host protocol 4. It is independent of Starfield, SFSE, MO2, player settings, and installed browser profiles. It starts real Chromium processes and GPU work; run it deliberately on an otherwise quiet desktop.
 
-Build both helpers first (`xmake build 'OSF UI'` with the WebView2 edition selected, then `xmake build osfui-cef-host`). Then run `pwsh tools/profiling/Compare-Backends.ps1` from the repository root. Defaults: three repetitions, 1920×1080 and 2560×1440, four workloads per session, three seconds warmup and ten seconds measured per workload. Each session receives a new profile. Backend order reverses every other repetition. Output goes to a new `build/backend-comparison/<timestamp>` directory; existing output directories are refused.
+Build both helpers first (`xmake build 'OSF UI'` with the WebView2 edition selected, then `xmake build osfui-cef-host`). Then run `pwsh tools/profiling/Compare-Backends.ps1` from the repository root. Defaults: three repetitions, 1920×1080 and 2560×1440, six workloads per session, three seconds warmup and ten seconds measured per workload. Each session receives a new profile. Backend order reverses every other repetition. Output goes to a new `build/backend-comparison/<timestamp>` directory; existing output directories are refused.
 
 Close Starfield normally first. The runner checks before starting and once per second during each session. If the game starts, the current session finishes and is marked with `contention.json`; the comparison stops and the summarizer rejects it. The runner never closes the game. Other background GPU work can also distort results and should be avoided.
 
@@ -18,6 +18,14 @@ Measurements:
 - Optional Windows GPU Engine counters, summed across descendant processes/engines. This is not a whole-GPU utilization percentage, and excludes DWM and other shared services.
 
 Workloads in `view.html`: static 160-card menu; 700-circle canvas animation targeting 60 updates/s; animated DOM transforms and width changes; three overlapping full-size canvas views. The static page retains a lightweight requestAnimationFrame callback, one stats message per second, and the 10 Hz echo. Browser animation timers and OS composition cadence can limit output below the page's target update rate.
+
+Two mixed cases combine a 60 Hz animated DOM menu, a small transparent HUD at
+10 or 30 Hz, and a static translucent overlay. Separate markers expose each
+layer through the others. Three pixels are read in the same GPU completion/map,
+with independent freshness and gap statistics in `layers`; the main FPS column
+describes the menu. Both animated layers must advance, every marker must remain
+valid, and the static marker must remain unchanged. These synthetic cases exercise
+sparse painting and mixed cadences; they do not represent a specific content mod.
 
 The runner records binary, fixture and CEF scheduling source hashes, OS/CPU/GPU details, and actual runtime versions. The bundled CEF runtime and installed Evergreen may use different Chromium versions: results compare these shipped implementations, not CEF and WebView2 in the abstract. Developer mode stays off. Each helper and its children belong to a benchmark-owned kill-on-close job; normal pipe shutdown is attempted first and reported. A failed workload stops the run and preserves evidence.
 

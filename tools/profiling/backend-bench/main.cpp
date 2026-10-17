@@ -84,18 +84,23 @@ struct Consumer {
         HANDLE h=reinterpret_cast<HANDLE>(ring.produceFence);auto hr=device5->OpenSharedFence(h,IID_PPV_ARGS(&produce));CloseHandle(h);Check(hr,"open produce fence");
         D3D11_TEXTURE2D_DESC desc{};slots.at(0)->GetDesc(&desc);desc.MiscFlags=0;desc.BindFlags=0;
         Check(device->CreateTexture2D(&desc,nullptr,&owned),"owned consumer texture");
-        desc.Width=desc.Height=1;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        desc.Width=3;desc.Height=1;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
         Check(device->CreateTexture2D(&desc,nullptr,&pixel),"marker staging");
     }
-    UINT Consume(const msg::Frame& frame){
+    std::array<UINT,3> Consume(const msg::Frame& frame,bool mixed){
         if(frame.slot>=slots.size()||!produce)throw std::runtime_error("frame before ring");
         Check(context4->Wait(produce.Get(),frame.serial),"wait produce");
         context->CopyResource(owned.Get(),slots[frame.slot].Get());
-        const D3D11_BOX box{8,8,0,9,9,1};context->CopySubresourceRegion(pixel.Get(),0,0,0,0,owned.Get(),0,&box);
+        for(UINT i=0;i<(mixed?3u:1u);++i){
+            const UINT x=width*i/3+8;const D3D11_BOX box{x,8,0,x+1,9,1};
+            context->CopySubresourceRegion(pixel.Get(),0,i,0,0,owned.Get(),0,&box);
+        }
         Check(context4->Signal(done.Get(),++serial),"signal consumer");context->Flush();
         if(done->GetCompletedValue()<serial){Check(done->SetEventOnCompletion(serial,event),"consumer event");if(WaitForSingleObject(event,3000)!=WAIT_OBJECT_0)throw std::runtime_error("consumer GPU timeout");}
         D3D11_MAPPED_SUBRESOURCE mapped{};Check(context->Map(pixel.Get(),0,D3D11_MAP_READ,0,&mapped),"marker read");
-        auto* p=static_cast<unsigned char*>(mapped.pData);const UINT value=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;context->Unmap(pixel.Get(),0);return value;
+        std::array<UINT,3> values{};
+        for(UINT i=0;i<(mixed?3u:1u);++i){const auto* p=static_cast<unsigned char*>(mapped.pData)+i*4;values[i]=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;}
+        context->Unmap(pixel.Get(),0);return values;
     }
     // Outside performance windows. Read actual premultiplied BGRA output,
     // including alpha, so a correct top marker cannot hide broken lower layers.
@@ -129,6 +134,9 @@ struct Bench {
     std::set<std::string> ready,modeReady;std::string phase;bool measuring=false,allowNoOutput=false,lifecycle=false,retention=false,holdAcks=false;
     std::vector<msg::FrameAck> heldAcks;UINT64 lastEpoch{};
     UINT lastMarker{};double previousFrame{},previousUnique{};size_t frames{},unique{},invalid{};
+    bool mixed{};std::array<UINT,3> layerMarkers{};
+    std::array<size_t,3> layerChanges{},layerInvalid{};std::array<double,3> layerPrevious{};
+    std::array<std::vector<double>,3> layerIntervals;
     std::vector<double> intervals,uniqueIntervals,consumeTimes,pingTimes;
     std::map<int,double> pings;int nextPing{};std::vector<json> pageStats;
     ~Bench(){Stop();if(window)DestroyWindow(window);if(wake)CloseHandle(wake);}
@@ -150,7 +158,7 @@ struct Bench {
         if(!pipe.WaitForClient(20000))throw std::runtime_error("host did not connect: "+pipe.LastErrorText());
         reader=std::thread([this]{std::string payload;while(pipe.ReadMessage(payload)){auto value=json::parse(payload,nullptr,false);if(value.is_discarded())continue;const auto now=Seconds();{std::lock_guard lock(mutex);messages.push_back({std::move(value),now});}SetEvent(wake);}disconnected=true;SetEvent(wake);});
         result["adapter"]=consumer.adapterName;result["width"]=width;result["height"]=height;result["pid"]=pi.dwProcessId;
-        result["consumer"]="D3D11 GPU copy plus 1-pixel frame marker readback; acknowledgements after GPU completion";
+        result["consumer"]="D3D11 GPU copy plus 1 marker (3 for mixed views) in one readback; acknowledgements after GPU completion";
         Send(msg::Init{.topLevelHwnd=reinterpret_cast<UINT64>(window),.viewsPath=osfui::win32::ToUtf8(assets.wstring()),.legacyViewsPath=osfui::win32::ToUtf8(assets.wstring()),.width=width,.height=height,.userDataDir=osfui::win32::ToUtf8(profile.wstring()),.devMode=false,.language="en",.adapterLuidLow=consumer.adapter.LowPart,.adapterLuidHigh=static_cast<UINT>(consumer.adapter.HighPart)});
         Send(msg::WindowActive{.active=true});Send(msg::Viewport{.width=width,.height=height,.presentationEpoch=1});
         Send(msg::Navigate{.id="bench/main",.entry="index.html",.logicalHeight=height});
@@ -174,13 +182,23 @@ struct Bench {
             else if(type==msg::LoadEvent::kType){if(v.value("failed",false))throw std::runtime_error("load failure: "+v.dump());if(!loaded)loaded=received.time;}
             else if(type=="textures")consumer.Ring(msg::FromJson<msg::Textures>(v));
             else if(type=="frame"){
-                auto frame=msg::FromJson<msg::Frame>(v);const auto before=Seconds();const UINT marker=consumer.Consume(frame);const auto cost=(Seconds()-before)*1000;
+                auto frame=msg::FromJson<msg::Frame>(v);const auto before=Seconds();const auto markers=consumer.Consume(frame,mixed);const UINT marker=markers[0];const auto cost=(Seconds()-before)*1000;
                 const msg::FrameAck ack{.slot=frame.slot,.serial=frame.serial};
                 if(holdAcks)heldAcks.push_back(ack);else Send(ack);lastEpoch=frame.presentationEpoch;if(!firstFrame)firstFrame=received.time;
                 const bool valid=marker>=0x110000&&marker<0x200000;if(valid&&!firstContent)firstContent=received.time;
                 if(measuring){frames++;consumeTimes.push_back(cost);if(previousFrame)intervals.push_back((received.time-previousFrame)*1000);previousFrame=received.time;
                     if(!valid){invalid++;if(lifecycle)events<<json{{"seconds",received.time-start},{"invalid_marker",marker},{"epoch",frame.presentationEpoch},{"phase",phase}}.dump()<<'\n';}else if(marker!=lastMarker){unique++;if(previousUnique)uniqueIntervals.push_back((received.time-previousUnique)*1000);previousUnique=received.time;}}
                 lastMarker=marker;
+                if(mixed){
+                    for(size_t i=0;i<3;++i){
+                        const bool layerValid=markers[i]>=0x110000+i*0x10000&&markers[i]<0x120000+i*0x10000;
+                        if(measuring){
+                            if(!layerValid)++layerInvalid[i];
+                            else if(markers[i]!=layerMarkers[i]){++layerChanges[i];if(layerPrevious[i])layerIntervals[i].push_back((received.time-layerPrevious[i])*1000);layerPrevious[i]=received.time;}
+                        }
+                    }
+                    layerMarkers=markers;
+                }
             }else if(type=="webMessage"){
                 const auto m=json::parse(v.value("json",""),nullptr,false);if(m.is_discarded())continue;const auto name=m.value("name","");const auto view=v.value("view","");
                 if(name=="bench.ready")ready.insert(view);
@@ -288,12 +306,13 @@ struct Bench {
         consumer.Save(output/"restored.png");
     }
     void Phase(const std::string& name,const std::string& mode,int count){
-        phase=name;modeReady.clear();
-        if(count>1){for(const auto* id:{"bench/second","bench/third"}){Send(msg::Navigate{.id=id,.entry="index.html",.logicalHeight=height});Send(msg::SetHidden{.view=id,.hidden=false,.presentationEpoch=1});}
+        phase=name;mixed=mode.starts_with("mixed");modeReady.clear();
+        if(count>1){for(const auto* id:{"bench/second","bench/third"}){if(!ready.contains(id))Send(msg::Navigate{.id=id,.entry="index.html",.logicalHeight=height});Send(msg::SetOrder{.view=id,.order=std::string(id)=="bench/second"?1:2});Send(msg::SetHidden{.view=id,.hidden=false,.presentationEpoch=1});}
             WaitUntil([this]{return ready.size()==3;},20,"three views ready");}
         for(const auto& view:ready)SetMode(view,mode);
         WaitUntil([this,count]{return modeReady.size()==count;},10,"mode ack");RunFor(warmup);
         frames=unique=invalid=0;previousFrame=previousUnique=0;intervals.clear();uniqueIntervals.clear();consumeTimes.clear();pingTimes.clear();pageStats.clear();pings.clear();
+        layerChanges={};layerInvalid={};layerPrevious={};for(auto& gaps:layerIntervals)gaps.clear();
         std::vector<json> samples;auto first=processes.Sample();const double begin=Seconds(),end=begin+duration;double sampleAt=begin+1,pingAt=begin;
         AuditPhase(true);measuring=true;
         while(Seconds()<end){WaitForSingleObject(wake,5);Drain();const auto now=Seconds();
@@ -310,10 +329,19 @@ struct Bench {
             {"process_baseline",first["per_process"]},{"process_final",last["per_process"]},
             {"private_commit_mean_mib",Mean(memory)},{"private_commit_peak_mib",Quantile(memory,1)},{"processes",last["processes"]},
             {"gpu_engine_sum_mean_percent",gpu.empty()?json(nullptr):json(Mean(gpu))},{"samples",samples},{"page_stats",pageStats}};
+        if(mixed){
+            row["layers"]=json::array();
+            const char* names[]{"menu","hud","static_overlay"};
+            for(size_t i=0;i<3;++i)row["layers"].push_back({{"name",names[i]},{"target_hz",i==0?60:i==1?(mode=="mixed10"?10:30):0},
+                {"unique_fps",layerChanges[i]/(finish-begin)},{"invalid_markers",layerInvalid[i]},{"unique_frames",layerChanges[i]},
+                {"unique_interval_p95_ms",Quantile(layerIntervals[i],.95)},{"last_marker",layerMarkers[i]}});
+        }
         result["diagnostic_no_output"]=allowNoOutput;
         result["phases"].push_back(row);if(!allowNoOutput)consumer.Save(output/(name+".png"));Write();
         std::cout<<name<<" fps="<<row["unique_fps"]<<" CPU="<<row["cpu_core_percent"]<<" mem="<<row["private_commit_mean_mib"]<<std::endl;
         if(invalid||(!allowNoOutput&&!unique&&mode!="idle"))throw std::runtime_error("rendered workload validation failed");
+        if(mixed&&!allowNoOutput&&(layerInvalid[0]||layerInvalid[1]||layerInvalid[2]||!layerChanges[0]||!layerChanges[1]||layerChanges[2]||layerMarkers[2]!=0x130001))
+            throw std::runtime_error("mixed layer freshness/static preservation failed");
     }
     void Write(){std::ofstream(output/"result.json")<<result.dump(2);}
     void FailureEvidence(){
@@ -330,7 +358,7 @@ int wmain(int argc,wchar_t** argv){
     try{Bench bench;
         for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";else if(key==L"--retention")bench.retention=value==L"true";}
         if(bench.host.empty()||bench.output.empty()||bench.assets.empty()||bench.profile.empty())throw std::runtime_error("required: --host --out --views --profile");
-        try{bench.Start();if(bench.lifecycle)bench.Lifecycle();else if(bench.retention)bench.Retention();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);}bench.result["status"]="passed";}
+        try{bench.Start();if(bench.lifecycle)bench.Lifecycle();else if(bench.retention)bench.Retention();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);bench.Phase("mixed10","mixed10",3);bench.Phase("mixed30","mixed30",3);}bench.result["status"]="passed";}
         catch(const std::exception& e){bench.result["status"]="failed";bench.result["error"]=e.what();std::cerr<<e.what()<<std::endl;try{bench.FailureEvidence();}catch(const std::exception& capture){bench.result["failure_capture_error"]=capture.what();}}
         bench.Stop();bench.Write();return bench.result.value("status","")=="passed"?0:1;
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 2;}

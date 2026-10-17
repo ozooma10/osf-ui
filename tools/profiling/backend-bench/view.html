@@ -6,7 +6,8 @@
   const api=window.osfui, panel=document.querySelector('#panel'), grid=document.querySelector('.grid');
   for(let i=0;i<160;i++){const c=document.createElement('div');c.className='card';c.innerHTML='<b>Setting '+i+'</b>Local menu row<div class="bar"></div>';grid.append(c);}
   const cards=[...document.querySelectorAll('.card')], canvas=document.querySelector('#scene'), ctx=canvas.getContext('2d');
-  const marker=document.querySelector('#marker').getContext('2d');
+  const markerCanvas=document.querySelector('#marker'), marker=markerCanvas.getContext('2d');
+  const view=location.pathname.split('/')[2], layer=['main','second','third'].indexOf(view);
   let mode='idle',serial=0x110000,frames=0,next=0,angle=0;
   function mark(){serial=(serial+1)&0xffffff;marker.fillStyle='#'+serial.toString(16).padStart(6,'0');marker.fillRect(0,0,32,32);}
   function resize(){canvas.width=innerWidth*devicePixelRatio;canvas.height=innerHeight*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);}
@@ -20,11 +21,28 @@
   }
   api.onMessage=text=>{const m=JSON.parse(text);if(m.name==='bench.ping')send('bench.pong',m.payload);
     if(m.name==='bench.marker'){serial=m.payload.serial-1;mark();}
-    if(m.name==='bench.mode'){mode=m.payload.mode;frames=0;next=0;angle=0;panel.style.display=(mode==='canvas'||mode==='layers'||mode==='pulse')?'none':'block';ctx.clearRect(0,0,innerWidth,innerHeight);cards.forEach(c=>c.style.transform='');if(mode==='layers')layers();mark();send('bench.modeReady',{mode});}}
-  function tick(now){requestAnimationFrame(tick);if(mode==='idle'||mode==='layers')return;if(now+0.5<next)return;next=Math.max(next+1000/60,now-1000/60);angle+=1/60;
+    if(m.name==='bench.mode'){
+      mode=m.payload.mode;frames=0;next=0;angle=0;
+      const mixed=mode.startsWith('mixed');
+      markerCanvas.style.left=mixed?(layer*100/3)+'%':'0';
+      if(mixed)serial=0x110000+layer*0x10000;
+      panel.style.display=(mixed?layer!==0:['canvas','layers','pulse'].includes(mode))?'none':'block';
+      ctx.clearRect(0,0,innerWidth,innerHeight);cards.forEach(c=>c.style.transform='');
+      if(mode==='layers')layers();
+      if(mixed&&layer===2){ctx.fillStyle='rgba(40,120,220,.5)';ctx.fillRect(innerWidth-280,80,240,120);}
+      mark();send('bench.modeReady',{mode});}}
+  function tick(now){requestAnimationFrame(tick);const mixed=mode.startsWith('mixed');
+    if(mode==='idle'||mode==='layers'||(mixed&&layer===2))return;
+    const rate=mixed&&layer===1?(mode==='mixed10'?10:30):60;
+    if(now+0.5<next)return;next=Math.max(next+1000/rate,now-1000/rate);angle+=1/rate;
     if(mode==='canvas'){ctx.fillStyle='#101b29';ctx.fillRect(0,0,innerWidth,innerHeight);for(let i=0;i<700;i++){const x=(i*97+angle*(30+i%80))%innerWidth,y=(i*53+Math.sin(angle+i)*60+innerHeight)%innerHeight;ctx.fillStyle='hsl('+(i*17%360)+' 65% 55% / .7)';ctx.beginPath();ctx.arc(x,y,8+i%22,0,Math.PI*2);ctx.fill();}}
     else if(mode==='pulse'){ctx.fillStyle=angle%2<1?'#ff0000':'#ffff00';ctx.fillRect(0,0,innerWidth,innerHeight);}
-    else if(mode==='dom'){for(let i=0;i<cards.length;i++){cards[i].style.transform='translateX('+Math.sin(angle*3+i)*12+'px)';cards[i].querySelector('.bar').style.width=(50+40*Math.sin(angle+i))+'%';}}
+    else if(mixed&&layer===1){
+      // A small transparent HUD damages only its previous/current bar and marker.
+      ctx.clearRect(innerWidth/3,40,260,64);ctx.fillStyle='rgba(20,210,100,.75)';
+      ctx.fillRect(innerWidth/3+8,48,80+80*(1+Math.sin(angle*3)),40);
+    }
+    else if(mode==='dom'||mixed){for(let i=0;i<cards.length;i++){cards[i].style.transform='translateX('+Math.sin(angle*3+i)*12+'px)';cards[i].querySelector('.bar').style.width=(50+40*Math.sin(angle+i))+'%';}}
     frames++;mark();}
   requestAnimationFrame(tick);mark();
   setInterval(()=>{send('bench.stats',{mode,frames,serial,dpr:devicePixelRatio,width:innerWidth,height:innerHeight});frames=0;},1000);

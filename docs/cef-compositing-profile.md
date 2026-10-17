@@ -88,3 +88,13 @@ ZIP content hashes passed. These packages have not been tested in-game or deploy
 `build/cef-optimization/validation.json` records this checkpoint. Other Starfield
 sessions repeatedly started during validation; the runner retained and rejected
 the contended repeat. Further renderer and game tests await a clear desktop.
+
+## Follow-up checkpoint
+
+`build/cef-next/baseline-lifecycle/` completed three clean 1440p sessions per
+backend, each passing all 15 lifecycle checks against the existing production
+helpers. The new mixed benchmark adds independently observed menu/HUD/static
+markers, with 10 and 30 Hz HUD cases. It compiles; complete performance validation
+is pending. `baseline-performance/webview2-1440p-r1/contention.json` rejects the
+first performance session because another Starfield session started during it.
+The already-built candidate ZIPs still need their packaged in-game acceptance.
