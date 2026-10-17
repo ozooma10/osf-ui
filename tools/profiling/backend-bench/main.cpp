@@ -171,7 +171,7 @@ struct Bench {
                 if(holdAcks)heldAcks.push_back(ack);else Send(ack);lastEpoch=frame.presentationEpoch;if(!firstFrame)firstFrame=received.time;
                 const bool valid=marker>=0x110000&&marker<0x200000;if(valid&&!firstContent)firstContent=received.time;
                 if(measuring){frames++;consumeTimes.push_back(cost);if(previousFrame)intervals.push_back((received.time-previousFrame)*1000);previousFrame=received.time;
-                    if(!valid)invalid++;else if(marker!=lastMarker){unique++;if(previousUnique)uniqueIntervals.push_back((received.time-previousUnique)*1000);previousUnique=received.time;}}
+                    if(!valid){invalid++;if(lifecycle)events<<json{{"seconds",received.time-start},{"invalid_marker",marker},{"epoch",frame.presentationEpoch},{"phase",phase}}.dump()<<'\n';}else if(marker!=lastMarker){unique++;if(previousUnique)uniqueIntervals.push_back((received.time-previousUnique)*1000);previousUnique=received.time;}}
                 lastMarker=marker;
             }else if(type=="webMessage"){
                 const auto m=json::parse(v.value("json",""),nullptr,false);if(m.is_discarded())continue;const auto name=m.value("name","");const auto view=v.value("view","");
@@ -188,7 +188,7 @@ struct Bench {
     void RunFor(double seconds){const auto end=Seconds()+seconds;while(Seconds()<end){WaitForSingleObject(wake,5);Drain();}}
     void SetMode(const std::string& view,const std::string& mode){Send(msg::PostWeb{.view=view,.json=json{{"kind","event"},{"name","bench.mode"},{"payload",{{"mode",mode}}}}.dump()});}
     void Lifecycle(){
-        result["lifecycle"]=json::array();measuring=true;
+        result["lifecycle"]=json::array();measuring=true;phase="backpressure";
         auto require=[this](bool ok,const char* name){if(!ok)throw std::runtime_error(name);result["lifecycle"].push_back(name);std::cout<<"passed: "<<name<<std::endl;};
         auto ping=[this]{const int id=++nextPing;pings[id]=Seconds();Send(msg::PostWeb{.view="bench/main",.json=json{{"kind","event"},{"name","bench.ping"},{"payload",{{"id",id}}}}.dump()});WaitUntil([&]{return !pings.contains(id);},3,"bridge echo");};
         modeReady.clear();SetMode("bench/main","canvas");WaitUntil([&]{return modeReady.size()==1;},5,"animation ready");RunFor(.3);
@@ -199,7 +199,7 @@ struct Bench {
         holdAcks=false;for(const auto& ack:heldAcks)Send(ack);heldAcks.clear();
         WaitUntil([&]{return frames>blockedFrames&&lastMarker!=blockedMarker;},3,"pending static frame after ack");
         require(true,"ack publishes latest static pixels without another paint stream");
-        Send(msg::SetHidden{.view="bench/main",.hidden=true,.presentationEpoch=2});RunFor(.15);const auto hiddenFrames=frames;RunFor(.2);
+        phase="visibility";Send(msg::SetHidden{.view="bench/main",.hidden=true,.presentationEpoch=2});RunFor(.15);const auto hiddenFrames=frames;RunFor(.2);
         require(frames==hiddenFrames,"hidden view produces no output");
         Send(msg::SetHidden{.view="bench/main",.hidden=false,.presentationEpoch=3});WaitUntil([&]{return lastEpoch==3&&frames>hiddenFrames;},5,"reshow frame");
         require(true,"reshow produces current epoch");
@@ -207,14 +207,22 @@ struct Bench {
         require(true,"message burst drains beyond one 128-message batch");
         modeReady.clear();SetMode("bench/main","canvas");WaitUntil([&]{return modeReady.size()==1;},5,"animation restart");RunFor(.2);
         holdAcks=true;RunFor(.3);require(heldAcks.size()==osfui::browser::kRingSlots,"ring filled before resize");
-        Send(msg::Resize{.width=1280,.height=720});Send(msg::Viewport{.width=1280,.height=720,.presentationEpoch=4});
+        phase="resize";Send(msg::Resize{.width=1280,.height=720});Send(msg::Viewport{.width=1280,.height=720,.presentationEpoch=4});
         WaitUntil([&]{return lastEpoch==4;},5,"resize while backpressured");
         holdAcks=false;for(const auto& ack:heldAcks)Send(ack);heldAcks.clear();RunFor(.15);
         require(consumer.width==1280&&consumer.height==720,"resize replaces blocked ring");
-        ready.erase("bench/main");Send(msg::DestroyView{.view="bench/main"});
+        phase="reopen";ready.erase("bench/main");Send(msg::DestroyView{.view="bench/main"});
         Send(msg::Navigate{.id="bench/main",.entry="index.html",.logicalHeight=720});Send(msg::SetHidden{.view="bench/main",.hidden=false,.presentationEpoch=5});
-        WaitUntil([&]{return ready.contains("bench/main")&&lastEpoch==5;},5,"destroy/reopen");
-        require(invalid==0,"destroy and reopen preserves valid current frames");
+        WaitUntil([&]{return ready.contains("bench/main");},5,"reopened document ready");
+        // A document-ready message precedes its first paint. Require pixels from
+        // this document, not a frame epoch (or a stale marker from the old view).
+        constexpr UINT reopenedMarker=0x1f1234;
+        Send(msg::PostWeb{.view="bench/main",.json=json{{"kind","event"},{"name","bench.marker"},{"payload",{{"serial",reopenedMarker}}}}.dump()});
+        WaitUntil([&]{return lastEpoch==5&&lastMarker==reopenedMarker;},5,"reopened document pixels");
+        result["transition_invalid_frames"]=invalid;
+        const auto settledInvalid=invalid;RunFor(.2);
+        require(invalid==settledInvalid,"destroy and reopen publishes fresh stable document pixels");
+        consumer.Save(output/"reopened.png");
         SetMode("bench/main","canvas"); // Shut down with live paints and scheduled work.
         measuring=false;
     }
