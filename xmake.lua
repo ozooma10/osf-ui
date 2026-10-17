@@ -16,7 +16,7 @@ option("browser_backend")
     set_default("webview2")
     set_values("webview2", "cef")
     set_showmenu(true)
-    set_description("Browser edition to deploy; the game DLL and public API are identical")
+    set_description("Browser edition: webview2 (recommended default), cef (bundled-runtime alternative)")
 option_end()
 
 target("osfui-cef-host")

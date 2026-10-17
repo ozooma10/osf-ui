@@ -1,4 +1,4 @@
-<# Build two OSF UI editions around one shared DLL and public API. Never deploys or publishes. #>
+<# Build WebView2 (recommended default) and CEF (bundled-runtime alternative) around one shared DLL and public API. Never deploys or publishes. #>
 [CmdletBinding()]
 param(
     [ValidateSet('both', 'webview2', 'cef')][string]$Backend = 'both',
@@ -129,6 +129,8 @@ try {
             Write-Host "SHA256 $hash"
         }
         if ($editions.Count -eq 2) { Write-Host 'Both editions contain byte-identical common files, including OSFUI.dll and OSFUI.pex.' }
+        Write-Host 'WebView2: recommended default for most users; requires the WebView2 Evergreen Runtime.'
+        Write-Host 'CEF: bundled-runtime alternative; includes Chromium and does not require WebView2.'
         Write-Host 'Install one edition. Both require OSF Settings, SFSE, and Address Library. Only the WebView2 edition requires Evergreen.'
         $archiveRecords
     } finally { Pop-Location }

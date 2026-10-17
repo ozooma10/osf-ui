@@ -2,7 +2,7 @@ TITLE
 OSF UI - Web Interface Framework
 
 SHORT DESCRIPTION
-An SFSE framework for custom in-game menus and HUDs built with HTML, CSS, and JavaScript. Connect interfaces to C++ or Papyrus, with keyboard, mouse, and controller support. Requires OSF Settings.
+An SFSE framework for custom menus and HUDs built with HTML, CSS, and JavaScript, connected to C++ or Papyrus. WebView2 is the recommended default; CEF is the bundled-runtime alternative. Requires OSF Settings. Install one edition.
 
 VERSION
 2.0.0
@@ -12,22 +12,44 @@ CHANGELOG
 - Mod menus can register with the Launcher in OSF Settings.
 - Added a new 2.0 API for custom menus, passive HUDs, and communication between web interfaces and C++ or Papyrus.
 - Included a compatibility adapter for the documented 1.6 interfaces, preserving supported mods' existing files and saved values.
-- The WebView2 helper starts when a view is requested.
+- Two automatically selected browser editions share the same game DLL and public APIs: WebView2 (recommended default) and CEF (bundled-runtime alternative).
+- The selected browser helper starts when a view is requested.
+
+WEBVIEW2 FILE TITLE
+OSF UI 2.0 - WebView2 (Recommended Default)
+
+WEBVIEW2 ARCHIVE
+Use the archive ending in -webview2.zip. Current local candidate: OSF-UI-v2.0.0-rc-webview2.zip.
+
+WEBVIEW2 FILE DESCRIPTION
+Recommended default: smaller download and lower measured CPU/memory overhead. Requires WebView2 Evergreen, SFSE, Address Library, and OSF Settings. Renderer selected automatically. Install one edition only; both share the same DLL and mod APIs.
+
+CEF FILE TITLE
+OSF UI 2.0 - CEF (Bundled-Runtime Alternative)
+
+CEF ARCHIVE
+Use the archive ending in -cef.zip. Current local candidate: OSF-UI-v2.0.0-rc-cef.zip.
+
+CEF FILE DESCRIPTION
+Bundled-runtime alternative with Chromium included; no WebView2 required. Larger download and higher measured CPU/memory overhead. Requires SFSE, Address Library, and OSF Settings. Renderer selected automatically. Install one edition only.
 
 NEXUS REQUIREMENTS
 Starfield Script Extender (SFSE): https://www.nexusmods.com/starfield/mods/106
 Address Library for SFSE Plugins: https://www.nexusmods.com/starfield/mods/3256
 OSF Settings: https://www.nexusmods.com/starfield/mods/18326
-External requirement: Microsoft Edge WebView2 Evergreen Runtime
+External requirement for the WebView2 edition only: Microsoft Edge WebView2 Evergreen Runtime
 https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+The CEF edition includes its browser runtime and does not require Evergreen.
 
 EDITOR NOTES (NOT PART OF THE PUBLIC DESCRIPTION)
 The paste-ready description is in description-2.0.bbcode.txt.
 It reuses the original OSF UI banner and all five original cyan section headers. No new image uploads are required. Troubleshooting uses a cyan text heading.
 Update Nexus's title, short description, and Requirements fields as well as the main description.
-At release, publish the 2.0 author documentation to the public GitHub default branch; the public default branch still showed the older combined framework during this review.
+List WebView2 first as the recommended default. List CEF as the bundled-runtime alternative, not as an upgrade, patch, or additional dependency. Use the separate file descriptions above and make the Evergreen requirement conditional on choosing WebView2.
+These are local publication drafts. Do not upload files, change the live listing, tag, or publish without explicit release authorization. Confirm final archive filenames, hashes, and matching source revision before publication.
+At an authorized release, ensure the public GitHub default branch contains the matching 2.0 author documentation.
 The local release documentation calls for the companion OSF Settings 1.0.0 release; older development builds with the same version number may have incompatible interfaces. Publish the matching release pair.
-The compatibility wording follows the documented 1.6 baseline. It does not claim that every historical integration is supported or that in-game acceptance testing is complete.
+The compatibility wording follows the documented 1.6 baseline. Both editions passed the recorded stock in-game suite, but this does not establish every historical integration, GPU, Luma/HDR/frame-generation, physical-controller, or IME configuration. Measured tradeoffs and the acceptance boundary are documented in docs/browser-backends.md.
 
 EXISTING OSF UI IMAGE REFERENCES
 Main banner:

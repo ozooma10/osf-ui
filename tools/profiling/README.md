@@ -66,7 +66,7 @@ In WPA with `trace.etl`:
 
 Act only on a hotspot or slope that repeats across runs and regresses against its matched baseline. If external traces cannot separate it, add narrow opt-in instrumentation: D3D11/D3D12 timestamp queries around copy and blend, plus QPC spans for renderer update, bridge pumping, frame publish/consume, and dropped waits.
 
-For the experimental CEF helper, the [CEF attribution audit](cef-audit/README.md)
+For the CEF bundled-runtime alternative, the [CEF attribution audit](cef-audit/README.md)
 generates an isolated instrumented build and compares message/publication
 scheduling, GPU-copy timings, no-output diagnostic controls, and Chromium traces.
 It leaves the production helper and installed mod unchanged.

@@ -2,7 +2,16 @@
 
 OSF UI has one game DLL and one public HTML/JavaScript, C++, and Papyrus API. Two mutually exclusive packages provide WebView2 or CEF browser hosting. Both use the same view lifecycle, bridge, input policy, recovery, and D3D12 compositor. Browser engines remain in separate helper processes.
 
-WebView2 is the default and uses Microsoft's Evergreen runtime. CEF bundles its Chromium runtime and does not require WebView2. Both editions have a [production-package game acceptance suite](../tests/game/README.md) covering rendering, modern and legacy APIs, native/Papyrus messaging, input, save/load, recovery, and shutdown. Results include exact package and helper hashes. Stock-renderer acceptance does not establish every GPU, HDR, physical-controller, or IME configuration.
+**WebView2 is the recommended default for most users. CEF is the bundled-runtime alternative.**
+
+| Edition | Choose it for | Tradeoff |
+| --- | --- | --- |
+| WebView2 — recommended default | Smaller download and lower measured browser CPU and memory overhead. | Requires Microsoft's WebView2 Evergreen Runtime, which updates independently of OSF UI. |
+| CEF — bundled-runtime alternative | A Chromium runtime included and versioned with OSF UI; no WebView2 runtime dependency. | Larger download and higher measured CPU and memory overhead; browser updates must ship with OSF UI. |
+
+This recommendation reflects the current implementations and measured workloads, not a claim that one engine is always faster. CEF delivered more new frames in the single-view animation tests; WebView2 had better median delivery with three animated views. See the measured results below.
+
+Both editions have a [production-package game acceptance suite](../tests/game/README.md) covering rendering, modern and legacy APIs, native/Papyrus messaging, input, save/load, recovery, and shutdown. Results include exact package and helper hashes. Stock-renderer acceptance does not establish every GPU, HDR, physical-controller, or IME configuration.
 
 ## Install or switch editions
 
@@ -46,7 +55,7 @@ pwsh tools/package.ps1
 pwsh tools/package.ps1 -Backend cef
 ```
 
-Outputs are `dist/OSF-UI-v<version>-rc-webview2.zip` and `dist/OSF-UI-v<version>-rc-cef.zip`, plus SHA-256 and file-manifest sidecars. `-Tag` controls the candidate label; `-Tag ''` removes it. `-SkipBuild` uses existing binaries but still configures the requested edition, stages files, compiles Papyrus, and runs package verification. No packaging invocation deploys, tags, pushes, or publishes.
+Outputs are `dist/OSF-UI-v<version>-rc-webview2.zip` (recommended default) and `dist/OSF-UI-v<version>-rc-cef.zip` (bundled-runtime alternative), plus SHA-256 and file-manifest sidecars. `-Tag` controls the candidate label; `-Tag ''` removes it. `-SkipBuild` uses existing binaries but still configures the requested edition, stages files, compiles Papyrus, and runs package verification. No packaging invocation deploys, tags, pushes, or publishes. Prepared [release file descriptions](../packaging/nexus/release-2.0-fields.txt) use the same edition labels.
 
 The packager installs the common payload once, then creates each edition from it. It verifies byte-identical common files, actual native API acquisition and compiled Papyrus signatures, selected-backend ownership, the CEF runtime manifest, and every file read back from each ZIP. CEF builds generate a SHA-256 runtime manifest; package verification also checks the bundled lock file against the repository pin.
 
@@ -75,9 +84,9 @@ The packager installs the common payload once, then creates each edition from it
 
 The CEF runtime is about **410 MiB**, plus its materialized runtime copy and browser profile. CEF updates must be shipped deliberately with matching helper/SDK binaries and notices; this backend does not inherit Evergreen updates.
 
-Only accelerated BGRA8 rendering is implemented. A software paint callback reports an explicit failure. The helper opens textures on Starfield's adapter; CEF choosing a different GPU may fail. The synchronous texture-copy wait is intentionally conservative and needs profiling. IME composition is forwarded, but candidate-window placement and accessibility are not implemented. No claim of better reliability or performance is supported until live testing.
+Only accelerated BGRA8 rendering is implemented. A software paint callback reports an explicit failure. The helper opens textures on Starfield's adapter; CEF choosing a different GPU may fail. The synchronous texture-copy wait is intentionally conservative. IME composition is forwarded, but candidate-window placement and accessibility are not implemented. Results on one machine do not establish broader hardware compatibility or a Starfield FPS advantage.
 
-The backend separation was checked with both host builds, the shared DLL build, all 28 registered native tests, and the 31-suite portable native runner. Both package types passed actual DLL API acquisition, 55 compiled Papyrus signatures, and ZIP content verification. These checks do not establish a new browser or game runtime acceptance result.
+The backend separation was checked with both host builds, the shared DLL build, all 28 registered native tests, and the 31-suite portable native runner. Both package types passed actual DLL API acquisition, 55 compiled Papyrus signatures, and ZIP content verification. Those build/package checks are separate from the live acceptance recorded below.
 
 Desktop checks:
 
@@ -88,14 +97,27 @@ node --test tests/native/cef_bridge_tests.cjs
 
 These cover local-file containment, frame deadline coalescing and stall recovery, package-based WebView2/CEF selection through the real Runtime, and both JavaScript SDKs against the injected bridge. A symlink containment check explicitly reports a skip on systems that deny symlink creation. They do not start CEF or Starfield and do not prove native callback ordering or GPU synchronization.
 
-A separate [desktop backend benchmark](../tools/profiling/backend-bench/README.md) now exercises both actual helpers, their JavaScript bridges, accelerated shared textures, and normal exit. The October 16 comparison completed twelve sessions at 1080p/1440p using WebView2 155 and CEF 150. It favored WebView2 on median CPU, committed memory, bridge latency, and new-frame delivery; some 1440p runs varied substantially. Raw measurements and the HTML report are under `build/backend-comparison/comparison-20261016/` in the development checkout. This is desktop helper evidence; Starfield's compositor and live input acceptance remain separate.
+### Measured tradeoffs — October 17, 2026
 
-Before the backend separation, the October 17 event-driven scheduler passed the benchmark's explicit `-Lifecycle` scenario: full-ring backpressure, responsive bridge traffic while blocked, acknowledgment-driven delivery of the latest static pixels, hide/show, a message burst exceeding one drain batch, resizing a blocked ring, destroy/reopen, and normal shutdown. Evidence and exact binary/source hashes are under `build/cef-scheduling/lifecycle-verified/`.
+The [desktop backend benchmark](../tools/profiling/backend-bench/README.md) completed twelve sessions on the packaged helpers from commit `ae48b6793997efae777b00d7ab24c8f960cfd275`: three repetitions per backend at 1080p and 1440p, with three seconds of warmup and ten seconds measured per workload. The machine used a Ryzen 9 7950X and RTX 3080 on Windows 11. Runtime versions were WebView2 `155.0.4283.60` and CEF `150.0.22` / Chromium `150.0.7871.256`.
 
-The pre-refactor October 17 comparison is preserved under `build/backend-comparison/event-driven-20261017-verified/`: twelve successful sessions, three repetitions per backend/resolution, with Starfield closed throughout. CEF's animated bridge RTT p95 medians are 1.14–1.54 ms, compared with 19–24 ms in the earlier polling runs; WebView2's measured medians are 0.39–0.67 ms. Single-view CEF output is about 60 distinct FPS versus 56.4 for WebView2. Three-view CEF publication is paced near 60/s, but distinct top-view delivery is only 53.0 FPS at 1080p and 51.3 at 1440p, versus 56.4 for WebView2. The 1080p CEF repetitions range from 45.9 to 54.5 FPS. Multi-view pacing remains an optimization target; capped publication does not establish 60 distinct frames per view.
+1440p medians:
 
-CEF still uses more process-tree CPU and private committed memory in these workloads. For example, the three-view 1440p medians are 48.6% of one logical CPU and 677 MiB for CEF, versus 33.7% and 518 MiB for WebView2. These measurements describe desktop helpers, not game FPS. Earlier partial batches marked `interrupted.json` or `contention.json` are excluded. Full validation and deployment records are in `build/cef-scheduling/validation.json`.
+| Workload | WebView2 new frames/s | CEF new frames/s | WebView2 memory (MiB) | CEF memory (MiB) | WebView2 CPU (%) | CEF CPU (%) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Static menu | 0.0 | 0.0 | 272 | 364 | 3.6 | 3.4 |
+| Canvas animation | 52.5 | 60.1 | 290 | 385 | 13.1 | 23.6 |
+| Animated menu | 47.2 | 60.1 | 329 | 407 | 28.3 | 37.3 |
+| Three animated views | 54.4 | 46.5 | 557 | 677 | 47.5 | 69.6 |
 
-Before broader distribution, manually verify an existing menu and HUD with CEF selected: transparency and overlapping views, show/hide/reopen, mouse drag/double-click/wheel and selects, keyboard/controller navigation, IME, Alt-Tab, resolution changes, load transitions, browser recovery, and normal game exit. Verify a legacy view and both message/state APIs, then install the WebView2 edition and confirm the same views still work. Include a machine without WebView2 and a multi-GPU machine when assessing dependency and adapter behavior.
+Memory is summed browser-process private committed memory, not resident RAM or VRAM. CPU 100% means one logical CPU, not the whole machine. New frames count changes in the completed output's visible marker; a static menu correctly produces zero new frames. These are desktop-helper measurements, not Starfield FPS or input-to-photon latency.
+
+Across both resolutions, WebView2 used about 60–120 MiB less private commit and 24–45% less CPU in the animated workloads. CEF stayed near 60 new frames/s with one animated view. Three-view CEF delivery varied from 46.3 to 60.1 frames/s at 1440p, so the median does not guarantee that rate on every run. CEF reached first content about 60 ms sooner in fresh-profile tests with warm OS caches. The tested RC downloads were 10.8 MiB for WebView2 and 186 MiB for CEF; the WebView2 archive does not include Evergreen.
+
+All twelve sessions passed with valid frame markers and clean shutdowns. Both helpers also passed nine lifecycle checks, including backpressure, hide/show, message bursts, resize, and fresh-document presentation after reopen. Both exact RC packages passed stock Starfield 1.16.244 acceptance: rendered captures, keyboard/mouse input, native selects and relative drag, focus return, captured-input suppression, HUD movement, pause ownership, modern and legacy APIs, real Papyrus replies before and after load, retained state/reload, repeated opens, save/load, host termination/recovery, a 120-second soak, and clean shutdown.
+
+The local development checkout retains the exact hashes and results under `build/backend-validation/validation.json`, the workload medians/ranges under `build/backend-validation/comparison-verified/`, and screenshots under `build/backend-validation/game/`. Earlier failed or interrupted attempts remain available separately; they are not included in the passing comparison. Older pre-refactor measurements under `build/backend-comparison/` and `build/cef-scheduling/` are historical evidence.
+
+Remaining acceptance gaps include Luma/HDR/frame generation, physical controller and IME behavior, alternate GPU configurations, a machine without Evergreen, and the unavailable optional installed Stock Exchange fixture. The default recommendation does not imply those configurations have been tested.
 
 CEF references: [distribution and embedding](https://chromiumembedded.github.io/cef/general_usage.html), [Windows sandbox bootstrap](https://chromiumembedded.github.io/cef/sandbox_setup.html), and the pinned SDK's `include/cef_render_handler.h` / `include/internal/cef_types_win.h` for accelerated texture ownership.

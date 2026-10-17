@@ -22,7 +22,16 @@ A web view framework for Starfield.
 
 ## Runtime
 
-Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and the Edge WebView2 Evergreen Runtime for the default backend. The [CEF edition](docs/browser-backends.md) bundles Chromium instead and selects it automatically. Install one edition; the game DLL and public APIs are identical. Both editions use the [packaged in-game acceptance suite](tests/game/README.md). During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the selected browser helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
+Both editions require SFSE, Address Library, and the companion OSF Settings 1.0.0 release or a compatible newer release.
+
+| Edition | Recommendation | Browser requirement |
+| --- | --- | --- |
+| **WebView2 — recommended default** | Choose this for most installations: smaller download and lower measured browser CPU and memory overhead. | Microsoft Edge WebView2 Evergreen Runtime |
+| **CEF — bundled-runtime alternative** | Choose this when you want the browser runtime included with OSF UI. It has a larger download and higher measured CPU and memory overhead. | Bundled Chromium; no WebView2 runtime required |
+
+Install **one** edition. The package automatically selects its renderer; no settings change is needed. Both contain the same game DLL and public APIs, so mods use the same integration with either edition. See [browser editions and measured tradeoffs](docs/browser-backends.md) for the evidence and switching instructions. Both editions use the [packaged in-game acceptance suite](tests/game/README.md).
+
+During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the selected browser helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
 
 
 - HUD autostart waits for page load. Loading and main-menu transitions suspend requested HUDs; they resume afterward and after successful browser recovery. Explicit close requests remain closed.
@@ -64,7 +73,9 @@ The doubles supply load, engine-focus, and frame-readiness events. SFSE hook del
 pwsh tools/package.ps1
 ```
 
-Writes separate `dist/OSF-UI-v<version>-<tag>-webview2.zip` and `-cef.zip` archives (`-Tag` defaults to `rc`), plus SHA-256 and manifest sidecars. Use `-Backend webview2` or `-Backend cef` for one edition. The common DLL, scripts, and web assets are byte-identical in both archives; each supplies its own `backend.json`. Packaging verifies the archives locally and never publishes. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
+Writes separate `dist/OSF-UI-v<version>-<tag>-webview2.zip` (**recommended default**) and `-cef.zip` (**bundled-runtime alternative**) archives (`-Tag` defaults to `rc`), plus SHA-256 and manifest sidecars. Use `-Backend webview2` or `-Backend cef` for one edition. The common DLL, scripts, and web assets are byte-identical in both archives; each supplies its own `backend.json`. Packaging verifies the archives locally and never publishes. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
+
+The [Nexus release fields](packaging/nexus/release-2.0-fields.txt) include separate file titles and descriptions for the two editions; the [main description](packaging/nexus/description-2.0.bbcode.txt) explains their requirements and installation choices.
 
 ## License
 
