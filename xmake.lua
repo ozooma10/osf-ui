@@ -12,6 +12,24 @@ add_rules("plugin.vsxmake.autoupdate")
 
 add_requires("nlohmann_json 3.11.3")
 
+option("cef")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Build and deploy the optional CEF prototype (run tools/setup-cef.ps1 first)")
+option_end()
+
+if has_config("cef") then
+    target("osfui-cef-host")
+        set_kind("phony")
+        set_default(false)
+        add_packages("nlohmann_json")
+        on_build(function(target)
+            local json = target:pkg("nlohmann_json")
+            os.execv("pwsh", {"-NoProfile", "-File", path.join(os.projectdir(), "tools", "build-cef-host.ps1"),
+                "-JsonInclude", path.join(json:installdir(), "include")})
+        end)
+end
+
 -- The mirrored host is self-contained: static CRT and WebView2 loader.
 target("osfui-webview2-host")
     set_kind("binary")
@@ -114,6 +132,7 @@ target("OSF UI")
 
     -- The host must exist before data deployment packages it.
     add_deps("osfui-webview2-host")
+    if has_config("cef") then add_deps("osfui-cef-host") end
 
 target("osfui-manifest-tests")
     add_undefines("NDEBUG")
@@ -178,10 +197,24 @@ target("osfui-hardware-cursor-tests")
     add_includedirs("tests/native/cursor_stubs", "tests/native/stubs", "src")
     set_pcxxheader("tests/native/stubs/pch.h")
 
+target("osfui-cef-assets-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/cef_assets_tests.cpp")
+    add_includedirs("tests/native/stubs")
+
+target("osfui-cef-frame-pacer-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/cef_frame_pacer_tests.cpp")
+    add_includedirs("tests/native/stubs")
+
 target("osfui-runtime-lifecycle-tests")
     set_kind("binary")
     set_default(false)
-    for _, scenario in ipairs({"normal", "missing-settings", "renderer-init-failure",
+    for _, scenario in ipairs({"normal", "cef", "missing-settings", "renderer-init-failure",
         "input-hook-failure", "focus-menu-failure", "menu-events-failure", "suppression-failure",
         "recovery", "game-device-failure"}) do
         add_tests(scenario, {runargs = {scenario}})

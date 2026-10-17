@@ -22,6 +22,7 @@ namespace OSFUI
 		bool CompleteLaunch(std::uint64_t a_requestId, bool a_ready, std::string_view a_reason = {});
 		[[nodiscard]] bool Available() const { return m_available; }
 		[[nodiscard]] bool DeveloperMode() const { return m_developerMode; }
+		[[nodiscard]] bool CefPrototype() const { return m_cefPrototype; }
 		// Empty selects the browser default (Settings without language support).
 		[[nodiscard]] std::optional<std::string> Language();
 		// Known codes get their user-facing text and severity from Describe; a_message titles anything else.
@@ -48,6 +49,7 @@ namespace OSFUI
 		OSFSettings::API::Launcher::Client m_launcher;
 		bool m_available{};
 		bool m_developerMode{};
+		bool m_cefPrototype{};
 		std::optional<std::string> m_language;
 		OSFSettings::API::HotkeyBlock m_hotkeyBlock{};
 		std::unordered_set<std::string> m_failedOperations;

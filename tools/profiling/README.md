@@ -1,5 +1,16 @@
 # Profiling
 
+## Desktop backend comparison
+
+`Compare-Backends.ps1` runs both built browser helpers with isolated profiles, identical local workloads, and a real shared-texture consumer. It does not launch Starfield or change player settings. See [the benchmark method](backend-bench/README.md) for what these measurements establish.
+
+```powershell
+pwsh tools/profiling/Compare-Backends.ps1
+pwsh tools/profiling/Summarize-Backends.ps1 -RunDir build/backend-comparison/<timestamp>
+```
+
+## In-game capture
+
 Measure OSF UI from outside the shipping DLL. `Capture-OSFUI.ps1` samples three roles and writes `summary.md` and `summary.json` to `build/profiles/osfui/<timestamp>-<label>/`.
 
 | Role | Processes |
@@ -54,3 +65,8 @@ In WPA with `trace.etl`:
 4. Check p95/p99 in the PresentMon summary even when average FPS is flat.
 
 Act only on a hotspot or slope that repeats across runs and regresses against its matched baseline. If external traces cannot separate it, add narrow opt-in instrumentation: D3D11/D3D12 timestamp queries around copy and blend, plus QPC spans for renderer update, bridge pumping, frame publish/consume, and dropped waits.
+
+For the experimental CEF helper, the [CEF attribution audit](cef-audit/README.md)
+generates an isolated instrumented build and compares message/publication
+scheduling, GPU-copy timings, no-output diagnostic controls, and Chromium traces.
+It leaves the production helper and installed mod unchanged.

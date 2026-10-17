@@ -16,12 +16,13 @@ A web view framework for Starfield.
 - [Migrating from 1.x](MIGRATION.md)
 - [Built-in 1.6 compatibility](docs/compatibility-v1.md)
 - [2.0 API contract and versioning](docs/api-contract.md)
+- [Experimental CEF backend](docs/cef-prototype.md)
 
 </details>
 
 ## Runtime
 
-Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and the Edge WebView2 Evergreen Runtime. During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the WebView2 helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
+Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and the Edge WebView2 Evergreen Runtime for the default backend. An [experimental CEF backend](docs/cef-prototype.md) uses a bundled Chromium runtime instead. During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the selected browser helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
 
 
 - HUD autostart waits for page load. Loading and main-menu transitions suspend requested HUDs; they resume afterward and after successful browser recovery. Explicit close requests remain closed.
@@ -49,7 +50,7 @@ xmake test
 node --test tests/native/compat_web_tests.cjs
 ```
 
-The lifecycle suite executes the real Runtime, bridge, presentation, and input-capture code with desktop doubles for the game, renderer, and peer services. Its nine scenarios cover startup ordering, failed dependencies and input integration, state replay and session reset, menu/HUD transitions, suppression leases, and browser recovery. Each scenario runs in a separate process to preserve the production singleton lifetimes.
+The lifecycle suite executes the real Runtime, bridge, presentation, and input-capture code with desktop doubles for the game, renderer, and peer services. Its ten scenarios cover startup ordering, backend selection, failed dependencies and input integration, state replay and session reset, menu/HUD transitions, suppression leases, and browser recovery. Each scenario runs in a separate process to preserve the production singleton lifetimes.
 
 ```powershell
 xmake test -j4 'osfui-runtime-lifecycle-tests/*'

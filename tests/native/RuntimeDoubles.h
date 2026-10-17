@@ -22,6 +22,7 @@ namespace RuntimeTest
         SettingsTest::Diagnostics diagnostics;
         std::filesystem::path dataDir;
         bool rendererInitializes = true;
+        bool rendererUsesCef = false;
         bool menuEventsInstall = true;
         bool focusMenuRegisters = true;
         bool inputHookInstalls = true;

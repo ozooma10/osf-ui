@@ -39,13 +39,17 @@ int main()
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
         settings.values["developerMode"] = true;
+        settings.values["cefPrototype"] = true;
         Install(&settings, &diagnostics);
         OSFSettingsClient client;
         CHECK(client.Initialize());
         CHECK(client.DeveloperMode());
+        CHECK(client.CefPrototype());
         settings.values["developerMode"] = false;
+        settings.values["cefPrototype"] = false;
         CHECK(client.DeveloperMode()); // Startup-only, no live subscription.
-        CHECK(settings.reads == 1 && !settings.changed);
+        CHECK(client.CefPrototype());
+        CHECK(settings.reads == 2 && !settings.changed);
     }
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;

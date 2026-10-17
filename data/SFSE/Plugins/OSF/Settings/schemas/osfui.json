@@ -10,6 +10,14 @@
         "default": false,
         "requires": "restart",
         "hint": "Enable verbose diagnostics, F12 WebView DevTools, and loose-view hot reload on the next launch."
+      },
+      {
+        "key": "cefPrototype",
+        "label": "Use experimental CEF renderer",
+        "type": "bool",
+        "default": false,
+        "requires": "restart",
+        "hint": "Use the optional bundled CEF prototype on the next launch. Requires the CEF backend package. Turn off and restart to return to WebView2."
       }
     ]
   }

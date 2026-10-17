@@ -1,0 +1,25 @@
+[CmdletBinding()]
+param([string]$JsonInclude, [string]$Generator = 'Visual Studio 18 2026')
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$repo = Split-Path $PSScriptRoot -Parent
+$sdk = Join-Path $repo 'external\cef'
+$pin = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'cef_host\cef.lock.json') -Raw | ConvertFrom-Json
+if (-not (Test-Path -LiteralPath (Join-Path $sdk 'include\cef_version.h'))) {
+    throw 'Run tools/setup-cef.ps1 first.'
+}
+if (-not (Get-Content -LiteralPath (Join-Path $sdk 'include\cef_version.h') -Raw).Contains('"' + $pin.version + '"')) {
+    throw 'The CEF SDK does not match tools/cef_host/cef.lock.json.'
+}
+if (-not $JsonInclude) {
+    $packageRoot = Join-Path $env:LOCALAPPDATA '.xmake\packages\n\nlohmann_json\v3.11.3'
+    $match = Get-ChildItem -Path "$packageRoot\*\include\nlohmann\json.hpp" -Force -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $match) { throw 'Pass -JsonInclude with the nlohmann_json 3.11.3 include directory.' }
+    $JsonInclude = Split-Path (Split-Path $match.FullName -Parent) -Parent
+}
+$build = Join-Path $repo 'build\cef-host'
+& cmake -S (Join-Path $PSScriptRoot 'cef_host') -B $build -G $Generator -A x64 "-DCEF_ROOT=$sdk" "-DJSON_INCLUDE=$JsonInclude"
+if ($LASTEXITCODE -ne 0) { throw 'CEF CMake configure failed.' }
+& cmake --build $build --config Release --parallel 4
+if ($LASTEXITCODE -ne 0) { throw 'CEF host build failed.' }
+Write-Host "CEF runtime ready at $build\runtime"

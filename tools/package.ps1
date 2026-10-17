@@ -6,6 +6,7 @@ param(
     [switch]$NoPdb,
     [string]$Mode = 'releasedbg',
     [switch]$SkipBuild,
+    [switch]$IncludeCefPrototype,
     [string]$WebView2SdkDir,
     [string]$OutDir
 )
@@ -39,6 +40,7 @@ if (-not $Version) {
 }
 $versionLabel = "v$Version"
 if ($Tag) { $versionLabel += "-$Tag" }
+if ($IncludeCefPrototype) { $versionLabel += '-cef-prototype' }
 
 if (-not $WebView2SdkDir) { $WebView2SdkDir = $env:WEBVIEW2_SDK_DIR }
 if (-not $WebView2SdkDir) { $WebView2SdkDir = Join-Path $RepoRoot 'external\webview2' }
@@ -59,7 +61,8 @@ try {
     try {
     if (-not $SkipBuild) {
         Step "Configuring $Mode"
-        xmake f -P $RepoRoot -m $Mode -y
+        $cefOption = if ($IncludeCefPrototype) { '--cef=y' } else { '--cef=n' }
+        xmake f -P $RepoRoot -m $Mode $cefOption -y
         if ($LASTEXITCODE -ne 0) { Fail 'xmake configuration failed' }
         Step 'Building native runtime and deterministic shared web assets'
         xmake build -P $RepoRoot -y 'OSF UI'
@@ -76,6 +79,10 @@ try {
     if ($LASTEXITCODE -ne 0) { Fail 'xmake install failed' }
 
     $uiRoot = Join-Path $StageData 'SFSE\Plugins\OSF\UI'
+    $hasCef = Test-Path -LiteralPath (Join-Path $uiRoot 'bin\cef\osfui_cef_host.dll')
+    if ($hasCef -ne [bool]$IncludeCefPrototype) {
+        Fail 'Staged CEF payload does not match -IncludeCefPrototype. Rebuild without -SkipBuild to select the requested backend package.'
+    }
     New-Item -ItemType Directory -Path $uiRoot -Force | Out-Null
     foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
         $source = Join-Path $RepoRoot $doc

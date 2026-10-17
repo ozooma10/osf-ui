@@ -16,11 +16,13 @@ namespace OSFUI
 		std::uint32_t width{ kDefaultViewWidth };
 		std::uint32_t height{ kDefaultViewHeight };
 		bool          devMode{ false };
+		bool          cefPrototype{ false };
 		std::function<std::optional<std::string>()> resolveLanguage;
 		std::filesystem::path dataDir;
 	};
 
-	// Out-of-process WebView2 client using a named pipe and shared-texture ring to avoid MO2 injection.
+	// Shared browser-host transport. The experimental CEF helper implements the same private protocol.
+	// Keep this class name while the prototype is evaluated to avoid a wide runtime/test-double rename.
 	class WebView2HostWebRenderer
 	{
 	public:

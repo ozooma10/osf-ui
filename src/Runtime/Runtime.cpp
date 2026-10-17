@@ -63,12 +63,13 @@ namespace OSFUI
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = m_developerMode,
+			.cefPrototype = m_osfSettings.CefPrototype(),
 			.resolveLanguage = [this] { return m_osfSettings.Language(); },
 			.dataDir = Paths::DataDir(),
 		};
 
 		if (!renderer->Initialize(rendererConfig)) {
-			REX::ERROR("Runtime: WebView2 renderer failed to initialize");
+			REX::ERROR("Runtime: browser renderer failed to initialize");
 			return false;
 		}
 

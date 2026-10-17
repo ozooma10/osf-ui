@@ -58,6 +58,8 @@ SUITES=(
 "wv2_cdp_input_tests wv2_cdp_input_tests.cpp ../../src/Core/Json.cpp"
 "wv2_mouse_buttons_tests wv2_mouse_buttons_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
+"cef_assets_tests cef_assets_tests.cpp"
+"cef_frame_pacer_tests cef_frame_pacer_tests.cpp"
 "view_presentation_controller_tests view_presentation_controller_tests.cpp ../../src/Views/ViewPresentationController.cpp"
 "view_open_coordinator_tests view_open_coordinator_tests.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewPresentationController.cpp"
 "view_request_queue_tests view_request_queue_tests.cpp ../../src/Views/ViewRequestQueue.cpp"
@@ -142,7 +144,7 @@ for suite in "${SUITES[@]}"; do
     bin="$BUILD/$name"
     [[ -f "$bin" ]] || bin="$bin.exe"
     if [[ "$name" == runtime_lifecycle_tests ]]; then
-        for scenario in normal missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure; do
+        for scenario in normal cef missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure; do
             "$bin" "$scenario" || failures=$((failures + $?))
         done
     else

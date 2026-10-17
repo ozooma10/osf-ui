@@ -59,12 +59,13 @@ namespace OSFUI
 		}
 
 		// Real SFSE log dir, shared with the unhooked browser host.
-		std::filesystem::path BrowserHostLogPath()
+		std::filesystem::path BrowserHostLogPath(bool a_cef)
 		{
+			const auto name = a_cef ? "OSF UI.cef-host.log" : "OSF UI.webview2-host.log";
 			if (const auto dir = SFSE::log::log_directory()) {
-				return *dir / "OSF UI.webview2-host.log";
+				return *dir / name;
 			}
-			return LocalOsfuiDir() / "webview2-host.log";
+			return LocalOsfuiDir() / name;
 		}
 
 		bool HasMarkOfTheWeb(const std::filesystem::path& a_file)
@@ -73,7 +74,7 @@ namespace OSFUI
 			       INVALID_FILE_ATTRIBUTES;
 		}
 
-		bool BrowserHostProcessRunning()
+		bool BrowserHostProcessRunning(const std::wstring& a_name)
 		{
 			const HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 			if (snapshot == INVALID_HANDLE_VALUE) {
@@ -83,7 +84,7 @@ namespace OSFUI
 			bool found = false;
 			if (::Process32FirstW(snapshot, &entry)) {
 				do {
-					if (::_wcsicmp(entry.szExeFile, L"osfui_webview2_host.exe") == 0) {
+					if (::_wcsicmp(entry.szExeFile, a_name.c_str()) == 0) {
 						found = true;
 						break;
 					}
@@ -195,11 +196,11 @@ namespace OSFUI
 		void LogBrowserHostLine(int a_level, const std::string& a_text)
 		{
 			if (a_level >= 2) {
-				REX::ERROR("WebView2 browser host: {}", a_text);
+				REX::ERROR("OSF UI browser host: {}", a_text);
 			} else if (a_level == 1) {
-				REX::WARN("WebView2 browser host: {}", a_text);
+				REX::WARN("OSF UI browser host: {}", a_text);
 			} else {
-				REX::INFO("WebView2 browser host: {}", a_text);
+				REX::INFO("OSF UI browser host: {}", a_text);
 			}
 		}
 
@@ -475,6 +476,21 @@ namespace OSFUI
 		// The host exe is VFS-only; mirror it to a real versioned path for external launch.
 		bool MirrorHostExe()
 		{
+			if (config.cefPrototype) {
+				// MO2's virtual DLL/resource tree must be materialized alongside the bootstrap.
+				// Separate generations avoid replacing a runtime still held by Chromium children.
+				std::string error;
+				const auto prepared = ViewCache::Prepare(browserHostExeSource.parent_path(),
+					LocalOsfuiDir() / "cef-runtime", "osfui-cef-prototype-1",
+					std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64()), error);
+				if (!prepared) {
+					REX::ERROR("CEF runtime preparation failed: {}", error);
+					return false;
+				}
+				browserHostExeMirror = prepared->generation / browserHostExeSource.filename();
+				REX::INFO("CEF runtime {} at {}", prepared->reused ? "reused" : "prepared", Utf8Path(prepared->generation));
+				return true;
+			}
 			const auto mirrorDir = LocalOsfuiDir() / "bin";
 			browserHostExeMirror = mirrorDir / "osfui_webview2_host.exe";
 			std::error_code ec;
@@ -578,8 +594,9 @@ namespace OSFUI
 						   "process; run the game/MO2 without administrator rights");
 			}
 
-			REX::INFO("BrowserHostDiag: a browser-host process named osfui_webview2_host.exe {} running",
-				BrowserHostProcessRunning() ? "IS still" : "is NOT");
+			REX::INFO("BrowserHostDiag: a browser-host process named {} {} running",
+				Utf8Path(browserHostExeSource.filename()),
+				BrowserHostProcessRunning(browserHostExeSource.filename().native()) ? "IS still" : "is NOT");
 
 			ec.clear();
 			const auto logTime = std::filesystem::last_write_time(browserHostLog, ec);
@@ -703,11 +720,15 @@ namespace OSFUI
 			}
 			hostProcess = browserHostProcess;
 
-			const auto webView2RuntimeVersion = greeting.runtimeVersion.empty() ? std::string("?") : greeting.runtimeVersion;
-			if (webView2RuntimeVersion == "unknown") {
+			const auto runtimeVersion = greeting.runtimeVersion.empty() ? std::string("?") : greeting.runtimeVersion;
+			if (config.cefPrototype != runtimeVersion.starts_with("CEF ")) {
+				SignalDead("browser-host backend does not match the configured renderer");
+				return;
+			}
+			if (!config.cefPrototype && runtimeVersion == "unknown") {
 				REX::ERROR("WebView2HostWebRenderer: the WebView2 Evergreen runtime is not installed; install it and restart the game");
 			}
-			REX::INFO("WebView2HostWebRenderer: verified browser-host pid {} up (WebView2 Runtime {})", *peerPid, webView2RuntimeVersion);
+			REX::INFO("OSF UI: verified {} browser-host pid {} up (runtime {})", config.cefPrototype ? "CEF" : "WebView2", *peerPid, runtimeVersion);
 
 			using OutItem = osfui::wv2::BoundedQueue<std::string>::Item;
 			std::vector<OutItem> bootstrap;
@@ -1041,12 +1062,14 @@ namespace OSFUI
 	{
 		// Let the SDK-linked browser host diagnose a missing Evergreen runtime in hello.
 		m_impl->config = a_config;
-		REX::INFO("WebView2 input mode: forwarded CDP (Starfield retains native focus)");
+		REX::INFO("Browser backend: {}; Starfield retains native focus", a_config.cefPrototype ? "CEF prototype (direct input)" : "WebView2 (CDP input)");
 		m_impl->viewsRoot = a_config.dataDir / "views";
 		m_impl->legacyViewsRoot = a_config.dataDir.parent_path().parent_path() / "OSFUI" / "views";
-		m_impl->userData = LocalOsfuiDir() / "WebView2";
-		m_impl->browserHostLog = BrowserHostLogPath();
-		m_impl->browserHostExeSource = a_config.dataDir / "bin" / "osfui_webview2_host.exe";
+		m_impl->userData = LocalOsfuiDir() / (a_config.cefPrototype ? "CEF" : "WebView2");
+		m_impl->browserHostLog = BrowserHostLogPath(a_config.cefPrototype);
+		m_impl->browserHostExeSource = a_config.cefPrototype
+			? a_config.dataDir / "bin" / "cef" / "osfui_cef_host.exe"
+			: a_config.dataDir / "bin" / "osfui_webview2_host.exe";
 		m_impl->width = (std::max)(1u, a_config.width);
 		m_impl->height = (std::max)(1u, a_config.height);
 		m_impl->viewportWidth = m_impl->width;
@@ -1057,6 +1080,15 @@ namespace OSFUI
 					   "browser host was not packaged with this install",
 				Utf8Path(m_impl->browserHostExeSource));
 			return false;
+		}
+		if (a_config.cefPrototype) {
+			for (const auto* name : { "osfui_cef_host.dll", "libcef.dll", "icudtl.dat", "resources.pak", "cef.lock.json" }) {
+				const auto path = m_impl->browserHostExeSource.parent_path() / name;
+				if (!std::filesystem::is_regular_file(path, ec)) {
+					REX::ERROR("CEF prototype runtime is incomplete: {}. Install the complete CEF package or turn off cefPrototype in OSF Settings and restart.", Utf8Path(path));
+					return false;
+				}
+			}
 		}
 		return true;
 	}

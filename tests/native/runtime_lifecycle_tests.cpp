@@ -106,6 +106,7 @@ namespace
     {
         runtime().OnPostLoad();
         CHECK(env.rendererInitializations == 1 && env.compositorCreations == 1);
+        CHECK(env.rendererUsesCef == env.settings.values.at("cefPrototype"));
         CHECK(env.navigations.empty()); // Preparing services does not navigate/start a host.
         CHECK(env.papyrusInstalls == 0 && env.inputHookInstallations == 0);
     }
@@ -394,7 +395,11 @@ int main(int argc, char** argv)
     const std::string_view scenario = argc > 1 ? argv[1] : "normal";
     FixtureFiles files;
     SettingsTest::Install(&env.settings, &env.diagnostics);
-    if (scenario == "normal") NormalLifecycle();
+    if (scenario == "cef") {
+        env.settings.values["cefPrototype"] = true;
+        NormalLifecycle();
+    }
+    else if (scenario == "normal") NormalLifecycle();
     else if (scenario == "missing-settings" || scenario == "renderer-init-failure") StartupFailure(scenario);
     else if (scenario == "input-hook-failure" || scenario == "focus-menu-failure" || scenario == "menu-events-failure") InputFailure(scenario);
     else if (scenario == "suppression-failure") SuppressionFailure();

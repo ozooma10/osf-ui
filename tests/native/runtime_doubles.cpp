@@ -56,9 +56,10 @@ namespace OSFUI
     };
     WebView2HostWebRenderer::WebView2HostWebRenderer() : m_impl(std::make_unique<Impl>()) {}
     WebView2HostWebRenderer::~WebView2HostWebRenderer() = default;
-    bool WebView2HostWebRenderer::Initialize(const WebView2HostConfig&)
+    bool WebView2HostWebRenderer::Initialize(const WebView2HostConfig& config)
     {
         ++env.rendererInitializations;
+        env.rendererUsesCef = config.cefPrototype;
         CHECK(env.settings.reads > 0); // Settings must be acquired before renderer setup.
         return env.rendererInitializes;
     }
