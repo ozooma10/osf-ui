@@ -41,7 +41,7 @@ text = replace(text, 'std::deque<std::string> queue;', '''struct Queued { std::s
         std::deque<Queued> queue;
         double newestPaint{};''')
 text = replace(text, 'const bool ok = pipe.WriteMessage(Json::Dump(value))', 'audit::Span span("pipe_send_ms");\n            const bool ok = pipe.WriteMessage(Json::Dump(value))')
-text = replace(text, 'stopping = true;\n            closeDeadline', 'stopping = true;\n            audit::traceFinished = [this] { CheckShutdown(); };\n            audit::EndTrace();\n            closeDeadline')
+text = replace(text, 'output.Stop();\n            closeDeadline', 'output.Stop();\n            audit::traceFinished = [this] { CheckShutdown(); };\n            audit::EndTrace();\n            closeDeadline')
 text = replace(text, 'closeDeadline = GetTickCount64() + 5000;', 'closeDeadline = GetTickCount64() + (audit::traceDone ? 5000 : 30000);')
 text = replace(text, 'queueBytes += payload.size(); queue.push_back(std::move(payload));', 'queueBytes += payload.size(); queue.push_back({std::move(payload), audit::Now()});')
 text = replace(text, 'std::string payload;\n                { std::scoped_lock lock(queueMutex);', 'Queued payload;\n                { std::scoped_lock lock(queueMutex);')
@@ -63,13 +63,13 @@ text = replace(text, 'else if (type == msg::PostWeb::kType) view->Deliver(msg::F
                 }
             }''')
 text = replace(text, 'if (!open) { tasksAlive->store(false);', 'if (!open && audit::traceDone) { tasksAlive->store(false);')
-text = replace(text, 'if (!dirty || stopping) return;', 'if (!dirty || stopping || audit::NoOutput()) return;\n            audit::Span span("compose_ms");')
-text = replace(text, 'framePacer.Published(FramePacer::Clock::now());', '''audit::Count("published"); audit::Interval("publish_interval_ms");
+text = replace(text, 'if (!output.Pending()) return;', 'if (!output.Pending() || audit::NoOutput()) return;\n            audit::Span span("compose_ms");')
+text = replace(text, 'output.Published(FramePacer::Clock::now());', '''audit::Count("published"); audit::Interval("publish_interval_ms");
                 if (newestPaint) audit::Record("newest_paint_to_publish_ms", (audit::Now() - newestPaint) * 1000);
-                framePacer.Published(FramePacer::Clock::now());''')
-text = replace(text, '} else frameBlocked = true;', '} else { frameBlocked = true; audit::Count("ring_backpressure"); }')
+                output.Published(FramePacer::Clock::now());''')
+text = replace(text, '} else output.Blocked();', '} else { output.Blocked(); audit::Count("ring_backpressure"); }')
 text = replace(text, 'if (closing || hidden || owner.stopping) return;\n        try {', 'if (closing || hidden || owner.stopping) return;\n        audit::Span span("paint_callback_ms");\n        audit::Interval("paint_interval_ms." + id);\n        audit::Count("paint_count." + id);\n        if (audit::DiscardPaint()) return;\n        try {')
-text = replace(text, 'if (type == PET_VIEW && revealSeen)', 'owner.newestPaint = audit::Now();\n            if (type == PET_VIEW && revealSeen)')
+text = replace(text, 'if (type == PET_VIEW) reveal.Painted();', 'owner.newestPaint = audit::Now();\n            if (type == PET_VIEW) reveal.Painted();')
 text = replace(text, 'void Application::OnContextInitialized() {', 'void Application::OnContextInitialized() { audit::BeginTrace();')
 text = replace(text, 'Host host;\n        host.log.open', 'audit::Init(std::filesystem::path(logPath));\n        Host host;\n        host.log.open')
 text = replace(text, 'CefShutdown();\n        app->host', 'audit::Write();\n        CefShutdown();\n        app->host')

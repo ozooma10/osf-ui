@@ -1,4 +1,6 @@
 #include "../../tools/cef_host/FramePacer.h"
+#include "../../tools/cef_host/FrameSchedule.h"
+#include "../../tools/cef_host/RevealState.h"
 #include "check.h"
 
 using osfui::cefhost::FramePacer;
@@ -44,6 +46,57 @@ int main()
     delayed.Published(start + 1s);
     CHECK(delayed.Remaining(start + 1s) == FramePacer::period);
     CHECK(delayed.Remaining(start + 1010ms) == FramePacer::period - 10ms);
+
+    osfui::cefhost::FrameSchedule output;
+    CHECK(!output.Queue(start));
+    output.Invalidate();
+    CHECK(output.Queue(start) == 0ns);
+    output.Invalidate(); // More paints replace pixels without another wake.
+    CHECK(!output.Queue(start));
+    CHECK(output.Woke());
+    output.Blocked();
+    CHECK(output.Pending());
+    CHECK(!output.Queue(start));
+    CHECK(!output.Woke());
+    output.Unblock();
+    CHECK(output.Queue(start) == 0ns);
+    CHECK(output.Woke());
+    output.Published(start);
+    CHECK(!output.Pending());
+    output.Invalidate();
+    CHECK(output.Queue(start + 10ms) == FramePacer::period - 10ms);
+    CHECK(output.Woke());
+    CHECK(output.Queue(start + FramePacer::period, true) == 4ms);
+    CHECK(output.Woke());
+    CHECK(!output.Queue(start + FramePacer::period + 4ms, true));
+    output.Published(start + FramePacer::period + 4ms);
+    output.Invalidate();
+    CHECK(output.Queue(start + 1s) == 0ns);
+    CHECK(output.Woke());
+    output.NoViews();
+    CHECK(!output.Queue(start + 1s));
+    output.Invalidate();
+    CHECK(output.Queue(start + 1s) == 0ns);
+    output.Stop(); // A posted timer callback cannot resurrect shutdown work.
+    CHECK(!output.Woke());
+    output.Unblock(); output.Invalidate();
+    CHECK(!output.Pending() && !output.Queue(start + 2s));
+
+    osfui::cefhost::RevealState reveal;
+    CHECK(!reveal.Ready() && !reveal.Sentinel());
+    reveal.Begin(1);
+    reveal.Painted(); // Show paint arrived before the renderer sentinel.
+    CHECK(!reveal.Ready());
+    CHECK(reveal.Sentinel());
+    CHECK(!reveal.Sentinel()); // Duplicate sentinels do not restart the gate.
+    CHECK(reveal.NeedsRefresh(1) && !reveal.NeedsRefresh(2));
+    reveal.Begin(2); // Resize/show invalidates a queued retry for the old reveal.
+    CHECK(!reveal.NeedsRefresh(1));
+    CHECK(reveal.Sentinel());
+    reveal.Painted();
+    CHECK(reveal.Ready() && !reveal.NeedsRefresh(2));
+    reveal.Reset(); // Hide, navigation, and renderer loss invalidate the gate.
+    CHECK(!reveal.Ready() && !reveal.Sentinel() && !reveal.NeedsRefresh(2));
     std::printf("cef_frame_pacer_tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

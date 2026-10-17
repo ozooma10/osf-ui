@@ -108,3 +108,12 @@ completion wait is unchanged. The host builds and all 20 damage-planner checks
 pass, including pixel preservation after a dropped capture and erased content.
 Diagnostics now record copied MiB and the fraction of the visible frame copied.
 Runtime correctness and performance remain to be measured on a clear desktop.
+
+Publication scheduling now owns dirty work and its idle/queued/blocked/stopped
+state in `FrameSchedule`; normal and coalesced wakes share one timer path. The
+reveal gate uses explicit sentinel/paint/ready phases in `RevealState`, resetting
+on hide, navigation and renderer failure. Duplicate sentinels cannot restart a
+completed reveal, and delayed refreshes remain bound to their original token.
+All 29 registered native suites and nine bridge/compatibility tests pass; the
+frame pacing/scheduling/reveal test contains 45 checks. Production and diagnostic
+helpers build successfully. These offline checks do not replace helper/game runs.
