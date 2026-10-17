@@ -11,12 +11,12 @@
   let mode='idle',serial=0x110000,frames=0,next=0,angle=0;
   function mark(){
     serial=(serial+1)&0xffffff;
-    // Two RGB pixels carry six nibbles at bin centers. WGC color conversion can
-    // shift a channel by one level; raw RGB serials then invent or lose frames.
-    for(let half=0;half<2;half++){
-      const value=serial>>((1-half)*12);
-      marker.fillStyle='rgb('+[8+((value>>8)&15)*16,8+((value>>4)&15)*16,8+(value&15)*16].join(',')+')';
-      marker.fillRect(half*16,0,16,32);
+    // Eight RGB blocks carry three bits each. Wide binary channel ranges also
+    // survive cross-channel color management of saturated WGC capture colors.
+    for(let block=0;block<8;block++){
+      const value=serial>>((7-block)*3);
+      marker.fillStyle='rgb('+[(value&4)?255:0,(value&2)?255:0,(value&1)?255:0].join(',')+')';
+      marker.fillRect((block%4)*8,Math.floor(block/4)*16,8,16);
     }
   }
   function resize(){canvas.width=innerWidth*devicePixelRatio;canvas.height=innerHeight*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);}

@@ -85,26 +85,27 @@ struct Consumer {
         HANDLE h=reinterpret_cast<HANDLE>(ring.produceFence);auto hr=device5->OpenSharedFence(h,IID_PPV_ARGS(&produce));CloseHandle(h);Check(hr,"open produce fence");
         D3D11_TEXTURE2D_DESC desc{};slots.at(0)->GetDesc(&desc);desc.MiscFlags=0;desc.BindFlags=0;
         Check(device->CreateTexture2D(&desc,nullptr,&owned),"owned consumer texture");
-        desc.Width=7;desc.Height=1;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        desc.Width=99;desc.Height=32;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
         Check(device->CreateTexture2D(&desc,nullptr,&pixel),"marker staging");
     }
-    std::array<UINT,4> Consume(const msg::Frame& frame,bool mixed){
+    std::array<UINT,6> Consume(const msg::Frame& frame,bool mixed){
         if(frame.slot>=slots.size()||!produce)throw std::runtime_error("frame before ring");
         Check(context4->Wait(produce.Get(),frame.serial),"wait produce");
         context->CopyResource(owned.Get(),slots[frame.slot].Get());
         for(UINT i=0;i<(mixed?3u:1u);++i){
-            for(UINT half=0;half<2;++half){
-                const UINT x=width*i/3+8+half*16;const D3D11_BOX box{x,8,0,x+1,9,1};
-                context->CopySubresourceRegion(pixel.Get(),0,i*2+half,0,0,owned.Get(),0,&box);
-            }
+            const UINT x=width*i/3;const D3D11_BOX box{x,0,0,x+32,32,1};
+            context->CopySubresourceRegion(pixel.Get(),0,i*32,0,0,owned.Get(),0,&box);
         }
-        if(mixed){const UINT x=width/3+200;const D3D11_BOX box{x,60,0,x+1,61,1};context->CopySubresourceRegion(pixel.Get(),0,6,0,0,owned.Get(),0,&box);}
+        if(mixed){
+            const UINT offsets[]{200,20,280}; // Variable bar, always-filled bar, exposed background.
+            for(UINT i=0;i<3;++i){const UINT x=width/3+offsets[i];const D3D11_BOX box{x,60,0,x+1,61,1};context->CopySubresourceRegion(pixel.Get(),0,96+i,0,0,owned.Get(),0,&box);}
+        }
         Check(context4->Signal(done.Get(),++serial),"signal consumer");context->Flush();
         if(done->GetCompletedValue()<serial){Check(done->SetEventOnCompletion(serial,event),"consumer event");if(WaitForSingleObject(event,3000)!=WAIT_OBJECT_0)throw std::runtime_error("consumer GPU timeout");}
         D3D11_MAPPED_SUBRESOURCE mapped{};Check(context->Map(pixel.Get(),0,D3D11_MAP_READ,0,&mapped),"marker read");
-        std::array<UINT,4> values{};
-        for(UINT i=0;i<(mixed?3u:1u);++i)values[i]=bench::DecodeMarker(static_cast<const std::uint8_t*>(mapped.pData)+i*8);
-        if(mixed){const auto* p=static_cast<const std::uint8_t*>(mapped.pData)+24;values[3]=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;}
+        std::array<UINT,6> values{};
+        for(UINT i=0;i<(mixed?3u:1u);++i)values[i]=bench::DecodeMarker(static_cast<const std::uint8_t*>(mapped.pData)+i*128,mapped.RowPitch);
+        if(mixed)for(UINT i=0;i<3;++i){const auto* p=static_cast<const std::uint8_t*>(mapped.pData)+(96+i)*4;values[3+i]=(p[3]==255)?(p[2]<<16)|(p[1]<<8)|p[0]:0;}
         context->Unmap(pixel.Get(),0);return values;
     }
     // Outside performance windows. Read actual premultiplied BGRA output,
@@ -164,7 +165,7 @@ struct Bench {
         if(!pipe.WaitForClient(20000))throw std::runtime_error("host did not connect: "+pipe.LastErrorText());
         reader=std::thread([this]{std::string payload;while(pipe.ReadMessage(payload)){auto value=json::parse(payload,nullptr,false);if(value.is_discarded())continue;const auto now=Seconds();{std::lock_guard lock(mutex);messages.push_back({std::move(value),now});}SetEvent(wake);}disconnected=true;SetEvent(wake);});
         result["adapter"]=consumer.adapterName;result["width"]=width;result["height"]=height;result["pid"]=pi.dwProcessId;
-        result["consumer"]="D3D11 GPU copy plus 2 marker pixels (6 and a HUD erase probe for mixed views) in one readback; acknowledgements after GPU completion";
+        result["consumer"]="D3D11 GPU copy plus 32x32 binary marker (3 and HUD erase/bar/background probes for mixed views) in one readback; acknowledgements after GPU completion";
         Send(msg::Init{.topLevelHwnd=reinterpret_cast<UINT64>(window),.viewsPath=osfui::win32::ToUtf8(assets.wstring()),.legacyViewsPath=osfui::win32::ToUtf8(assets.wstring()),.width=width,.height=height,.userDataDir=osfui::win32::ToUtf8(profile.wstring()),.devMode=false,.language="en",.adapterLuidLow=consumer.adapter.LowPart,.adapterLuidHigh=static_cast<UINT>(consumer.adapter.HighPart)});
         Send(msg::WindowActive{.active=true});Send(msg::Viewport{.width=width,.height=height,.presentationEpoch=1});
         Send(msg::Navigate{.id="bench/main",.entry="index.html",.logicalHeight=height});
@@ -204,10 +205,10 @@ struct Bench {
                         }
                     }
                     if(measuring){
-                        const UINT expected=(markers[1]&1)?0x101b29:0x13a455;
-                        bool matches=true;
-                        for(UINT shift:{0u,8u,16u})if(std::abs(int((markers[3]>>shift)&255)-int((expected>>shift)&255))>2)matches=false;
-                        if(!matches)++invalidHudPixels;
+                        // Compare same-frame reference pixels after color management;
+                        // the always-filled bar must also remain distinct from its background.
+                        const bool matches=bench::ValidHudPixel(markers[1],markers[3],markers[4],markers[5]);
+                        if(!matches){++invalidHudPixels;if(invalidHudPixels<=16)events<<json{{"seconds",received.time-start},{"phase",phase},{"hud_marker",markers[1]},{"hud_pixel",markers[3]},{"bar_reference",markers[4]},{"background_reference",markers[5]}}.dump()<<'\n';}
                     }
                     std::copy_n(markers.begin(),3,layerMarkers.begin());
                 }

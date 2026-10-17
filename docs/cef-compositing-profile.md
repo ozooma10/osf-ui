@@ -138,16 +138,38 @@ therefore cannot reliably establish freshness on this desktop. Evidence remains
 in `baseline-performance/` and `marker-probe/` under the continuation directory;
 neither is an accepted performance result.
 
-The benchmark now encodes each 24-bit serial across two pixels using channel
-nibbles centered 16 levels apart. The decoder tolerates at most two levels per
-channel and rejects invalid bins or alpha. Decoder checks pass; new baseline
-and current-helper runtime validation remain required. Measurements using the
-old encoding must not be combined with the corrected fixture. An unrelated
-Starfield session started before the corrected smoke run; the guard refused
-the run and that game was left untouched.
+The first correction used two pixels with channel nibbles spaced 16 levels
+apart. `marker-fixed-smoke/` rejected that approach: a nominal low red channel
+beside bright green was captured as 49, beyond small quantization error. The
+replacement uses eight binary RGB blocks in the existing 32x32 marker. It
+preserves the full 24-bit serial and rejects midrange channels or nonopaque
+samples. `binary-marker-smoke/` passed WebView2 marker validation through the
+mixed10 case, observing about 10 HUD updates/s and an unchanged static marker.
+It then correctly failed the remaining hard-coded HUD color expectation:
+the captured bar was RGB `(37,163,93)`, rather than `(19,164,85)`.
+
+The HUD probe now compares same-frame always-filled bar and exposed-background
+references, requiring those references to remain distinct. This still rejects
+trails, missing expanded bars and an absent HUD. Marker and HUD checks pass
+offline, including the captured colors, serial byte boundaries, row padding,
+invalid alpha and corrupt channels. Final fixture validation against both
+helpers remains pending. All failed captures were inspected and retained;
+none of these short trials is an accepted performance result. Measurements
+using different encodings must not be combined.
+
+Unrelated Starfield sessions started before both `marker-fixed-smoke`'s first
+attempt and `color-probe-smoke`; the guards refused those attempts. No unrelated
+game was closed or driven. Runtime checks require a clear desktop.
 
 The existing harness checkout predates native console dispatch. Its fetched
 `8a57a3d` revision is isolated in sibling `OSF Test Harness UI Validation`;
 the original harness branch is unchanged. The local disposable save and SFSE
 sidecar match their pinned hashes. The separate harness build and all 25 offline
 background-control checks pass. Packaged game acceptance remains pending.
+
+The diagnostic helper and native/Papyrus game consumer also rebuilt successfully.
+Both candidate packages from clean revision `be91d407` passed DLL API acquisition,
+all 55 compiled Papyrus signatures, CEF manifest/ZIP checks and common-payload
+byte equality. They are retained in `build/resume-20261017/packages-be91d407/`.
+Subsequent edits affect only the measurement fixture and documentation; final
+packages should still be tied to the final clean validation revision.

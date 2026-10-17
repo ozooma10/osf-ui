@@ -122,3 +122,37 @@ and import its `refs/heads/dev` into a new local `osf/cef-optimization-handoff`
 branch. Do not overwrite an existing branch with that name. The bundle contains
 all local `dev` commits after the original PC's `origin/dev`, including the
 earlier shared-backend/package work. It contains no ignored runtime or test data.
+
+## Local continuation checkpoint
+
+The new PC obtained `6cba68e` from origin directly and created
+`osf/cef-optimization-handoff`, preserving local `dev`. Evidence lives under
+`build/resume-20261017/`. The shared DLL, both production hosts, the diagnostic
+host, benchmark, and game consumer build; all 29 native and nine bridge tests
+pass. The independently rebuilt `575848a` CEF baseline is at
+`build/resume-20261017/baseline-cef/runtime/osfui_cef_host.exe`.
+
+The baseline runs exposed capture color conversion in the measurement fixture.
+Read the continuation section of `cef-compositing-profile.md`: binary markers
+and same-frame HUD references replace exact RGB assumptions. Their offline
+checks pass. Complete corrected-fixture smoke checks before collecting accepted
+performance data. Earlier short runs and their inspected captures remain failed.
+Unrelated games started twice during preparation; both attempts were refused
+before helper launch. Never stop those sessions.
+
+Use the isolated sibling harness at
+`C:\Modding\Starfield\OSF Test Harness UI Validation` (`8a57a3d`); the original
+harness checkout remains on its existing branch. Its current AGENTS/README and
+BACKGROUND instructions were read, both native helpers rebuilt, its 25 offline
+control checks passed, and the copied disposable save/sidecar hashes match the
+local seed. Pass that directory as `-HarnessRoot`, and use
+`C:\Modding\Starfield\MO2\mods\OSF Testing - Settings\SFSE\Plugins\OSFSettings.dll`
+as `-SettingsTestDll` (private values support verified; SHA-256
+`4C6EC6CC300133323BD3713B1BB6DAD4B1940EA6004B8B7A8260CBCAC9A32DFF`).
+
+Remaining order: corrected fixture against both baseline helpers; repeated
+baseline/current lifecycle and six-workload runs at both resolutions; diagnostic
+dirty/fullcopy comparison; both exact final packages in-game with the default
+120-second soak; capture review and final evidence manifest. Use fresh evidence
+directories. No accepted same-PC timing comparison or final game result exists
+yet, and the original PC's exact `575848a` ZIPs were not transferred.
