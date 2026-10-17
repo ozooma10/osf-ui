@@ -12,23 +12,22 @@ add_rules("plugin.vsxmake.autoupdate")
 
 add_requires("nlohmann_json 3.11.3")
 
-option("cef")
-    set_default(false)
+option("browser_backend")
+    set_default("webview2")
+    set_values("webview2", "cef")
     set_showmenu(true)
-    set_description("Build and deploy the optional CEF prototype (run tools/setup-cef.ps1 first)")
+    set_description("Browser edition to deploy; the game DLL and public API are identical")
 option_end()
 
-if has_config("cef") then
-    target("osfui-cef-host")
-        set_kind("phony")
-        set_default(false)
-        add_packages("nlohmann_json")
-        on_build(function(target)
-            local json = target:pkg("nlohmann_json")
-            os.execv("pwsh", {"-NoProfile", "-File", path.join(os.projectdir(), "tools", "build-cef-host.ps1"),
-                "-JsonInclude", path.join(json:installdir(), "include")})
-        end)
-end
+target("osfui-cef-host")
+    set_kind("phony")
+    set_default(false)
+    add_packages("nlohmann_json")
+    on_build(function(target)
+        local json = target:pkg("nlohmann_json")
+        os.execv("pwsh", {"-NoProfile", "-File", path.join(os.projectdir(), "tools", "build-cef-host.ps1"),
+            "-JsonInclude", path.join(json:installdir(), "include")})
+    end)
 
 -- The mirrored host is self-contained: static CRT and WebView2 loader.
 target("osfui-webview2-host")
@@ -131,8 +130,11 @@ target("OSF UI")
     end)
 
     -- The host must exist before data deployment packages it.
-    add_deps("osfui-webview2-host")
-    if has_config("cef") then add_deps("osfui-cef-host") end
+    if get_config("browser_backend") == "cef" then
+        add_deps("osfui-cef-host")
+    else
+        add_deps("osfui-webview2-host")
+    end
 
 target("osfui-manifest-tests")
     add_undefines("NDEBUG")

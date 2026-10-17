@@ -16,13 +16,13 @@ A web view framework for Starfield.
 - [Migrating from 1.x](MIGRATION.md)
 - [Built-in 1.6 compatibility](docs/compatibility-v1.md)
 - [2.0 API contract and versioning](docs/api-contract.md)
-- [Experimental CEF backend](docs/cef-prototype.md)
+- [Browser editions and architecture](docs/browser-backends.md)
 
 </details>
 
 ## Runtime
 
-Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and the Edge WebView2 Evergreen Runtime for the default backend. An [experimental CEF backend](docs/cef-prototype.md) uses a bundled Chromium runtime instead. During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the selected browser helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
+Requires SFSE, Address Library, the companion OSF Settings 1.0.0 release, and the Edge WebView2 Evergreen Runtime for the default backend. The [CEF edition](docs/browser-backends.md) bundles Chromium instead and selects it automatically. Install one edition; the game DLL and public APIs are identical. CEF still requires fresh in-game acceptance. During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the selected browser helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
 
 
 - HUD autostart waits for page load. Loading and main-menu transitions suspend requested HUDs; they resume afterward and after successful browser recovery. Explicit close requests remain closed.
@@ -38,7 +38,7 @@ Use XMake, an MSVC compiler with C++23 support. Deploy and package builds also c
 ```powershell
 git submodule update --init --recursive
 pwsh tools/setup.ps1
-xmake f -P . -m releasedbg
+xmake f -P . -m releasedbg --browser_backend=webview2
 xmake build
 ```
 
@@ -64,7 +64,7 @@ The doubles supply load, engine-focus, and frame-readiness events. SFSE hook del
 pwsh tools/package.ps1
 ```
 
-Writes `dist/OSF-UI-v<version>-<tag>.zip` (`-Tag` defaults to `rc`; pass `-Tag ""` for a final release) and prints its SHA-256. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
+Writes separate `dist/OSF-UI-v<version>-<tag>-webview2.zip` and `-cef.zip` archives (`-Tag` defaults to `rc`), plus SHA-256 and manifest sidecars. Use `-Backend webview2` or `-Backend cef` for one edition. The common DLL, scripts, and web assets are byte-identical in both archives; each supplies its own `backend.json`. Packaging verifies the archives locally and never publishes. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
 
 ## License
 

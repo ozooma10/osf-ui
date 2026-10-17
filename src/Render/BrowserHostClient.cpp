@@ -894,7 +894,7 @@ namespace OSFUI
 						onFailure(FailureEvent{
 							.stage = "host-connection",
 							.viewId = inputTargetId,
-							.description = "WebView2 browser-host connection lost",
+							.description = "Browser-host connection lost",
 							.errorCode = 0
 						});
 					}

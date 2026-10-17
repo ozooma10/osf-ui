@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$DataRoot)
+param(
+    [Parameter(Mandatory)][string]$DataRoot,
+    [ValidateSet('webview2', 'cef')][string]$ExpectedBackend
+)
 
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath($DataRoot)
@@ -9,7 +12,7 @@ if (-not (Test-Path -LiteralPath $root -PathType Container)) {
 
 $required = @(
     'SFSE\Plugins\OSFUI.dll',
-    'SFSE\Plugins\OSF\UI\bin\osfui_webview2_host.exe',
+    'SFSE\Plugins\OSF\UI\backend.json',
     'SFSE\Plugins\OSF\UI\views\shared\osfui.js',
     'SFSE\Plugins\OSF\UI\views\shared\osfui.css',
     'SFSE\Plugins\OSF\UI\views\shared\gamepadnav.js',
@@ -23,6 +26,52 @@ foreach ($relative in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf)) {
         throw "Missing OSF UI-owned package path: $relative"
     }
+}
+
+$ui = Join-Path $root 'SFSE/Plugins/OSF/UI'
+$selection = Get-Content -LiteralPath (Join-Path $ui 'backend.json') -Raw | ConvertFrom-Json
+if ($selection.schemaVersion -ne 1 -or $selection.backend -notin @('webview2', 'cef')) {
+    throw 'Invalid package backend selection'
+}
+if ($ExpectedBackend -and $selection.backend -ne $ExpectedBackend) { throw 'Package selects the wrong backend' }
+$bin = Join-Path $ui 'bin'
+if ($selection.backend -eq 'webview2') {
+    $runtimeFiles = @(Get-ChildItem -LiteralPath $bin -Recurse -File)
+    if ($runtimeFiles.Count -ne 1 -or $runtimeFiles[0].FullName -ne (Join-Path $bin 'osfui_webview2_host.exe')) {
+        throw 'WebView2 edition must contain exactly its selected browser helper'
+    }
+} else {
+    $cef = [IO.Path]::GetFullPath((Join-Path $bin 'cef'))
+    if (@(Get-ChildItem -LiteralPath $bin).Count -ne 1) { throw 'CEF edition contains another browser payload' }
+    foreach ($name in 'osfui_cef_host.exe', 'osfui_cef_host.dll', 'libcef.dll', 'icudtl.dat', 'resources.pak',
+            'cef.lock.json', 'runtime-manifest.json', 'CEF-LICENSE.txt', 'CREDITS.html', 'locales/en-US.pak') {
+        if (-not (Test-Path -LiteralPath (Join-Path $cef $name) -PathType Leaf)) { throw "Incomplete CEF runtime: $name" }
+    }
+    $pinPath = Join-Path $PSScriptRoot '../../tools/cef_host/cef.lock.json'
+    if ((Get-FileHash -LiteralPath $pinPath).Hash -ne (Get-FileHash -LiteralPath (Join-Path $cef 'cef.lock.json')).Hash) {
+        throw 'Packaged CEF distribution does not match the pinned SDK'
+    }
+    $manifest = Get-Content -LiteralPath (Join-Path $cef 'runtime-manifest.json') -Raw | ConvertFrom-Json
+    $pin = Get-Content -LiteralPath $pinPath -Raw | ConvertFrom-Json
+    if ($manifest.schemaVersion -ne 1 -or $manifest.cefVersion -ne $pin.version) { throw 'Invalid CEF runtime manifest' }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in $manifest.files) {
+        $path = [IO.Path]::GetFullPath((Join-Path $cef $entry.path))
+        if ($entry.path.Contains(':') -or -not $path.StartsWith($cef + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+                -not $seen.Add($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Invalid CEF runtime manifest entry: $($entry.path)"
+        }
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.sha256) { throw "CEF runtime hash mismatch: $($entry.path)" }
+    }
+    $actual = @(Get-ChildItem -LiteralPath $cef -Recurse -File | Where-Object Name -ne 'runtime-manifest.json')
+    if ($actual.Count -ne $seen.Count) { throw 'CEF runtime contains files outside its manifest' }
+}
+
+$schema = Get-Content -LiteralPath (Join-Path $root 'SFSE/Plugins/OSF/Settings/schemas/osfui.json') -Raw | ConvertFrom-Json
+if (@($schema.groups.Developer | Where-Object key -eq 'cefPrototype').Count) { throw 'Obsolete renderer toggle must not ship' }
+Get-ChildItem -LiteralPath (Join-Path $ui 'views') -Recurse -Filter 'manifest.json' | ForEach-Object {
+    $view = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+    if ($view.PSObject.Properties.Name -contains 'debugOnly' -and $view.debugOnly) { throw 'Debug-only view must not ship' }
 }
 
 foreach ($relative in 'SFSE\Plugins\OSFUI\settings', 'SFSE\Plugins\OSFUI\views\osfui',

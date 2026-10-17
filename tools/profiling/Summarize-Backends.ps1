@@ -49,7 +49,7 @@ $html = [Text.StringBuilder]::new()
 $null = $html.Append(@'
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OSF UI backend performance comparison</title><style>
 body{max-width:1350px;margin:40px auto;padding:0 24px;font:16px/1.55 system-ui,sans-serif;color:#172538;background:#f5f7fa}h1{font-size:32px;margin-bottom:4px}h2{margin-top:32px}table{border-collapse:collapse;width:100%;background:white;font-variant-numeric:tabular-nums}th,td{padding:10px 12px;text-align:right;border-bottom:1px solid #dbe1e8}th{background:#e7edf5}td:first-child,td:nth-child(2),th:first-child,th:nth-child(2){text-align:left}tr.cef{background:#edf7f5}.note{background:white;border-left:4px solid #52749b;padding:14px 20px;margin:20px 0}.small{font-size:14px;color:#46596f}.scroll{overflow:auto}code{font-size:13px;overflow-wrap:anywhere}a{color:#225b9b}li{margin:7px 0}
-</style><h1>OSF UI: WebView2 and CEF prototype</h1>
+</style><h1>OSF UI: WebView2 and CEF</h1>
 <p>Measured desktop helper performance. This is not a Starfield FPS benchmark.</p>
 '@)
 $null = $html.Append("<p><b>Machine:</b> $(Encode $metadata.cpu[0].Name) · $(Encode $runs[0].data.adapter) · $(Encode $metadata.os.Caption)</p>")

@@ -191,7 +191,7 @@ namespace osfui::browser
 			exec->put_Path(_bstr_t(a_exe.c_str()));
 			exec->put_Arguments(_bstr_t(a_args.c_str()));
 
-			const _bstr_t taskName(L"OSFUI-WebView2-Host");
+			const _bstr_t taskName(L"OSFUI-Browser-Host");
 			root->DeleteTask(taskName, 0);
 
 			ComPtr<IRegisteredTask> registered;

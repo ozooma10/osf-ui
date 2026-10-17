@@ -151,7 +151,10 @@ def main():
     print(child.stdout.strip())
     count = check_pex(args.data / 'Scripts/OSFUI.pex', args.data / 'Scripts/Source/OSFUI.psc')
     print(f'{count} compiled Global Native signatures verified, including modern and legacy contracts')
-    for path in [dll, args.data / 'Scripts/OSFUI.pex', args.data / 'SFSE/Plugins/OSF/UI/bin/osfui_webview2_host.exe']:
+    ui = args.data / 'SFSE/Plugins/OSF/UI'
+    backend = json.loads((ui / 'backend.json').read_text(encoding='utf-8-sig'))['backend']
+    host = ui / ('bin/cef/osfui_cef_host.dll' if backend == 'cef' else 'bin/osfui_webview2_host.exe')
+    for path in [dll, args.data / 'Scripts/OSFUI.pex', host]:
         print(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(args.data)}')
 
 

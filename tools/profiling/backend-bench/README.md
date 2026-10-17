@@ -1,8 +1,8 @@
 # Browser helper benchmark
 
-This runs the built WebView2 and CEF helpers against the same desktop consumer of host protocol 3. It is independent of Starfield, SFSE, MO2, player settings, and installed browser profiles. It starts real Chromium processes and GPU work; run it deliberately on an otherwise quiet desktop.
+This runs the built WebView2 and CEF helpers against the same desktop consumer of host protocol 4. It is independent of Starfield, SFSE, MO2, player settings, and installed browser profiles. It starts real Chromium processes and GPU work; run it deliberately on an otherwise quiet desktop.
 
-Build both helpers first. Then run `pwsh tools/profiling/Compare-Backends.ps1` from the repository root. Defaults: three repetitions, 1920×1080 and 2560×1440, four workloads per session, three seconds warmup and ten seconds measured per workload. Each session receives a new profile. Backend order reverses every other repetition. Output goes to a new `build/backend-comparison/<timestamp>` directory; existing output directories are refused.
+Build both helpers first (`xmake build 'OSF UI'` with the WebView2 edition selected, then `xmake build osfui-cef-host`). Then run `pwsh tools/profiling/Compare-Backends.ps1` from the repository root. Defaults: three repetitions, 1920×1080 and 2560×1440, four workloads per session, three seconds warmup and ten seconds measured per workload. Each session receives a new profile. Backend order reverses every other repetition. Output goes to a new `build/backend-comparison/<timestamp>` directory; existing output directories are refused.
 
 Close Starfield normally first. The runner checks before starting and once per second during each session. If the game starts, the current session finishes and is marked with `contention.json`; the comparison stops and the summarizer rejects it. The runner never closes the game. Other background GPU work can also distort results and should be avoided.
 
@@ -19,7 +19,7 @@ Measurements:
 
 Workloads in `view.html`: static 160-card menu; 700-circle canvas animation targeting 60 updates/s; animated DOM transforms and width changes; three overlapping full-size canvas views. The static page retains a lightweight requestAnimationFrame callback, one stats message per second, and the 10 Hz echo. Browser animation timers and OS composition cadence can limit output below the page's target update rate.
 
-The runner records binary, fixture and CEF scheduling source hashes, OS/CPU/GPU details, and actual runtime versions. The CEF prototype and installed Evergreen may use different Chromium versions: results compare these shipped implementations, not CEF and WebView2 in the abstract. Developer mode stays off. Each helper and its children belong to a benchmark-owned kill-on-close job; normal pipe shutdown is attempted first and reported. A failed workload stops the run and preserves evidence.
+The runner records binary, fixture and CEF scheduling source hashes, OS/CPU/GPU details, and actual runtime versions. The bundled CEF runtime and installed Evergreen may use different Chromium versions: results compare these shipped implementations, not CEF and WebView2 in the abstract. Developer mode stays off. Each helper and its children belong to a benchmark-owned kill-on-close job; normal pipe shutdown is attempted first and reported. A failed workload stops the run and preserves evidence.
 
 `Summarize-Backends.ps1 -RunDir <path>` requires all expected runs to pass with valid markers and clean exit. It writes `summary.json` and a readable `comparison.html`, showing medians and observed ranges. The output/s column includes repeated top-view markers, while new frames/s counts changes; their difference helps expose redundant composites. A lower layer may legitimately change while the top-view marker stays unchanged. Raw JSON, logs, and PNGs remain available for inspection. No runtime instrumentation is compiled into either backend.
 

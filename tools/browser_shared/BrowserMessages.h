@@ -85,7 +85,7 @@ namespace osfui::browser::msg
 		std::uint32_t height{ 1 };
 		std::string   userDataDir;
 		bool          devMode{ false };
-		std::string   language;  // game language code ("en", "ptbr"); empty keeps the WebView2 default
+		std::string   language;  // game language code ("en", "ptbr"); empty keeps the browser default
 		std::uint32_t adapterLuidLow{ 0 };
 		std::uint32_t adapterLuidHigh{ 0 };
 
@@ -155,7 +155,7 @@ namespace osfui::browser::msg
 		};
 	};
 
-#define OSFUI_WV2_VIEW_ONLY_MESSAGE(Name, TypeString)                        \
+#define OSFUI_BROWSER_VIEW_ONLY_MESSAGE(Name, TypeString)                        \
 	struct Name                                                              \
 	{                                                                        \
 		static constexpr std::string_view kType = TypeString;                \
@@ -163,11 +163,11 @@ namespace osfui::browser::msg
 		static constexpr auto kFields = std::tuple{ F("view", &Name::view) }; \
 	}
 
-	OSFUI_WV2_VIEW_ONLY_MESSAGE(SetInputTarget, "setInputTarget");
-	OSFUI_WV2_VIEW_ONLY_MESSAGE(OpenDevTools, "openDevTools");
-	OSFUI_WV2_VIEW_ONLY_MESSAGE(DestroyView, "destroyView");
+	OSFUI_BROWSER_VIEW_ONLY_MESSAGE(SetInputTarget, "setInputTarget");
+	OSFUI_BROWSER_VIEW_ONLY_MESSAGE(OpenDevTools, "openDevTools");
+	OSFUI_BROWSER_VIEW_ONLY_MESSAGE(DestroyView, "destroyView");
 
-#undef OSFUI_WV2_VIEW_ONLY_MESSAGE
+#undef OSFUI_BROWSER_VIEW_ONLY_MESSAGE
 
 	// Let an open select handle Back first. Return unhandled requests with the menu epoch.
 	struct Back

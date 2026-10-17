@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 project(osfui_cef_host LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-  message(FATAL_ERROR "The CEF prototype requires Windows x64")
+  message(FATAL_ERROR "The CEF host requires Windows x64")
 endif()
 set(CMAKE_CONFIGURATION_TYPES Release)
 set(USE_SANDBOX ON CACHE BOOL "Use the bundled sandbox bootstrap" FORCE)
@@ -39,14 +39,18 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${REPO}/src/Compat/V1/web-transport.js")
 
 set(RUNTIME_DIR "${CMAKE_BINARY_DIR}/runtime")
-set_target_properties(osfui_cef_host PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${RUNTIME_DIR}")
-add_custom_command(TARGET osfui_cef_host POST_BUILD
+set_target_properties(osfui_cef_host PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/host")
+add_custom_target(stage_cef_runtime ALL
+  COMMAND ${CMAKE_COMMAND} -E remove_directory "${RUNTIME_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${RUNTIME_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:osfui_cef_host>" "${RUNTIME_DIR}/osfui_cef_host.dll"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CEF_ROOT}/Release/bootstrap.exe" "${RUNTIME_DIR}/osfui_cef_host.exe"
   COMMAND ${CMAKE_COMMAND} -E copy_directory "${CEF_ROOT}/Resources" "${RUNTIME_DIR}"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CEF_ROOT}/LICENSE.txt" "${RUNTIME_DIR}/CEF-LICENSE.txt"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CEF_ROOT}/CREDITS.html" "${RUNTIME_DIR}/CREDITS.html"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/cef.lock.json" "${RUNTIME_DIR}/cef.lock.json")
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/cef.lock.json" "${RUNTIME_DIR}/cef.lock.json"
+  DEPENDS osfui_cef_host)
 foreach(FILE IN LISTS CEF_BINARY_FILES)
-  add_custom_command(TARGET osfui_cef_host POST_BUILD
+  add_custom_command(TARGET stage_cef_runtime POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CEF_ROOT}/Release/${FILE}" "${RUNTIME_DIR}/${FILE}")
 endforeach()

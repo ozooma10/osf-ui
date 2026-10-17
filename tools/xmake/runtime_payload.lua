@@ -60,24 +60,29 @@ local function sync_data(target)
 end
 
 local function copy_host(target, required)
-    local host = project.target("osfui-webview2-host")
-    if not host or not os.isfile(host:targetfile()) then
-        if required then raise("OSF UI WebView2 host was not built") end
-        return
-    end
-    local bindir = path.join(target:installdir(), "SFSE", "Plugins", "OSF", "UI", "bin")
-    os.mkdir(bindir)
-    os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
-    cprint("${dim}deploying osfui_webview2_host.exe to %s ..", bindir)
-    if config.get("cef") then
+    local backend = config.get("browser_backend") or "webview2"
+    assert(backend == "webview2" or backend == "cef", "Unknown browser backend")
+    local uidata = path.join(target:installdir(), "SFSE", "Plugins", "OSF", "UI")
+    local bindir = path.join(uidata, "bin")
+    if backend == "cef" then
         local runtime = path.join(os.projectdir(), "build", "cef-host", "runtime")
-        for _, name in ipairs({"osfui_cef_host.exe", "osfui_cef_host.dll", "libcef.dll", "cef.lock.json"}) do
-            if not os.isfile(path.join(runtime, name)) then raise("CEF prototype runtime is incomplete: " .. name) end
+        for _, name in ipairs({"osfui_cef_host.exe", "osfui_cef_host.dll", "libcef.dll", "cef.lock.json", "runtime-manifest.json"}) do
+            if not os.isfile(path.join(runtime, name)) then raise("CEF runtime is incomplete: " .. name) end
         end
         os.mkdir(path.join(bindir, "cef"))
         os.cp(path.join(runtime, "*"), path.join(bindir, "cef"))
-        cprint("${dim}deploying optional CEF prototype to %s ..", path.join(bindir, "cef"))
+    else
+        local host = project.target("osfui-webview2-host")
+        if not host or not os.isfile(host:targetfile()) then
+            if required then raise("OSF UI WebView2 host was not built") end
+            return
+        end
+        os.mkdir(bindir)
+        os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
     end
+    -- Selection belongs to the installed edition, never to saved player settings.
+    os.cp(path.join(os.projectdir(), "packaging", "backends", backend .. ".json"), path.join(uidata, "backend.json"))
+    cprint("${dim}deploying %s browser edition to %s ..", backend, uidata)
 end
 
 function deploy(target)

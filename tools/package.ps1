@@ -1,176 +1,138 @@
-<# Build and package the OSF UI 2.x WebView add-on. #>
+<# Build two OSF UI editions around one shared DLL and public API. Never deploys or publishes. #>
 [CmdletBinding()]
 param(
+    [ValidateSet('both', 'webview2', 'cef')][string]$Backend = 'both',
     [string]$Version,
     [string]$Tag = 'rc',
     [switch]$NoPdb,
     [string]$Mode = 'releasedbg',
     [switch]$SkipBuild,
-    [switch]$IncludeCefPrototype,
     [string]$WebView2SdkDir,
     [string]$OutDir
 )
-
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-
 $RepoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 $OutDir = [IO.Path]::GetFullPath($OutDir)
-$Staging = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'build\package\staging'))
-$StageData = Join-Path $Staging 'Data'
-
-function Step($Message) { Write-Host "==> $Message" -ForegroundColor Cyan }
-function Fail($Message) { throw $Message }
-
-if (-not $Staging.StartsWith($RepoRoot + [IO.Path]::DirectorySeparatorChar,
-        [StringComparison]::OrdinalIgnoreCase)) {
-    Fail 'Refusing to stage outside the repository'
+$Staging = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'build/package/staging'))
+if (-not $Staging.StartsWith($RepoRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Refusing to stage outside the repository'
 }
-if (-not (Get-Command xmake -ErrorAction SilentlyContinue)) {
-    Fail 'xmake was not found on PATH'
-}
-
+if (-not (Get-Command xmake -ErrorAction SilentlyContinue)) { throw 'xmake was not found on PATH' }
 if (-not $Version) {
-    $header = Join-Path $RepoRoot 'src\Core\Version.h'
-    $match = Select-String -Path $header -Pattern 'kOsfuiReleaseVersion\s*=\s*"([^"]+)"' |
-        Select-Object -First 1
-    if (-not $match) { Fail 'Could not determine the OSF UI version' }
+    $match = Select-String -LiteralPath (Join-Path $RepoRoot 'src/Core/Version.h') -Pattern 'kOsfuiReleaseVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if (-not $match) { throw 'Could not determine OSF UI version' }
     $Version = $match.Matches[0].Groups[1].Value
 }
 $versionLabel = "v$Version"
 if ($Tag) { $versionLabel += "-$Tag" }
-if ($IncludeCefPrototype) { $versionLabel += '-cef-prototype' }
-
-if (-not $WebView2SdkDir) { $WebView2SdkDir = $env:WEBVIEW2_SDK_DIR }
-if (-not $WebView2SdkDir) { $WebView2SdkDir = Join-Path $RepoRoot 'external\webview2' }
-$webViewNative = Join-Path $WebView2SdkDir 'build\native'
-if (-not (Test-Path -LiteralPath (Join-Path $webViewNative 'include\WebView2.h')) -or
-    -not (Test-Path -LiteralPath (Join-Path $webViewNative 'x64\WebView2LoaderStatic.lib'))) {
-    Fail "WebView2 SDK not found at '$WebView2SdkDir'"
+$editions = @(if ($Backend -eq 'both') { 'webview2'; 'cef' } else { $Backend })
+$previousSdk = $env:WEBVIEW2_SDK_DIR
+$previousMods = $env:XSE_SF_MODS_PATH
+$previousGame = $env:XSE_SF_GAME_PATH
+function FileManifest([string]$Root) {
+    @(Get-ChildItem -LiteralPath $Root -Recurse -File | Sort-Object FullName | ForEach-Object {
+        [ordered]@{ path = [IO.Path]::GetRelativePath($Root, $_.FullName).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+    })
 }
-$previousWebView2SdkDir = $env:WEBVIEW2_SDK_DIR
-$previousModsPath = $env:XSE_SF_MODS_PATH
-$previousGamePath = $env:XSE_SF_GAME_PATH
+function VerifyArchive([string]$Archive, $Files) {
+    $zip = [IO.Compression.ZipFile]::OpenRead($Archive)
+    try {
+        $entries = @{}
+        foreach ($entry in $zip.Entries) {
+            if (-not $entry.Name) { continue }
+            $name = $entry.FullName.Replace('\', '/')
+            if ($entries.ContainsKey($name)) { throw "Duplicate ZIP entry: $name" }
+            $entries[$name] = $entry
+        }
+        if ($entries.Count -ne $Files.Count) { throw 'Archive contents differ from the verified staging tree' }
+        foreach ($file in $Files) {
+            $name = 'Data/' + $file.path
+            if (-not $entries.ContainsKey($name)) { throw "Missing ZIP entry: $name" }
+            $stream = $entries[$name].Open()
+            try { $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
+            finally { $stream.Dispose() }
+            if ($hash -ne $file.sha256) { throw "ZIP content hash mismatch: $name" }
+        }
+    } finally { $zip.Dispose() }
+}
 try {
-    $env:WEBVIEW2_SDK_DIR = $WebView2SdkDir
-    # Disable developer-machine auto-deploy while producing the isolated archive.
+    if ($WebView2SdkDir) { $env:WEBVIEW2_SDK_DIR = $WebView2SdkDir }
     $env:XSE_SF_MODS_PATH = $null
     $env:XSE_SF_GAME_PATH = $null
     Push-Location $RepoRoot
     try {
-    if (-not $SkipBuild) {
-        Step "Configuring $Mode"
-        $cefOption = if ($IncludeCefPrototype) { '--cef=y' } else { '--cef=n' }
-        xmake f -P $RepoRoot -m $Mode $cefOption -y
-        if ($LASTEXITCODE -ne 0) { Fail 'xmake configuration failed' }
-        Step 'Building native runtime and deterministic shared web assets'
-        xmake build -P $RepoRoot -y 'OSF UI'
-        if ($LASTEXITCODE -ne 0) { Fail 'build failed' }
-    }
-
-    if (Test-Path -LiteralPath $Staging) {
-        Remove-Item -LiteralPath $Staging -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $StageData -Force | Out-Null
-
-    Step 'Staging the Data tree'
-    xmake install -P $RepoRoot -o $StageData 'OSF UI'
-    if ($LASTEXITCODE -ne 0) { Fail 'xmake install failed' }
-
-    $uiRoot = Join-Path $StageData 'SFSE\Plugins\OSF\UI'
-    $hasCef = Test-Path -LiteralPath (Join-Path $uiRoot 'bin\cef\osfui_cef_host.dll')
-    if ($hasCef -ne [bool]$IncludeCefPrototype) {
-        Fail 'Staged CEF payload does not match -IncludeCefPrototype. Rebuild without -SkipBuild to select the requested backend package.'
-    }
-    New-Item -ItemType Directory -Path $uiRoot -Force | Out-Null
-    foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
-        $source = Join-Path $RepoRoot $doc
-        if (Test-Path -LiteralPath $source) {
-            Copy-Item -LiteralPath $source -Destination (Join-Path $uiRoot $doc) -Force
-        }
-    }
-
-    if ($NoPdb) {
-        Get-ChildItem (Join-Path $StageData 'SFSE\Plugins') -Filter '*.pdb' -ErrorAction SilentlyContinue |
-            Remove-Item -Force
-    }
-
-    Step 'Verifying exact archive ownership'
-    $required = @(
-        'SFSE\Plugins\OSFUI.dll',
-        'SFSE\Plugins\OSF\UI\bin\osfui_webview2_host.exe',
-        'SFSE\Plugins\OSF\UI\views\shared\osfui.js',
-        'SFSE\Plugins\OSF\UI\views\shared\osfui.css',
-        'SFSE\Plugins\OSF\UI\views\shared\gamepadnav.js',
-        'SFSE\Plugins\OSFUI\views\shared\osfui.js',
-        'SFSE\Plugins\OSFUI\views\shared\osfui.css',
-        'SFSE\Plugins\OSF\Settings\schemas\osfui.json',
-        'Scripts\OSFUI.pex'
-    )
-    $missing = $required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $StageData $_)) }
-    if ($missing) { Fail ("Missing staged files:`n  " + ($missing -join "`n  ")) }
-
-    $forbidden = @(
-        'SFSE\Plugins\OSFUI\settings',
-        'SFSE\Plugins\OSFUI\views\osfui',
-        'SFSE\Plugins\OSFSettings.dll',
-        'SFSE\Plugins\OSFUISettingsExample.dll',
-        'SFSE\Plugins\OSF\UI\views\osfui-example',
-        'Scripts\OSFUI_Settings.pex',
-        'Scripts\OSFUI_View.pex',
-        'Scripts\Source\OSFUI_Settings.psc',
-        'Scripts\Source\OSFUI_View.psc'
-    )
-    foreach ($path in $forbidden) {
-        if (Test-Path -LiteralPath (Join-Path $StageData $path)) {
-            Fail "OSF UI archive contains a forbidden legacy/sibling path: Data\$path"
-        }
-    }
-    $settingsRoot = Join-Path $StageData 'SFSE\Plugins\OSF\Settings'
-    $legacyRoot = Join-Path $StageData 'SFSE\Plugins\OSFUI'
-    $legacyOwned = @('views\shared\osfui.js', 'views\shared\osfui.css')
-    foreach ($file in Get-ChildItem -LiteralPath $legacyRoot -Recurse -File) {
-        if ([IO.Path]::GetRelativePath($legacyRoot, $file.FullName) -notin $legacyOwned) {
-            Fail "Unexpected legacy compatibility payload: $($file.FullName)"
-        }
-    }
-    $ownedSchema = [IO.Path]::GetFullPath((Join-Path $settingsRoot 'schemas\osfui.json'))
-    $unexpectedSettings = Get-ChildItem -LiteralPath $settingsRoot -Recurse -File |
-        Where-Object { [IO.Path]::GetFullPath($_.FullName) -ne $ownedSchema }
-    if ($unexpectedSettings) {
-        Fail 'OSF UI archive owns files in the OSF Settings subtree other than schemas/osfui.json'
-    }
-
-    $viewsRoot = Join-Path $uiRoot 'views'
-    Get-ChildItem $viewsRoot -Recurse -Filter 'manifest.json' -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            $manifest = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
-            if ($manifest.PSObject.Properties.Name -contains 'debugOnly' -and $manifest.debugOnly) {
-                Fail "Debug-only view must not ship: $($_.FullName)"
+        # Build and install the common payload exactly once, including Papyrus compilation.
+        xmake f -P $RepoRoot -m $Mode "--browser_backend=$($editions[0])" -y
+        if ($LASTEXITCODE) { throw 'XMake configuration failed' }
+        if (-not $SkipBuild) {
+            xmake build -P $RepoRoot -j4 -y 'OSF UI'
+            if ($LASTEXITCODE) { throw 'OSF UI build failed' }
+            if ($Backend -eq 'both') {
+                xmake build -P $RepoRoot -j4 -y osfui-cef-host
+                if ($LASTEXITCODE) { throw 'CEF host build failed' }
             }
         }
-
-    Step 'Checking the staged DLL API negotiation and compiled Papyrus signatures'
-    & (Join-Path $RepoRoot 'tests\package\test-package.ps1') -DataRoot $StageData
-
-    New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
-    $archive = Join-Path $OutDir "OSF-UI-$versionLabel.zip"
-    if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
-    Compress-Archive -Path (Join-Path $Staging '*') -DestinationPath $archive -CompressionLevel Optimal
-
-    $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
-    "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath ($archive + '.sha256') -Encoding utf8
-    Write-Host "Created $archive" -ForegroundColor Green
-    Write-Host "SHA256 $hash"
-    Write-Host 'Requires OSF Settings (settings, diagnostics and providers ABI 1.0), SFSE, and Address Library.'
-    }
-    finally {
-        Pop-Location
-    }
-}
-finally {
-    $env:WEBVIEW2_SDK_DIR = $previousWebView2SdkDir
-    $env:XSE_SF_MODS_PATH = $previousModsPath
-    $env:XSE_SF_GAME_PATH = $previousGamePath
+        if (Test-Path -LiteralPath $Staging) { Remove-Item -LiteralPath $Staging -Recurse -Force }
+        $baseData = Join-Path $Staging 'common/Data'
+        New-Item -ItemType Directory -Path $baseData -Force | Out-Null
+        xmake install -P $RepoRoot -o $baseData 'OSF UI'
+        if ($LASTEXITCODE) { throw 'Common payload installation failed' }
+        $baseUi = Join-Path $baseData 'SFSE/Plugins/OSF/UI'
+        foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
+            Copy-Item -LiteralPath (Join-Path $RepoRoot $doc) -Destination (Join-Path $baseUi $doc)
+        }
+        if ($NoPdb) {
+            Get-ChildItem -LiteralPath (Join-Path $baseData 'SFSE/Plugins') -Filter '*.pdb' -File | Remove-Item -Force
+        }
+        $commonHashes = $null
+        $archiveRecords = @()
+        foreach ($edition in $editions) {
+            $editionRoot = Join-Path $Staging $edition
+            $data = Join-Path $editionRoot 'Data'
+            New-Item -ItemType Directory -Path $editionRoot -Force | Out-Null
+            Copy-Item -LiteralPath $baseData -Destination $data -Recurse
+            $ui = Join-Path $data 'SFSE/Plugins/OSF/UI'
+            $bin = [IO.Path]::GetFullPath((Join-Path $ui 'bin'))
+            if (-not $bin.StartsWith($Staging + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Refusing to replace a browser payload outside package staging'
+            }
+            Remove-Item -LiteralPath $bin -Recurse -Force
+            New-Item -ItemType Directory -Path $bin | Out-Null
+            if ($edition -eq 'cef') {
+                Copy-Item -LiteralPath (Join-Path $RepoRoot 'build/cef-host/runtime') -Destination (Join-Path $bin 'cef') -Recurse
+            } else {
+                Copy-Item -LiteralPath (Join-Path $baseUi 'bin/osfui_webview2_host.exe') -Destination $bin
+            }
+            Copy-Item -LiteralPath (Join-Path $RepoRoot "packaging/backends/$edition.json") -Destination (Join-Path $ui 'backend.json') -Force
+            & (Join-Path $RepoRoot 'tests/package/test-package.ps1') -DataRoot $data -ExpectedBackend $edition
+            $files = FileManifest $data
+            $shared = @($files | Where-Object { $_.path -ne 'SFSE/Plugins/OSF/UI/backend.json' -and -not $_.path.StartsWith('SFSE/Plugins/OSF/UI/bin/') })
+            $sharedJson = ConvertTo-Json -InputObject $shared -Depth 4 -Compress
+            if ($null -eq $commonHashes) { $commonHashes = $sharedJson }
+            elseif ($commonHashes -ne $sharedJson) { throw 'The editions do not contain identical common files' }
+            New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+            $archive = Join-Path $OutDir "OSF-UI-$versionLabel-$edition.zip"
+            Compress-Archive -LiteralPath $data -DestinationPath $archive -CompressionLevel Optimal -Force
+            VerifyArchive $archive $files
+            $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+            "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath ($archive + '.sha256') -Encoding utf8NoBOM
+            [ordered]@{
+                backend = $edition; version = $Version; sourceCommit = (& git rev-parse HEAD)
+                sourceDirty = [bool](& git status --porcelain --untracked-files=normal --ignore-submodules)
+                archiveSha256 = $hash; files = $files
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath ($archive + '.manifest.json') -Encoding utf8NoBOM
+            $archiveRecords += [pscustomobject]@{ backend = $edition; archive = $archive; sha256 = $hash }
+            Write-Host "Created $archive"
+            Write-Host "SHA256 $hash"
+        }
+        if ($editions.Count -eq 2) { Write-Host 'Both editions contain byte-identical common files, including OSFUI.dll and OSFUI.pex.' }
+        Write-Host 'Install one edition. Both require OSF Settings, SFSE, and Address Library. Only the WebView2 edition requires Evergreen.'
+        $archiveRecords
+    } finally { Pop-Location }
+} finally {
+    $env:WEBVIEW2_SDK_DIR = $previousSdk
+    $env:XSE_SF_MODS_PATH = $previousMods
+    $env:XSE_SF_GAME_PATH = $previousGame
 }

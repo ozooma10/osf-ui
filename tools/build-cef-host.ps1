@@ -22,4 +22,14 @@ $build = Join-Path $repo 'build\cef-host'
 if ($LASTEXITCODE -ne 0) { throw 'CEF CMake configure failed.' }
 & cmake --build $build --config Release --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'CEF host build failed.' }
+$runtime = Join-Path $build 'runtime'
+$files = @(Get-ChildItem -LiteralPath $runtime -Recurse -File | Where-Object Name -ne 'runtime-manifest.json' |
+    Sort-Object FullName | ForEach-Object {
+        [ordered]@{
+            path = [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\', '/')
+            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        }
+    })
+[ordered]@{ schemaVersion = 1; cefVersion = $pin.version; files = $files } |
+    ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runtime 'runtime-manifest.json') -Encoding utf8NoBOM
 Write-Host "CEF runtime ready at $build\runtime"

@@ -6,7 +6,7 @@
 namespace osfui::browser::LanguageTag
 {
 	// Lower-cased sLanguage:General ("en", "ptbr", "zhhans") -> BCP-47. Unknown tag-safe codes pass through;
-	// anything else returns empty (keep the WebView2 default).
+	// anything else returns empty (keep the browser default).
 	inline std::string FromGameLanguage(std::string_view a_game)
 	{
 		std::string code;
