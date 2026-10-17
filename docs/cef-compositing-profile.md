@@ -152,14 +152,22 @@ The HUD probe now compares same-frame always-filled bar and exposed-background
 references, requiring those references to remain distinct. This still rejects
 trails, missing expanded bars and an absent HUD. Marker and HUD checks pass
 offline, including the captured colors, serial byte boundaries, row padding,
-invalid alpha and corrupt channels. Final fixture validation against both
-helpers remains pending. All failed captures were inspected and retained;
-none of these short trials is an accepted performance result. Measurements
-using different encodings must not be combined.
+invalid alpha and corrupt channels. The final `color-probe-smoke/` passed all
+six workloads against both baseline helpers at 1920x1080, with one second warmup
+and three seconds measured per phase. All mixed markers, HUD erase probes and
+static-layer checks passed, and both helpers shut down cleanly. The WebView2
+and CEF mixed30 captures were inspected: each showed the menu, HUD and static
+translucent overlay. The CEF helper was the isolated `575848a` build; WebView2's
+production source is unchanged between that revision and the handoff tip.
+All failed captures were inspected and retained. These short fixture checks
+are not an accepted repeated performance comparison. Measurements using
+different encodings must not be combined.
 
 Unrelated Starfield sessions started before both `marker-fixed-smoke`'s first
-attempt and `color-probe-smoke`; the guards refused those attempts. No unrelated
-game was closed or driven. Runtime checks require a clear desktop.
+attempt and `color-probe-smoke`'s first attempt; the guards refused those attempts.
+After the completed smoke comparison, another unrelated session blocked the
+baseline lifecycle invocation before it created an evidence directory. No
+unrelated game was closed or driven. Runtime checks require a clear desktop.
 
 The existing harness checkout predates native console dispatch. Its fetched
 `8a57a3d` revision is isolated in sibling `OSF Test Harness UI Validation`;
@@ -171,5 +179,19 @@ The diagnostic helper and native/Papyrus game consumer also rebuilt successfully
 Both candidate packages from clean revision `be91d407` passed DLL API acquisition,
 all 55 compiled Papyrus signatures, CEF manifest/ZIP checks and common-payload
 byte equality. They are retained in `build/resume-20261017/packages-be91d407/`.
-Subsequent edits affect only the measurement fixture and documentation; final
-packages should still be tied to the final clean validation revision.
+The final fixture implementation is committed as `f1dc9300`. Both packages were
+rebuilt and verified again from that clean revision under
+`build/resume-20261017/packages-f1dc9300/`; the shared DLL hash is
+`5D040C8563AAA56CF2025A8B2E719E28FEA58B8CD9E61255CE245CE624CCB938`.
+The filename's `final` label identifies this candidate build, not acceptance.
+
+| Candidate | ZIP SHA-256 | Game acceptance |
+| --- | --- | --- |
+| `OSF-UI-v2.0.0-cef-handoff-final-webview2.zip` | `48421EA5E103A0F312170655E868F75C738F3058986ACAC04A21398370BA121B` | Pending |
+| `OSF-UI-v2.0.0-cef-handoff-final-cef.zip` | `3A875D26725E63C52BA3DACAB0CE6E0E3B7E29CDD8547CB44F7A469D05BE0171` | Pending |
+
+`build/resume-20261017/validation.json` records the actual binaries, failed
+evidence, inspected captures, packages and remaining gates. Repeated optimized
+helper lifecycle, 1080p/1440p performance, dirty/fullcopy attribution and both
+exact-package game runs remain unfinished. No CEF speed or memory improvement
+is claimed from this continuation. Nothing was pushed or published.

@@ -135,10 +135,11 @@ pass. The independently rebuilt `575848a` CEF baseline is at
 The baseline runs exposed capture color conversion in the measurement fixture.
 Read the continuation section of `cef-compositing-profile.md`: binary markers
 and same-frame HUD references replace exact RGB assumptions. Their offline
-checks pass. Complete corrected-fixture smoke checks before collecting accepted
-performance data. Earlier short runs and their inspected captures remain failed.
-Unrelated games started twice during preparation; both attempts were refused
-before helper launch. Never stop those sessions.
+checks pass. Corrected-fixture smoke checks passed all six workloads for both
+baseline helpers at 1080p in `color-probe-smoke/`; earlier short runs and their
+inspected captures remain failed. Unrelated games repeatedly started during
+preparation, including before the baseline lifecycle run; the guards refused
+those attempts before helper launch. Never stop those sessions.
 
 Use the isolated sibling harness at
 `C:\Modding\Starfield\OSF Test Harness UI Validation` (`8a57a3d`); the original
@@ -150,8 +151,11 @@ local seed. Pass that directory as `-HarnessRoot`, and use
 as `-SettingsTestDll` (private values support verified; SHA-256
 `4C6EC6CC300133323BD3713B1BB6DAD4B1940EA6004B8B7A8260CBCAC9A32DFF`).
 
-Remaining order: corrected fixture against both baseline helpers; repeated
-baseline/current lifecycle and six-workload runs at both resolutions; diagnostic
+Final candidates from clean implementation revision `f1dc9300` are verified in
+`build/resume-20261017/packages-f1dc9300/`, with hashes in the profile report and
+`build/resume-20261017/validation.json`. Both remain untested in-game.
+
+Remaining order: repeated baseline/current lifecycle and six-workload runs at both resolutions; diagnostic
 dirty/fullcopy comparison; both exact final packages in-game with the default
 120-second soak; capture review and final evidence manifest. Use fresh evidence
 directories. No accepted same-PC timing comparison or final game result exists
