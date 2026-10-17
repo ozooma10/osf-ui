@@ -120,7 +120,11 @@ try {
     # Retain fixture dependencies, disable all other frameworks and previous tests.
     $lines=@(Get-Content (Join-Path $sourceProfile 'modlist.txt') | ForEach-Object {
         $name=$_.TrimStart('+','-')
-        if($name -match '^(OSF |Auto Load|CharacterStudio|CK Output)' -or $name -eq 'Undelayed Launching (Skip Intro Screens)'){'-'+$name}
+        # Release installations may have arbitrary MO2 folder names (for example
+        # OSF-UI-v2.0.0 or OSFSettings). Disable competing payload owners too.
+        $plugins=Join-Path $script:ModRoot "$name\SFSE\Plugins"
+        $ownsFramework=(Test-Path -LiteralPath (Join-Path $plugins 'OSFUI.dll')) -or (Test-Path -LiteralPath (Join-Path $plugins 'OSFSettings.dll'))
+        if($ownsFramework -or $name -match '^(OSF |Auto Load|CharacterStudio|CK Output)' -or $name -eq 'Undelayed Launching (Skip Intro Screens)'){'-'+$name}
         elseif($name -in @('Luma - Native HDR and more','Starfield Shader Injector and ReShade Helper')){$(if($Graphics -eq 'luma'){'+'}else{'-'})+$name}
         else{$_}
     })

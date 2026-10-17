@@ -277,29 +277,29 @@ struct Bench {
             for(size_t i=0;i<4;++i)if(std::abs(actual[i]-expected[i])>2)return false;
             return true;
         };
-        auto layered=[&]{return matches(consumer.width/6,{127,128,0,255})&&
-            matches(consumer.width/2,{63,64,128,255})&&matches(consumer.width*5/6,{127,0,128,255});};
+        auto layered=[&]{return matches(consumer.width/6,{128,128,128,255})&&
+            matches(consumer.width/2,{96,96,96,255})&&matches(consumer.width*5/6,{32,32,32,255});};
         WaitUntil(layered,5,"three transparent layers");
         require(true,"three views preserve transparency and every overlapping layer");consumer.Save(output/"layers.png");
         Send(msg::SetOrder{.view="bench/second",.order=3});
-        WaitUntil([&]{return matches(consumer.width/2,{63,128,64,255});},5,"changed layer order");
+        WaitUntil([&]{return matches(consumer.width/2,{144,144,144,255});},5,"changed layer order");
         require(true,"z-order changes recomposite static layers");
         // The shared client advances presentation epochs on show, not on hide.
         Send(msg::SetHidden{.view="bench/second",.hidden=true,.presentationEpoch=6});
-        WaitUntil([&]{return lastEpoch==6&&matches(consumer.width/6,{255,0,0,255})&&matches(consumer.width/2,{127,0,128,255});},5,"hide middle layer");
+        WaitUntil([&]{return lastEpoch==6&&matches(consumer.width/6,{0,0,0,255})&&matches(consumer.width/2,{32,32,32,255});},5,"hide middle layer");
         require(true,"hiding a layer exposes the correct pixels below it");
         Send(msg::SetOrder{.view="bench/second",.order=1});
         Send(msg::SetHidden{.view="bench/second",.hidden=false,.presentationEpoch=8});
         WaitUntil([&]{return lastEpoch==8&&layered();},5,"reshow static layer");
         require(true,"reshowing a static layer restores fresh complete composition");
         SetMode("bench/main","pulse");
-        WaitUntil([&]{return matches(consumer.width/6,{127,255,0,255});},4,"animated lower layer under static overlays");
+        WaitUntil([&]{return matches(consumer.width/6,{255,255,255,255});},4,"animated lower layer under static overlays");
         WaitUntil(layered,4,"lower layer animates back beneath static overlays");
         require(true,"static upper layers do not stall lower-layer animation");
         SetMode("bench/main","layers");
         WaitUntil(layered,5,"restore static layers");
         Send(msg::DestroyView{.view="bench/third"});
-        WaitUntil([&]{return matches(consumer.width/2,{127,128,0,255})&&matches(consumer.width*5/6,{255,0,0,255});},5,"destroy top layer");
+        WaitUntil([&]{return matches(consumer.width/2,{128,128,128,255})&&matches(consumer.width*5/6,{0,0,0,255});},5,"destroy top layer");
         require(true,"destroying the top layer preserves lower views");
         SetMode("bench/main","canvas"); // Shut down with live paints and scheduled work.
         measuring=false;

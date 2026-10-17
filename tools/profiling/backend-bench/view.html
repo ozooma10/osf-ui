@@ -25,7 +25,8 @@
   function layers(){
     const view=location.pathname.split('/')[2];
     ctx.clearRect(0,0,innerWidth,innerHeight);
-    ctx.fillStyle=view==='main'?'#ff0000':view==='second'?'rgba(0,255,0,.5)':'rgba(0,0,255,.5)';
+    // Neutral grays keep exact alpha-composition checks independent of display gamut conversion.
+    ctx.fillStyle=view==='main'?'#000000':view==='second'?'rgba(255,255,255,.5)':'rgba(64,64,64,.5)';
     ctx.fillRect(view==='third'?innerWidth/3:0,0,view==='main'?innerWidth:innerWidth*2/3,innerHeight);
   }
   api.onMessage=text=>{const m=JSON.parse(text);if(m.name==='bench.ping')send('bench.pong',m.payload);
@@ -45,7 +46,7 @@
     const rate=mixed&&layer===1?(mode==='mixed10'?10:30):60;
     if(now+0.5<next)return;next=Math.max(next+1000/rate,now-1000/rate);angle+=1/rate;
     if(mode==='canvas'){ctx.fillStyle='#101b29';ctx.fillRect(0,0,innerWidth,innerHeight);for(let i=0;i<700;i++){const x=(i*97+angle*(30+i%80))%innerWidth,y=(i*53+Math.sin(angle+i)*60+innerHeight)%innerHeight;ctx.fillStyle='hsl('+(i*17%360)+' 65% 55% / .7)';ctx.beginPath();ctx.arc(x,y,8+i%22,0,Math.PI*2);ctx.fill();}}
-    else if(mode==='pulse'){ctx.fillStyle=angle%2<1?'#ff0000':'#ffff00';ctx.fillRect(0,0,innerWidth,innerHeight);}
+    else if(mode==='pulse'){ctx.fillStyle=angle%2<1?'#000000':'#ffffff';ctx.fillRect(0,0,innerWidth,innerHeight);}
     else if(mixed&&layer===1){
       // A small transparent HUD damages only its previous/current bar and marker.
       ctx.clearRect(innerWidth/3,40,260,64);ctx.fillStyle='rgba(20,210,100,.75)';
