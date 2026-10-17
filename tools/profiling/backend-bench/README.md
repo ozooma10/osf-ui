@@ -32,3 +32,9 @@ For an explicitly requested scheduler/lifecycle check, run this separately from 
 This fills the actual output ring, checks that bridge traffic stays responsive, switches to static content while blocked, and verifies that releasing acknowledgments publishes the pending pixels without a continuing paint stream. It then exercises hide/show, a 300-message burst, resize while blocked, destroy/reopen, and normal shutdown. Three additional static views use red, half-transparent green and half-transparent blue areas. Pixel reads verify all layers and their overlap, z-order changes, hide/reshow, and destroying the top layer. Screenshots retain the layer test output. Lifecycle results have no performance phases and should not be passed to the performance summarizer.
 
 The results do not establish Starfield FPS, D3D12 compositing cost, MO2 materialization time, disk footprint, long-session stability, or performance of a particular mod's UI. Use the existing in-game capture workflow for those questions.
+
+`-CefHost <exe>` selects an extracted historical package or diagnostic helper for
+controlled comparisons. Metadata identifies that override and hashes the actual
+host DLL/runtime beside the executable; source hashes describe the current
+checkout, which may differ from an overridden binary. Failed runs retain the last
+epoch, sampled layer pixels and a screenshot when the GPU remains available.

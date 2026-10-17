@@ -52,14 +52,23 @@ text = replace(text, 'if (auto value = Json::Parse(payload)) Handle(*value);', '
                     audit::Span span("handle_ms." + type); Handle(*value);
                 }''')
 text = replace(text, 'else if (type == msg::PostWeb::kType) view->Deliver(msg::FromJson<msg::PostWeb>(raw).json);',
-               'else if (type == msg::PostWeb::kType) { const auto text = msg::FromJson<msg::PostWeb>(raw).json; if (!audit::Control(text)) view->Deliver(text); }')
+               '''else if (type == msg::PostWeb::kType) {
+                const auto text = msg::FromJson<msg::PostWeb>(raw).json;
+                if (!audit::Control(text)) view->Deliver(text);
+                else {
+                    std::uint64_t bytes = 0;
+                    for (const auto& [id, item] : views) for (const auto* surface : { &item->surface, &item->popup })
+                        if (surface->texture) bytes += std::uint64_t(surface->width) * surface->height * 4;
+                    audit::Record("owned_paint_mib", bytes / 1048576.0);
+                }
+            }''')
 text = replace(text, 'if (!open) { tasksAlive->store(false);', 'if (!open && audit::traceDone) { tasksAlive->store(false);')
 text = replace(text, 'if (!dirty || stopping) return;', 'if (!dirty || stopping || audit::NoOutput()) return;\n            audit::Span span("compose_ms");')
-text = replace(text, 'dirty = false;\n                framePacer.Published', '''dirty = false; audit::Count("published"); audit::Interval("publish_interval_ms");
+text = replace(text, 'framePacer.Published(FramePacer::Clock::now());', '''audit::Count("published"); audit::Interval("publish_interval_ms");
                 if (newestPaint) audit::Record("newest_paint_to_publish_ms", (audit::Now() - newestPaint) * 1000);
-                framePacer.Published''')
+                framePacer.Published(FramePacer::Clock::now());''')
 text = replace(text, '} else frameBlocked = true;', '} else { frameBlocked = true; audit::Count("ring_backpressure"); }')
-text = replace(text, 'if (closing || owner.stopping) return;\n        try {', 'if (closing || owner.stopping) return;\n        audit::Span span("paint_callback_ms");\n        audit::Interval("paint_interval_ms." + id);\n        audit::Count("paint_count." + id);\n        if (audit::DiscardPaint()) return;\n        try {')
+text = replace(text, 'if (closing || hidden || owner.stopping) return;\n        try {', 'if (closing || hidden || owner.stopping) return;\n        audit::Span span("paint_callback_ms");\n        audit::Interval("paint_interval_ms." + id);\n        audit::Count("paint_count." + id);\n        if (audit::DiscardPaint()) return;\n        try {')
 text = replace(text, 'if (type == PET_VIEW && revealSeen)', 'owner.newestPaint = audit::Now();\n            if (type == PET_VIEW && revealSeen)')
 text = replace(text, 'void Application::OnContextInitialized() {', 'void Application::OnContextInitialized() { audit::BeginTrace();')
 text = replace(text, 'Host host;\n        host.log.open', 'audit::Init(std::filesystem::path(logPath));\n        Host host;\n        host.log.open')

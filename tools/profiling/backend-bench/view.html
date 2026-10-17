@@ -20,9 +20,10 @@
   }
   api.onMessage=text=>{const m=JSON.parse(text);if(m.name==='bench.ping')send('bench.pong',m.payload);
     if(m.name==='bench.marker'){serial=m.payload.serial-1;mark();}
-    if(m.name==='bench.mode'){mode=m.payload.mode;frames=0;next=0;angle=0;panel.style.display=(mode==='canvas'||mode==='layers')?'none':'block';ctx.clearRect(0,0,innerWidth,innerHeight);cards.forEach(c=>c.style.transform='');if(mode==='layers')layers();mark();send('bench.modeReady',{mode});}}
+    if(m.name==='bench.mode'){mode=m.payload.mode;frames=0;next=0;angle=0;panel.style.display=(mode==='canvas'||mode==='layers'||mode==='pulse')?'none':'block';ctx.clearRect(0,0,innerWidth,innerHeight);cards.forEach(c=>c.style.transform='');if(mode==='layers')layers();mark();send('bench.modeReady',{mode});}}
   function tick(now){requestAnimationFrame(tick);if(mode==='idle'||mode==='layers')return;if(now+0.5<next)return;next=Math.max(next+1000/60,now-1000/60);angle+=1/60;
     if(mode==='canvas'){ctx.fillStyle='#101b29';ctx.fillRect(0,0,innerWidth,innerHeight);for(let i=0;i<700;i++){const x=(i*97+angle*(30+i%80))%innerWidth,y=(i*53+Math.sin(angle+i)*60+innerHeight)%innerHeight;ctx.fillStyle='hsl('+(i*17%360)+' 65% 55% / .7)';ctx.beginPath();ctx.arc(x,y,8+i%22,0,Math.PI*2);ctx.fill();}}
+    else if(mode==='pulse'){ctx.fillStyle=angle%2<1?'#ff0000':'#ffff00';ctx.fillRect(0,0,innerWidth,innerHeight);}
     else if(mode==='dom'){for(let i=0;i<cards.length;i++){cards[i].style.transform='translateX('+Math.sin(angle*3+i)*12+'px)';cards[i].querySelector('.bar').style.width=(50+40*Math.sin(angle+i))+'%';}}
     frames++;mark();}
   requestAnimationFrame(tick);mark();

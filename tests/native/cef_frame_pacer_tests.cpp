@@ -9,7 +9,14 @@ int main()
     FramePacer pacer;
     const auto start = FramePacer::Clock::time_point{};
     CHECK(pacer.Remaining(start) == 0ns);
+    CHECK(pacer.CoalescingRemaining(start) == 0ns);
     pacer.Published(start);
+    CHECK(pacer.CoalescingRemaining(start + FramePacer::period) == 4ms);
+    CHECK(pacer.CoalescingRemaining(start + FramePacer::period + 4ms) == 0ns);
+    FramePacer coalesced;
+    coalesced.Published(start);
+    coalesced.Published(start + FramePacer::period + 4ms);
+    CHECK(coalesced.Remaining(start + FramePacer::period + 4ms) == FramePacer::period - 4ms);
     CHECK(pacer.Remaining(start) == FramePacer::period);
     CHECK(pacer.Remaining(start + 10ms) == FramePacer::period - 10ms);
     CHECK(pacer.Remaining(start + 16ms) == 666667ns);
@@ -33,6 +40,7 @@ int main()
 
     // A backpressure/visibility stall does not permit a catch-up burst.
     CHECK(delayed.Remaining(start + 1s) == 0ns);
+    CHECK(delayed.CoalescingRemaining(start + 1s) == 0ns);
     delayed.Published(start + 1s);
     CHECK(delayed.Remaining(start + 1s) == FramePacer::period);
     CHECK(delayed.Remaining(start + 1010ms) == FramePacer::period - 10ms);

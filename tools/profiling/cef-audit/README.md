@@ -54,6 +54,12 @@ removing integration work, not a usable or validated rendering optimization.
 - `-GpuQueries` adds pooled D3D11 timestamp/disjoint queries around our own copy
   and compositor commands. Resolution is asynchronous with `DONOTFLUSH`; no
   extra GPU wait is introduced. These runs are a separate diagnostic group.
+- `-Retention` measures three animated views, hides them, then restores them.
+  The consumer retains process-memory snapshots at each stage. The instrumented
+  host records `owned_paint_mib`: live copied view/popup texture pixel storage
+  (width × height × 4), excluding the output ring, driver overhead and Chromium's
+  own resources. It is not a measure of total VRAM or process-private commitment.
+  Retention runs are separate from the four-workload performance comparison.
 - The consumer records total and root-process CPU, plus per-process cumulative
   CPU, private commitment and working-set snapshots. CPU 100% means one logical core. The CEF root contains OSF code
   AND Chromium browser-process code. Child CPU contains JavaScript, layout,

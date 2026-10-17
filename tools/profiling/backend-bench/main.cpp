@@ -126,7 +126,7 @@ struct Bench {
     osfui::browser::Backend backend = osfui::browser::Backend::WebView2;
     fs::path output,assets,profile,host;UINT width=1920,height=1080;double duration=10,warmup=3,start{},firstFrame{},firstContent{},loaded{};
     json result={{"phases",json::array()}};std::ofstream events;
-    std::set<std::string> ready,modeReady;std::string phase;bool measuring=false,allowNoOutput=false,lifecycle=false,holdAcks=false;
+    std::set<std::string> ready,modeReady;std::string phase;bool measuring=false,allowNoOutput=false,lifecycle=false,retention=false,holdAcks=false;
     std::vector<msg::FrameAck> heldAcks;UINT64 lastEpoch{};
     UINT lastMarker{};double previousFrame{},previousUnique{};size_t frames{},unique{},invalid{};
     std::vector<double> intervals,uniqueIntervals,consumeTimes,pingTimes;
@@ -261,6 +261,12 @@ struct Bench {
         Send(msg::SetHidden{.view="bench/second",.hidden=false,.presentationEpoch=8});
         WaitUntil([&]{return lastEpoch==8&&layered();},5,"reshow static layer");
         require(true,"reshowing a static layer restores fresh complete composition");
+        SetMode("bench/main","pulse");
+        WaitUntil([&]{return matches(consumer.width/6,{127,255,0,255});},4,"animated lower layer under static overlays");
+        WaitUntil(layered,4,"lower layer animates back beneath static overlays");
+        require(true,"static upper layers do not stall lower-layer animation");
+        SetMode("bench/main","layers");
+        WaitUntil(layered,5,"restore static layers");
         Send(msg::DestroyView{.view="bench/third"});
         WaitUntil([&]{return matches(consumer.width/2,{127,128,0,255})&&matches(consumer.width*5/6,{255,0,0,255});},5,"destroy top layer");
         require(true,"destroying the top layer preserves lower views");
@@ -268,6 +274,19 @@ struct Bench {
         measuring=false;
     }
     void AuditPhase(bool active){if(GetEnvironmentVariableW(L"OSFUI_CEF_AUDIT_MODE",nullptr,0))Send(msg::PostWeb{.view="bench/main",.json=json{{"kind","event"},{"name","bench.audit"},{"payload",{{"phase",phase},{"measuring",active}}}}.dump()});}
+    void Retention(){
+        Phase("three_views","canvas",3);
+        auto snapshot=[&](const std::string& name){phase=name;AuditPhase(true);RunFor(.1);result["retention"][name]=processes.Sample();AuditPhase(false);};
+        snapshot("visible");
+        for(UINT64 cycle=1;cycle<=5;++cycle){
+            for(const auto& view:ready)Send(msg::SetHidden{.view=view,.hidden=true,.presentationEpoch=cycle});
+            RunFor(2);const auto oldFrame=lastMarker;snapshot("hidden_"+std::to_string(cycle));
+            for(const auto& view:ready)Send(msg::SetHidden{.view=view,.hidden=false,.presentationEpoch=cycle+1});
+            WaitUntil([&]{return lastEpoch==cycle+1&&lastMarker!=oldFrame;},5,"restored animation after hidden texture release");
+            RunFor(2);snapshot("restored_"+std::to_string(cycle));
+        }
+        consumer.Save(output/"restored.png");
+    }
     void Phase(const std::string& name,const std::string& mode,int count){
         phase=name;modeReady.clear();
         if(count>1){for(const auto* id:{"bench/second","bench/third"}){Send(msg::Navigate{.id=id,.entry="index.html",.logicalHeight=height});Send(msg::SetHidden{.view=id,.hidden=false,.presentationEpoch=1});}
@@ -297,15 +316,22 @@ struct Bench {
         if(invalid||(!allowNoOutput&&!unique&&mode!="idle"))throw std::runtime_error("rendered workload validation failed");
     }
     void Write(){std::ofstream(output/"result.json")<<result.dump(2);}
+    void FailureEvidence(){
+        result["failed_phase"]=phase;result["last_epoch"]=lastEpoch;
+        if(consumer.owned){
+            result["layer_pixels"]={consumer.Pixel(consumer.width/6,consumer.height/2),consumer.Pixel(consumer.width/2,consumer.height/2),consumer.Pixel(consumer.width*5/6,consumer.height/2)};
+            consumer.Save(output/"failure.png");
+        }
+    }
 };
 
 int wmain(int argc,wchar_t** argv){
     CoInitializeEx(nullptr,COINIT_MULTITHREADED);SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     try{Bench bench;
-        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";}
+        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";else if(key==L"--retention")bench.retention=value==L"true";}
         if(bench.host.empty()||bench.output.empty()||bench.assets.empty()||bench.profile.empty())throw std::runtime_error("required: --host --out --views --profile");
-        try{bench.Start();if(bench.lifecycle)bench.Lifecycle();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);}bench.result["status"]="passed";}
-        catch(const std::exception& e){bench.result["status"]="failed";bench.result["error"]=e.what();std::cerr<<e.what()<<std::endl;}
+        try{bench.Start();if(bench.lifecycle)bench.Lifecycle();else if(bench.retention)bench.Retention();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);}bench.result["status"]="passed";}
+        catch(const std::exception& e){bench.result["status"]="failed";bench.result["error"]=e.what();std::cerr<<e.what()<<std::endl;try{bench.FailureEvidence();}catch(const std::exception& capture){bench.result["failure_capture_error"]=capture.what();}}
         bench.Stop();bench.Write();return bench.result.value("status","")=="passed"?0:1;
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 2;}
 }

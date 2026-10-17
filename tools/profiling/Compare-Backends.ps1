@@ -9,6 +9,7 @@ param(
     [string]$OutDir,
     [switch]$SkipBuild,
     [switch]$Lifecycle,
+    [string]$CefHost,
     [string[]]$Backends = @('webview2', 'cef')
 )
 $ErrorActionPreference = 'Stop'
@@ -38,6 +39,7 @@ $hosts = @{
     webview2 = Join-Path $repo 'build\windows\x64\releasedbg\osfui_webview2_host.exe'
     cef = Join-Path $repo 'build\cef-host\runtime\osfui_cef_host.exe'
 }
+if ($CefHost) { $hosts.cef = [IO.Path]::GetFullPath($CefHost) }
 $assets = Join-Path $OutDir 'views'
 foreach ($view in 'main', 'second', 'third') {
     $destination = Join-Path $assets "bench\$view"
@@ -47,12 +49,15 @@ foreach ($view in 'main', 'second', 'third') {
 $metadata = [ordered]@{
     started = (Get-Date).ToString('o'); repetitions = $Repetitions; measureSeconds = $Seconds; warmupSeconds = $Warmup
     heights = $Heights; backends = $Backends; lifecycle = [bool]$Lifecycle; requireStarfieldClosed = $true; commit = (& git -C $repo rev-parse HEAD)
+    sourceDirty = [bool](& git -C $repo status --porcelain --ignore-submodules)
+    hosts = $hosts; cefHostOverride = [bool]$CefHost
+    sourceHashScope = 'Current checkout; an overridden CEF runtime may come from another revision. Binary hashes identify the measured payload.'
     cpu = @(Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors)
     gpu = @(Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate)
     os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber
     hashes = @()
 }
-foreach ($file in @($exe, $hosts.webview2, $hosts.cef, (Join-Path $repo 'build\cef-host\runtime\osfui_cef_host.dll'), (Join-Path $repo 'build\cef-host\runtime\libcef.dll'), (Join-Path $PSScriptRoot 'backend-bench\view.html'), (Join-Path $PSScriptRoot 'backend-bench\main.cpp'), (Join-Path $repo 'tools\cef_host\Host.cpp'), (Join-Path $repo 'tools\cef_host\FramePacer.h'), (Join-Path $repo 'tools\cef_host\FrameTimer.h'))) {
+foreach ($file in @($exe, $hosts.webview2, $hosts.cef, (Join-Path (Split-Path $hosts.cef -Parent) 'osfui_cef_host.dll'), (Join-Path (Split-Path $hosts.cef -Parent) 'libcef.dll'), (Join-Path $PSScriptRoot 'backend-bench\view.html'), (Join-Path $PSScriptRoot 'backend-bench\main.cpp'), (Join-Path $repo 'tools\cef_host\Host.cpp'), (Join-Path $repo 'tools\cef_host\Graphics.cpp'), (Join-Path $repo 'tools\cef_host\FramePacer.h'), (Join-Path $repo 'tools\cef_host\FrameTimer.h'))) {
     $metadata.hashes += Get-FileHash -LiteralPath $file -Algorithm SHA256 | Select-Object Path,Hash
 }
 $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutDir 'metadata.json') -Encoding utf8

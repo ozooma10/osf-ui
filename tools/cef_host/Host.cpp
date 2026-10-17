@@ -155,6 +155,8 @@ namespace osfui::cefhost
         CefRect popupRect;
         bool hidden{ true }, loaded{}, closing{}, popupShown{}, revealSeen{}, awaitingPaint{ true };
         std::uint64_t revealToken{};
+        std::uint64_t paintSerial{}, publishedPaintSerial{};
+        FramePacer::Clock::time_point lastPaint{};
         int order{};
         CefMouseEvent mouse;
         UINT mouseButtons{};
@@ -388,7 +390,9 @@ namespace osfui::cefhost
             views.emplace(nav.id, view);
             auto browser = CefBrowserHost::CreateBrowserSync(window, view, url, settings, extra, nullptr);
             if (!browser) { views.erase(nav.id); Fatal("cef-browser", E_FAIL, "CEF browser creation failed"); return; }
-            // Keep hidden documents rendering until prepared; hidden views never enter the output ring.
+            // Hidden documents may load and receive bridge messages without
+            // allocating/copying full-size paint surfaces until they are shown.
+            browser->GetHost()->WasHidden(true);
             browser->GetHost()->SetFocus(false);
         }
         void InvalidateGeometry()
@@ -517,7 +521,11 @@ namespace osfui::cefhost
                 epoch = value.presentationEpoch;
                 const bool wasHidden = view->hidden;
                 view->hidden = value.hidden;
-                if (view->hidden) { view->ReleaseInput(); view->browser->GetHost()->WasHidden(true); }
+                if (view->hidden) {
+                    view->ReleaseInput(); view->browser->GetHost()->WasHidden(true);
+                    view->surface.Clear(); view->popup.Clear(); view->popupShown = false;
+                    view->lastPaint = {};
+                }
                 else if (wasHidden) { view->browser->GetHost()->WasHidden(false); view->Reveal(); }
                 MarkDirty(); ReconcileFocus();
             } else if (type == msg::SetOrder::kType) { view->order = msg::FromJson<msg::SetOrder>(raw).order; MarkDirty(); }
@@ -550,6 +558,20 @@ namespace osfui::cefhost
                 visible.push_back(view.get());
             }
             if (visible.empty()) { dirty = false; return; }
+            const auto now = FramePacer::Clock::now();
+            const bool fresh = std::any_of(visible.begin(), visible.end(), [](auto* view) {
+                return view->paintSerial != view->publishedPaintSerial;
+            });
+            const bool waiting = visible.size() > 1 && std::any_of(visible.begin(), visible.end(), [now](auto* view) {
+                return view->paintSerial == view->publishedPaintSerial &&
+                    now - view->lastPaint < 2 * FramePacer::period;
+            });
+            const auto coalescing = framePacer.CoalescingRemaining(now);
+            if (fresh && waiting && coalescing > FramePacer::Clock::duration::zero()) {
+                frameTaskQueued = true;
+                if (!frameTimer.Arm(coalescing)) Fatal("cef-timer", HRESULT_FROM_WIN32(GetLastError()), "Cannot coalesce CEF layers");
+                return;
+            }
             std::stable_sort(visible.begin(), visible.end(), [](auto* a, auto* b) { return a->order < b->order; });
             const float x = (static_cast<float>(width) - viewportWidth) * 0.5f;
             const float y = (static_cast<float>(height) - viewportHeight) * 0.5f;
@@ -564,6 +586,7 @@ namespace osfui::cefhost
             }
             if (graphics.Publish(layers, width, height, epoch)) {
                 dirty = false;
+                for (auto* view : visible) view->publishedPaintSerial = view->paintSerial;
                 framePacer.Published(FramePacer::Clock::now());
             } else frameBlocked = true; // New paints replace surfaces; an ack wakes publication.
         }
@@ -641,11 +664,12 @@ namespace osfui::cefhost
     { owner.Fatal("cef-paint", E_NOTIMPL, "CEF supplied software pixels; this prototype requires accelerated OSR"); }
     void View::OnAcceleratedPaint(CefRefPtr<CefBrowser>, PaintElementType type, const RectList&, const CefAcceleratedPaintInfo& info)
     {
-        if (closing || owner.stopping) return;
+        if (closing || hidden || owner.stopping) return;
         try {
             const auto& rect = info.extra.visible_rect;
             owner.graphics.CopyPaint(info.shared_texture_handle,
                 RECT{ rect.x, rect.y, rect.x + rect.width, rect.y + rect.height }, type == PET_POPUP ? popup : surface);
+            if (type == PET_VIEW) { ++paintSerial; lastPaint = FramePacer::Clock::now(); }
             if (type == PET_VIEW && revealSeen) awaitingPaint = false;
             if (!hidden && (type == PET_VIEW || popupShown)) owner.MarkDirty();
         } catch (const GraphicsError& error) { owner.GraphicsFailure(error); }
@@ -752,6 +776,16 @@ namespace osfui::cefhost
         } else if (message->GetName() == "osfui.reveal") {
             if (!hidden && loaded && payload == std::to_string(revealToken)) {
                 revealSeen = true; browser->GetHost()->Invalidate(PET_VIEW);
+                // A refresh immediately after the show paint can produce no
+                // further callback. A static page has no later paint to open the
+                // reveal gate. Retry once after two 60 Hz periods, without
+                // accepting pre-reveal pixels or polling an idle document.
+                const auto token = revealToken;
+                owner.Post([view = CefRefPtr<View>(this), token] {
+                    if (view->browser && !view->closing && !view->hidden && view->loaded &&
+                        view->revealSeen && view->awaitingPaint && view->revealToken == token)
+                        view->browser->GetHost()->Invalidate(PET_VIEW);
+                }, 34);
             }
         } else if (message->GetName() == "osfui.bridge-error") owner.Fatal("cef-bridge", E_FAIL, payload);
         else return false;

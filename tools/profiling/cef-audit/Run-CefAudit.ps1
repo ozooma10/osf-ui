@@ -8,6 +8,8 @@ param(
     [double]$Warmup = 2,
     [switch]$Trace,
     [switch]$GpuQueries,
+    [switch]$Retention,
+    [string]$StockHost,
     [Parameter(Mandatory)][string]$OutDir
 )
 $ErrorActionPreference = 'Stop'
@@ -26,6 +28,7 @@ $hosts = @{
     stock = (Join-Path $repo 'build\cef-host\runtime\osfui_cef_host.exe')
     webview2 = (Join-Path $repo 'build\windows\x64\releasedbg\osfui_webview2_host.exe')
 }
+if ($StockHost) { $hosts.stock = [IO.Path]::GetFullPath($StockHost) }
 $exe = Join-Path $repo 'build\backend-bench\Release\osfui_backend_bench.exe'
 $assets = Join-Path $OutDir 'views'
 foreach ($view in 'main','second','third') {
@@ -35,9 +38,11 @@ foreach ($view in 'main','second','third') {
 }
 $metadata = [ordered]@{
     started = (Get-Date).ToString('o'); cases = $Cases; height = $Height; seconds = $Seconds; warmup = $Warmup
-    repetitions = $Repetitions; trace = [bool]$Trace; gpuQueries = [bool]$GpuQueries
+    repetitions = $Repetitions; trace = [bool]$Trace; gpuQueries = [bool]$GpuQueries; retention = [bool]$Retention
     commit = (& git -C $repo rev-parse HEAD)
-    hashes = @(Get-FileHash -LiteralPath $exe,(Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.dll'),(Join-Path $repo 'build\cef-host\runtime\osfui_cef_host.dll'),$hosts.webview2,(Join-Path $assets 'bench\main\index.html') | Select-Object Path,Hash)
+    sourceDirty = [bool](& git -C $repo status --porcelain --ignore-submodules)
+    hosts = $hosts; stockHostOverride = [bool]$StockHost
+    hashes = @(Get-FileHash -LiteralPath $exe,(Join-Path $repo 'build\cef-audit\bin\runtime\osfui_cef_host.dll'),(Join-Path (Split-Path $hosts.stock -Parent) 'osfui_cef_host.dll'),$hosts.webview2,(Join-Path $assets 'bench\main\index.html') | Select-Object Path,Hash)
 }
 $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutDir 'metadata.json') -Encoding utf8
 Copy-Item -LiteralPath (Join-Path $repo 'build\cef-audit\source\source-hashes.json') -Destination $OutDir
@@ -64,6 +69,7 @@ try {
             Write-Host "Running $name"
             $arguments = @('--backend', $(if ($case -eq 'webview2') { 'webview2' } else { 'cef' }), '--host', ('"' + $hosts[$case] + '"'), '--out', ('"' + $run + '"'), '--views', ('"' + $assets + '"'), '--profile', ('"' + (Join-Path $OutDir "profiles\$name") + '"'), '--width', ([int]($Height * 16 / 9)), '--height', $Height, '--seconds', $Seconds, '--warmup', $Warmup)
             if ($case -in @('copyonly','discard')) { $arguments += @('--allow-no-output', 'true') }
+            if ($Retention) { $arguments += @('--retention', 'true') }
             $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $run 'stdout.log') -RedirectStandardError (Join-Path $run 'stderr.log')
             $wait = [Diagnostics.Stopwatch]::StartNew()
             $contendingGames = @{}
