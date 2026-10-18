@@ -61,8 +61,9 @@ the private VFS mapping also redirects new files and atomic replacements. Shared
 overwrite hashes must remain unchanged. It never appends observers to consumer HTML or rebuilds their
 DLLs/scripts. This mode waits up to 30 minutes for explicit review; it does not
 run the synthetic browser suite or infer success from the wait.
-Its private Settings binding is F11 because the original AISS message prompt uses
-F10. The ordinary packaged suite still exercises Settings on F10.
+Inspect and dismiss original-mod startup prompts before manually checking the
+production Settings menu and launcher handoff. The ordinary packaged suite checks
+Settings on F10 automatically; original-mod review must record its own menu checks.
 
 Once `review-ready.json` exists, an authorized operator can dot-source
 `Review-Context.ps1 -RunPath <run> -Interactive` in another PowerShell session.

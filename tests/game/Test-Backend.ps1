@@ -33,7 +33,6 @@ $storageController=$null
 $liveStorageBefore=$null
 $liveStarcadeBefore=$null
 $liveLegacyBefore=$null
-$settingsHotkey=if($RealMods){122}else{121} # Original AISS owns F10; use F11 in its private review.
 if($RealMods -and -not $SettingsManifest){throw 'Real-mod review requires production SettingsManifest.'}
 . (Join-Path $PSScriptRoot 'RealMods.ps1')
 function Get-StorageHashes([string]$Root) {
@@ -153,7 +152,6 @@ try {
         if(Test-Path -LiteralPath $liveSettings){Copy-Tree $liveSettings $privateSettings}
         Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}
         Write-JsonFile (Join-Path $privateSettings 'osfui.json') @{formatVersion=1;values=@{developerMode=$false;cefPrototype=($Backend -eq 'webview2')}}
-        Write-JsonFile (Join-Path $privateSettings 'osfsettings.json') @{formatVersion=1;values=@{openMenu=$settingsHotkey}}
         if($RealMods -and $ResumeRun){Copy-Tree (Join-Path $ResumeRun 'private-values\settings') $privateSettings;Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}}
         $probeConfig.storage=@{game=$script:Config.Game;mo2=$script:Config.MO2;vfsInstance='mod_organizer_instance';expiresUnixMs=([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+180000);mappings=@(@{source=$privateSettings;destination=$liveSettings})}
         [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-settings-before.json'),$liveStorageBefore)
@@ -259,11 +257,13 @@ try {
         $saved=Read-JsonFile (Join-Path $privateSettings 'osfui.json')
         Assert-Test ($saved.values.developerMode -eq $true) 'Production Settings commits public API edits into private storage'
         Send-Probe settingsBool @{mod='osfui';key='developerMode';value=$false}
-        Send-Key $settingsHotkey
-        $null=Wait-Observed 'Production Settings opens from its configured hotkey' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
-        $null=Save-Capture 'production-settings'
-        Send-Key 27
-        $null=Wait-Observed 'Production Settings closes and releases input' {Get-GameState} {param($s)'OSFSettingsMenu' -notin $s.menus} 15
+        if(-not $RealMods){
+            Send-Key 121
+            $null=Wait-Observed 'Production Settings opens from its normal hotkey' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
+            $null=Save-Capture 'production-settings'
+            Send-Key 27
+            $null=Wait-Observed 'Production Settings closes and releases input' {Get-GameState} {param($s)'OSFSettingsMenu' -notin $s.menus} 15
+        }
     }
     Assert-Test ((@($modules | Where-Object name -eq 'Luma.dll').Count -gt 0) -eq ($Graphics -eq 'luma')) 'Selected graphics integration loaded'
     if($RealMods){Invoke-RealModReview} else {

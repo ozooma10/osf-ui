@@ -94,6 +94,14 @@ This is a local production candidate, not a claim that this artifact is publishe
   checkout lock; a subsequent attempt was correctly blocked by that reservation.
   The desktop reservation is now available. Current real-mod support builds and
   passes syntax checks; its full review/switch path is not yet accepted.
+- Original-mod runs `20261018-040649-039-webview2-stock` and
+  `20261018-040920-610-webview2-stock` stopped at the automatic Settings hotkey
+  check. Both failure captures show AISS's initial text-entry prompt. A fresh
+  manual review captured that prompt before any key input, dismissed it with
+  Escape, then opened Settings normally with F10. The first hotkey-collision
+  hypothesis was disproved; no production fix or default binding change was
+  needed. Original-mod review now handles startup prompts explicitly. Shared
+  Settings, Starcade and legacy overwrite storage remained unchanged.
 - Missing original fixtures on this PC: DDC, Field.OS AEGIS and DevilzDad's Shop
   + Explorer. Their real-mod acceptance remains pending; fixture/unit tests do
   not establish game behavior. The user confirmed they may not be downloaded.
