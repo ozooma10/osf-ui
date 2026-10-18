@@ -11,6 +11,7 @@ CHANGELOG
 - Added separate WebView2 and bundled CEF editions with automatic backend selection and the same game DLL and public APIs.
 - Refined CEF damage copying, publication scheduling, and view reveal handling while retaining safe texture completion and full-copy fallbacks.
 - Added mixed menu/HUD/overlay validation; measured performance varies by workload and does not establish a general CEF speed or memory improvement.
+- Fixed missed repeated hotkeys after closing an overlay and blank first menu presentation during a Settings launcher handoff.
 - Product version 2.1.0 retains native API 2.0, browser protocol 2, and the documented legacy compatibility interfaces.
 
 WEBVIEW2 FILE TITLE
