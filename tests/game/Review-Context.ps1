@@ -15,7 +15,10 @@ $script:ProbeSession=$review.session
 $script:Session=Read-JsonFile (Join-Path $script:StateRoot 'session.json')
 $null=Get-OwnedGame
 if(Test-Path (Join-Path $RunPath 'review-complete.json')){throw 'This review has already completed.'}
-function Read-Consumer {Read-JsonFile (Join-Path $script:ProbeDir 'consumer.json')}
+function Read-Consumer {
+    $value=Read-JsonFile (Join-Path $script:ProbeDir 'consumer.json')
+    if($value -and $value.session -eq $script:ProbeSession -and [Environment]::TickCount64-$value.tickMs -lt 3000){return $value}
+}
 function Send-Probe([string]$Action,[hashtable]$Values=@{}) {
     $id=[guid]::NewGuid().ToString('N')
     $command=@{id=$id;session=$script:ProbeSession;action=$Action;deadline=([Environment]::TickCount64+10000)}

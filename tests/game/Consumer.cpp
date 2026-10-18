@@ -1,8 +1,11 @@
 // Disposable SFSE consumer. Exercises the shipped public API without adding
 // test hooks to OSFUI.dll. The process owns this plugin for its entire lifetime.
+#include <RE/Starfield.h>
 #include <SFSE/SFSE.h>
 #include <OSFUI.h>
 #include <vendor/OSFSettings.h>
+#include <vendor/OSFSettings_Providers.h>
+#include <RE/E/Events.h>
 #include "../../src/Compat/V1/LegacyABI.h"
 #include <nlohmann/json.hpp>
 #define WIN32_LEAN_AND_MEAN
@@ -19,6 +22,7 @@ using json = nlohmann::json;
 namespace fs = std::filesystem;
 OSFUI::API::Client api;
 OSFSettings::API::Client settings;
+OSFSettings::API::Providers::Client providers;
 OSFUI::Compat::V1::IOSFUIBridge* legacy{};
 std::mutex mutex;
 json observations = {{"pages", json::object()}, {"pointer", json::object()}, {"lifecycle", json::object()}};
@@ -29,8 +33,14 @@ fs::path Utf8Path(const std::string& value) { return fs::path(std::u8string(valu
 void Write(const fs::path& path, const json& value) {
     const auto temporary = path.wstring() + L".tmp";
     { std::ofstream stream(temporary, std::ios::binary); stream << value.dump(); }
-    if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-        throw std::runtime_error("Could not publish consumer evidence");
+    // Readers can briefly hold the destination without delete sharing.
+    for (int attempt = 0; ; ++attempt) {
+        if (MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return;
+        const auto error = GetLastError();
+        if (error != ERROR_SHARING_VIOLATION || attempt == 9)
+            throw std::runtime_error("Could not publish consumer evidence: " + std::to_string(error));
+        Sleep(5);
+    }
 }
 // Production Settings keeps its normal Documents path. A separate USVFS
 // controller maps only this owned test session's storage before plugin Load.
@@ -99,6 +109,13 @@ void LegacySetting(const char* mod, const char* key, const char* value, void*) n
         observations["legacySettings"][mod][key ? key : "refresh"] = value ? json::parse(value) : json(nullptr);
     } catch (...) {}
 }
+void ObserveHotkey(const char* mod, const char* key, void* context) noexcept {
+    std::scoped_lock lock(mutex);
+    auto& counts = observations[context ? "providerHotkeys" : "legacyHotkeys"];
+    if (!counts.is_object()) counts = json::object();
+    const auto name = std::string(mod) + "/" + key;
+    counts[name] = counts.value(name, 0) + 1;
+}
 void Run() {
     std::string last;
     for (;;) {
@@ -120,6 +137,14 @@ void Run() {
                     if (legacy && action == "legacyState") accepted = legacy->SetViewState("osfui-backend-test", "legacy", command.at("value").dump().c_str());
                     if (legacy && action == "legacyEvent") accepted = legacy->SendToWeb("osfui-backend-test/legacy", "backend.event", command.at("value").dump().c_str());
                     if (legacy && action == "legacySubscribe") accepted = legacy->SubscribeSettings(command.at("mod").get<std::string>().c_str(), LegacySetting, nullptr) != 0;
+                    if (legacy && action == "observeHotkey") {
+                        const auto mod = command.at("mod").get<std::string>();
+                        const auto key = command.at("key").get<std::string>();
+                        OSFSettings::API::Subscription token{};
+                        accepted = providers.Init() && providers.SubscribeKey(mod.c_str(), key.c_str(), ObserveHotkey,
+                            &providers, &token) == OSFSettings::API::Status::Ok;
+                        accepted = accepted && legacy->SubscribeHotkey(mod.c_str(), key.c_str(), ObserveHotkey, nullptr) != 0;
+                    }
                     if (action == "settingsBool") {
                         const auto mod = command.at("mod").get<std::string>();
                         const auto key = command.at("key").get<std::string>();
@@ -156,7 +181,20 @@ void Run() {
         Sleep(50);
     }
 }
+class LoadObserver final : public RE::BSTEventSink<RE::TESLoadGameEvent> {
+    RE::BSEventNotifyControl ProcessEvent(const RE::TESLoadGameEvent&, RE::BSTEventSource<RE::TESLoadGameEvent>*) override {
+        std::scoped_lock lock(mutex);
+        observations["loadGeneration"] = observations.value("loadGeneration", 0) + 1;
+        return RE::BSEventNotifyControl::kContinue;
+    }
+};
 void OnMessage(SFSE::MessagingInterface::Message* message) {
+    if (message && message->type == SFSE::MessagingInterface::kPostDataLoad) {
+        if (auto* source = RE::TESLoadGameEvent::GetEventSource()) {
+            static auto* observer = new LoadObserver;
+            source->RegisterSink(observer);
+        }
+    }
     if (!message || message->type != SFSE::MessagingInterface::kPostPostLoad) return;
     try {
         json config; std::ifstream("Data/SFSE/Plugins/OSFUIBackendTest.json") >> config;

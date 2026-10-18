@@ -105,6 +105,21 @@ This is a local production candidate, not a claim that this artifact is publishe
 - Missing original fixtures on this PC: DDC, Field.OS AEGIS and DevilzDad's Shop
   + Explorer. Their real-mod acceptance remains pending; fixture/unit tests do
   not establish game behavior. The user confirmed they may not be downloaded.
+- Original-mod review `20261018-041212-161-webview2-stock` is **failed**, not
+  release acceptance. Its inspected captures, Papyrus log, private values and
+  `OSFUIRealModsDiagnostic.sfs` checkpoint are retained. SSSE rendered all five
+  chart periods, bought/sold a share and bought an option; inventory observations
+  confirmed credits 9900 → 9816 → 9880 → 9605. Starcade's warm reopen rendered,
+  Great Serpent accepted keyboard input, and a 100-credit blackjack wager/refund
+  changed actual inventory 9605 → 9505 → 9605. AISS search/profile navigation and
+  Somatic setting callbacks/private F6 persistence were observed.
+  Remaining findings: intermittent SSSE F7 reopening, no observed F9 opening,
+  and Starcade's first Settings launch capturing input with no visible interface
+  until explicit close/reopen. AISS retained its empty-profile placeholder and
+  relationship-loading state. These need diagnosis/comparison before acceptance.
+  Shared Settings, Starcade and legacy overwrite hashes remained unchanged;
+  the helper exited normally. The diagnostic checkpoint is not an accepted
+  edition-switch baseline.
 
 Local evidence is retained under `build/release-2.1/`; failed attempts must remain
 alongside accepted runs. No unrelated game session may be interrupted.

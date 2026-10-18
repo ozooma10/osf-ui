@@ -37,13 +37,15 @@ function Invoke-RealModReview {
     }
     if($ResumeRun){
         Copy-Item -LiteralPath (Join-Path $ResumeRun 'OSFUIRealMods.sfs') -Destination $script:SaveRoot
+        $generation=(Read-Consumer).loadGeneration
         $null=Invoke-ConsoleCommand 'load OSFUIRealMods'
+        $null=Wait-Observed 'Prior edition load completed a new game-load event' {Read-Consumer} {param($s)$s -and $s.loadGeneration -gt $generation} 60
         $null=Wait-Observed 'Prior edition private save loaded' {Get-GameState} {param($s)$s.loaded -and -not $s.snapshotStale -and 'LoadingMenu' -notin $s.menus} 60
     }
     Write-JsonFile (Join-Path $script:Run.path 'review-ready.json') @{session=$script:ProbeSession;harnessRoot=$HarnessRoot;saveRoot=$script:SaveRoot;mod=$mod;resume=$ResumeRun}
     # An operator uses the owned harness while this loop sends no desktop input.
     # A result is never inferred from elapsed time or a native command receipt.
-    $reviewResult=Wait-Observed 'Explicit capture-reviewed real-mod result' {Read-JsonFile (Join-Path $script:Run.path 'review-complete.json')} {param($r)$r -and $r.session -eq $script:ProbeSession -and $r.checked.Count -gt 0} 1800
+    $reviewResult=Wait-Observed 'Explicit capture-reviewed real-mod result' {Read-JsonFile (Join-Path $script:Run.path 'review-complete.json')} {param($r)$r -and $r.session -eq $script:ProbeSession -and $r.checked.Count -gt 0} $ReviewSeconds
     Assert-Test ($reviewResult.outcome -eq 'passed') 'Capture-reviewed real-mod workflows passed' $reviewResult
     foreach($capture in $reviewResult.captures){
         $path=Assert-ChildPath $script:Run.path (Join-Path $script:Run.path $capture.file)
@@ -57,7 +59,10 @@ function Invoke-RealModReview {
     $saveStarted=[DateTime]::UtcNow
     $null=Invoke-ConsoleCommand 'save OSFUIRealMods'
     $save=Join-Path $script:SaveRoot 'OSFUIRealMods.sfs'
-    $null=Wait-Observed 'Real-mod private save completed' {Get-Item -LiteralPath $save -ErrorAction SilentlyContinue} {param($f)$f -and $f.Length -gt 0 -and $f.LastWriteTimeUtc -ge $saveStarted} 30
+    $null=Wait-Observed 'Real-mod private save completed' {
+        $file=Get-Item -LiteralPath $save -ErrorAction SilentlyContinue
+        if($file){@{path=$file.FullName;length=$file.Length;modified=$file.LastWriteTimeUtc}}
+    } {param($f)$f -and $f.length -gt 0 -and $f.modified -ge $saveStarted} 30
     Copy-Item -LiteralPath $save -Destination $script:Run.path
     $legacyValues=Join-Path $script:Run.path 'private-values\legacy'
     $savedValues=Join-Path $script:Run.path 'legacy-values'

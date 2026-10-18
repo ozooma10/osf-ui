@@ -59,7 +59,8 @@ Documents state and the legacy `Data/SFSE/Plugins/OSFUI/settings/values` directo
 Legacy values are seeded from copies of the installed payload and MO2 overwrite;
 the private VFS mapping also redirects new files and atomic replacements. Shared
 overwrite hashes must remain unchanged. It never appends observers to consumer HTML or rebuilds their
-DLLs/scripts. This mode waits up to 30 minutes for explicit review; it does not
+DLLs/scripts. This mode waits up to 30 minutes for explicit review (override with
+`-ReviewSeconds`, bounded to two hours); it does not
 run the synthetic browser suite or infer success from the wait.
 Inspect and dismiss original-mod startup prompts before manually checking the
 production Settings menu and launcher handoff. The ordinary packaged suite checks
@@ -79,7 +80,14 @@ Exchange data/orders/charts/reopens, F8 Companion Log navigation, F9 Starcade
 gameplay/persistence and Somatic Camera settings/behavior. Keep missing original
 packages and untested workflows explicit. `-ResumeRun <completed-run>` carries
 private Settings/Starcade/legacy-provider values and the saved game into a fresh private run for
-edition-switch checks; the old run remains intact.
+edition-switch checks; the old run remains intact. Resume waits for a new native
+game-load completion before accepting the loaded state. A failed diagnostic run
+cannot serve as an accepted switch baseline.
+
+`observeHotkey` with `mod`/`key` subscribes non-consuming counters through both
+the public Settings provider and the legacy bridge. Compare `providerHotkeys`
+and `legacyHotkeys` with the original mod's visible response to locate failures;
+the counters themselves do not establish that the mod opened.
 
 The private profile enables Papyrus tracing. The separate test script's
 `OSFUIBackendPapyrus.ObserveInventory` records actual player credits for comparison

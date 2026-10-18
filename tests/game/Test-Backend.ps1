@@ -8,6 +8,7 @@ param(
     [string]$Package,
     [string]$SettingsManifest,
     [switch]$RealMods,
+    [ValidateRange(300,7200)][int]$ReviewSeconds=1800,
     [string]$ResumeRun,
     [string]$SharedHarnessRoot='C:\Modding\Starfield\OSF Test Harness',
     [string]$HarnessRoot='C:\Modding\Starfield\OSF Test Harness',
