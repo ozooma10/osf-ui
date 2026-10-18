@@ -137,8 +137,10 @@ struct Bench {
     osfui::browser::Backend backend = osfui::browser::Backend::WebView2;
     fs::path output,assets,profile,host;UINT width=1920,height=1080;double duration=10,warmup=3,start{},firstFrame{},firstContent{},loaded{};
     json result={{"phases",json::array()}};std::ofstream events;
-    std::set<std::string> ready,modeReady;std::string phase;bool measuring=false,allowNoOutput=false,lifecycle=false,retention=false,coldOpen=false,holdAcks=false;
+    std::set<std::string> ready,modeReady,loadedViews;std::string phase;bool measuring=false,allowNoOutput=false,lifecycle=false,retention=false,coldOpen=false,coldLegacy=false,holdAcks=false;
     std::vector<msg::FrameAck> heldAcks;UINT64 lastEpoch{};
+    std::map<UINT64,UINT> firstEpochMarker;
+    std::map<UINT64,std::array<int,4>> firstEpochPixel;
     UINT lastMarker{};double previousFrame{},previousUnique{};size_t frames{},unique{},invalid{};
     bool mixed{};std::array<UINT,3> layerMarkers{};
     std::array<size_t,3> layerChanges{},layerInvalid{};std::array<double,3> layerPrevious{};
@@ -186,10 +188,15 @@ struct Bench {
             if(type!="frame"&&type!="heartbeat")events<<json{{"seconds",received.time-start},{"message",v}}.dump()<<'\n';
             if(type=="hello"){if(!msg::IsCompatibleHello(msg::FromJson<msg::Hello>(v),backend))throw std::runtime_error("browser host handshake mismatch"); result["runtime"]=v.value("runtimeVersion","");result["hello_ms"]=(received.time-start)*1000;}
             else if(type=="fatal")throw std::runtime_error("host fatal: "+v.dump());
-            else if(type==msg::LoadEvent::kType){if(v.value("failed",false))throw std::runtime_error("load failure: "+v.dump());if(!loaded)loaded=received.time;}
+            else if(type==msg::LoadEvent::kType){if(v.value("failed",false))throw std::runtime_error("load failure: "+v.dump());loadedViews.insert(v.value("view",""));if(!loaded)loaded=received.time;}
             else if(type=="textures")consumer.Ring(msg::FromJson<msg::Textures>(v));
             else if(type=="frame"){
                 auto frame=msg::FromJson<msg::Frame>(v);const auto before=Seconds();const auto markers=consumer.Consume(frame,mixed);const UINT marker=markers[0];const auto cost=(Seconds()-before)*1000;
+                if(coldOpen&&!firstEpochMarker.contains(frame.presentationEpoch)){
+                    firstEpochMarker.emplace(frame.presentationEpoch,marker);
+                    firstEpochPixel.emplace(frame.presentationEpoch,consumer.Pixel(consumer.width/2,consumer.height/2));
+                    consumer.Save(output/("first-epoch-"+std::to_string(frame.presentationEpoch)+".png"));
+                }
                 const msg::FrameAck ack{.slot=frame.slot,.serial=frame.serial};
                 if(holdAcks)heldAcks.push_back(ack);else Send(ack);lastEpoch=frame.presentationEpoch;if(!firstFrame)firstFrame=received.time;
                 const bool valid=marker>=0x110000&&marker<0x200000;if(valid&&!firstContent)firstContent=received.time;
@@ -235,13 +242,17 @@ struct Bench {
         for(UINT64 cycle=1;cycle<=3;++cycle){
             phase="cold_second_"+std::to_string(cycle);
             ready.erase("bench/second");
-            Send(msg::Navigate{.id="bench/second",.entry="index.html",.logicalHeight=height});
-            WaitUntil([&]{return ready.contains("bench/second");},10,"hidden second document ready");
+            loadedViews.erase("bench/second");
+            Send(msg::Navigate{.id="bench/second",.entry="index.html",.logicalHeight=coldLegacy?1080u:height,.legacy=coldLegacy});
+            WaitUntil([&]{return coldLegacy?loadedViews.contains("bench/second"):ready.contains("bench/second");},10,"hidden second document ready");
             const UINT expected=0x1e0000+static_cast<UINT>(cycle);
-            Send(msg::PostWeb{.view="bench/second",.json=json{{"kind","event"},{"name","bench.marker"},{"payload",{{"serial",expected}}}}.dump()});
+            if(!coldLegacy)Send(msg::PostWeb{.view="bench/second",.json=json{{"kind","event"},{"name","bench.marker"},{"payload",{{"serial",expected}}}}.dump()});
             RunFor(.1);
             Send(msg::SetHidden{.view="bench/second",.hidden=false,.presentationEpoch=cycle+1,.settleColdOpen=true});
-            WaitUntil([&]{return lastEpoch==cycle+1&&lastMarker==expected;},5,"first hidden-load menu pixels");
+            WaitUntil([&]{return lastEpoch==cycle+1&&(coldLegacy?consumer.Pixel(consumer.width/2,consumer.height/2)[3]==255:lastMarker==expected);},5,"first hidden-load menu pixels");
+            result["first_epoch_pixels"][std::to_string(cycle+1)]=firstEpochPixel.at(cycle+1);
+            if(coldLegacy?firstEpochPixel.at(cycle+1)[3]!=255:firstEpochMarker.at(cycle+1)!=expected)
+                throw std::runtime_error("first prepared menu frame has stale or blank pixels");
             consumer.Save(output/(phase+".png"));
             result["cold_open"].push_back({{"cycle",cycle},{"epoch",lastEpoch},{"marker",lastMarker}});
             Send(msg::SetHidden{.view="bench/second",.hidden=true,.presentationEpoch=cycle+1});
@@ -393,7 +404,7 @@ struct Bench {
 int wmain(int argc,wchar_t** argv){
     CoInitializeEx(nullptr,COINIT_MULTITHREADED);SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     try{Bench bench;
-        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";else if(key==L"--retention")bench.retention=value==L"true";else if(key==L"--cold-open")bench.coldOpen=value==L"true";}
+        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";else if(key==L"--retention")bench.retention=value==L"true";else if(key==L"--cold-open")bench.coldOpen=value==L"true";else if(key==L"--cold-legacy")bench.coldLegacy=value==L"true";}
         if(bench.host.empty()||bench.output.empty()||bench.assets.empty()||bench.profile.empty())throw std::runtime_error("required: --host --out --views --profile");
         try{bench.Start();if(bench.coldOpen)bench.ColdOpen();else if(bench.lifecycle)bench.Lifecycle();else if(bench.retention)bench.Retention();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);bench.Phase("mixed10","mixed10",3);bench.Phase("mixed30","mixed30",3);}bench.result["status"]="passed";}
         catch(const std::exception& e){bench.result["status"]="failed";bench.result["error"]=e.what();std::cerr<<e.what()<<std::endl;try{bench.FailureEvidence();}catch(const std::exception& capture){bench.result["failure_capture_error"]=capture.what();}}
