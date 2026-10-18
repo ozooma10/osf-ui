@@ -105,6 +105,16 @@ try {
     $sources=@(Get-ChildItem $PSScriptRoot -File | ForEach-Object {@{name=$_.Name;sha256=(Get-FileHash $_.FullName).Hash}})
     Write-JsonFile (Join-Path $script:Run.path 'test-sources.json') $sources
     $script:ProbeSession=[guid]::NewGuid().ToString('N')
+    # Both the extracted archive and the private MO2 copy coexist. Leave room
+    # for consumer copies, saves, browser caches, captures, and failure evidence.
+    $archive=[IO.Compression.ZipFile]::OpenRead([IO.Path]::GetFullPath($Package))
+    try {$packageBytes=($archive.Entries | Measure-Object Length -Sum).Sum}
+    finally {$archive.Dispose()}
+    $requiredBytes=[long](2GB+2*$packageBytes)
+    foreach($volume in @($repo,$script:ModRoot,$script:GameDocuments) | ForEach-Object {[IO.Path]::GetPathRoot($_)} | Select-Object -Unique){
+        $drive=[IO.DriveInfo]::new($volume)
+        Assert-Test ($drive.AvailableFreeSpace -ge $requiredBytes) 'Enough disk space for private package staging and evidence' @{volume=$volume;availableBytes=$drive.AvailableFreeSpace;requiredBytes=$requiredBytes}
+    }
     $script:ProbeDir=Join-Path $script:Run.path 'probe'
     $script:StateRoot=Join-Path $script:Run.path 'state'
     $script:SaveRoot=Assert-ChildPath (Join-Path $script:GameDocuments 'OSFTestingFixture') (Join-Path $script:GameDocuments ('OSFTestingFixture\'+$script:Run.id))

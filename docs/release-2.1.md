@@ -124,6 +124,28 @@ This is a local production candidate, not a claim that this artifact is publishe
 Local evidence is retained under `build/release-2.1/`; failed attempts must remain
 alongside accepted runs. No unrelated game session may be interrupted.
 
+Further diagnosis on October 18: CEF run `20261018-045258-801-cef-stock`
+also failed original-mod acceptance. Its 29 reviewed captures show a successful
+first Starcade Settings launch, but F9 never reached either the direct Settings
+provider observer or the legacy observer. A private F6 rebind reached both and
+opened the original mod. An intermittent F7 reopen missed both observers too;
+the next press reached both and opened the populated exchange. Native Somatic
+edits/rebinding updated legacy callbacks and private JSON, but camera behavior
+remained inconclusive in an occluded view. AISS search and Sarah Morgan's profile
+rendered with the same empty-placeholder issue on CEF. The original stylesheet
+sets `#empty-state` to `display: flex` while its script sets the HTML `hidden`
+property; this is a consumer-side cause to verify, not a reason to alter its
+installed files. Shared stores remained unchanged and the CEF helper exited
+normally. These observations do not complete the edition-switch gate.
+
+An earlier CEF attempt (`20261018-044809-218`) ran out of disk space before
+launch. Its archive checksum still matched. NTFS compression of this task's
+build object files recovered about 5.8 GiB without deleting failed evidence or
+compressing runtime payloads. The runner now checks staging/evidence headroom
+before extraction. Settings branch `osf/ui-21-hotkey-validation` holds a separate
+temporary input-tracing candidate; it is diagnostic evidence, not the final
+production Settings pairing.
+
 Luma/HDR/frame generation, physical controller/IME, alternate GPUs, a machine
 without Evergreen and long-session performance remain outside current acceptance.
 
