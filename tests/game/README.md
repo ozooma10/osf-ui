@@ -62,6 +62,8 @@ overwrite hashes must remain unchanged. It never appends observers to consumer H
 DLLs/scripts. This mode waits up to 30 minutes for explicit review (override with
 `-ReviewSeconds`, bounded to two hours); it does not
 run the synthetic browser suite or infer success from the wait.
+The enabled originals include `ImprovedCameraSF.esm`, which supplies Somatic's
+invisible headgear. A copied DLL with that ESM disabled is not a valid camera fixture.
 Inspect and dismiss original-mod startup prompts before manually checking the
 production Settings menu and launcher handoff. The ordinary packaged suite checks
 Settings on F10 automatically; original-mod review must record its own menu checks.

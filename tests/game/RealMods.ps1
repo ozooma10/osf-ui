@@ -21,7 +21,10 @@ function Initialize-RealMods([string]$Mod) {
     Write-JsonFile (Join-Path $script:Run.path 'real-mods.json') $identities
 }
 function Enable-RealModPlugins {
-    foreach($plugin in @('x2357ssse.esm','x2357starcade.esm','x2357aiss.esm')){
+    # Somatic's invisible headgear lives in its ESM. Copying only its DLL and
+    # leaving this inherited profile entry disabled makes camera review invalid.
+    foreach($plugin in @('x2357ssse.esm','x2357starcade.esm','x2357aiss.esm','ImprovedCameraSF.esm')){
+        if(-not(Test-Path -LiteralPath (Join-Path $mod $plugin))){throw "Missing staged original consumer plugin: $plugin"}
         foreach($name in @('plugins.txt','loadorder.txt')){
             $path=Join-Path $script:ProfileRoot $name
             $lines=@(Get-Content $path | Where-Object {$_.TrimStart('*') -ne $plugin})
