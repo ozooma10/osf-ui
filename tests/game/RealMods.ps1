@@ -19,6 +19,15 @@ function Initialize-RealMods([string]$Mod) {
         $identities+=@{source=$source;files=($hashes | ConvertFrom-Json)}
     }
     Write-JsonFile (Join-Path $script:Run.path 'real-mods.json') $identities
+    # Separate diagnostic document: copy the original stylesheet unchanged and
+    # measure the author's hidden/display interaction in the actual helper.
+    $layout=Join-Path $Mod 'SFSE\Plugins\OSF\UI\views\osfui-backend-test\aiss-layout'
+    [IO.Directory]::CreateDirectory($layout)|Out-Null
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'aiss-layout-probe.html') -Destination (Join-Path $layout 'index.html')
+    $style=Join-Path $Mod 'SFSE\Plugins\OSFUI\views\x2357aiss.companionlog\companionlog\style.css'
+    Copy-Item -LiteralPath $style -Destination $layout
+    Write-JsonFile (Join-Path $layout 'manifest.json') @{manifestVersion=1;title='AISS stylesheet diagnosis';entry='index.html';kind='menu';width=1920;height=1080;capturesInput=$true;pausesGame=$false}
+    Write-JsonFile (Join-Path $script:Run.path 'aiss-layout-source.json') @{original=(Get-FileHash $style).Hash;copy=(Get-FileHash (Join-Path $layout 'style.css')).Hash}
 }
 function Enable-RealModPlugins {
     # Somatic's invisible headgear lives in its ESM. Copying only its DLL and

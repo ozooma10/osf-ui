@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<script src="/shared/osfui.js"></script>
+<link rel="stylesheet" href="style.css">
+<div id="empty-state">Original empty-selection placeholder</div>
+<pre id="result" style="position:absolute;top:20px;left:20px;background:#fff;color:#000;padding:24px;font:28px monospace;z-index:2"></pre>
+<script>
+addEventListener('load', () => {
+  const element = document.getElementById('empty-state');
+  element.hidden = true;
+  const before = getComputedStyle(element).display;
+  const rule = document.createElement('style');
+  rule.textContent = '#empty-state[hidden] { display: none; }';
+  document.head.append(rule);
+  const result = { hidden: element.hidden, originalDisplay: before,
+    explicitHiddenDisplay: getComputedStyle(element).display };
+  document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+  osfui.send('report', result);
+});
+</script>

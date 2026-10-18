@@ -167,6 +167,17 @@ void Run() {
                         std::scoped_lock lock(mutex);
                         observations["settings"] = {{"mod", mod}, {"key", key}, {"value", value}, {"command", id}};
                     }
+                    if (action == "settingsFloat") {
+                        const auto mod = command.at("mod").get<std::string>();
+                        const auto key = command.at("key").get<std::string>();
+                        if (command.contains("value"))
+                            accepted = settings.SetFloat(mod.c_str(), key.c_str(), command.at("value").get<double>()) == OSFSettings::API::Status::Ok;
+                        else accepted = true;
+                        double value{};
+                        accepted = accepted && settings.GetFloat(mod.c_str(), key.c_str(), &value) == OSFSettings::API::Status::Ok;
+                        std::scoped_lock lock(mutex);
+                        observations["settings"] = {{"mod", mod}, {"key", key}, {"value", value}, {"command", id}};
+                    }
                 }
                 Write(directory / "reply.json", {{"id", id}, {"session", session}, {"accepted", accepted}});
             }
