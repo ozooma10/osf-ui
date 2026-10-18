@@ -227,6 +227,9 @@ try {
     }
     $null=Start-TestGame -RequiredTestMods @($script:HarnessModName) -RefocusAfterLoad
     $consumer=Wait-Observed 'Public SDK consumer initialized' {Read-Consumer} {param($c)$c -and $c.pid -eq $script:Session.pid -and $c.initialized -and $c.registered} 20
+    $packageVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $data 'SFSE\Plugins\OSFUI.dll'))
+    $expectedVersion='{0}.{1}.{2}' -f $packageVersion.FileMajorPart,$packageVersion.FileMinorPart,$packageVersion.FileBuildPart
+    Assert-Test ($consumer.releaseVersion -eq $expectedVersion) 'Legacy native release query matches packaged DLL version'
     $modules=@((Get-OwnedGame).Modules | ForEach-Object {@{name=$_.ModuleName;path=$_.FileName}})
     Write-JsonFile (Join-Path $script:Run.path 'modules.json') $modules
     if($SettingsManifest){

@@ -2,6 +2,7 @@
 #include "Compat/V1/SettingsCodec.h"
 #include "API/BridgeApi.h"
 #include "Core/Json.h"
+#include "Core/Version.h"
 #include "vendor/OSFSettings_Providers.h"
 #include "vendor/OSFSettingsRegistry.h"
 #include "vendor/OSFSettings_Diagnostics.h"
@@ -160,7 +161,12 @@ namespace OSFUI::Compat::V1
                 }
             }
             std::uint32_t GetInterfaceVersion() override { return kBridgeVersion; }
-            void GetPluginVersion(std::uint32_t& major, std::uint32_t& minor, std::uint32_t& patch) override { major = 2; minor = patch = 0; }
+            void GetPluginVersion(std::uint32_t& major, std::uint32_t& minor, std::uint32_t& patch) override
+            {
+                major = kOsfuiReleaseVersionMajor;
+                minor = kOsfuiReleaseVersionMinor;
+                patch = kOsfuiReleaseVersionPatch;
+            }
             const char* GetBridgeProtocolVersion() override { return "1.5"; }
             bool IsBridgeReady() override { return Current().IsReady(); }
             void RegisterCommand(const char* name, CommandFn fn, void* user) override
