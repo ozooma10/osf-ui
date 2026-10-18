@@ -10,6 +10,9 @@ param(
     [switch]$RealMods,
     [ValidateRange(300,7200)][int]$ReviewSeconds=1800,
     [string]$ResumeRun,
+    [switch]$DiagnosticWithoutUI,
+    [switch]$DiagnosticDisableQuickSaveLoad,
+    [string]$DiagnosticSomaticIni,
     [string]$SharedHarnessRoot='C:\Modding\Starfield\OSF Test Harness',
     [string]$HarnessRoot='C:\Modding\Starfield\OSF Test Harness',
     [string]$SettingsTestDll='C:\Modding\Starfield\OSF Settings\build\windows\x64\releasedbg\OSFSettings.dll'
@@ -35,6 +38,8 @@ $liveStorageBefore=$null
 $liveStarcadeBefore=$null
 $liveLegacyBefore=$null
 if($RealMods -and -not $SettingsManifest){throw 'Real-mod review requires production SettingsManifest.'}
+$diagnosticComparison=$DiagnosticWithoutUI -or $DiagnosticDisableQuickSaveLoad -or [bool]$DiagnosticSomaticIni
+if($diagnosticComparison -and (-not $RealMods -or $ResumeRun)){throw 'Diagnostic comparisons require a fresh RealMods run; they cannot create an edition-switch baseline.'}
 . (Join-Path $PSScriptRoot 'RealMods.ps1')
 function Get-StorageHashes([string]$Root) {
     $files=@(if(Test-Path -LiteralPath $Root){Get-ChildItem -LiteralPath $Root -File -Recurse | Sort-Object FullName | ForEach-Object {
@@ -153,7 +158,17 @@ try {
     foreach($file in @((Join-Path $HarnessRoot 'build\bin\OSFTestHarness.dll'),(Join-Path $repo 'build\windows\x64\releasedbg\OSFUIBackendTest.dll'))){Copy-Item -LiteralPath $file -Destination (Join-Path $mod 'SFSE\Plugins')}
     Copy-Item -LiteralPath (Join-Path $repo 'build\papyrus\OSFUIBackendPapyrus.pex') -Destination (Join-Path $mod 'Scripts')
     if($RealMods){Initialize-RealMods $mod}
+    if($DiagnosticSomaticIni){
+        $ini=[IO.Path]::GetFullPath($DiagnosticSomaticIni)
+        Copy-Item -LiteralPath $ini -Destination (Join-Path $mod 'SFSE\Plugins\SomaticCameraSF.ini') -Force
+        Write-JsonFile (Join-Path $script:Run.path 'diagnostic-somatic-ini.json') @{path=$ini;sha256=(Get-FileHash $ini).Hash}
+    }
+    if($DiagnosticWithoutUI){
+        $dll=Assert-ChildPath $mod (Join-Path $mod 'SFSE\Plugins\OSFUI.dll')
+        Move-Item -LiteralPath $dll -Destination ($dll+'.disabled-for-diagnosis')
+    }
     $probeConfig=@{directory=$script:ProbeDir;session=$script:ProbeSession}
+    if($DiagnosticDisableQuickSaveLoad){$probeConfig.diagnosticDisableQuickSaveLoad=$true}
     if($SettingsManifest){
         [IO.Directory]::CreateDirectory($script:ProbeDir)|Out-Null
         $liveSettings=Join-Path $script:GameDocuments 'OSF\Settings'
@@ -245,19 +260,21 @@ try {
     foreach($folder in @('saves','settings-values')){Copy-Tree (Join-Path $seed $folder) (Join-Path $script:FixtureRoot $folder)}
     Copy-Item -LiteralPath (Join-Path $seed 'fixture.json') -Destination $script:FixtureRoot
     Write-JsonFile (Join-Path $script:FixtureRoot 'settings-values\osfui.json') @{formatVersion=1;values=@{developerMode=$false;cefPrototype=($Backend -eq 'webview2')}}
-    Write-JsonFile (Join-Path $script:Run.path 'candidate.json') @{sourceCommit=(& git -C $repo rev-parse HEAD);package=(Get-FileHash $Package);settingsDll=(Get-FileHash (Join-Path $mod 'SFSE\Plugins\OSFSettings.dll'));settingsProduction=[bool]$SettingsManifest;settingsManifest=$SettingsManifest;backend=$Backend;graphics=$Graphics}
+    Write-JsonFile (Join-Path $script:Run.path 'candidate.json') @{sourceCommit=(& git -C $repo rev-parse HEAD);package=(Get-FileHash $Package);settingsDll=(Get-FileHash (Join-Path $mod 'SFSE\Plugins\OSFSettings.dll'));settingsProduction=[bool]$SettingsManifest;settingsManifest=$SettingsManifest;backend=$Backend;graphics=$Graphics;diagnosticComparison=[bool]$diagnosticComparison;withoutUI=[bool]$DiagnosticWithoutUI;disableQuickSaveLoad=[bool]$DiagnosticDisableQuickSaveLoad}
     if($SettingsManifest){
         $controller=Join-Path $PSScriptRoot 'private_storage.py'
         $controllerArguments='"{0}" "{1}"' -f $controller,$probeConfigPath
         $storageController=Start-Process -FilePath (Get-Command python).Source -ArgumentList $controllerArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $script:Run.path 'storage-controller.out') -RedirectStandardError (Join-Path $script:Run.path 'storage-controller.err')
     }
     $null=Start-TestGame -RequiredTestMods @($script:HarnessModName) -RefocusAfterLoad
-    $consumer=Wait-Observed 'Public SDK consumer initialized' {Read-Consumer} {param($c)$c -and $c.pid -eq $script:Session.pid -and $c.initialized -and $c.registered} 20
+    $consumer=Wait-Observed 'Public SDK consumer initialized' {Read-Consumer} {param($c)$c -and $c.pid -eq $script:Session.pid -and ($DiagnosticWithoutUI -or ($c.initialized -and $c.registered))} 20
     $packageVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $data 'SFSE\Plugins\OSFUI.dll'))
     $expectedVersion='{0}.{1}.{2}' -f $packageVersion.FileMajorPart,$packageVersion.FileMinorPart,$packageVersion.FileBuildPart
-    Assert-Test ($consumer.releaseVersion -eq $expectedVersion) 'Legacy native release query matches packaged DLL version'
+    if(-not $DiagnosticWithoutUI){Assert-Test ($consumer.releaseVersion -eq $expectedVersion) 'Legacy native release query matches packaged DLL version'}
     $modules=@((Get-OwnedGame).Modules | ForEach-Object {@{name=$_.ModuleName;path=$_.FileName}})
     Write-JsonFile (Join-Path $script:Run.path 'modules.json') $modules
+    if($DiagnosticWithoutUI){Assert-Test (@($modules | Where-Object name -eq 'OSFUI.dll').Count -eq 0 -and -not $consumer.initialized) 'Diagnostic camera baseline has no OSF UI module or API'}
+    if($DiagnosticDisableQuickSaveLoad){Assert-Test ($consumer.diagnosticNativeQuickSaveLoadDisabled) 'Diagnostic native QuickSaveLoad handler disabled for this process only'}
     if($SettingsManifest){
         $mapping=Read-JsonFile (Join-Path $script:ProbeDir 'storage-verified.json')
         Assert-Test ($mapping -and $mapping.session -eq $script:ProbeSession -and $mapping.verified) 'Production Settings storage is private before plugin initialization'

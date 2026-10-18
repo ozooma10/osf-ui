@@ -64,6 +64,7 @@ function Invoke-RealModReview {
         Assert-Test ((Get-FileHash -LiteralPath $path).Hash -eq $capture.sha256 -and -not [string]::IsNullOrWhiteSpace($capture.observation)) 'Reviewed capture matches retained evidence' $capture
     }
     Assert-Test ($reviewResult.captures.Count -gt 0) 'Real-mod review includes inspected captures'
+    if($diagnosticComparison){throw '[failed] Diagnostic comparison only; this run cannot qualify a release or edition-switch baseline.'}
     $hosts=@(Get-TestHosts)
     Assert-Test ($hosts.Count -eq 1) 'Real mods use the selected edition helper'
     $expectedHost=if($Backend -eq 'cef'){'SFSE\Plugins\OSF\UI\bin\cef\osfui_cef_host.exe'}else{'SFSE\Plugins\OSF\UI\bin\osfui_webview2_host.exe'}

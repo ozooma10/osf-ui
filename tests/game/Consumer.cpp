@@ -6,6 +6,7 @@
 #include <vendor/OSFSettings.h>
 #include <vendor/OSFSettings_Providers.h>
 #include <RE/E/Events.h>
+#include <RE/M/MenuControls.h>
 #include "../../src/Compat/V1/LegacyABI.h"
 #include <nlohmann/json.hpp>
 #define WIN32_LEAN_AND_MEAN
@@ -201,6 +202,18 @@ class LoadObserver final : public RE::BSTEventSink<RE::TESLoadGameEvent> {
 };
 void OnMessage(SFSE::MessagingInterface::Message* message) {
     if (message && message->type == SFSE::MessagingInterface::kPostDataLoad) {
+        // Test-only startup comparison, before the disposable save is loaded.
+        // No remap or ControlMap file is written and no production DLL changes.
+        try {
+            json config; std::ifstream("Data/SFSE/Plugins/OSFUIBackendTest.json") >> config;
+            if (config.value("diagnosticDisableQuickSaveLoad", false)) {
+                auto* controls = RE::MenuControls::GetSingleton();
+                const bool disabled = controls && controls->quickSaveLoadHandler;
+                if (disabled) controls->quickSaveLoadHandler->inputEventHandlingEnabled = false;
+                std::scoped_lock lock(mutex);
+                observations["diagnosticNativeQuickSaveLoadDisabled"] = disabled;
+            }
+        } catch (...) {}
         if (auto* source = RE::TESLoadGameEvent::GetEventSource()) {
             static auto* observer = new LoadObserver;
             source->RegisterSink(observer);

@@ -96,6 +96,15 @@ The private profile enables Papyrus tracing. The separate test script's
 with Stock Exchange or Starcade transactions; console dispatch alone is not proof
 that the observation ran.
 
+For focused diagnosis, `-DiagnosticWithoutUI` omits OSFUI.dll from the private
+process, `-DiagnosticSomaticIni <file>` uses an explicitly recorded camera INI,
+and `-DiagnosticDisableQuickSaveLoad` disables that one native input handler at
+startup in the owned process. These switches require a fresh `-RealMods` run,
+never write a ControlMap file, and deliberately cannot pass release acceptance
+or become a `-ResumeRun` baseline. They leave the original installed mods intact.
+The separate `osfui-backend-test/aiss-layout` view measures computed styles using
+an unchanged copy of AISS's stylesheet; it does not alter the original view.
+
 `-Graphics luma` requires a locally installed Luma fixture. Stock results do not
 establish Luma/HDR/frame-generation compatibility, physical controller or IME
 behavior, every resolution/adapter combination, or operation on another machine
