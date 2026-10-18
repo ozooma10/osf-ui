@@ -55,7 +55,7 @@ pwsh tools/package.ps1
 pwsh tools/package.ps1 -Backend cef
 ```
 
-Outputs are `dist/OSF-UI-v<version>-rc-webview2.zip` (recommended default) and `dist/OSF-UI-v<version>-rc-cef.zip` (bundled-runtime alternative), plus SHA-256 and file-manifest sidecars. `-Tag` controls the candidate label; `-Tag ''` removes it. `-SkipBuild` uses existing binaries but still configures the requested edition, stages files, compiles Papyrus, and runs package verification. No packaging invocation deploys, tags, pushes, or publishes. Prepared [release file descriptions](../packaging/nexus/release-2.0-fields.txt) use the same edition labels.
+Outputs are `dist/OSF-UI-v<version>-rc-webview2.zip` (recommended default) and `dist/OSF-UI-v<version>-rc-cef.zip` (bundled-runtime alternative), plus SHA-256 and file-manifest sidecars. `-Tag` controls the candidate label; `-Tag ''` removes it. `-SkipBuild` uses existing binaries but still configures the requested edition, stages files, compiles Papyrus, and runs package verification. No packaging invocation deploys, tags, pushes, or publishes. Prepared [release file descriptions](../packaging/nexus/release-2.1-fields.txt) use the same edition labels.
 
 The packager installs the common payload once, then creates each edition from it. It verifies byte-identical common files, actual native API acquisition and compiled Papyrus signatures, selected-backend ownership, the CEF runtime manifest, and every file read back from each ZIP. CEF builds generate a SHA-256 runtime manifest; package verification also checks the bundled lock file against the repository pin.
 

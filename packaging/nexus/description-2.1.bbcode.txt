@@ -97,6 +97,9 @@ Install and enable OSF Settings, launch through SFSE, and confirm that [font=Cou
 [b]A mod is missing from the Launcher.[/b]
 Only menus registered for the launcher appear there. HUDs and menus opened through a mod's own controls may not have a launcher entry.
 
+[b]Starcade does not open on F9.[/b]
+Starfield's native QuickLoad can intercept F9 before the mod receives it. Open Starcade through the Settings launcher, or rebind its opening key in OSF Settings to an unused key. F6 worked in the release fixture; choose a key that does not conflict with your other mods.
+
 [b]A menu fails to open or appears blank.[/b]
 Check that exactly one complete OSF UI edition is enabled and the mod's interface files are present. For WebView2, confirm that the Evergreen Runtime is installed. For CEF, reinstall the complete CEF package if any bundled browser files are missing. Check [b]MOD ISSUES[/b] in OSF Settings for any reported problem and suggested steps.
 
