@@ -10,7 +10,7 @@
 #include "Input/MenuEventSink.h"
 #include "Core/Paths.h"
 #include "Render/BrowserHostClient.h"
-#include "Render/BrowserBackendConfig.h"
+#include "Render/BrowserBuild.h"
 #include "Render/SharedFrameConsumer.h"
 #include "Composite/EngineD3D12.h"
 #include "Composite/D3D12Prologue.h"
@@ -53,12 +53,6 @@ namespace OSFUI
 
 	bool Runtime::InitializeRenderer()
 	{
-        std::string backendError;
-        const auto backend = ReadBrowserBackend(Paths::DataDir(), backendError);
-        if (!backend) {
-            m_osfSettings.ReportFailure("renderer.package", "webview.package-invalid", backendError);
-            return false;
-        }
         auto renderer = std::make_unique<BrowserHostClient>();
 
 		const auto initialWidth = kDefaultViewWidth;
@@ -70,7 +64,7 @@ namespace OSFUI
 			.width = initialWidth,
 			.height = initialHeight,
 			.devMode = m_developerMode,
-			.backend = *backend,
+			.backend = kCompiledBrowserBackend,
 			.resolveLanguage = [this] { return m_osfSettings.Language(); },
 			.dataDir = Paths::DataDir(),
 		};

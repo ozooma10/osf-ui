@@ -12,7 +12,6 @@ if (-not (Test-Path -LiteralPath $root -PathType Container)) {
 
 $required = @(
     'SFSE\Plugins\OSFUI.dll',
-    'SFSE\Plugins\OSF\UI\backend.json',
     'SFSE\Plugins\OSF\UI\bin\broker\osfui_browser_broker.exe',
     'SFSE\Plugins\OSF\UI\views\shared\osfui.js',
     'SFSE\Plugins\OSF\UI\views\shared\osfui.css',
@@ -30,15 +29,17 @@ foreach ($relative in $required) {
 }
 
 $ui = Join-Path $root 'SFSE/Plugins/OSF/UI'
-$selection = Get-Content -LiteralPath (Join-Path $ui 'backend.json') -Raw | ConvertFrom-Json
-if ($selection.schemaVersion -ne 1 -or $selection.backend -notin @('webview2', 'cef')) {
-    throw 'Invalid package backend selection'
+$description = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $root 'SFSE/Plugins/OSFUI.dll')).FileDescription
+if ($description -notmatch '^Web Interface Framework for Starfield \((webview2|cef)\)$') {
+    throw 'DLL is missing its compiled browser edition identity'
 }
-if ($ExpectedBackend -and $selection.backend -ne $ExpectedBackend) { throw 'Package selects the wrong backend' }
+$backend = $Matches[1]
+if ($ExpectedBackend -and $backend -ne $ExpectedBackend) { throw 'DLL selects the wrong backend' }
+if (Test-Path -LiteralPath (Join-Path $ui 'backend.json')) { throw 'Obsolete backend.json must not ship' }
 $bin = Join-Path $ui 'bin'
 $brokerFiles = @(Get-ChildItem -LiteralPath (Join-Path $bin 'broker') -Recurse -File)
 if ($brokerFiles.Count -ne 1) { throw 'Shared broker directory contains unexpected payload' }
-if ($selection.backend -eq 'webview2') {
+if ($backend -eq 'webview2') {
     $runtimeFiles = @(Get-ChildItem -LiteralPath $bin -Recurse -File | Where-Object DirectoryName -ne (Join-Path $bin 'broker'))
     if ($runtimeFiles.Count -ne 1 -or $runtimeFiles[0].FullName -ne (Join-Path $bin 'osfui_webview2_host.exe')) {
         throw 'WebView2 edition must contain exactly its selected browser helper'
@@ -115,6 +116,6 @@ if ($sync -notmatch 'os\.rm\(path\.join\(views, "shared"\)\)') {
     throw 'runtime_payload.lua must synchronize only OSF UI-owned views'
 }
 
-& python (Join-Path $PSScriptRoot 'verify_binary.py') $root
+& python (Join-Path $PSScriptRoot 'verify_binary.py') $root --expected-backend $backend
 if ($LASTEXITCODE -ne 0) { throw 'OSF UI compiled binary contract verification failed' }
 Write-Host 'OSF UI package ownership and compiled binary tests passed'

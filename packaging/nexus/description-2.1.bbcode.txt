@@ -9,14 +9,14 @@ Install it alongside mods that require it, then open their interfaces through th
 
 [quote][b]New in 2.0:[/b] Mod settings, keybindings, and issue reporting have moved to [url=https://www.nexusmods.com/starfield/mods/18326]OSF Settings[/url]. [b]OSF Settings is now required by OSF UI.[/b] Install both to use OSF UI mods. Mods built for OSF Settings alone do not need OSF UI.[/quote]
 
-[quote][b]New in 2.1:[/b] Choose the recommended WebView2 edition or a CEF edition with Chromium included. Both use the same DLL and mod APIs; native API 2.0 and browser protocol 2 remain unchanged.[/quote]
+[quote][b]New in 2.1:[/b] Choose the recommended WebView2 edition or a CEF edition with Chromium included. Both provide the same mod APIs; native API 2.0 and browser protocol 2 remain unchanged.[/quote]
 
 [b]Choose one edition[/b]
 [list]
 [*][b]WebView2 — recommended default:[/b] Choose this for most installations. It has a smaller download and lower measured browser CPU and memory overhead. Requires the Microsoft Edge WebView2 Evergreen Runtime.[/*]
 [*][b]CEF — bundled-runtime alternative:[/b] Choose this when you want Chromium included with OSF UI. No WebView2 runtime is required. The download is larger, measured CPU and memory overhead are higher, and browser updates ship with OSF UI.[/*]
 [/list]
-Both editions provide the same game DLL and mod APIs. [b]Install one edition only.[/b] The package selects its renderer automatically; no settings change is needed. Performance depends on the interface and system. Desktop measurements do not establish a general CEF speed or memory improvement and do not measure Starfield FPS.
+Both editions provide the same mod APIs. [b]Install one edition only.[/b] The installed edition determines the renderer; no settings change is needed. Performance depends on the interface and system. Desktop measurements do not establish a general CEF speed or memory improvement and do not measure Starfield FPS.
 
 [center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-1196566958.png[/img][/center]
 [list]

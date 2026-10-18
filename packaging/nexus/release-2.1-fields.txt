@@ -8,7 +8,7 @@ VERSION
 2.1.0
 
 CHANGELOG
-- Added separate WebView2 and bundled CEF editions with automatic backend selection and the same game DLL and public APIs.
+- Added separate WebView2 and bundled CEF editions with automatic renderer selection and the same public APIs.
 - Refined CEF damage copying, publication scheduling, and view reveal handling while retaining safe texture completion and full-copy fallbacks.
 - Added mixed menu/HUD/overlay validation; measured performance varies by workload and does not establish a general CEF speed or memory improvement.
 - Fixed missed repeated hotkeys after closing an overlay and blank first menu presentation during a Settings launcher handoff.
@@ -21,7 +21,7 @@ WEBVIEW2 ARCHIVE
 Use the archive ending in -webview2.zip. Current local candidate: OSF-UI-v2.1.0-webview2.zip.
 
 WEBVIEW2 FILE DESCRIPTION
-Recommended default: smaller download and lower measured CPU/memory overhead. Requires WebView2 Evergreen, SFSE, Address Library, and OSF Settings. Renderer selected automatically. Install one edition only; both share the same DLL and mod APIs.
+Recommended default: smaller download and lower measured CPU/memory overhead. Requires WebView2 Evergreen, SFSE, Address Library, and OSF Settings. Renderer selected by the installed edition. Install one edition only; both provide the same mod APIs.
 
 CEF FILE TITLE
 OSF UI 2.1 - CEF (Bundled-Runtime Alternative)
@@ -30,7 +30,7 @@ CEF ARCHIVE
 Use the archive ending in -cef.zip. Current local candidate: OSF-UI-v2.1.0-cef.zip.
 
 CEF FILE DESCRIPTION
-Bundled-runtime alternative with Chromium included; no WebView2 required. Larger download and higher measured CPU/memory overhead. Requires SFSE, Address Library, and OSF Settings. Renderer selected automatically. Install one edition only.
+Bundled-runtime alternative with Chromium included; no WebView2 required. Larger download and higher measured CPU/memory overhead. Requires SFSE, Address Library, and OSF Settings. Renderer selected by the installed edition. Install one edition only.
 
 NEXUS REQUIREMENTS
 Starfield Script Extender (SFSE): https://www.nexusmods.com/starfield/mods/106

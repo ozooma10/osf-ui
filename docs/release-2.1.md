@@ -1,6 +1,17 @@
 # OSF UI 2.1 release qualification
 
-Status: both 2.1.0 archives passed packaged acceptance with production Settings
+Current source now compiles the backend choice into separate edition DLLs and
+removes `backend.json`. The package identities and in-game results below describe
+the earlier shared-DLL candidates; they do not qualify these new builds.
+
+The new local candidates are in `build/compiled-backend/packages/`, with tag
+`compiled-backend`. Both editions built and passed DLL/API, 55 Papyrus signature,
+browser-payload, shared-asset and ZIP verification. Five targeted native checks
+passed for both compiled choices, obsolete selection files and host handshakes;
+nine package rejection checks passed, including mismatched DLL/browser payloads.
+These builds have not been tested in-game or published.
+
+Historical candidate status: both 2.1.0 archives passed packaged acceptance with production Settings
 and the scoped original-mod WebView2 → CEF → WebView2 round trip. Broader
 original-mod qualification remains incomplete: three original fixtures are
 unavailable locally, and AISS retains diagnosed consumer limitations. Not published.

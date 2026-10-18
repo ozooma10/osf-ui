@@ -1,4 +1,4 @@
-<# Build WebView2 (recommended default) and CEF (bundled-runtime alternative) around one shared DLL and public API. Never deploys or publishes. #>
+<# Build WebView2 and CEF editions with a compiled backend choice and shared public API. Never deploys or publishes. #>
 [CmdletBinding()]
 param(
     [ValidateSet('both', 'webview2', 'cef')][string]$Backend = 'both',
@@ -28,6 +28,9 @@ $Version = $sourceVersion
 $versionLabel = "v$Version"
 if ($Tag) { $versionLabel += "-$Tag" }
 $editions = @(if ($Backend -eq 'both') { 'webview2'; 'cef' } else { $Backend })
+if ($SkipBuild -and $editions.Count -gt 1) {
+    throw '-SkipBuild requires one explicit -Backend: the build output holds one edition-specific DLL at a time.'
+}
 $previousSdk = $env:WEBVIEW2_SDK_DIR
 $previousMods = $env:XSE_SF_MODS_PATH
 $previousGame = $env:XSE_SF_GAME_PATH
@@ -63,53 +66,42 @@ try {
     $env:XSE_SF_GAME_PATH = $null
     Push-Location $RepoRoot
     try {
-        # Build and install the common payload exactly once, including Papyrus compilation.
-        xmake f -P $RepoRoot -m $Mode "--browser_backend=$($editions[0])" -y
-        if ($LASTEXITCODE) { throw 'XMake configuration failed' }
-        if (-not $SkipBuild) {
-            xmake build -P $RepoRoot -j4 -y 'OSF UI'
-            if ($LASTEXITCODE) { throw 'OSF UI build failed' }
-            if ($Backend -eq 'both') {
-                xmake build -P $RepoRoot -j4 -y osfui-cef-host
-                if ($LASTEXITCODE) { throw 'CEF host build failed' }
-            }
-        }
         if (Test-Path -LiteralPath $Staging) { Remove-Item -LiteralPath $Staging -Recurse -Force }
-        $baseData = Join-Path $Staging 'common/Data'
-        New-Item -ItemType Directory -Path $baseData -Force | Out-Null
-        xmake install -P $RepoRoot -o $baseData 'OSF UI'
-        if ($LASTEXITCODE) { throw 'Common payload installation failed' }
-        $baseUi = Join-Path $baseData 'SFSE/Plugins/OSF/UI'
-        foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
-            Copy-Item -LiteralPath (Join-Path $RepoRoot $doc) -Destination (Join-Path $baseUi $doc)
-        }
-        if ($NoPdb) {
-            Get-ChildItem -LiteralPath (Join-Path $baseData 'SFSE/Plugins') -Filter '*.pdb' -File | Remove-Item -Force
-        }
         $commonHashes = $null
+        $commonPex = $null
         $archiveRecords = @()
         foreach ($edition in $editions) {
+            xmake f -P $RepoRoot -m $Mode "--browser_backend=$edition" -y
+            if ($LASTEXITCODE) { throw 'XMake configuration failed' }
+            if (-not $SkipBuild) {
+                xmake build -P $RepoRoot -j4 -y 'OSF UI'
+                if ($LASTEXITCODE) { throw "OSF UI $edition build failed" }
+            }
             $editionRoot = Join-Path $Staging $edition
             $data = Join-Path $editionRoot 'Data'
-            New-Item -ItemType Directory -Path $editionRoot -Force | Out-Null
-            Copy-Item -LiteralPath $baseData -Destination $data -Recurse
+            New-Item -ItemType Directory -Path $data -Force | Out-Null
+            xmake install -P $RepoRoot -o $data 'OSF UI'
+            if ($LASTEXITCODE) { throw "OSF UI $edition installation failed" }
             $ui = Join-Path $data 'SFSE/Plugins/OSF/UI'
-            $bin = [IO.Path]::GetFullPath((Join-Path $ui 'bin'))
-            if (-not $bin.StartsWith($Staging + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-                throw 'Refusing to replace a browser payload outside package staging'
+            foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
+                Copy-Item -LiteralPath (Join-Path $RepoRoot $doc) -Destination (Join-Path $ui $doc)
             }
-            Remove-Item -LiteralPath $bin -Recurse -Force
-            New-Item -ItemType Directory -Path $bin | Out-Null
-            Copy-Item -LiteralPath (Join-Path $baseUi 'bin/broker') -Destination (Join-Path $bin 'broker') -Recurse
-            if ($edition -eq 'cef') {
-                Copy-Item -LiteralPath (Join-Path $RepoRoot 'build/cef-host/runtime') -Destination (Join-Path $bin 'cef') -Recurse
+            if ($NoPdb) {
+                Get-ChildItem -LiteralPath (Join-Path $data 'SFSE/Plugins') -Filter '*.pdb' -File | Remove-Item -Force
+            }
+            # PEX embeds compilation timestamps; share the first edition's script bytes.
+            $pex = Join-Path $data 'Scripts/OSFUI.pex'
+            if ($commonPex) {
+                Copy-Item -LiteralPath $commonPex -Destination $pex -Force
             } else {
-                Copy-Item -LiteralPath (Join-Path $baseUi 'bin/osfui_webview2_host.exe') -Destination $bin
+                $commonPex = $pex
             }
-            Copy-Item -LiteralPath (Join-Path $RepoRoot "packaging/backends/$edition.json") -Destination (Join-Path $ui 'backend.json') -Force
             & (Join-Path $RepoRoot 'tests/package/test-package.ps1') -DataRoot $data -ExpectedBackend $edition
             $files = FileManifest $data
-            $shared = @($files | Where-Object { $_.path -ne 'SFSE/Plugins/OSF/UI/backend.json' -and (-not $_.path.StartsWith('SFSE/Plugins/OSF/UI/bin/') -or $_.path.StartsWith('SFSE/Plugins/OSF/UI/bin/broker/')) })
+            $shared = @($files | Where-Object {
+                $_.path -notin @('SFSE/Plugins/OSFUI.dll', 'SFSE/Plugins/OSFUI.pdb') -and
+                (-not $_.path.StartsWith('SFSE/Plugins/OSF/UI/bin/') -or $_.path.StartsWith('SFSE/Plugins/OSF/UI/bin/broker/'))
+            })
             $sharedJson = ConvertTo-Json -InputObject $shared -Depth 4 -Compress
             if ($null -eq $commonHashes) { $commonHashes = $sharedJson }
             elseif ($commonHashes -ne $sharedJson) { throw 'The editions do not contain identical common files' }
@@ -128,7 +120,7 @@ try {
             Write-Host "Created $archive"
             Write-Host "SHA256 $hash"
         }
-        if ($editions.Count -eq 2) { Write-Host 'Both editions contain byte-identical common files, including OSFUI.dll and OSFUI.pex.' }
+        if ($editions.Count -eq 2) { Write-Host 'Both editions contain byte-identical scripts and shared assets, with edition-specific DLLs and browser hosts.' }
         Write-Host 'WebView2: recommended default for most users; requires the WebView2 Evergreen Runtime.'
         Write-Host 'CEF: bundled-runtime alternative; includes Chromium and does not require WebView2.'
         Write-Host 'Install one edition. Both require OSF Settings, SFSE, and Address Library. Only the WebView2 edition requires Evergreen.'

@@ -12,7 +12,7 @@ CHANGELOG
 - Mod menus can register with the Launcher in OSF Settings.
 - Added a new 2.0 API for custom menus, passive HUDs, and communication between web interfaces and C++ or Papyrus.
 - Included a compatibility adapter for the documented 1.6 interfaces, preserving supported mods' existing files and saved values.
-- Two automatically selected browser editions share the same game DLL and public APIs: WebView2 (recommended default) and CEF (bundled-runtime alternative).
+- Two automatically selected browser editions provide the same public APIs: WebView2 (recommended default) and CEF (bundled-runtime alternative).
 - The selected browser helper starts when a view is requested.
 
 WEBVIEW2 FILE TITLE
@@ -22,7 +22,7 @@ WEBVIEW2 ARCHIVE
 Use the archive ending in -webview2.zip. Current local candidate: OSF-UI-v2.0.0-rc-webview2.zip.
 
 WEBVIEW2 FILE DESCRIPTION
-Recommended default: smaller download and lower measured CPU/memory overhead. Requires WebView2 Evergreen, SFSE, Address Library, and OSF Settings. Renderer selected automatically. Install one edition only; both share the same DLL and mod APIs.
+Recommended default: smaller download and lower measured CPU/memory overhead. Requires WebView2 Evergreen, SFSE, Address Library, and OSF Settings. Renderer selected by the installed edition. Install one edition only; both provide the same mod APIs.
 
 CEF FILE TITLE
 OSF UI 2.0 - CEF (Bundled-Runtime Alternative)
@@ -31,7 +31,7 @@ CEF ARCHIVE
 Use the archive ending in -cef.zip. Current local candidate: OSF-UI-v2.0.0-rc-cef.zip.
 
 CEF FILE DESCRIPTION
-Bundled-runtime alternative with Chromium included; no WebView2 required. Larger download and higher measured CPU/memory overhead. Requires SFSE, Address Library, and OSF Settings. Renderer selected automatically. Install one edition only.
+Bundled-runtime alternative with Chromium included; no WebView2 required. Larger download and higher measured CPU/memory overhead. Requires SFSE, Address Library, and OSF Settings. Renderer selected by the installed edition. Install one edition only.
 
 NEXUS REQUIREMENTS
 Starfield Script Extender (SFSE): https://www.nexusmods.com/starfield/mods/106

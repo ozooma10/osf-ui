@@ -60,8 +60,13 @@ def probe_dll(path):
     require(fixed[0] == 0xFEEF04BD, 'Invalid DLL fixed version signature')
     resource_release = (fixed[2] >> 16, fixed[2] & 0xFFFF, fixed[3] >> 16)
     require(release == resource_release, f'legacy release query {release} differs from DLL version {resource_release}')
+    require(version_api.VerQueryValueW(data, r'\StringFileInfo\040904b0\FileDescription',
+                                      ctypes.byref(info), ctypes.byref(length)), 'DLL edition identity missing')
+    description = ctypes.wstring_at(info.value)
+    edition = re.fullmatch(r'Web Interface Framework for Starfield \((webview2|cef)\)', description)
+    require(edition, f'Invalid DLL edition identity: {description}')
     print(json.dumps({"modern_api": "2.0", "legacy_bridge": "1.0-1.8", "legacy_vtable": "1.8",
-                      "release": '.'.join(map(str, release))}))
+                      "release": '.'.join(map(str, release)), "backend": edition.group(1)}))
 
 
 class NativePex:
@@ -161,6 +166,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('data', type=Path, nargs='?')
     parser.add_argument('--probe-dll', type=Path)
+    parser.add_argument('--expected-backend', choices=['webview2', 'cef'])
     args = parser.parse_args()
     if args.probe_dll:
         probe_dll(args.probe_dll)
@@ -169,11 +175,13 @@ def main():
     dll = args.data / 'SFSE/Plugins/OSFUI.dll'
     child = subprocess.run([sys.executable, __file__, '--probe-dll', str(dll)], capture_output=True, text=True, timeout=20)
     require(child.returncode == 0, f'DLL acquisition probe failed ({child.returncode}): {child.stdout} {child.stderr}')
+    backend = json.loads(child.stdout)['backend']
+    if args.expected_backend:
+        require(backend == args.expected_backend, f'DLL selects {backend}, expected {args.expected_backend}')
     print(child.stdout.strip())
     count = check_pex(args.data / 'Scripts/OSFUI.pex', args.data / 'Scripts/Source/OSFUI.psc')
     print(f'{count} compiled Global Native signatures verified, including modern and legacy contracts')
     ui = args.data / 'SFSE/Plugins/OSF/UI'
-    backend = json.loads((ui / 'backend.json').read_text(encoding='utf-8-sig'))['backend']
     host = ui / ('bin/cef/osfui_cef_host.dll' if backend == 'cef' else 'bin/osfui_webview2_host.exe')
     for path in [dll, args.data / 'Scripts/OSFUI.pex', host]:
         print(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(args.data)}')

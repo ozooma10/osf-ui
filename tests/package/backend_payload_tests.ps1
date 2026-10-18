@@ -28,11 +28,18 @@ try {
     ExpectFailure $wv 'webview2' 'Missing OSF UI-owned package path'
 } finally { [IO.File]::WriteAllBytes($broker, $brokerBytes) }
 $selection = Join-Path $cef "$uiRelative/backend.json"
-$original = [IO.File]::ReadAllBytes($selection)
+if (Test-Path -LiteralPath $selection) { throw 'Unexpected obsolete selector before test' }
 try {
-    '{"schemaVersion":1,"backend":"unknown"}' | Set-Content -LiteralPath $selection
-    ExpectFailure $cef 'cef' 'Invalid package backend'
-} finally { [IO.File]::WriteAllBytes($selection, $original) }
+    '{"schemaVersion":1,"backend":"cef"}' | Set-Content -LiteralPath $selection
+    ExpectFailure $cef 'cef' 'Obsolete backend.json'
+} finally { Remove-Item -LiteralPath $selection }
+$cefDll = Join-Path $cef 'SFSE/Plugins/OSFUI.dll'
+$original = [IO.File]::ReadAllBytes($cefDll)
+try {
+    Copy-Item -LiteralPath (Join-Path $wv 'SFSE/Plugins/OSFUI.dll') -Destination $cefDll -Force
+    ExpectFailure $cef 'cef' 'wrong backend'
+    ExpectFailure $cef 'webview2' 'exactly its selected browser helper'
+} finally { [IO.File]::WriteAllBytes($cefDll, $original) }
 $extra = Join-Path $cef "$uiRelative/bin/osfui_webview2_host.exe"
 if (Test-Path -LiteralPath $extra) { throw 'Unexpected mixed fixture before test' }
 try {

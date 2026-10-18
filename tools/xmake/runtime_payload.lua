@@ -84,8 +84,8 @@ local function copy_host(target, required)
         os.mkdir(bindir)
         os.cp(host:targetfile(), path.join(bindir, "osfui_webview2_host.exe"))
     end
-    -- Selection belongs to the installed edition, never to saved player settings.
-    os.cp(path.join(os.projectdir(), "packaging", "backends", backend .. ".json"), path.join(uidata, "backend.json"))
+    -- The DLL now owns the edition choice; remove the obsolete package selector on upgrade.
+    os.rm(path.join(uidata, "backend.json"))
     cprint("${dim}deploying %s browser edition to %s ..", backend, uidata)
 end
 

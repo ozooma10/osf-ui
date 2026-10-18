@@ -1,6 +1,6 @@
 # Browser backends
 
-OSF UI has one game DLL and one public HTML/JavaScript, C++, and Papyrus API. Two mutually exclusive packages provide WebView2 or CEF browser hosting. Both use the same view lifecycle, bridge, input policy, recovery, and D3D12 compositor. Browser engines remain in separate helper processes.
+OSF UI has one codebase and one public HTML/JavaScript, C++, and Papyrus API. Two mutually exclusive packages provide WebView2 or CEF browser hosting, each with an edition-specific game DLL. Both use the same view lifecycle, bridge, input policy, recovery, and D3D12 compositor. Browser engines remain in separate helper processes.
 
 **WebView2 is the recommended default for most users. CEF is the bundled-runtime alternative.**
 
@@ -17,13 +17,9 @@ Both editions have a [production-package game acceptance suite](../tests/game/RE
 
 Close Starfield normally and install **one** edition. With MO2, replace the previous OSF UI installation or disable it before enabling the other edition. Do not enable both editions together: they intentionally own the same plugin and configuration paths. Direct installs should remove the previous edition's browser files under `SFSE/Plugins/OSF/UI/bin` when switching, while preserving consumer views and user data.
 
-Each archive supplies `SFSE/Plugins/OSF/UI/backend.json`:
+Each archive's `OSFUI.dll` has its backend choice compiled in. WebView2 is the default build; the CEF edition explicitly selects CEF. There is no runtime selector or automatic switch to another engine if the selected host fails. Install the complete matching edition to change backends.
 
-```json
-{ "schemaVersion": 1, "backend": "cef" }
-```
-
-The alternative backend value is `webview2`. Selection is read once at startup. The file is optional: when `backend.json` is absent, OSF UI uses WebView2. An existing file must be readable and contain a valid schema and backend; otherwise browser initialization stops with an installation diagnostic. An explicitly selected backend that fails to start does not switch engines. WebView2 still requires its helper and the Evergreen Runtime. The former `cefPrototype` player setting is ignored and no longer appears in OSF Settings. No renderer toggle or separate configuration step is needed.
+`backend.json` is no longer shipped or read. An old copy is harmless, and development deployment removes it. The former `cefPrototype` player setting is also ignored. WebView2 still requires its helper and the Evergreen Runtime; CEF requires its bundled browser files. No renderer toggle or separate configuration step is needed.
 
 CEF requires its complete matched runtime folder: the bootstrap EXE, host DLL, `libcef.dll`, supporting libraries, resources, locales, lock file, manifest, and notices. The WebView2 edition contains its helper. Both include the same small launcher under `bin/broker`. Browser profiles remain separate, so browser-local storage is not migrated when switching; game/mod-owned data and the public API are unchanged.
 
@@ -45,7 +41,7 @@ xmake build -j4 'OSF UI'
 # Or: xmake f -m releasedbg --browser_backend=cef
 ```
 
-This option changes the host dependency and deployed selection file; it does not add backend compile definitions to `OSFUI.dll`. Development deployment may retain inactive browser files from a previous build; `backend.json` is authoritative. Release archives contain only their selected host payload.
+This option sets `OSFUI_BROWSER_CEF` for the game DLL, its edition identity in the Windows file description, and its host dependency. Development deployment may retain inactive browser files from a previous build; the DLL's compiled choice is authoritative. Release archives contain only their selected host payload. A build without the CEF definition uses WebView2.
 
 Build both local candidate archives:
 
@@ -55,14 +51,14 @@ pwsh tools/package.ps1
 pwsh tools/package.ps1 -Backend cef
 ```
 
-Outputs are `dist/OSF-UI-v<version>-rc-webview2.zip` (recommended default) and `dist/OSF-UI-v<version>-rc-cef.zip` (bundled-runtime alternative), plus SHA-256 and file-manifest sidecars. `-Tag` controls the candidate label; `-Tag ''` removes it. `-SkipBuild` uses existing binaries but still configures the requested edition, stages files, compiles Papyrus, and runs package verification. No packaging invocation deploys, tags, pushes, or publishes. Prepared [release file descriptions](../packaging/nexus/release-2.1-fields.txt) use the same edition labels.
+Outputs are `dist/OSF-UI-v<version>-rc-webview2.zip` (recommended default) and `-cef.zip` (bundled-runtime alternative), plus SHA-256 and file-manifest sidecars. `-Tag` controls the candidate label; `-Tag ''` removes it. `-SkipBuild` requires one explicit `-Backend` and existing matching binaries; it still configures the edition, stages files, compiles Papyrus, and runs package verification. It rejects a DLL built for the other edition. No packaging invocation deploys, tags, pushes, or publishes. Prepared [release file descriptions](../packaging/nexus/release-2.1-fields.txt) use the same edition labels.
 
-The packager installs the common payload once, then creates each edition from it. It verifies byte-identical common files, actual native API acquisition and compiled Papyrus signatures, selected-backend ownership, the CEF runtime manifest, and every file read back from each ZIP. CEF builds generate a SHA-256 runtime manifest; package verification also checks the bundled lock file against the repository pin.
+The packager configures, builds, and stages each edition separately. It verifies the DLL's compiled edition identity against the expected package and browser files, actual native API acquisition and compiled Papyrus signatures, the CEF runtime manifest, and every file read back from each ZIP. Scripts and shared assets must be byte-identical; DLLs, their debug symbols, and browser payloads are edition-specific. The first compiled Papyrus script is shared across both editions to avoid timestamp differences. CEF builds generate a SHA-256 runtime manifest; package verification also checks the bundled lock file against the repository pin.
 
 ## Source boundaries
 
 - `src/Runtime`, `src/Views`, `src/Bridge`, `src/Input`, and `src/Composite` own game policy and the public API.
-- `src/Render/BrowserBackendConfig` reads the package selection. `BrowserHostClient` owns shared IPC, notifications, demand, and recovery transport. `BrowserHostRuntime` handles backend-specific layout and launch preparation.
+- `src/Render/BrowserBuild.h` supplies the compiled backend choice. `BrowserHostClient` owns shared IPC, notifications, demand, and recovery transport. `BrowserHostRuntime` handles backend-specific layout and launch preparation.
 - `tools/browser_shared` contains the common protocol, messages, pipe, launch broker, local URI rules, and input data. CDP input remains private to `tools/webview2_host`.
 - `tools/browser_broker` is the shared disposable launcher. Under MO2, this process inherits USVFS and asks the desktop broker to launch the selected host outside that environment. Neither browser executable doubles as the injected launcher. In-game testing found that using CEF's sandbox bootstrap for that first injected process crashes before the host handshake. The separate launcher preserves the CEF sandbox and keeps COM launch calls out of Starfield.
 - `tools/webview2_host` owns WebView2 controllers/capture; `tools/cef_host` owns CEF callbacks and accelerated off-screen rendering.
@@ -78,25 +74,25 @@ The packager installs the common payload once, then creates each edition from it
 - A full frame ring suspends publication until an acknowledgment arrives; resizing can replace the blocked ring. Static views have no publication polling. Browser-close callbacks drive shutdown, with a separate five-second timeout; parent-process checks and heartbeats run only at the protocol heartbeat cadence. Texture copying and composition remain on the CEF UI thread.
 - Local HTTPS URLs retain the `osfui.example` origin. File requests resolve inside the prepared view tree; traversal, Windows alternate streams, and canonical path escapes are rejected. Native bridge injection is limited to the owning main document. The current SDK and the existing 1.x compatibility transport are embedded unchanged where applicable.
 - Network requests outside the local host, page-created windows, downloads, and file dialogs are blocked. Existing network guards also disable worker/socket APIs. Developer mode permits an explicitly opened DevTools window.
-- MO2's virtual runtime folder is copied to a real, versioned `%LOCALAPPDATA%/OSFUI/cef-runtime/gen-*` directory before launch. Unchanged copies are reused. Old generations are retained to avoid deleting files still held by Chromium children; automatic cache pruning is not implemented.
+- Under MO2 only, the virtual runtime and broker folders are copied to real, versioned `%LOCALAPPDATA%/OSFUI/cef-runtime/gen-*` and `browser-broker/gen-*` directories before launch; unchanged copies are reused. Without MO2 the helper and broker launch from the installed `bin` folder. After the first helper of a session connects, a background task deletes every other generation, including all CEF copies when the WebView2 edition or a non-MO2 install is running. A generation still held open is demoted to incomplete and retried next launch.
 - CEF has a separate `%LOCALAPPDATA%/OSFUI/CEF` profile. Logs are `OSF UI.cef-host.log` and `OSF UI.cef-host.log.chromium.log` in the normal Starfield SFSE logs directory. The plugin log identifies the selected backend and runtime version.
 
 ## Limits and acceptance
 
-The CEF runtime is about **410 MiB**, plus its materialized runtime copy and browser profile. CEF updates must be shipped deliberately with matching helper/SDK binaries and notices; this backend does not inherit Evergreen updates.
+The CEF runtime is about **410 MiB**, plus (under MO2) one materialized runtime copy and the browser profile. CEF updates must be shipped deliberately with matching helper/SDK binaries and notices; this backend does not inherit Evergreen updates.
 
 Only accelerated BGRA8 rendering is implemented. A software paint callback reports an explicit failure. The helper opens textures on Starfield's adapter; CEF choosing a different GPU may fail. The synchronous texture-copy wait is intentionally conservative. IME composition is forwarded, but candidate-window placement and accessibility are not implemented. Results on one machine do not establish broader hardware compatibility or a Starfield FPS advantage.
 
-The backend separation was checked with both host builds, the shared DLL build, all 28 registered native tests, and the 31-suite portable native runner. Both package types passed actual DLL API acquisition, 55 compiled Papyrus signatures, and ZIP content verification. Those build/package checks are separate from the live acceptance recorded below.
+Earlier shared-DLL builds were checked with both host builds, all 28 registered native tests, and the 31-suite portable native runner. Both package types passed actual DLL API acquisition, 55 compiled Papyrus signatures, and ZIP content verification. Those historical results are separate from validation of the current compiled editions in the [release record](release-2.1.md).
 
 Desktop checks:
 
 ```powershell
-xmake test -j4 'osfui-browser-backend-tests/*' 'osfui-cef-assets-tests/*' 'osfui-cef-frame-pacer-tests/*' 'osfui-runtime-lifecycle-tests/*' 'osfui-settings-client-tests/*'
+xmake test -j4 'osfui-browser-backend-tests/*' 'osfui-cef-assets-tests/*' 'osfui-cef-frame-pacer-tests/*' 'osfui-runtime-lifecycle-tests/*' 'osfui-runtime-lifecycle-cef-tests/*' 'osfui-settings-client-tests/*'
 node --test tests/native/cef_bridge_tests.cjs
 ```
 
-These cover local-file containment, frame deadline coalescing and stall recovery, package-based WebView2/CEF selection through the real Runtime, and both JavaScript SDKs against the injected bridge. A symlink containment check explicitly reports a skip on systems that deny symlink creation. They do not start CEF or Starfield and do not prove native callback ordering or GPU synchronization.
+These cover local-file containment, frame deadline coalescing and stall recovery, compiled WebView2/CEF selection through separate builds of the real Runtime (including obsolete selection files), and both JavaScript SDKs against the injected bridge. A symlink containment check explicitly reports a skip on systems that deny symlink creation. They do not start CEF or Starfield and do not prove native callback ordering or GPU synchronization.
 
 ### Baseline tradeoffs before CEF optimization — October 17, 2026
 

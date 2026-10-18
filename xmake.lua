@@ -98,10 +98,11 @@ target("wv2-pipe-tests")
 target("OSF UI")
     -- Keep the binary basename independent of the MO2 folder name.
     set_basename("OSFUI")
+    add_defines("OSFUI_BROWSER_CEF=" .. (get_config("browser_backend") == "cef" and "1" or "0"))
     add_rules("commonlibsf.plugin", {
         name = "OSF UI",
         author = "ozooma10",
-        description = "Web Interface Framework for Starfield",
+        description = "Web Interface Framework for Starfield (" .. (get_config("browser_backend") or "webview2") .. ")",
         email = "ozooma10@users.noreply.github.com"
     })
 
@@ -232,7 +233,7 @@ target("osfui-browser-backend-tests")
     set_kind("binary")
     set_default(false)
     add_tests("default")
-    add_files("tests/native/browser_backend_tests.cpp", "src/Render/BrowserBackendConfig.cpp", "src/Core/Json.cpp")
+    add_files("tests/native/browser_backend_tests.cpp")
     add_includedirs("tests/native/stubs", "src", "tools/browser_shared")
     add_packages("nlohmann_json")
     set_pcxxheader("tests/native/stubs/pch.h")
@@ -258,27 +259,31 @@ target("osfui-cef-paint-damage-tests")
     add_files("tests/native/cef_paint_damage_tests.cpp")
     add_includedirs("tests/native/stubs")
 
-target("osfui-runtime-lifecycle-tests")
-    set_kind("binary")
-    set_default(false)
-    for _, scenario in ipairs({"normal", "cef", "missing-settings", "renderer-init-failure",
-        "input-hook-failure", "focus-menu-failure", "menu-events-failure", "suppression-failure",
-        "recovery", "game-device-failure"}) do
-        add_tests(scenario, {runargs = {scenario}})
-    end
-    add_files("tests/native/runtime_lifecycle_tests.cpp", "tests/native/runtime_doubles.cpp",
-        "src/Render/BrowserBackendConfig.cpp", "src/Runtime/Runtime.cpp", "src/Runtime/RuntimeFrame.cpp", "src/Views/RuntimeViews.cpp",
-        "src/Bridge/RuntimeBridge.cpp", "src/Input/RuntimeInput.cpp", "src/Input/InputCaptureController.cpp",
-        "src/Input/PointerInputState.cpp", "src/Input/RelativePointerSession.cpp",
-        "src/Input/GamepadSession.cpp", "src/Input/ViewInputGrants.cpp",
-        "src/Views/ViewManifest.cpp", "src/Views/ViewManager.cpp", "src/Views/ViewPresentationController.cpp",
-        "src/Views/ViewOpenCoordinator.cpp", "src/Views/ViewRevealGate.cpp", "src/Views/ViewRequestQueue.cpp",
-        "src/Views/ViewLoadTracker.cpp", "src/Views/ViewRecoveryTracker.cpp",
-        "src/API/BridgeApi.cpp", "src/Bridge/MessageBridge.cpp", "src/Bridge/RetainedStateStore.cpp",
-        "src/Dependency/OSFSettingsClient.cpp", "src/Core/Json.cpp")
-    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk", "tools/browser_shared")
-    set_pcxxheader("tests/native/stubs/pch.h")
-    add_packages("nlohmann_json")
+for _, backend in ipairs({"webview2", "cef"}) do
+    target(backend == "cef" and "osfui-runtime-lifecycle-cef-tests" or "osfui-runtime-lifecycle-tests")
+        set_kind("binary")
+        set_default(false)
+        add_defines("OSFUI_BROWSER_CEF=" .. (backend == "cef" and "1" or "0"))
+        for _, scenario in ipairs({"normal", "stale-selection", "missing-settings", "renderer-init-failure",
+            "input-hook-failure", "focus-menu-failure", "menu-events-failure", "suppression-failure",
+            "recovery", "game-device-failure"}) do
+            add_tests(scenario, {runargs = {scenario, backend}})
+        end
+        add_files("tests/native/runtime_lifecycle_tests.cpp", "tests/native/runtime_doubles.cpp",
+            "src/Runtime/Runtime.cpp", "src/Runtime/RuntimeFrame.cpp", "src/Views/RuntimeViews.cpp",
+            "src/Bridge/RuntimeBridge.cpp", "src/Input/RuntimeInput.cpp", "src/Input/InputCaptureController.cpp",
+            "src/Input/PointerInputState.cpp", "src/Input/RelativePointerSession.cpp",
+            "src/Input/GamepadSession.cpp", "src/Input/ViewInputGrants.cpp",
+            "src/Views/ViewManifest.cpp", "src/Views/ViewManager.cpp", "src/Views/ViewPresentationController.cpp",
+            "src/Views/ViewOpenCoordinator.cpp", "src/Views/ViewRevealGate.cpp", "src/Views/ViewRequestQueue.cpp",
+            "src/Views/ViewLoadTracker.cpp", "src/Views/ViewRecoveryTracker.cpp",
+            "src/API/BridgeApi.cpp", "src/Bridge/MessageBridge.cpp", "src/Bridge/RetainedStateStore.cpp",
+            "src/Dependency/OSFSettingsClient.cpp", "src/Core/Json.cpp")
+        add_includedirs("tests/native/stubs", "tests/native", "src", "sdk", "tools/browser_shared")
+        set_pcxxheader("tests/native/stubs/pch.h")
+        add_packages("nlohmann_json")
+    target_end()
+end
 
 target("osfui-settings-client-tests")
     set_kind("binary")
