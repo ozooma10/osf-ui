@@ -200,6 +200,35 @@ run `20261018-063444-923-webview2-stock` passed 100. Neither had a failed assert
 All ten captures per run were visually inspected and recorded with SHA-256 hashes.
 These package checks are complete; original-mod and edition-switch gates remain open.
 
+The corrected original-mod fixture was exercised against the exact current CEF
+archive in `20261018-064121-679-cef-stock`, with production Settings and
+`ImprovedCameraSF.esm` enabled. The first cold Starcade Settings launch rendered
+the 26-game library. Four additional Stock Exchange F7 open/close cycles rendered
+all 64 companies and reached both provider and legacy observers. Native Somatic
+F3 rebinding, FOV reset to 97 and Only TPP Center reset to OFF reached callbacks
+and private storage. Headgear notifications confirmed that its ESM was active.
+F4 produced a blurred close view before any browser view opened; after the
+settings changes, the view remained blurred or flat gray. This fixture correction
+did not establish working camera behavior.
+
+Default Starcade F9 again produced no observed action; a private public-API F6
+rebind opened the original library. AISS search and Sarah Morgan's profile
+rendered, with the empty placeholder and relationship-loading state still
+present. The run is **failed**. All 26 captures, including the final failure
+capture and a mislabeled premature F7 attempt while Starcade was still open,
+were inspected. The premature attempt is an operator error and is excluded
+from the four valid cycles. Original installed assets and shared Settings,
+Starcade and legacy storage remained unchanged; the helper exited cleanly.
+Transactions, gameplay and edition switching were not repeated in this focused
+run. Its failed review is not eligible as an accepted resume baseline.
+
+Release qualification still requires diagnosis or baseline comparison of the
+Somatic camera, Starcade F9 and AISS findings; completed original-mod reviews on
+both editions; and persistence verification across an accepted edition switch.
+DDC, Field.OS AEGIS and DevilzDad's Shop + Explorer also require their original
+packages before their checks can run. These gaps do not invalidate the completed
+stock package suites, but they prevent calling the full 2.1 release qualified.
+
 The strict desktop cold-open probe still reports a blank first helper capture in
 retained legacy-fixture failures. That probe does not run the game-side prepared
 frame queue. It remains useful diagnostic evidence; the queue tests and actual
@@ -223,15 +252,15 @@ Publishing, pushing and tagging require a separate user request.
 
 ## Local resume
 
-Use the existing candidates rather than rebuilding unchanged bytes. Once the
-primary harness reservation and desktop are free:
+Use the existing candidates rather than rebuilding unchanged bytes. The stock
+package suites above are complete; repeat them only after a relevant change.
+Once the primary harness reservation and desktop are free, continue the
+unresolved original-mod review:
 
 ```powershell
 $settings = (Get-Content build/release-2.1/settings-manifest-path.txt -Raw).Trim()
 $harness = 'C:\Modding\Starfield\OSF Test Harness UI Validation'
 $packages = 'build/release-2.1/packages-frame-queue-fix'
-pwsh tests/game/Test-Backend.ps1 -Backend webview2 -Interactive -HarnessRoot $harness -SettingsManifest $settings -Package "$packages/OSF-UI-v2.1.0-webview2.zip"
-pwsh tests/game/Test-Backend.ps1 -Backend cef -Interactive -HarnessRoot $harness -SettingsManifest $settings -Package "$packages/OSF-UI-v2.1.0-cef.zip"
 pwsh tests/game/Test-Backend.ps1 -Backend webview2 -Interactive -RealMods -HarnessRoot $harness -SettingsManifest $settings -Package "$packages/OSF-UI-v2.1.0-webview2.zip"
 ```
 
