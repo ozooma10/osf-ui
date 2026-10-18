@@ -17,7 +17,7 @@ namespace
             const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
             env.dataDir = std::filesystem::temp_directory_path() / ("osfui-lifecycle-" + std::to_string(suffix));
             if (!std::filesystem::create_directory(env.dataDir)) throw std::runtime_error("fixture directory already exists");
-            std::ofstream(env.dataDir / "backend.json") << R"({"schemaVersion":1,"backend":"webview2"})";
+            // Exercise the WebView2 default without backend.json; CEF writes its selection below.
             Write("acme/menu", R"({"manifestVersion":1,"kind":"menu"})");
             Write("acme/second", R"({"manifestVersion":1,"kind":"menu"})");
             Write("acme/hud", R"({"manifestVersion":1,"kind":"hud","openOnStart":true})");

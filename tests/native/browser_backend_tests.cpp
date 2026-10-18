@@ -10,9 +10,9 @@ int main()
     const auto root = std::filesystem::temp_directory_path() /
         ("osfui-backend-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     if (!std::filesystem::create_directory(root)) return 1;
-    std::string error;
-    CHECK(!OSFUI::ReadBrowserBackend(root, error));
-    CHECK(!error.empty());
+    std::string error = "previous error";
+    CHECK(OSFUI::ReadBrowserBackend(root, error) == Backend::WebView2);
+    CHECK(error.empty());
     const auto write = [&](const char* text) { std::ofstream(root / "backend.json") << text; };
     for (const auto* invalid : {"{", "[]", "null", "{}", R"({"schemaVersion":2,"backend":"cef"})",
             R"({"schemaVersion":1,"backend":"unknown"})", R"({"schemaVersion":1,"backend":true})"}) {

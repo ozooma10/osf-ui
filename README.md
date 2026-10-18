@@ -33,7 +33,7 @@ Both editions require SFSE, Address Library, and the companion OSF Settings 1.0.
 | **WebView2 — recommended default** | Choose this for most installations: smaller download and lower measured browser CPU and memory overhead. | Microsoft Edge WebView2 Evergreen Runtime |
 | **CEF — bundled-runtime alternative** | Choose this when you want the browser runtime included with OSF UI. It has a larger download and higher measured CPU and memory overhead. | Bundled Chromium; no WebView2 runtime required |
 
-Install **one** edition. The package automatically selects its renderer; no settings change is needed. Both contain the same game DLL and public APIs, so mods use the same integration with either edition. See [browser editions and measured tradeoffs](docs/browser-backends.md) for the evidence and switching instructions. Both editions use the [packaged in-game acceptance suite](tests/game/README.md).
+Install **one** edition. The package automatically selects its renderer; no settings change is needed. Its `SFSE/Plugins/OSF/UI/backend.json` selection file is optional at runtime: if absent, OSF UI uses WebView2. Both contain the same game DLL and public APIs, so mods use the same integration with either edition. See [browser editions and measured tradeoffs](docs/browser-backends.md) for the evidence and switching instructions. Both editions use the [packaged in-game acceptance suite](tests/game/README.md).
 
 During release testing, use the [matching Settings source baseline](sdk/vendor/README.md); older development builds also labeled 1.0.0 may have incompatible interfaces. OSF UI starts the selected browser helper only when a view is requested. It ships no views, menus, or hotkeys of its own.
 

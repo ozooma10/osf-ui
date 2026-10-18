@@ -6,8 +6,8 @@
 
 namespace OSFUI
 {
-    // Package-owned selection, independent of saved player settings. Missing or invalid
-    // configuration is an installation error; never silently start a different backend.
+    // Optional package-owned selection, independent of saved player settings.
+    // Missing configuration defaults to WebView2; unreadable or invalid files are errors.
     std::optional<osfui::browser::Backend> ReadBrowserBackend(
         const std::filesystem::path& dataDir, std::string& error);
 }

@@ -7,7 +7,12 @@ namespace OSFUI
         const std::filesystem::path& dataDir, std::string& error)
     {
         error.clear();
-        const auto config = Json::ParseFile(dataDir / "backend.json", &error);
+        const auto configPath = dataDir / "backend.json";
+        std::error_code ec;
+        if (!std::filesystem::exists(configPath, ec) && !ec) {
+            return osfui::browser::Backend::WebView2;
+        }
+        const auto config = Json::ParseFile(configPath, &error);
         if (!config) {
             error = "Cannot read OSF UI backend.json. Reinstall one complete OSF UI edition. " + error;
             return std::nullopt;

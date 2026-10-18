@@ -23,7 +23,7 @@ Each archive supplies `SFSE/Plugins/OSF/UI/backend.json`:
 { "schemaVersion": 1, "backend": "cef" }
 ```
 
-The alternative backend value is `webview2`. Selection is read once at startup. The former `cefPrototype` player setting is ignored and no longer appears in OSF Settings. No renderer toggle or separate configuration step is needed. Missing or invalid package selection stops browser initialization with an installation diagnostic; OSF UI does not silently fall back to another engine.
+The alternative backend value is `webview2`. Selection is read once at startup. The file is optional: when `backend.json` is absent, OSF UI uses WebView2. An existing file must be readable and contain a valid schema and backend; otherwise browser initialization stops with an installation diagnostic. An explicitly selected backend that fails to start does not switch engines. WebView2 still requires its helper and the Evergreen Runtime. The former `cefPrototype` player setting is ignored and no longer appears in OSF Settings. No renderer toggle or separate configuration step is needed.
 
 CEF requires its complete matched runtime folder: the bootstrap EXE, host DLL, `libcef.dll`, supporting libraries, resources, locales, lock file, manifest, and notices. The WebView2 edition contains its helper. Both include the same small launcher under `bin/broker`. Browser profiles remain separate, so browser-local storage is not migrated when switching; game/mod-owned data and the public API are unchanged.
 
