@@ -19,6 +19,91 @@ namespace OSFUI
         // Only MO2's USVFS hides the shipped files from the helper; real installs launch in place.
         bool UsesVirtualFilesystem() { return ::GetModuleHandleW(L"usvfs_x64.dll") != nullptr; }
 
+        // USVFS redirects the open but not handle path queries, so the kernel reports the backing file.
+        std::optional<std::filesystem::path> BackingFile(const std::filesystem::path& file)
+        {
+            const HANDLE handle = ::CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (handle == INVALID_HANDLE_VALUE) return std::nullopt;
+            std::wstring buffer(MAX_PATH, L'\0');
+            DWORD length = 0;
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                length = ::GetFinalPathNameByHandleW(handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+                    FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+                if (length < buffer.size()) break;
+                buffer.resize(length);
+            }
+            ::CloseHandle(handle);
+            if (!length || length >= buffer.size()) return std::nullopt;
+            buffer.resize(length);
+            if (buffer.starts_with(LR"(\\?\UNC\)")) return LR"(\\)" + buffer.substr(8);
+            if (buffer.starts_with(LR"(\\?\)")) return buffer.substr(4);
+            return buffer;
+        }
+
+        bool SamePath(const std::filesystem::path& a, const std::filesystem::path& b)
+        {
+            return ::_wcsicmp(a.lexically_normal().c_str(), b.lexically_normal().c_str()) == 0;
+        }
+
+        // The one real folder backing every file of a virtual tree. MO2 can merge files from several
+        // mods (or overwrite) into one virtual folder; any split, or a tree that is not redirected, is rejected.
+        std::optional<std::filesystem::path> BackingFolder(const std::filesystem::path& root, std::string& why)
+        {
+            std::filesystem::path backing;
+            std::size_t files = 0;
+            std::error_code ec;
+            for (std::filesystem::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+                if (!it->is_regular_file(ec)) continue;
+                const auto relative = it->path().lexically_relative(root);
+                const auto real = BackingFile(it->path());
+                if (!real) {
+                    why = std::format("cannot resolve {} ({})", Utf8Path(relative), ::GetLastError());
+                    return std::nullopt;
+                }
+                auto candidate = *real;
+                for (auto part = relative.begin(); part != relative.end(); ++part) candidate = candidate.parent_path();
+                if (!SamePath(candidate / relative, *real)) {
+                    why = std::format("{} resolves to a different name ({})", Utf8Path(relative), Utf8Path(*real));
+                    return std::nullopt;
+                }
+                if (backing.empty()) backing = candidate;
+                else if (!SamePath(backing, candidate)) {
+                    why = std::format("{} comes from {}, not {}", Utf8Path(relative), Utf8Path(candidate), Utf8Path(backing));
+                    return std::nullopt;
+                }
+                ++files;
+            }
+            if (ec) {
+                why = "cannot list " + Utf8Path(root) + " (" + ec.message() + ")";
+                return std::nullopt;
+            }
+            if (!files) {
+                why = "no files under " + Utf8Path(root);
+                return std::nullopt;
+            }
+            // An unredirected result could be a future USVFS hiding the backing path; the copy stays safe.
+            if (SamePath(backing, root)) {
+                why = "files were not redirected";
+                return std::nullopt;
+            }
+            return backing;
+        }
+
+        // Launch straight from the MO2 mod folder when one folder backs the whole tree.
+        std::optional<std::filesystem::path> InPlace(const std::filesystem::path& root, std::string_view label)
+        {
+            const auto started = ::GetTickCount64();
+            std::string why;
+            const auto backing = BackingFolder(root, why);
+            if (!backing) {
+                REX::WARN("{} cannot launch from its MO2 mod folder ({}); using a local copy", label, why);
+                return std::nullopt;
+            }
+            REX::INFO("{} launches in place from {} ({} ms)", label, Utf8Path(*backing), ::GetTickCount64() - started);
+            return backing;
+        }
+
         void PruneCopies(const std::filesystem::path& root, const std::filesystem::path& keep, std::string_view label)
         {
             const auto result = ViewCache::Scavenge(root, keep);
@@ -38,6 +123,8 @@ namespace OSFUI
         const std::filesystem::path& localRoot)
     {
         if (!UsesVirtualFilesystem()) return dataDir / "bin" / "broker" / "osfui_browser_broker.exe";
+        if (const auto backing = InPlace(dataDir / "bin" / "broker", "Browser broker"))
+            return *backing / "osfui_browser_broker.exe";
         std::string error;
         const auto prepared = ViewCache::Prepare(dataDir / "bin" / "broker", localRoot / "browser-broker",
             "osfui-browser-broker-1", std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64()), error);
@@ -72,7 +159,8 @@ namespace OSFUI
 		std::filesystem::path mirror;
 		if (backend == osfui::browser::Backend::Cef) {
 			if (!UsesVirtualFilesystem()) return source;
-			// MO2's virtual DLL/resource tree must be materialized alongside the bootstrap.
+			if (const auto backing = InPlace(source.parent_path(), "CEF runtime")) return *backing / source.filename();
+			// Fallback: MO2's virtual DLL/resource tree must be materialized alongside the bootstrap.
 			// Separate generations avoid replacing a runtime still held by Chromium children.
 			std::string error;
 			const auto prepared = ViewCache::Prepare(source.parent_path(),
