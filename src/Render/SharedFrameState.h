@@ -45,6 +45,7 @@ namespace OSFUI
 		{
 			if (m_epoch != a_epoch || !a_acceptFrames) {
 				m_pending.reset();
+				m_afterPrepared.reset();
 				m_latest.reset();
 				if (m_preparation != Preparation::Rendering) m_current.reset();
 			}
@@ -57,12 +58,14 @@ namespace OSFUI
 		{
 			m_preparation = Preparation::Rendering;
 			m_pending.reset();
+			m_afterPrepared.reset();
 			m_latest.reset();
 		}
 		void EndPreparation(bool a_commit)
 		{
 			if (!a_commit) {
 				m_pending.reset();
+				m_afterPrepared.reset();
 				m_latest.reset();
 			}
 			// Hold the frame until Record checks the ring and producer fence on the first draw.
@@ -90,16 +93,22 @@ namespace OSFUI
 			const auto held = [&](const auto& a_frame) {
 				return a_frame && a_frame->generation == m_generation && a_frame->view.sharedSlot == a_slot;
 			};
-			if (held(m_pending) || held(m_current) || std::ranges::any_of(m_reads, [&](const Read& a_read) { return held(a_read.frame); })) {
+			if (held(m_pending) || held(m_afterPrepared) || held(m_current) || std::ranges::any_of(m_reads, [&](const Read& a_read) { return held(a_read.frame); })) {
 				return PublishResult::Invalid;
 			}
 			m_generation->lastSerial = a_serial;
-			if (!m_acceptFrames || a_epoch != m_epoch || a_width != m_generation->width || a_height != m_generation->height ||
-				(m_preparation != Preparation::None && m_pending)) {
+			if (!m_acceptFrames || a_epoch != m_epoch || a_width != m_generation->width || a_height != m_generation->height) {
 				m_generation->released[a_slot] = a_serial;
 				return PublishResult::Discarded;
 			}
 			const FrameBufferView view{ a_width, a_height, m_generation->id, a_serial, a_slot };
+			if (m_preparation != Preparation::None && m_pending) {
+				// Pin the prepared frame for the launch handshake, but retain the
+				// newest following capture. A static page may never repaint after
+				// Settings closes; discarding it can leave the initial blank forever.
+				m_afterPrepared = std::make_shared<Frame>(view, m_generation);
+				return PublishResult::Accepted;
+			}
 			m_pending = std::make_shared<Frame>(view, m_generation);
 			m_latest = view;
 			return PublishResult::Accepted;
@@ -122,6 +131,8 @@ namespace OSFUI
 			if (promote) {
 				m_current = std::exchange(m_pending, {});
 				m_preparation = Preparation::None;
+				m_pending = std::exchange(m_afterPrepared, {});
+				if (m_pending) m_latest = m_pending->view;
 			}
 			return m_current->view;
 		}
@@ -190,11 +201,12 @@ namespace OSFUI
 		void Invalidate()
 		{
 			m_pending.reset();
+			m_afterPrepared.reset();
 			m_current.reset();
 			m_latest.reset();
 		}
 		std::shared_ptr<Generation> m_generation;
-		std::shared_ptr<Frame> m_pending, m_current;
+		std::shared_ptr<Frame> m_pending, m_current, m_afterPrepared;
 		std::vector<Read> m_reads;
 		std::optional<FrameBufferView> m_latest;
 		std::uint64_t m_epoch{ 0 };

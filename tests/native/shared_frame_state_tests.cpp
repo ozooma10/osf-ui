@@ -40,7 +40,8 @@ namespace
 
 int main()
 {
-	// Launcher prep holds the old HUD and pins the first new frame until its GPU copy completes; new captures cannot displace it.
+	// Pin the prepared frame for the launcher handshake, then display the newest
+	// capture even if the page stops painting before Settings finishes closing.
 	{
 		auto state = Open();
 		CHECK(Publish(state, 0, 1) == Result::Accepted);
@@ -58,14 +59,18 @@ int main()
 		CHECK(!state.PreparationReady(1, 3, 2560, 1440));
 		CHECK(state.PreparationReady(1, 3, 1920, 1080));
 		CHECK(state.Record(listA, 1, 3)->sharedSlot == 0); // Settings still owns the screen
-		CHECK(Publish(state, 2, 4, 2) == Result::Discarded);
+		CHECK(Publish(state, 2, 4, 2) == Result::Accepted);
+		CHECK(Publish(state, 2, 5, 2) == Result::Invalid); // following frame still reserved
 		CHECK(state.Latest()->frameIndex == 3);
 		state.EndPreparation(true);
-		CHECK(Publish(state, 2, 5, 2) == Result::Discarded); // still pinned until the first draw
+		CHECK(Publish(state, 3, 5, 2) == Result::Accepted); // coalesce following captures, not the pinned frame
+		CHECK(state.TakeReleases()[2] == 4);
 		CHECK(state.Record(listB, 1, 2)->sharedSlot == 0); // producer completion is checked again at draw time
 		CHECK(state.Record(listB, 1, 3)->sharedSlot == 1);
+		CHECK(state.Record(listB, 1, 4)->sharedSlot == 1); // following copy still pending
+		CHECK(state.Record(listB, 1, 5)->sharedSlot == 3); // no new Publish call is needed
 		CHECK(Publish(state, 2, 6, 2) == Result::Accepted);
-		CHECK(state.Record(listB, 1, 5)->sharedSlot == 1);
+		CHECK(state.Record(listB, 1, 5)->sharedSlot == 3);
 		CHECK(state.Record(listB, 1, 6)->sharedSlot == 2);
 	}
 	// Cancel drops the prepared view and its late captures, keeping the old HUD until the restored scene draws.
@@ -76,14 +81,16 @@ int main()
 		state.BeginPreparation();
 		state.SetPresentation(2, true);
 		CHECK(Publish(state, 1, 2, 2) == Result::Accepted);
+		CHECK(Publish(state, 2, 3, 2) == Result::Accepted);
 		state.SetPresentation(3, true);
 		state.EndPreparation(false);
 		CHECK(!state.Latest());
-		CHECK(state.TakeReleases()[1] == 2);
-		CHECK(Publish(state, 1, 3, 2) == Result::Discarded);
+		const auto canceled = state.TakeReleases();
+		CHECK(canceled[1] == 2 && canceled[2] == 3);
+		CHECK(Publish(state, 1, 4, 2) == Result::Discarded);
 		CHECK(state.Record(listB, 1, 3)->sharedSlot == 0);
-		CHECK(Publish(state, 1, 4, 3) == Result::Accepted);
-		CHECK(state.Record(listB, 1, 4)->sharedSlot == 1);
+		CHECK(Publish(state, 1, 5, 3) == Result::Accepted);
+		CHECK(state.Record(listB, 1, 5)->sharedSlot == 1);
 	}
 	// Prepare while hidden; resize or host replacement cancels preparation.
 	{
