@@ -15,6 +15,7 @@
 #define NOMINMAX
 #include <Windows.h>
 #include <imm.h>
+#include "Input/RawInputPacket.h"
 #include "BrowserProtocol.h"
 
 namespace OSFUI::OverlayInputHook
@@ -309,8 +310,9 @@ namespace OSFUI::OverlayInputHook
 			case WM_INPUT: {
 				RAWINPUT raw{};
 				UINT size = sizeof(raw);
-				if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT, &raw, &size,
-					sizeof(RAWINPUTHEADER)) == size && raw.header.dwType == RIM_TYPEKEYBOARD) {
+				const auto bytes = ::GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT, &raw, &size,
+					sizeof(RAWINPUTHEADER));
+				if (IsCompleteRawKeyboard(raw, bytes)) {
 					if (g_rawKeyOwnership.Consume(raw.data.keyboard.VKey,
 						(raw.data.keyboard.Flags & RI_KEY_BREAK) == 0, runtime.IsInputCaptured())) {
 						return ::DefWindowProcW(a_hwnd, a_msg, a_wparam, a_lparam);

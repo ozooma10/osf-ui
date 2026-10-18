@@ -199,6 +199,13 @@ target("osfui-legacy-bridge-tests")
     set_pcxxheader("tests/native/stubs/pch.h")
     add_packages("nlohmann_json")
 
+target("osfui-raw-input-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/raw_input_packet_tests.cpp")
+    add_includedirs("src")
+
 target("osfui-shared-frame-tests")
     set_kind("binary")
     set_default(false)
