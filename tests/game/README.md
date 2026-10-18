@@ -30,6 +30,10 @@ The runner records hashes, checks the selected browser and its loaded payload,
 and refuses an existing Starfield session. It closes its own game normally, with
 the harness's identity-checked cleanup as a fallback. No player profile or save
 is edited. Failed runs and isolated fixture profiles are retained for diagnosis.
+When using an isolated `-HarnessRoot`, the runner also reserves
+`-SharedHarnessRoot` (the primary local harness by default) so concurrent test
+tasks share its desktop lock. A held lock blocks launch without disturbing its
+owner.
 
 Checks cover automatic backend selection despite the obsolete opposite setting,
 actual composited pixels, native replies/rejections, blocked networking, keyboard
@@ -45,6 +49,31 @@ treated as completion of save/load or browser presentation.
 Results are under `build/backend-validation/game`. Keep the failed artifacts when
 fixing a defect, then run a fresh session. The standalone helper lifecycle and
 performance tools live under `tools/profiling`; run those while Starfield is closed.
+
+## Original consumer review
+
+`-RealMods -SettingsManifest <manifest>` stages the installed Stock Exchange,
+Starcade, AISS and Somatic Camera payloads byte for byte into the private mod,
+enables their ESMs only in the private profile, and also isolates Starcade's
+Documents state. It never appends observers to consumer HTML or rebuilds their
+DLLs/scripts. This mode waits up to 30 minutes for explicit review; it does not
+run the synthetic browser suite or infer success from the wait.
+
+Once `review-ready.json` exists, an authorized operator can dot-source
+`Review-Context.ps1 -RunPath <run> -Interactive` in another PowerShell session.
+That provides the harness's PID/creation-checked input, console and capture
+functions plus public API probes. Inspect original UI captures and actual game
+state before recording each result. The final `review-complete.json` needs the
+matching `session`, `outcome: "passed"`, a nonempty `checked` array, a `limitations`
+array and `captures` records (`file`, `sha256`, nonempty `observation`). Failed
+checks must use a failed outcome. A command receipt alone is not acceptance.
+
+Cover Settings launcher handoff, edit/rebind callbacks and persistence, F7 Stock
+Exchange data/orders/charts/reopens, F8 Companion Log navigation, F9 Starcade
+gameplay/persistence and Somatic Camera settings/behavior. Keep missing original
+packages and untested workflows explicit. `-ResumeRun <completed-run>` carries
+private Settings/Starcade values and the saved game into a fresh private run for
+edition-switch checks; the old run remains intact.
 
 `-Graphics luma` requires a locally installed Luma fixture. Stock results do not
 establish Luma/HDR/frame-generation compatibility, physical controller or IME

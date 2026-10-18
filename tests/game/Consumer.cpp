@@ -24,6 +24,7 @@ std::mutex mutex;
 json observations = {{"pages", json::object()}, {"pointer", json::object()}, {"lifecycle", json::object()}};
 fs::path directory;
 std::string session;
+fs::path Utf8Path(const std::string& value) { return fs::path(std::u8string(value.begin(), value.end())); }
 
 void Write(const fs::path& path, const json& value) {
     const auto temporary = path.wstring() + L".tmp";
@@ -40,7 +41,7 @@ bool PreparePrivateStorage() {
       if (!stream) return true;
       stream >> config; }
     if (!config.contains("storage")) return true;
-    const auto output = fs::u8path(config.at("directory").get<std::string>());
+    const auto output = Utf8Path(config.at("directory").get<std::string>());
     const auto token = config.at("session").get<std::string>();
     const auto& storage = config.at("storage");
     FILETIME created{}, exited{}, kernel{}, user{};
@@ -56,7 +57,7 @@ bool PreparePrivateStorage() {
             if (!receipt.value("accepted", false)) return false;
             for (const auto& mapping : storage.at("mappings")) {
                 json marker;
-                std::ifstream(fs::u8path(mapping.at("destination").get<std::string>()) / ".osf-ui-storage.json") >> marker;
+                std::ifstream(Utf8Path(mapping.at("destination").get<std::string>()) / ".osf-ui-storage.json") >> marker;
                 if (marker.value("session", "") != token) return false;
             }
             Write(output / "storage-verified.json", {{"session", token}, {"pid", GetCurrentProcessId()}, {"verified", true}});
@@ -92,6 +93,12 @@ void Lifecycle(const char* view, OSFUI::API::ViewLifecyclePhase phase, void*) no
     const auto key = std::to_string(static_cast<int>(phase));
     v[key] = v.value(key, 0) + 1;
 }
+void LegacySetting(const char* mod, const char* key, const char* value, void*) noexcept {
+    try {
+        std::scoped_lock lock(mutex);
+        observations["legacySettings"][mod][key ? key : "refresh"] = value ? json::parse(value) : json(nullptr);
+    } catch (...) {}
+}
 void Run() {
     std::string last;
     for (;;) {
@@ -112,6 +119,7 @@ void Run() {
                     if (legacy && action == "legacyMenu") accepted = legacy->RequestMenu("osfui-backend-test/legacy", command.value("open", false));
                     if (legacy && action == "legacyState") accepted = legacy->SetViewState("osfui-backend-test", "legacy", command.at("value").dump().c_str());
                     if (legacy && action == "legacyEvent") accepted = legacy->SendToWeb("osfui-backend-test/legacy", "backend.event", command.at("value").dump().c_str());
+                    if (legacy && action == "legacySubscribe") accepted = legacy->SubscribeSettings(command.at("mod").get<std::string>().c_str(), LegacySetting, nullptr) != 0;
                     if (action == "settingsBool") {
                         const auto mod = command.at("mod").get<std::string>();
                         const auto key = command.at("key").get<std::string>();
@@ -165,12 +173,18 @@ void OnMessage(SFSE::MessagingInterface::Message* message) {
             && api.RegisterRelativePointer("osfui-backend-test/panel", Pointer, nullptr);
         for (const auto* view : {"osfui-backend-test/panel", "osfui-backend-test/hud", "osfui-backend-test/paused"})
             registered = api.RegisterViewLifecycle(view, Lifecycle, nullptr) && registered;
+        if (config.contains("realViews"))
+            for (const auto& view : config.at("realViews"))
+                registered = api.RegisterViewLifecycle(view.get<std::string>().c_str(), Lifecycle, nullptr) && registered;
         observations["initialized"] = initialized; observations["registered"] = registered;
         observations["apiVersion"] = api.Version();
         const auto acquire = reinterpret_cast<void* (*)(std::uint32_t) noexcept>(GetProcAddress(GetModuleHandleW(L"OSFUI.dll"), "OSFUI_RequestBridge"));
         legacy = acquire ? static_cast<OSFUI::Compat::V1::IOSFUIBridge*>(acquire(0x10008)) : nullptr;
         observations["legacyVersion"] = legacy ? legacy->GetInterfaceVersion() : 0;
         if (legacy) {
+            std::uint32_t major{}, minor{}, patch{};
+            legacy->GetPluginVersion(major, minor, patch);
+            observations["releaseVersion"] = std::to_string(major) + "." + std::to_string(minor) + "." + std::to_string(patch);
             legacy->RegisterCommand("backend.legacy-report", Report, nullptr);
             legacy->RegisterRequest("backend.legacy-echo", LegacyEcho, nullptr);
         }

@@ -7,6 +7,9 @@ param(
     [ValidateRange(0,1800)][int]$SoakSeconds=120,
     [string]$Package,
     [string]$SettingsManifest,
+    [switch]$RealMods,
+    [string]$ResumeRun,
+    [string]$SharedHarnessRoot='C:\Modding\Starfield\OSF Test Harness',
     [string]$HarnessRoot='C:\Modding\Starfield\OSF Test Harness',
     [string]$SettingsTestDll='C:\Modding\Starfield\OSF Settings\build\windows\x64\releasedbg\OSFSettings.dll'
 )
@@ -24,12 +27,16 @@ $Scenario='OSFUIBackend'
 . (Join-Path $HarnessRoot 'scripts\Reports.ps1')
 $script:ArtifactRoot=Join-Path $repo 'build\backend-validation\game'
 $lock=$null; $outcome='blocked'; $message='Setup did not complete'; $exitCode=2
+$sharedLock=$null
 $script:PapyrusProbe=37
 $storageController=$null
 $liveStorageBefore=$null
+$liveStarcadeBefore=$null
+if($RealMods -and -not $SettingsManifest){throw 'Real-mod review requires production SettingsManifest.'}
+. (Join-Path $PSScriptRoot 'RealMods.ps1')
 function Get-StorageHashes([string]$Root) {
     $files=@(if(Test-Path -LiteralPath $Root){Get-ChildItem -LiteralPath $Root -File -Recurse | Sort-Object FullName | ForEach-Object {
-        @{path=[IO.Path]::GetRelativePath($Root,$_.FullName);sha256=(Get-FileHash -LiteralPath $_.FullName).Hash}
+        [ordered]@{path=[IO.Path]::GetRelativePath($Root,$_.FullName);sha256=(Get-FileHash -LiteralPath $_.FullName).Hash}
     }})
     ConvertTo-Json -InputObject $files -Depth 4 -Compress
 }
@@ -85,6 +92,11 @@ function Check-Papyrus {
     $null=Wait-Observed 'Actual Papyrus VM request and reply' {Read-Page} {param($p)$p -and $p.ContainsKey('papyrus') -and $p.papyrus -eq ($number+5)} 15
 }
 try {
+    if([IO.Path]::GetFullPath($SharedHarnessRoot) -ne [IO.Path]::GetFullPath($HarnessRoot)){
+        # Isolated harness checkouts still share one desktop/game installation.
+        # Respect the primary harness reservation before taking our local lock.
+        $sharedLock=[IO.File]::Open((Join-Path $SharedHarnessRoot 'state\runner.lock'),'OpenOrCreate','ReadWrite','None')
+    }
     $lock=[IO.File]::Open((Join-Path $script:StateRoot 'runner.lock'),'OpenOrCreate','ReadWrite','None')
     if(@(Get-GameProcess).Count){throw '[blocked] Existing Starfield will not be interrupted.'}
     $null=Start-RunArtifacts "$Backend-$Graphics"
@@ -128,6 +140,7 @@ try {
     Copy-Tree (Join-Path $script:ModRoot 'Auto Load') $mod
     foreach($file in @((Join-Path $HarnessRoot 'build\bin\OSFTestHarness.dll'),(Join-Path $repo 'build\windows\x64\releasedbg\OSFUIBackendTest.dll'))){Copy-Item -LiteralPath $file -Destination (Join-Path $mod 'SFSE\Plugins')}
     Copy-Item -LiteralPath (Join-Path $repo 'build\papyrus\OSFUIBackendPapyrus.pex') -Destination (Join-Path $mod 'Scripts')
+    if($RealMods){Initialize-RealMods $mod}
     $probeConfig=@{directory=$script:ProbeDir;session=$script:ProbeSession}
     if($SettingsManifest){
         [IO.Directory]::CreateDirectory($script:ProbeDir)|Out-Null
@@ -139,8 +152,21 @@ try {
         Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}
         Write-JsonFile (Join-Path $privateSettings 'osfui.json') @{formatVersion=1;values=@{developerMode=$false;cefPrototype=($Backend -eq 'webview2')}}
         Write-JsonFile (Join-Path $privateSettings 'osfsettings.json') @{formatVersion=1;values=@{openMenu=121}}
+        if($RealMods -and $ResumeRun){Copy-Tree (Join-Path $ResumeRun 'private-values\settings') $privateSettings;Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}}
         $probeConfig.storage=@{game=$script:Config.Game;mo2=$script:Config.MO2;vfsInstance='mod_organizer_instance';expiresUnixMs=([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+180000);mappings=@(@{source=$privateSettings;destination=$liveSettings})}
-        Write-JsonFile (Join-Path $script:Run.path 'live-settings-before.json') ($liveStorageBefore | ConvertFrom-Json)
+        [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-settings-before.json'),$liveStorageBefore)
+        if($RealMods){
+            $liveStarcade=Join-Path $script:GameDocuments 'Starcade'
+            $liveStarcadeBefore=Get-StorageHashes $liveStarcade
+            $privateStarcade=Join-Path $script:Run.path 'private-values\starcade'
+            [IO.Directory]::CreateDirectory($privateStarcade)|Out-Null
+            if(Test-Path -LiteralPath $liveStarcade){Copy-Tree $liveStarcade $privateStarcade}
+            if($ResumeRun){Copy-Tree (Join-Path $ResumeRun 'private-values\starcade') $privateStarcade}
+            Write-JsonFile (Join-Path $privateStarcade '.osf-ui-storage.json') @{session=$script:ProbeSession}
+            $probeConfig.storage.mappings+=@{source=$privateStarcade;destination=$liveStarcade}
+            $probeConfig.realViews=@('x2357.ssse/exchange','starcade.arcade/launcher','x2357aiss.companionlog/companionlog')
+            [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-starcade-before.json'),$liveStarcadeBefore)
+        }
     } else {
         Write-JsonFile (Join-Path $mod 'SFSE\Plugins\OSFSettingsTestHarness.json') @{valuesDir=(Join-Path $script:StateRoot 'settings-values');translationRegistration=$false}
     }
@@ -163,7 +189,7 @@ try {
         # OSF-UI-v2.0.0 or OSFSettings). Disable competing payload owners too.
         $plugins=Join-Path $script:ModRoot "$name\SFSE\Plugins"
         $ownsFramework=(Test-Path -LiteralPath (Join-Path $plugins 'OSFUI.dll')) -or (Test-Path -LiteralPath (Join-Path $plugins 'OSFSettings.dll'))
-        if($ownsFramework -or $name -match '^(OSF |Auto Load|CharacterStudio|CK Output)' -or $name -eq 'Undelayed Launching (Skip Intro Screens)'){'-'+$name}
+        if($ownsFramework -or ($RealMods -and $name -in $script:RealModNames) -or $name -match '^(OSF |Auto Load|CharacterStudio|CK Output)' -or $name -eq 'Undelayed Launching (Skip Intro Screens)'){'-'+$name}
         elseif($name -in @('Luma - Native HDR and more','Starfield Shader Injector and ReShade Helper')){$(if($Graphics -eq 'luma'){'+'}else{'-'})+$name}
         else{$_}
     })
@@ -176,6 +202,7 @@ try {
         Set-IniValue (Join-Path $script:ProfileRoot $ini) 'General' 'sLocalSavePath' ([IO.Path]::GetRelativePath($script:GameDocuments,$script:SaveRoot)+'\')
         Set-IniValue (Join-Path $script:ProfileRoot $ini) 'General' 'bAlwaysActive' '1'
     }
+    if($RealMods){Enable-RealModPlugins}
     $settingsIni=Join-Path $script:ProfileRoot 'settings.ini'
     Set-IniValue $settingsIni 'General' 'LocalSaves' 'false'
     Set-IniValue $settingsIni 'General' 'LocalSettings' 'true'
@@ -219,6 +246,7 @@ try {
         $null=Wait-Observed 'Production Settings closes and releases input' {Get-GameState} {param($s)'OSFSettingsMenu' -notin $s.menus} 15
     }
     Assert-Test ((@($modules | Where-Object name -eq 'Luma.dll').Count -gt 0) -eq ($Graphics -eq 'luma')) 'Selected graphics integration loaded'
+    if($RealMods){Invoke-RealModReview} else {
     Open-Panel
     $hosts=@(Get-TestHosts); Assert-Test ($hosts.Count -eq 1) 'Package automatically selected expected browser helper'
     Add-Evidence 'browser-host' $Backend (Get-ProcessIdentity $hosts[0])
@@ -314,13 +342,16 @@ try {
     $null=Wait-Observed 'Vanilla pause opens after browser closes' {Get-GameState} {param($s)'PauseMenu' -in $s.menus} 10
     Send-Key 27
     $null=Save-Capture 'final-gameplay'
+    }
     Write-JsonFile (Join-Path $script:Run.path 'consumer-final.json') (Read-Consumer)
     $log=Get-Content (Join-Path $script:Run.logs 'OSF UI.log') -Raw
     Assert-Test ($log -notmatch 'device removed|device lost|DXGI_ERROR_DEVICE|hook set incomplete|self-test FAILED') 'No device loss or hook failure'
     $outcome='passed';$message='Production package passed browser, native/Papyrus bridge, input, lifecycle and recovery scenarios.';$exitCode=0
+    if($RealMods){$message='Real-mod review completed; see review-complete.json for the exact checked workflows and limitations.'}
 } catch {
     $message=$_.Exception.Message
     if($message.StartsWith('[failed]')){$outcome='failed';$exitCode=1}
+    Write-Warning $message
     Write-Warning $_.ScriptStackTrace
     try {if($script:Session){$null=Save-Capture 'failure'}}catch{Write-Warning "Failure capture: $_"}
 } finally {
@@ -338,10 +369,16 @@ try {
     }
     if($null -ne $liveStorageBefore){
         $after=Get-StorageHashes $liveSettings
-        Write-JsonFile (Join-Path $script:Run.path 'live-settings-after.json') ($after | ConvertFrom-Json)
+        [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-settings-after.json'),$after)
         if($after -cne $liveStorageBefore){$message+='; live Settings storage changed';$outcome='failed';$exitCode=1}
+    }
+    if($null -ne $liveStarcadeBefore){
+        $after=Get-StorageHashes $liveStarcade
+        [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-starcade-after.json'),$after)
+        if($after -cne $liveStarcadeBefore){$message+='; live Starcade storage changed';$outcome='failed';$exitCode=1}
     }
     if($script:Run){Finish-RunArtifacts $outcome $message}
     if($lock){$lock.Dispose()}
+    if($sharedLock){$sharedLock.Dispose()}
 }
 exit $exitCode
