@@ -14,8 +14,18 @@ pwsh tests/game/Test-Backend.ps1 -Backend cef -Interactive
 ```
 
 `-Package` selects an exact ZIP; the default is the corresponding local RC in
-`dist`. `-SettingsTestDll` selects the companion's instrumented build so Settings
-values remain private. The current installed Settings assets accompany that DLL.
+`dist`. For release qualification, pass `-SettingsManifest` with the production
+Settings archive manifest. Its archive, payload and production markers are
+validated, and the complete exact archive is staged. The acceptance consumer
+waits in SFSE Preload for `private_storage.py` to connect to the owned MO2 VFS and
+map normal Documents Settings storage to a private copy. PID, process creation,
+session marker and mapped reads are verified before production Settings loads.
+The runner compares live storage hashes before and after the session. The public
+Settings API, persisted edits, normal F10 menu and input release are exercised.
+
+Without that manifest, `-SettingsTestDll` selects an instrumented companion build
+so Settings values remain private; installed assets accompany that DLL. Such a
+run does not establish production Settings acceptance.
 The runner records hashes, checks the selected browser and its loaded payload,
 and refuses an existing Starfield session. It closes its own game normally, with
 the harness's identity-checked cleanup as a fallback. No player profile or save

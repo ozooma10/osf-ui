@@ -6,6 +6,7 @@ param(
     [switch]$Interactive,
     [ValidateRange(0,1800)][int]$SoakSeconds=120,
     [string]$Package,
+    [string]$SettingsManifest,
     [string]$HarnessRoot='C:\Modding\Starfield\OSF Test Harness',
     [string]$SettingsTestDll='C:\Modding\Starfield\OSF Settings\build\windows\x64\releasedbg\OSFSettings.dll'
 )
@@ -24,6 +25,14 @@ $Scenario='OSFUIBackend'
 $script:ArtifactRoot=Join-Path $repo 'build\backend-validation\game'
 $lock=$null; $outcome='blocked'; $message='Setup did not complete'; $exitCode=2
 $script:PapyrusProbe=37
+$storageController=$null
+$liveStorageBefore=$null
+function Get-StorageHashes([string]$Root) {
+    $files=@(if(Test-Path -LiteralPath $Root){Get-ChildItem -LiteralPath $Root -File -Recurse | Sort-Object FullName | ForEach-Object {
+        @{path=[IO.Path]::GetRelativePath($Root,$_.FullName);sha256=(Get-FileHash -LiteralPath $_.FullName).Hash}
+    }})
+    ConvertTo-Json -InputObject $files -Depth 4 -Compress
+}
 
 function Read-Consumer {
     $value=Read-JsonFile (Join-Path $script:ProbeDir 'consumer.json')
@@ -101,16 +110,42 @@ try {
     $data=if(Test-Path (Join-Path $expanded 'Data')){Join-Path $expanded 'Data'}else{$expanded}
     & (Join-Path $repo 'tests\package\test-package.ps1') -DataRoot $data -ExpectedBackend $Backend
     Copy-Tree $data $mod
-    Copy-Tree (Join-Path $script:ModRoot 'OSF Settings') $mod
-    # Private values require the companion's test build; OSF UI itself is the exact packaged production DLL.
-    $settingsBytes=[IO.File]::ReadAllBytes($SettingsTestDll)
-    if(-not [Text.Encoding]::ASCII.GetString($settingsBytes).Contains('OSFSettingsTestHarness.json')){throw '[blocked] Settings candidate lacks private values support.'}
-    Copy-Item -LiteralPath $SettingsTestDll -Destination (Join-Path $mod 'SFSE\Plugins\OSFSettings.dll') -Force
+    if($SettingsManifest){
+        $settingsArchive=& {
+            param($Manifest,$Project)
+            . (Join-Path $Project 'packaging\ReleaseValidation.ps1')
+            Test-ReleaseArchive ([IO.Path]::GetFullPath($Manifest))
+        } $SettingsManifest $script:Config.SettingsProject
+        $settingsData=Join-Path $script:Run.path 'settings-package'
+        Expand-Archive -LiteralPath $settingsArchive.archive -DestinationPath $settingsData
+        Copy-Tree $settingsData $mod
+    } else {
+        Copy-Tree (Join-Path $script:ModRoot 'OSF Settings') $mod
+        $settingsBytes=[IO.File]::ReadAllBytes($SettingsTestDll)
+        if(-not [Text.Encoding]::ASCII.GetString($settingsBytes).Contains('OSFSettingsTestHarness.json')){throw '[blocked] Supply a production SettingsManifest or an instrumented SettingsTestDll.'}
+        Copy-Item -LiteralPath $SettingsTestDll -Destination (Join-Path $mod 'SFSE\Plugins\OSFSettings.dll') -Force
+    }
     Copy-Tree (Join-Path $script:ModRoot 'Auto Load') $mod
     foreach($file in @((Join-Path $HarnessRoot 'build\bin\OSFTestHarness.dll'),(Join-Path $repo 'build\windows\x64\releasedbg\OSFUIBackendTest.dll'))){Copy-Item -LiteralPath $file -Destination (Join-Path $mod 'SFSE\Plugins')}
     Copy-Item -LiteralPath (Join-Path $repo 'build\papyrus\OSFUIBackendPapyrus.pex') -Destination (Join-Path $mod 'Scripts')
-    Write-JsonFile (Join-Path $mod 'SFSE\Plugins\OSFUIBackendTest.json') @{directory=$script:ProbeDir;session=$script:ProbeSession}
-    Write-JsonFile (Join-Path $mod 'SFSE\Plugins\OSFSettingsTestHarness.json') @{valuesDir=(Join-Path $script:StateRoot 'settings-values');translationRegistration=$false}
+    $probeConfig=@{directory=$script:ProbeDir;session=$script:ProbeSession}
+    if($SettingsManifest){
+        [IO.Directory]::CreateDirectory($script:ProbeDir)|Out-Null
+        $liveSettings=Join-Path $script:GameDocuments 'OSF\Settings'
+        $liveStorageBefore=Get-StorageHashes $liveSettings
+        $privateSettings=Join-Path $script:Run.path 'private-values\settings'
+        [IO.Directory]::CreateDirectory($privateSettings)|Out-Null
+        if(Test-Path -LiteralPath $liveSettings){Copy-Tree $liveSettings $privateSettings}
+        Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}
+        Write-JsonFile (Join-Path $privateSettings 'osfui.json') @{formatVersion=1;values=@{developerMode=$false;cefPrototype=($Backend -eq 'webview2')}}
+        Write-JsonFile (Join-Path $privateSettings 'osfsettings.json') @{formatVersion=1;values=@{openMenu=121}}
+        $probeConfig.storage=@{game=$script:Config.Game;mo2=$script:Config.MO2;vfsInstance='mod_organizer_instance';expiresUnixMs=([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+180000);mappings=@(@{source=$privateSettings;destination=$liveSettings})}
+        Write-JsonFile (Join-Path $script:Run.path 'live-settings-before.json') ($liveStorageBefore | ConvertFrom-Json)
+    } else {
+        Write-JsonFile (Join-Path $mod 'SFSE\Plugins\OSFSettingsTestHarness.json') @{valuesDir=(Join-Path $script:StateRoot 'settings-values');translationRegistration=$false}
+    }
+    $probeConfigPath=Join-Path $mod 'SFSE\Plugins\OSFUIBackendTest.json'
+    Write-JsonFile $probeConfigPath $probeConfig
     foreach($view in @('panel','paused','hud')) {
         $viewRoot=Join-Path $mod "SFSE\Plugins\OSF\UI\views\osfui-backend-test\$view"
         [IO.Directory]::CreateDirectory($viewRoot)|Out-Null
@@ -157,11 +192,32 @@ try {
     foreach($folder in @('saves','settings-values')){Copy-Tree (Join-Path $seed $folder) (Join-Path $script:FixtureRoot $folder)}
     Copy-Item -LiteralPath (Join-Path $seed 'fixture.json') -Destination $script:FixtureRoot
     Write-JsonFile (Join-Path $script:FixtureRoot 'settings-values\osfui.json') @{formatVersion=1;values=@{developerMode=$false;cefPrototype=($Backend -eq 'webview2')}}
-    Write-JsonFile (Join-Path $script:Run.path 'candidate.json') @{sourceCommit=(& git -C $repo rev-parse HEAD);package=(Get-FileHash $Package);settingsTestDll=(Get-FileHash $SettingsTestDll);backend=$Backend;graphics=$Graphics}
+    Write-JsonFile (Join-Path $script:Run.path 'candidate.json') @{sourceCommit=(& git -C $repo rev-parse HEAD);package=(Get-FileHash $Package);settingsDll=(Get-FileHash (Join-Path $mod 'SFSE\Plugins\OSFSettings.dll'));settingsProduction=[bool]$SettingsManifest;settingsManifest=$SettingsManifest;backend=$Backend;graphics=$Graphics}
+    if($SettingsManifest){
+        $controller=Join-Path $PSScriptRoot 'private_storage.py'
+        $controllerArguments='"{0}" "{1}"' -f $controller,$probeConfigPath
+        $storageController=Start-Process -FilePath (Get-Command python).Source -ArgumentList $controllerArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $script:Run.path 'storage-controller.out') -RedirectStandardError (Join-Path $script:Run.path 'storage-controller.err')
+    }
     $null=Start-TestGame -RequiredTestMods @($script:HarnessModName) -RefocusAfterLoad
     $consumer=Wait-Observed 'Public SDK consumer initialized' {Read-Consumer} {param($c)$c -and $c.pid -eq $script:Session.pid -and $c.initialized -and $c.registered} 20
     $modules=@((Get-OwnedGame).Modules | ForEach-Object {@{name=$_.ModuleName;path=$_.FileName}})
     Write-JsonFile (Join-Path $script:Run.path 'modules.json') $modules
+    if($SettingsManifest){
+        $mapping=Read-JsonFile (Join-Path $script:ProbeDir 'storage-verified.json')
+        Assert-Test ($mapping -and $mapping.session -eq $script:ProbeSession -and $mapping.verified) 'Production Settings storage is private before plugin initialization'
+        Assert-Test ($consumer.settingsInitialized -and $consumer.settingsVersion -eq 0x10000) 'Production Settings API 1.0 acquired'
+        $settingsModule=@((Get-OwnedGame).Modules | Where-Object ModuleName -eq 'OSFSettings.dll')
+        Assert-Test ($settingsModule.Count -eq 1 -and (Get-FileHash $settingsModule[0].FileName).Hash -eq (Get-FileHash (Join-Path $settingsData 'SFSE\Plugins\OSFSettings.dll')).Hash) 'Loaded production Settings DLL matches verified archive'
+        Send-Probe settingsBool @{mod='osfui';key='developerMode';value=$true}
+        $saved=Read-JsonFile (Join-Path $privateSettings 'osfui.json')
+        Assert-Test ($saved.values.developerMode -eq $true) 'Production Settings commits public API edits into private storage'
+        Send-Probe settingsBool @{mod='osfui';key='developerMode';value=$false}
+        Send-Key 121
+        $null=Wait-Observed 'Production Settings opens from its normal hotkey' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
+        $null=Save-Capture 'production-settings'
+        Send-Key 27
+        $null=Wait-Observed 'Production Settings closes and releases input' {Get-GameState} {param($s)'OSFSettingsMenu' -notin $s.menus} 15
+    }
     Assert-Test ((@($modules | Where-Object name -eq 'Luma.dll').Count -gt 0) -eq ($Graphics -eq 'luma')) 'Selected graphics integration loaded'
     Open-Panel
     $hosts=@(Get-TestHosts); Assert-Test ($hosts.Count -eq 1) 'Package automatically selected expected browser helper'
@@ -277,6 +333,14 @@ try {
             Assert-Test ($hostProcess.WaitForExit(15000) -and $hostProcess.ExitCode -eq 0) 'Browser helper exits cleanly when the game closes'
         }
     }}catch{Write-Warning "Cleanup: $_";$message+="; cleanup: $_";$outcome='blocked';$exitCode=2}
+    if($storageController -and -not $storageController.HasExited){
+        if(-not $storageController.WaitForExit(3000)){Stop-Process -InputObject $storageController -Force}
+    }
+    if($null -ne $liveStorageBefore){
+        $after=Get-StorageHashes $liveSettings
+        Write-JsonFile (Join-Path $script:Run.path 'live-settings-after.json') ($after | ConvertFrom-Json)
+        if($after -cne $liveStorageBefore){$message+='; live Settings storage changed';$outcome='failed';$exitCode=1}
+    }
     if($script:Run){Finish-RunArtifacts $outcome $message}
     if($lock){$lock.Dispose()}
 }
