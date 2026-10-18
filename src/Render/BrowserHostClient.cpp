@@ -223,6 +223,7 @@ namespace OSFUI
 		std::shared_future<bool> viewFilesPreparation;  // Started by Runtime; consumed by the transport worker.
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
 		std::filesystem::path browserBrokerExe;
+		bool                  runtimeCopiesPruned{ false };  // worker-only; once per session
 		std::filesystem::path browserHostLog;  // set in Initialize; read by worker + notify drain
 		std::uint32_t adapterLuidLow{ 0 }, adapterLuidHigh{ 0 };
 		bool          adapterLuidKnown{ false };
@@ -667,6 +668,12 @@ namespace OSFUI
             }
             REX::INFO("OSF UI: verified {} browser-host pid {} up (runtime {})",
                 osfui::browser::BackendName(config.backend), *peerPid, runtimeVersion);
+            if (!std::exchange(runtimeCopiesPruned, true)) {
+                // Deleting an old ~400 MiB runtime must not delay the first frame.
+                std::thread([root = LocalOsfuiDir(), host = browserHostExeMirror, broker = browserBrokerExe] {
+                    PruneBrowserRuntimeCopies(root, host, broker);
+                }).detach();
+            }
 
 			using OutItem = osfui::browser::BoundedQueue<std::string>::Item;
 			std::vector<OutItem> bootstrap;

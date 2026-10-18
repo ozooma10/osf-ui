@@ -15,6 +15,16 @@ namespace OSFUI
         {
             return ::GetFileAttributesW((file.native() + L":Zone.Identifier").c_str()) != INVALID_FILE_ATTRIBUTES;
         }
+
+        // Only MO2's USVFS hides the shipped files from the helper; real installs launch in place.
+        bool UsesVirtualFilesystem() { return ::GetModuleHandleW(L"usvfs_x64.dll") != nullptr; }
+
+        void PruneCopies(const std::filesystem::path& root, const std::filesystem::path& keep, std::string_view label)
+        {
+            const auto result = ViewCache::Scavenge(root, keep);
+            if (result.removed) REX::INFO("Removed {} old {} cop{}", result.removed, label, result.removed == 1 ? "y" : "ies");
+            if (result.failed) REX::WARN("{} old {} cop{} still in use; retrying next launch", result.failed, label, result.failed == 1 ? "y" : "ies");
+        }
     }
 
     BrowserHostLayout HostLayout(osfui::browser::Backend backend, const std::filesystem::path& dataDir)
@@ -27,6 +37,7 @@ namespace OSFUI
     std::optional<std::filesystem::path> PrepareBrowserBroker(const std::filesystem::path& dataDir,
         const std::filesystem::path& localRoot)
     {
+        if (!UsesVirtualFilesystem()) return dataDir / "bin" / "broker" / "osfui_browser_broker.exe";
         std::string error;
         const auto prepared = ViewCache::Prepare(dataDir / "bin" / "broker", localRoot / "browser-broker",
             "osfui-browser-broker-1", std::format("{}-{}", ::GetCurrentProcessId(), ::GetTickCount64()), error);
@@ -60,6 +71,7 @@ namespace OSFUI
 	{
 		std::filesystem::path mirror;
 		if (backend == osfui::browser::Backend::Cef) {
+			if (!UsesVirtualFilesystem()) return source;
 			// MO2's virtual DLL/resource tree must be materialized alongside the bootstrap.
 			// Separate generations avoid replacing a runtime still held by Chromium children.
 			std::string error;
@@ -119,5 +131,13 @@ namespace OSFUI
 		}
 		return mirror;
 	}
+
+    void PruneBrowserRuntimeCopies(const std::filesystem::path& localRoot,
+        const std::filesystem::path& hostExe, const std::filesystem::path& brokerExe)
+    {
+        // Keeps only the generations this launch uses; switching editions or leaving MO2 removes them all.
+        PruneCopies(localRoot / "cef-runtime", hostExe.parent_path(), "CEF runtime");
+        PruneCopies(localRoot / "browser-broker", brokerExe.parent_path(), "browser broker");
+    }
 
 }

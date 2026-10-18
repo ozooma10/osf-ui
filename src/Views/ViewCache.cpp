@@ -481,8 +481,10 @@ namespace OSFUI::ViewCache
 			if (!a_keep.empty() && it->path().lexically_normal() == a_keep.lexically_normal()) {
 				continue;
 			}
+			// Drop the marker first so a partially deleted generation is never reused as complete.
 			std::error_code removeEc;
-			std::filesystem::remove_all(it->path(), removeEc);
+			std::filesystem::remove(it->path() / kCompleteMarker, removeEc);
+			if (!removeEc) std::filesystem::remove_all(it->path(), removeEc);
 			if (removeEc) {
 				++result.failed;
 			} else {

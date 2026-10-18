@@ -20,4 +20,7 @@ namespace OSFUI
         const std::filesystem::path& source, const std::filesystem::path& localRoot);
     std::optional<std::filesystem::path> PrepareBrowserBroker(const std::filesystem::path& dataDir,
         const std::filesystem::path& localRoot);
+    // Call only after the helper launched from hostExe has connected; older copies are no longer needed.
+    void PruneBrowserRuntimeCopies(const std::filesystem::path& localRoot,
+        const std::filesystem::path& hostExe, const std::filesystem::path& brokerExe);
 }

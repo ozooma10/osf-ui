@@ -131,6 +131,24 @@ int main()
 	assert(fs::exists(resalted->generation));
 	assert(fs::exists(unrelated));
 
+#ifdef _WIN32
+	// A generation held open (e.g. by a lingering Chromium child) survives scavenging but is
+	// demoted to incomplete, so a partially deleted copy is rebuilt rather than reused.
+	const auto lockedCache = root / "locked-cache";
+	const auto locked = OSFUI::ViewCache::Prepare(source, lockedCache, "runtime-v1", "locked", error);
+	assert(locked && !locked->reused);
+	{
+		std::ifstream held(locked->generation / "shared" / "osfui.js", std::ios::binary);
+		assert(held.is_open());
+		const auto blocked = OSFUI::ViewCache::Scavenge(lockedCache, {});
+		assert(blocked.failed == 1 && blocked.removed == 0);
+		assert(!fs::exists(locked->generation / OSFUI::ViewCache::kCompleteMarker));
+	}
+	const auto rebuilt = OSFUI::ViewCache::Prepare(source, lockedCache, "runtime-v1", "rebuilt", error);
+	assert(rebuilt && !rebuilt->reused && rebuilt->generation == locked->generation);
+	assert(Read(rebuilt->generation / "shared" / "osfui.js") == "shared-v2");
+#endif
+
 	assert(!OSFUI::ViewCache::Prepare(
 		root / "missing", cache, "runtime-v1", "missing", error));
 	assert(!error.empty());
