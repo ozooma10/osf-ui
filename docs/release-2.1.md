@@ -274,8 +274,22 @@ the relationship workflow is not accepted. This run saved a private checkpoint,
 exited normally and preserved shared storage. It is an accepted baseline for
 switching these scoped workflows, not blanket acceptance of every consumer feature.
 
-Release qualification still requires the corresponding CEF review and persistence
-verification across an accepted edition switch.
+CEF run `20261018-074900-657-cef-stock` loaded that accepted checkpoint using
+identical original consumer payloads. Its first cold Starcade Settings launch
+rendered immediately. F3/F6, Somatic FOV 97/OFF/0.03, the 222 leaderboard score,
+one TerraBrew share and 9862 credits all survived the switch. A new Meteor Field
+run completed at 169; native history retained both scores. Selling the share
+returned 18 credits after its fee, with UI and actual inventory agreeing on 9880.
+5Y candles, RSI and MACD rendered. The operator's sale waiter incorrectly expected
+result 1; successful sales return 2. Its timeout is retained, no second sale was
+sent, and actual completion was verified independently. AISS reproduced its
+original CSS/native memory limitations. All 23 captures were inspected, including
+premature or mislabeled navigation attempts. A private FOV edit to 98 reached the
+native Settings display, callbacks and storage. The scoped review passed and
+saved a checkpoint; the exact CEF helper exited normally and shared storage stayed
+unchanged. This validates WebView2 to CEF persistence for these workflows.
+
+The return switch to WebView2 is pending.
 DDC, Field.OS AEGIS and DevilzDad's Shop + Explorer also require their original
 packages before their checks can run. These gaps do not invalidate the completed
 stock package suites, but they prevent calling the full 2.1 release qualified.
