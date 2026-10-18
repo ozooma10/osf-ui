@@ -90,15 +90,15 @@ This is a local production candidate, not a claim that this artifact is publishe
   `20261018-040245-433-cef-stock` (101 assertions), zero failures. Each included a
   120-second soak and normal helper exit; live Settings hashes were unchanged.
   All ten captures per run were visually inspected, including final gameplay.
-- Pending: available real-mod workflows and mod-manager switch persistence.
+- Initial real-mod preparation (historical; see the completed baseline below):
   The four available originals were copied and hash-verified without changing
   their DLLs, scripts or HTML. Run `20261018-032738-811-webview2-stock` verified
   private storage in Preload but ended during game startup, before any consumer
   workflow was accepted. An unrelated `OSF Defeat Testing` session then launched.
   The runner now reserves the primary harness lock as well as its isolated
   checkout lock; a subsequent attempt was correctly blocked by that reservation.
-  The desktop reservation is now available. Current real-mod support builds and
-  passes syntax checks; its full review/switch path is not yet accepted.
+  Real-mod support built and passed syntax checks; at this stage its full
+  review/switch path had not been accepted.
 - Original-mod runs `20261018-040649-039-webview2-stock` and
   `20261018-040920-610-webview2-stock` stopped at the automatic Settings hotkey
   check. Both failure captures show AISS's initial text-entry prompt. A fresh
@@ -259,8 +259,23 @@ Fresh reviews use a complete unchanged extraction of the original Somatic
 archive, with normal native QuickLoad enabled and private Settings edits. The
 runner verifies identical consumer payload hashes across edition switches.
 
-Release qualification still requires completed original-mod reviews on both
-editions and persistence verification across an accepted edition switch.
+Fresh WebView2 run `20261018-073341-886-webview2-stock` passed its explicitly
+scoped review with production Settings, normal native QuickLoad and the complete
+unchanged original Somatic 2.7 payload. All 32 captures were inspected; navigation
+mistakes and premature chart captures remain recorded and excluded from proof.
+Somatic F3 body view/return, native Settings values and Starcade launcher handoff
+worked. Starcade F6 reopened normally; Meteor Field accepted keyboard input,
+completed with score 222, and displayed the same score in its native persistence
+and leaderboard. Stock Exchange rendered 5Y candles, RSI and MACD, then bought
+one TerraBrew share at 28 plus a 10-credit fee. Actual Papyrus player inventory
+confirmed 9900 to 9862 credits. AISS roster/search/About/empty-history delivery
+worked, with its diagnosed placeholder and relationship limitations still present;
+the relationship workflow is not accepted. This run saved a private checkpoint,
+exited normally and preserved shared storage. It is an accepted baseline for
+switching these scoped workflows, not blanket acceptance of every consumer feature.
+
+Release qualification still requires the corresponding CEF review and persistence
+verification across an accepted edition switch.
 DDC, Field.OS AEGIS and DevilzDad's Shop + Explorer also require their original
 packages before their checks can run. These gaps do not invalidate the completed
 stock package suites, but they prevent calling the full 2.1 release qualified.
