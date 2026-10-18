@@ -4,6 +4,12 @@ The same-PC validation passed: repeated lifecycle, production throughput,
 dirty/full-copy diagnostics, and both exact final packages in-game with the
 default 120-second soak. The measurements do not establish a general CEF speed
 or memory improvement; WebView2 remains the default and CEF the bundled alternative.
+
+This report describes the optimization handoff. The subsequent
+[2.1 release record](release-2.1.md) covers the final production Settings packages,
+later input/frame fixes, original-mod diagnoses and completed scoped edition-switch
+round trip, including remaining consumer limitations.
+
 The original-PC sections below are historical checkpoints; the continuation and
 final validation sections record the new PC's results separately.
 

@@ -4,6 +4,11 @@ Completed on the new PC: see the local validation result at the end and the fina
 section of `cef-compositing-profile.md`. The original handoff instructions and
 checkpoints below are retained for provenance. Nothing was pushed or published.
 
+Subsequent 2.1 release work is recorded in [release-2.1.md](release-2.1.md): both
+final edition archives passed production Settings package suites and the scoped
+WebView2 → CEF → WebView2 original-mod round trip. That record identifies later
+input/frame fixes and the remaining original-consumer qualification limits.
+
 Continue on the new Windows PC. The user requested the move before final runtime
 testing. Commit focused fixes as work proceeds. Do not push, tag, upload or publish
 without a new request. Keep the shared OSFUI.dll/public API and the two automatic

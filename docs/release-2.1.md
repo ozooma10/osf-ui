@@ -1,8 +1,9 @@
 # OSF UI 2.1 release qualification
 
-Status: 2.1.0 release candidates are built; original-mod qualification remains
-incomplete. Both rebuilt archives passed packaged acceptance with production
-Settings. Three original fixtures are unavailable locally. Not published.
+Status: both 2.1.0 archives passed packaged acceptance with production Settings
+and the scoped original-mod WebView2 → CEF → WebView2 round trip. Broader
+original-mod qualification remains incomplete: three original fixtures are
+unavailable locally, and AISS retains diagnosed consumer limitations. Not published.
 The two editions share native API
 2.0, browser protocol 2, the frozen legacy bridge, and identical common payloads.
 WebView2 remains the default; CEF is the bundled-runtime alternative. Install one.
@@ -198,7 +199,8 @@ production Settings, a 120-second soak, unchanged live Settings hashes and clean
 helper exit. CEF run `20261018-063040-666-cef-stock` passed 102 assertions; WebView2
 run `20261018-063444-923-webview2-stock` passed 100. Neither had a failed assertion.
 All ten captures per run were visually inspected and recorded with SHA-256 hashes.
-These package checks are complete; original-mod and edition-switch gates remain open.
+These stock package checks are complete. The scoped original-mod reviews and
+edition-switch results below were completed afterward.
 
 The corrected original-mod fixture was exercised against the exact current CEF
 archive in `20261018-064121-679-cef-stock`, with production Settings and
@@ -289,7 +291,26 @@ native Settings display, callbacks and storage. The scoped review passed and
 saved a checkpoint; the exact CEF helper exited normally and shared storage stayed
 unchanged. This validates WebView2 to CEF persistence for these workflows.
 
-The return switch to WebView2 is pending.
+Return run `20261018-075718-176-webview2-stock` passed with the exact WebView2
+archive and CEF's accepted checkpoint. Without rewriting carried values, the
+public API and native Settings displayed FOV 98, F3, Only TPP Center OFF and
+forward offset 0.03; Somatic body view and return worked. Starcade opened on F6
+as the first browser request and displayed both scores (169 and 222), matching
+native storage. Stock Exchange and actual Papyrus inventory both reported 9880
+credits, with no holdings. All ten captures were inspected, including a premature
+Stock attempt while the Starcade leaderboard was still open; that attempt is
+excluded. The final gameplay capture, saved checkpoint and clean helper exit
+complete the scoped round trip.
+
+Across these three accepted runs, all 65 captures are retained with review
+observations and hashes. Shared Settings, Starcade and legacy-provider storage
+hashes are unchanged before/after every run. A source audit also found no changes
+to the 2536 original consumer files. `build/release-2.1/validation-current.json`
+records the package suites, accepted review chain and outstanding limitations.
+No additional shipped OSF UI regression was established by the three controlled
+diagnoses; the final archives already include the input-release and launcher-frame
+fixes described above.
+
 DDC, Field.OS AEGIS and DevilzDad's Shop + Explorer also require their original
 packages before their checks can run. These gaps do not invalidate the completed
 stock package suites, but they prevent calling the full 2.1 release qualified.
@@ -318,19 +339,26 @@ Publishing, pushing and tagging require a separate user request.
 ## Local resume
 
 Use the existing candidates rather than rebuilding unchanged bytes. The stock
-package suites above are complete; repeat them only after a relevant change.
-Once the primary harness reservation and desktop are free, continue the
-unresolved original-mod review:
+package suites and scoped edition round trip are complete; repeat them only after
+a relevant change. Remaining compatibility work needs the three missing original
+packages staged and reviewed in the owned fixture, plus resolution/retest of
+AISS's original memory/placeholder limitations. Do not label those workflows
+accepted using the completed framework checks.
+
+For a relevant future retest, preserve the same original Somatic fixture and
+private accepted checkpoint. Only run when the desktop and harness reservation
+are available:
 
 ```powershell
 $settings = (Get-Content build/release-2.1/settings-manifest-path.txt -Raw).Trim()
 $harness = 'C:\Modding\Starfield\OSF Test Harness UI Validation'
 $packages = 'build/release-2.1/packages-frame-queue-fix'
-pwsh tests/game/Test-Backend.ps1 -Backend webview2 -Interactive -RealMods -HarnessRoot $harness -SettingsManifest $settings -Package "$packages/OSF-UI-v2.1.0-webview2.zip"
+$somatic = 'build/release-2.1/somatic-original-complete/SomaticCameraSF/Data'
+$accepted = 'build/backend-validation/game/20261018-075718-176-webview2-stock'
+pwsh tests/game/Test-Backend.ps1 -Backend cef -Interactive -RealMods -SomaticModRoot $somatic -ResumeRun $accepted -HarnessRoot $harness -SettingsManifest $settings -Package "$packages/OSF-UI-v2.1.0-cef.zip"
 ```
 
-Follow [the real-mod review procedure](../tests/game/README.md#original-consumer-review),
-inspect all captures, then run CEF `-RealMods -ResumeRun <accepted-WebView2-run>`
-to check the same private save and persisted settings across the edition switch.
-Do not mark the four-mod review or the three unavailable original fixtures as
-accepted until their actual workflows have been observed.
+Follow [the real-mod review procedure](../tests/game/README.md#original-consumer-review)
+and inspect all captures. Diagnostic and failed runs remain ineligible as switch
+baselines. Browser-local storage remains separate between editions; this review
+establishes persistence of the tested game/mod-owned data and Settings values.
