@@ -10,6 +10,7 @@ param(
     [switch]$RealMods,
     [ValidateRange(300,7200)][int]$ReviewSeconds=1800,
     [string]$ResumeRun,
+    [string]$SomaticModRoot,
     [switch]$DiagnosticWithoutUI,
     [switch]$DiagnosticDisableQuickSaveLoad,
     [string]$DiagnosticSomaticIni,
@@ -38,6 +39,7 @@ $liveStorageBefore=$null
 $liveStarcadeBefore=$null
 $liveLegacyBefore=$null
 if($RealMods -and -not $SettingsManifest){throw 'Real-mod review requires production SettingsManifest.'}
+if($SomaticModRoot -and -not $RealMods){throw 'SomaticModRoot requires RealMods.'}
 $diagnosticComparison=$DiagnosticWithoutUI -or $DiagnosticDisableQuickSaveLoad -or [bool]$DiagnosticSomaticIni
 if($diagnosticComparison -and (-not $RealMods -or $ResumeRun)){throw 'Diagnostic comparisons require a fresh RealMods run; they cannot create an edition-switch baseline.'}
 . (Join-Path $PSScriptRoot 'RealMods.ps1')

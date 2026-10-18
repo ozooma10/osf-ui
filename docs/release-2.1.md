@@ -222,9 +222,45 @@ Starcade and legacy storage remained unchanged; the helper exited cleanly.
 Transactions, gameplay and edition switching were not repeated in this focused
 run. Its failed review is not eligible as an accepted resume baseline.
 
-Release qualification still requires diagnosis or baseline comparison of the
-Somatic camera, Starcade F9 and AISS findings; completed original-mod reviews on
-both editions; and persistence verification across an accepted edition switch.
+Controlled comparisons now isolate the three findings:
+
+- Somatic's installed INI reproduces the blurred/gray camera with OSF UI absent
+  (`20261018-073019-658-webview2-stock`). The original 2.7 archive INI works without
+  OSF UI (`20261018-072030-099-webview2-stock`) and with the current shared DLL
+  (`20261018-072615-977-webview2-stock`). In the latter, saved legacy values first
+  restore FOV 180 and Only TPP Center ON; public Settings edits to FOV 97, OFF,
+  forward offset 0.03 and F3 produce working body-visible first person and return
+  to third person. Starting from the bad installed INI and making those edits
+  later did not recover the earlier session. This establishes a configuration/
+  initialization problem independent of OSF UI, not the exact internal camera
+  defect. The original DLL matches the installed DLL byte for byte. The original
+  RAR SHA-256 is `48f1af605dc63d201651bdfd2d7b837ee629b95d5d5cc857ce40cf91154b5afa`.
+- Default Starcade F9 reaches neither Settings' native handler nor its provider
+  observers, while F7 and a private F6 rebind work. Disabling only the native
+  QuickSaveLoad handler in the disposable process makes F9 open the original
+  26-game library and increment both provider and legacy observers. This proves
+  native QuickLoad interception. Production retains native input behavior; use a
+  non-conflicting Starcade binding or the Settings launcher. No ControlMap or
+  original mod files were changed.
+- AISS's original stylesheet forces `#empty-state { display: flex }`, overriding
+  the element's HTML hidden state. An isolated actual WebView2 document confirms
+  computed `flex`; an explicit hidden rule changes it to `none`. Its native
+  memory command also rejects with `json.exception.type_error.306` (value on
+  null). The unchanged original JavaScript through the shipped bridge sends
+  populated NPC/save-slot payloads and renders valid memory replies in the
+  focused test. The exact null origin inside the unavailable native source is
+  unproven. Neither issue is repaired by changing framework CSS or inventing a
+  reply; relationship loading remains an original-consumer limitation.
+
+These diagnostic runs remain non-acceptance evidence, including their captures
+and cleanups. The camera control originally uses numpad divide; the legacy
+provider rejects that binding, so the with-UI comparison uses supported F3.
+Fresh reviews use a complete unchanged extraction of the original Somatic
+archive, with normal native QuickLoad enabled and private Settings edits. The
+runner verifies identical consumer payload hashes across edition switches.
+
+Release qualification still requires completed original-mod reviews on both
+editions and persistence verification across an accepted edition switch.
 DDC, Field.OS AEGIS and DevilzDad's Shop + Explorer also require their original
 packages before their checks can run. These gaps do not invalidate the completed
 stock package suites, but they prevent calling the full 2.1 release qualified.

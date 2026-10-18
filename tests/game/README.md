@@ -86,6 +86,16 @@ edition-switch checks; the old run remains intact. Resume waits for a new native
 game-load completion before accepting the loaded state. A failed diagnostic run
 cannot serve as an accepted switch baseline.
 
+`-SomaticModRoot <extracted-original-Data-folder>` selects a complete, unchanged
+downloaded Somatic payload instead of the installed copy, whose INI may contain
+personal settings. Record the original archive identity with the review. Every
+source file is hashed and checked after copying, and edition switching requires
+identical original consumer payloads. This is a fixture choice, not the diagnostic
+INI override. Settings edits made through the public API remain private and are
+carried forward normally. Document diagnosed consumer limitations in the review;
+do not describe an affected consumer workflow as passed merely because framework
+delivery works.
+
 `observeHotkey` with `mod`/`key` subscribes non-consuming counters through both
 the public Settings provider and the legacy bridge. Compare `providerHotkeys`
 and `legacyHotkeys` with the original mod's visible response to locate failures;

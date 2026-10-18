@@ -5,18 +5,26 @@ function Initialize-RealMods([string]$Mod) {
         $script:ResumeRun=Assert-ChildPath (Join-Path $repo 'build\backend-validation\game') ([IO.Path]::GetFullPath($ResumeRun))
         $previous=Read-JsonFile (Join-Path $ResumeRun 'result.json')
         if(-not $previous -or $previous.outcome -ne 'passed' -or -not(Test-Path (Join-Path $ResumeRun 'review-complete.json'))){throw 'Resume requires a completed private real-mod review.'}
+        $previousIdentities=Read-JsonFile (Join-Path $ResumeRun 'real-mods.json')
     }
     $identities=@()
     foreach($name in $script:RealModNames){
         $source=Join-Path $script:ModRoot $name
+        if($name -eq 'SomaticCameraSF' -and $SomaticModRoot){$source=[IO.Path]::GetFullPath($SomaticModRoot)}
         if(-not(Test-Path $source)){throw "[blocked] Missing original installed consumer: $source"}
         if((Test-Path (Join-Path $source 'SFSE\Plugins\OSFUI.dll')) -or (Test-Path (Join-Path $source 'SFSE\Plugins\OSFSettings.dll'))){throw 'Consumer must not replace framework binaries.'}
         $hashes=Get-StorageHashes $source
+        if($ResumeRun){
+            $prior=@($previousIdentities | Where-Object name -eq $name)
+            if($prior.Count -ne 1 -or $hashes -cne (ConvertTo-Json -InputObject @($prior[0].files) -Depth 4 -Compress)){
+                throw "Edition switch must use the same original consumer payload: $name"
+            }
+        }
         Copy-Tree $source $Mod
         foreach($file in ($hashes | ConvertFrom-Json)){
             if((Get-FileHash (Join-Path $Mod $file.path)).Hash -cne $file.sha256){throw "Consumer staging changed $name/$($file.path)"}
         }
-        $identities+=@{source=$source;files=($hashes | ConvertFrom-Json)}
+        $identities+=@{name=$name;source=$source;files=($hashes | ConvertFrom-Json)}
     }
     Write-JsonFile (Join-Path $script:Run.path 'real-mods.json') $identities
     # Separate diagnostic document: copy the original stylesheet unchanged and
