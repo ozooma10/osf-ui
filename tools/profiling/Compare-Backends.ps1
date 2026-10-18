@@ -9,6 +9,7 @@ param(
     [string]$OutDir,
     [switch]$SkipBuild,
     [switch]$Lifecycle,
+    [switch]$ColdOpen,
     [string]$CefHost,
     [string[]]$Backends = @('webview2', 'cef')
 )
@@ -48,7 +49,7 @@ foreach ($view in 'main', 'second', 'third') {
 }
 $metadata = [ordered]@{
     started = (Get-Date).ToString('o'); repetitions = $Repetitions; measureSeconds = $Seconds; warmupSeconds = $Warmup
-    heights = $Heights; backends = $Backends; lifecycle = [bool]$Lifecycle; requireStarfieldClosed = $true; commit = (& git -C $repo rev-parse HEAD)
+    heights = $Heights; backends = $Backends; lifecycle = [bool]$Lifecycle; coldOpen = [bool]$ColdOpen; requireStarfieldClosed = $true; commit = (& git -C $repo rev-parse HEAD)
     sourceDirty = [bool](& git -C $repo status --porcelain --ignore-submodules)
     hosts = $hosts; cefHostOverride = [bool]$CefHost
     sourceHashScope = 'Current checkout; an overridden CEF runtime may come from another revision. Binary hashes identify the measured payload.'
@@ -80,6 +81,7 @@ foreach ($height in $Heights) {
             Write-Host "Running $name ($Seconds seconds per workload)"
             $arguments = @('--backend', $backend, '--host', ('"' + $hosts[$backend] + '"'), '--out', ('"' + $run + '"'), '--views', ('"' + $assets + '"'), '--profile', ('"' + $profile + '"'), '--width', $width, '--height', $height, '--seconds', $Seconds, '--warmup', $Warmup)
             if ($Lifecycle) { $arguments += @('--lifecycle', 'true') }
+            if ($ColdOpen) { $arguments += @('--cold-open', 'true') }
             $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $run 'stdout.log') -RedirectStandardError (Join-Path $run 'stderr.log')
             $wait = [Diagnostics.Stopwatch]::StartNew()
             $contendingGames = @{}

@@ -137,7 +137,7 @@ struct Bench {
     osfui::browser::Backend backend = osfui::browser::Backend::WebView2;
     fs::path output,assets,profile,host;UINT width=1920,height=1080;double duration=10,warmup=3,start{},firstFrame{},firstContent{},loaded{};
     json result={{"phases",json::array()}};std::ofstream events;
-    std::set<std::string> ready,modeReady;std::string phase;bool measuring=false,allowNoOutput=false,lifecycle=false,retention=false,holdAcks=false;
+    std::set<std::string> ready,modeReady;std::string phase;bool measuring=false,allowNoOutput=false,lifecycle=false,retention=false,coldOpen=false,holdAcks=false;
     std::vector<msg::FrameAck> heldAcks;UINT64 lastEpoch{};
     UINT lastMarker{};double previousFrame{},previousUnique{};size_t frames{},unique{},invalid{};
     bool mixed{};std::array<UINT,3> layerMarkers{};
@@ -226,6 +226,29 @@ struct Bench {
     void WaitUntil(std::function<bool()> condition,double timeout,const char* what){const auto end=Seconds()+timeout;while(!condition()){if(Seconds()>end)throw std::runtime_error(std::string("timeout: ")+what);WaitForSingleObject(wake,5);Drain();}}
     void RunFor(double seconds){const auto end=Seconds()+seconds;while(Seconds()<end){WaitForSingleObject(wake,5);Drain();}}
     void SetMode(const std::string& view,const std::string& mode){Send(msg::PostWeb{.view=view,.json=json{{"kind","event"},{"name","bench.mode"},{"payload",{{"mode",mode}}}}.dump()});}
+    void ColdOpen(){
+        // Production launchers load a new view while hidden, then request its
+        // first presentation after a previously opened menu has been closed.
+        result["cold_open"]=json::array();
+        Send(msg::SetHidden{.view="bench/main",.hidden=true,.presentationEpoch=1});
+        RunFor(.4);
+        for(UINT64 cycle=1;cycle<=3;++cycle){
+            phase="cold_second_"+std::to_string(cycle);
+            ready.erase("bench/second");
+            Send(msg::Navigate{.id="bench/second",.entry="index.html",.logicalHeight=height});
+            WaitUntil([&]{return ready.contains("bench/second");},10,"hidden second document ready");
+            const UINT expected=0x1e0000+static_cast<UINT>(cycle);
+            Send(msg::PostWeb{.view="bench/second",.json=json{{"kind","event"},{"name","bench.marker"},{"payload",{{"serial",expected}}}}.dump()});
+            RunFor(.1);
+            Send(msg::SetHidden{.view="bench/second",.hidden=false,.presentationEpoch=cycle+1,.settleColdOpen=true});
+            WaitUntil([&]{return lastEpoch==cycle+1&&lastMarker==expected;},5,"first hidden-load menu pixels");
+            consumer.Save(output/(phase+".png"));
+            result["cold_open"].push_back({{"cycle",cycle},{"epoch",lastEpoch},{"marker",lastMarker}});
+            Send(msg::SetHidden{.view="bench/second",.hidden=true,.presentationEpoch=cycle+1});
+            Send(msg::DestroyView{.view="bench/second"});
+            RunFor(.4);
+        }
+    }
     void Lifecycle(){
         result["lifecycle"]=json::array();measuring=true;phase="backpressure";
         auto require=[this](bool ok,const char* name){if(!ok)throw std::runtime_error(name);result["lifecycle"].push_back(name);std::cout<<"passed: "<<name<<std::endl;};
@@ -370,9 +393,9 @@ struct Bench {
 int wmain(int argc,wchar_t** argv){
     CoInitializeEx(nullptr,COINIT_MULTITHREADED);SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     try{Bench bench;
-        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";else if(key==L"--retention")bench.retention=value==L"true";}
+        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";else if(key==L"--retention")bench.retention=value==L"true";else if(key==L"--cold-open")bench.coldOpen=value==L"true";}
         if(bench.host.empty()||bench.output.empty()||bench.assets.empty()||bench.profile.empty())throw std::runtime_error("required: --host --out --views --profile");
-        try{bench.Start();if(bench.lifecycle)bench.Lifecycle();else if(bench.retention)bench.Retention();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);bench.Phase("mixed10","mixed10",3);bench.Phase("mixed30","mixed30",3);}bench.result["status"]="passed";}
+        try{bench.Start();if(bench.coldOpen)bench.ColdOpen();else if(bench.lifecycle)bench.Lifecycle();else if(bench.retention)bench.Retention();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);bench.Phase("mixed10","mixed10",3);bench.Phase("mixed30","mixed30",3);}bench.result["status"]="passed";}
         catch(const std::exception& e){bench.result["status"]="failed";bench.result["error"]=e.what();std::cerr<<e.what()<<std::endl;try{bench.FailureEvidence();}catch(const std::exception& capture){bench.result["failure_capture_error"]=capture.what();}}
         bench.Stop();bench.Write();return bench.result.value("status","")=="passed"?0:1;
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 2;}
