@@ -1,7 +1,7 @@
 """Inspect the actual staged artifacts, not version strings or source exports.
 
 Loads a candidate DLL in a disposable subprocess and calls only API acquisition
-and the frozen bridge's version slot. Never calls SFSEPlugin_Load or game APIs.
+and the frozen bridge's version slots. Never calls SFSEPlugin_Load or game APIs.
 The small PEX reader deliberately accepts only a native-only Starfield script.
 Format reference: https://github.com/Orvid/Champollion/blob/main/Pex/FileReader.cpp
 """
@@ -40,7 +40,28 @@ def probe_dll(path):
     vtable = ctypes.cast(bridge, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
     version = ctypes.WINFUNCTYPE(ctypes.c_uint32, ctypes.c_void_p)(vtable[0])(bridge)
     require(version == 0x10008, f"legacy vtable reports {version:#x}")
-    print(json.dumps({"modern_api": "2.0", "legacy_bridge": "1.0-1.8", "legacy_vtable": "1.8"}))
+    parts = [ctypes.c_uint32() for _ in range(3)]
+    signature = ctypes.WINFUNCTYPE(None, ctypes.c_void_p, *([ctypes.POINTER(ctypes.c_uint32)] * 3))
+    signature(vtable[1])(bridge, *(ctypes.byref(part) for part in parts))
+    release = tuple(part.value for part in parts)
+    # Independently compare the actual virtual call with the DLL's PE resource.
+    version_api = ctypes.WinDLL('version')
+    version_api.GetFileVersionInfoSizeW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p]
+    version_api.GetFileVersionInfoW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+    version_api.VerQueryValueW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint32)]
+    size = version_api.GetFileVersionInfoSizeW(str(path.resolve()), None)
+    require(size > 0, 'DLL version resource missing')
+    data = ctypes.create_string_buffer(size)
+    require(version_api.GetFileVersionInfoW(str(path.resolve()), 0, size, data), 'Cannot read DLL version resource')
+    info, length = ctypes.c_void_p(), ctypes.c_uint32()
+    require(version_api.VerQueryValueW(data, '\\', ctypes.byref(info), ctypes.byref(length)) and length.value >= 52,
+            'DLL fixed version resource missing')
+    fixed = ctypes.cast(info, ctypes.POINTER(ctypes.c_uint32))
+    require(fixed[0] == 0xFEEF04BD, 'Invalid DLL fixed version signature')
+    resource_release = (fixed[2] >> 16, fixed[2] & 0xFFFF, fixed[3] >> 16)
+    require(release == resource_release, f'legacy release query {release} differs from DLL version {resource_release}')
+    print(json.dumps({"modern_api": "2.0", "legacy_bridge": "1.0-1.8", "legacy_vtable": "1.8",
+                      "release": '.'.join(map(str, release))}))
 
 
 class NativePex:

@@ -1,6 +1,8 @@
 # OSF UI 2.1 release qualification
 
-Status: preparation in progress; not published. The two editions share native API
+Status: archives built; final game revalidation and real-mod qualification blocked
+by another task's desktop reservation and missing original fixtures. Not published.
+The two editions share native API
 2.0, browser protocol 2, the frozen legacy bridge, and identical common payloads.
 WebView2 remains the default; CEF is the bundled-runtime alternative. Install one.
 
@@ -22,19 +24,27 @@ whole surface. The slower 1440p three-view repetition is retained in the evidenc
 ## Candidate and dependency identity
 
 Final names are `OSF-UI-v2.1.0-webview2.zip` and `OSF-UI-v2.1.0-cef.zip`.
-Both were built from clean implementation commit `9a49478a` into
-`build/release-2.1/packages-9a49478a`. SHA-256:
+Current candidates were built from clean implementation commit `6b326368` into
+`build/release-2.1/packages-version-query-fix`. SHA-256:
 
 | Archive | SHA-256 |
 |---|---|
-| WebView2 | `0C6C7E177D9E4EC17958BFBC390E7EAFF7F41EB8B05FA9183B1A0FAF87B363E3` |
-| CEF | `F1209AEE556CBA378D177752014EB5E7702CEAAEBEC702DC173178715E99085A` |
+| WebView2 | `87AAF192E55EF856C9C0771E1BAF15BC7656AE5EF318DC837436336DE59C82D3` |
+| CEF | `AA463FBB03DF64D7C66528D6A244FEF61707BBB677BC69F3A0D21D7E60D01757` |
 
 Both contain the same OSFUI.dll:
-`324C0A726E7C80ED007614BA86AD77A5A5713122105F2B392ECDC52AA958B233`.
+`E043F9E52BC608C3B6271E6D07DCBF1791CA94B7B690D2CF4D4AAC39EF96D9EF`.
 Archive ownership, all 55 compiled Papyrus signatures, frozen ABI, helper/runtime
 checksums and common-payload identity passed. Later test/documentation commits
 do not change these implementation bytes. Prior 2.0.0 ZIPs remain historical.
+
+The first 2.1 candidates at `9a49478a` passed the game suite, but a subsequent
+audit found the legacy native `GetPluginVersion` still hardcoded to 2.0.0. The
+current fix uses the shared release constants without changing ABI slots or
+protocol versions. The compiled-binary probe now compares that actual virtual
+call with the PE version resource: the old DLL fails, the corrected DLL reports
+2.1.0 and passes. Current archives still need fresh game acceptance; earlier game
+results do not certify changed bytes. The old archives and logs remain intact.
 
 The production Settings candidate is 1.1.2 at
 `1a857dbab19815b0a86c47b217cb8ac1146c8ce4`, built with `test_harness=n`.
@@ -55,7 +65,7 @@ This is a local production candidate, not a claim that this artifact is publishe
 - After the version change: 29/29 native and 10/10 bridge/consumer tests passed.
   Production Settings passed 24/24 native tests. Its first parallel build hit
   MSVC C1090/PDB RPC error 0x6BA; the serial retry passed. Both logs are retained.
-- Exact final 2.1 archives paired with the production Settings candidate passed
+- Initial 2.1 candidates from `9a49478a`, paired with production Settings, passed
   the complete stock game suite at 3840x2160, including 120-second soaks, normal
   helper exit and unchanged live Settings storage. Runs:
   `20261018-031934-407-cef-stock` and `20261018-032340-042-webview2-stock`.
@@ -66,7 +76,11 @@ This is a local production candidate, not a claim that this artifact is publishe
   `031819-872`) are preserved. The test consumer attempted `.value()` on a null
   JSON object while waiting for storage redirection. Initializing an empty object
   fixed the fixture before production Settings loaded; no shipped code changed.
-- Pending: available real-mod workflows and mod-manager switch persistence.
+- After the version-query fix: production builds, both archive checks and all
+  29 native tests passed again. Final game revalidation was blocked by the primary
+  harness lock before launching a game (`game-cef-version-query-fix.log`).
+- Pending: current candidate game suites, available real-mod workflows and
+  mod-manager switch persistence.
   The four available originals were copied and hash-verified without changing
   their DLLs, scripts or HTML. Run `20261018-032738-811-webview2-stock` verified
   private storage in Preload but ended during game startup, before any consumer
@@ -97,3 +111,23 @@ pwsh tests/game/Test-Backend.ps1 -Backend cef -Interactive -Package dist/OSF-UI-
 storage through the owned MO2 VFS before plugin initialization. Without it the
 runner uses instrumented Settings; that mode is not production pairing evidence.
 Publishing, pushing and tagging require a separate user request.
+
+## Local resume
+
+Use the existing candidates rather than rebuilding unchanged bytes. Once the
+primary harness reservation and desktop are free:
+
+```powershell
+$settings = (Get-Content build/release-2.1/settings-manifest-path.txt -Raw).Trim()
+$harness = 'C:\Modding\Starfield\OSF Test Harness UI Validation'
+$packages = 'build/release-2.1/packages-version-query-fix'
+pwsh tests/game/Test-Backend.ps1 -Backend webview2 -Interactive -HarnessRoot $harness -SettingsManifest $settings -Package "$packages/OSF-UI-v2.1.0-webview2.zip"
+pwsh tests/game/Test-Backend.ps1 -Backend cef -Interactive -HarnessRoot $harness -SettingsManifest $settings -Package "$packages/OSF-UI-v2.1.0-cef.zip"
+pwsh tests/game/Test-Backend.ps1 -Backend webview2 -Interactive -RealMods -HarnessRoot $harness -SettingsManifest $settings -Package "$packages/OSF-UI-v2.1.0-webview2.zip"
+```
+
+Follow [the real-mod review procedure](../tests/game/README.md#original-consumer-review),
+inspect all captures, then run CEF `-RealMods -ResumeRun <accepted-WebView2-run>`
+to check the same private save and persisted settings across the edition switch.
+Do not mark the four-mod review or the three unavailable original fixtures as
+accepted until their actual workflows have been observed.
