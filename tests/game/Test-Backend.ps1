@@ -32,6 +32,8 @@ $script:PapyrusProbe=37
 $storageController=$null
 $liveStorageBefore=$null
 $liveStarcadeBefore=$null
+$liveLegacyBefore=$null
+$settingsHotkey=if($RealMods){122}else{121} # Original AISS owns F10; use F11 in its private review.
 if($RealMods -and -not $SettingsManifest){throw 'Real-mod review requires production SettingsManifest.'}
 . (Join-Path $PSScriptRoot 'RealMods.ps1')
 function Get-StorageHashes([string]$Root) {
@@ -151,7 +153,7 @@ try {
         if(Test-Path -LiteralPath $liveSettings){Copy-Tree $liveSettings $privateSettings}
         Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}
         Write-JsonFile (Join-Path $privateSettings 'osfui.json') @{formatVersion=1;values=@{developerMode=$false;cefPrototype=($Backend -eq 'webview2')}}
-        Write-JsonFile (Join-Path $privateSettings 'osfsettings.json') @{formatVersion=1;values=@{openMenu=121}}
+        Write-JsonFile (Join-Path $privateSettings 'osfsettings.json') @{formatVersion=1;values=@{openMenu=$settingsHotkey}}
         if($RealMods -and $ResumeRun){Copy-Tree (Join-Path $ResumeRun 'private-values\settings') $privateSettings;Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}}
         $probeConfig.storage=@{game=$script:Config.Game;mo2=$script:Config.MO2;vfsInstance='mod_organizer_instance';expiresUnixMs=([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+180000);mappings=@(@{source=$privateSettings;destination=$liveSettings})}
         [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-settings-before.json'),$liveStorageBefore)
@@ -164,6 +166,17 @@ try {
             if($ResumeRun){Copy-Tree (Join-Path $ResumeRun 'private-values\starcade') $privateStarcade}
             Write-JsonFile (Join-Path $privateStarcade '.osf-ui-storage.json') @{session=$script:ProbeSession}
             $probeConfig.storage.mappings+=@{source=$privateStarcade;destination=$liveStarcade}
+            $liveLegacy=Join-Path $script:Config.MO2 'overwrite\SFSE\Plugins\OSFUI\settings\values'
+            $liveLegacyBefore=Get-StorageHashes $liveLegacy
+            $privateLegacy=Join-Path $script:Run.path 'private-values\legacy'
+            [IO.Directory]::CreateDirectory($privateLegacy)|Out-Null
+            $stagedLegacy=Join-Path $mod 'SFSE\Plugins\OSFUI\settings\values'
+            if(Test-Path $stagedLegacy){Copy-Tree $stagedLegacy $privateLegacy}
+            if(Test-Path $liveLegacy){Copy-Tree $liveLegacy $privateLegacy}
+            if($ResumeRun){Copy-Tree (Join-Path $ResumeRun 'legacy-values') $privateLegacy}
+            Write-JsonFile (Join-Path $privateLegacy '.osf-ui-storage.json') @{session=$script:ProbeSession}
+            $probeConfig.storage.mappings+=@{source=$privateLegacy;destination=(Join-Path $script:Config.Game 'Data\SFSE\Plugins\OSFUI\settings\values')}
+            [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-legacy-before.json'),$liveLegacyBefore)
             $probeConfig.realViews=@('x2357.ssse/exchange','starcade.arcade/launcher','x2357aiss.companionlog/companionlog')
             [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-starcade-before.json'),$liveStarcadeBefore)
         }
@@ -201,6 +214,10 @@ try {
     foreach($ini in @('Starfield.ini','StarfieldCustom.ini')) {
         Set-IniValue (Join-Path $script:ProfileRoot $ini) 'General' 'sLocalSavePath' ([IO.Path]::GetRelativePath($script:GameDocuments,$script:SaveRoot)+'\')
         Set-IniValue (Join-Path $script:ProfileRoot $ini) 'General' 'bAlwaysActive' '1'
+        if($RealMods){
+            Set-IniValue (Join-Path $script:ProfileRoot $ini) 'Papyrus' 'bEnableLogging' '1'
+            Set-IniValue (Join-Path $script:ProfileRoot $ini) 'Papyrus' 'bEnableTrace' '1'
+        }
     }
     if($RealMods){Enable-RealModPlugins}
     $settingsIni=Join-Path $script:ProfileRoot 'settings.ini'
@@ -242,8 +259,8 @@ try {
         $saved=Read-JsonFile (Join-Path $privateSettings 'osfui.json')
         Assert-Test ($saved.values.developerMode -eq $true) 'Production Settings commits public API edits into private storage'
         Send-Probe settingsBool @{mod='osfui';key='developerMode';value=$false}
-        Send-Key 121
-        $null=Wait-Observed 'Production Settings opens from its normal hotkey' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
+        Send-Key $settingsHotkey
+        $null=Wait-Observed 'Production Settings opens from its configured hotkey' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
         $null=Save-Capture 'production-settings'
         Send-Key 27
         $null=Wait-Observed 'Production Settings closes and releases input' {Get-GameState} {param($s)'OSFSettingsMenu' -notin $s.menus} 15
@@ -379,6 +396,11 @@ try {
         $after=Get-StorageHashes $liveStarcade
         [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-starcade-after.json'),$after)
         if($after -cne $liveStarcadeBefore){$message+='; live Starcade storage changed';$outcome='failed';$exitCode=1}
+    }
+    if($null -ne $liveLegacyBefore){
+        $after=Get-StorageHashes $liveLegacy
+        [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-legacy-after.json'),$after)
+        if($after -cne $liveLegacyBefore){$message+='; shared overwrite legacy values changed';$outcome='failed';$exitCode=1}
     }
     if($script:Run){Finish-RunArtifacts $outcome $message}
     if($lock){$lock.Dispose()}

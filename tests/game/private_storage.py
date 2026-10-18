@@ -85,7 +85,8 @@ def main(config_path):
         ole = c.WinDLL('ole32')
         ole.CoTaskMemFree.argtypes = [c.c_void_p]
         ole.CoTaskMemFree(c.cast(pointer, c.c_void_p))
-        allowed = {documents / 'My Games/Starfield/OSF/Settings', documents / 'My Games/Starfield/Starcade'}
+        allowed = {documents / 'My Games/Starfield/OSF/Settings', documents / 'My Games/Starfield/Starcade',
+                   game / 'Data/SFSE/Plugins/OSFUI/settings/values'}
         for item in storage['mappings']:
             source, destination = Path(item['source']).resolve(strict=True), Path(item['destination']).resolve()
             if not source.is_relative_to(probe.parent / 'private-values') or destination not in allowed:

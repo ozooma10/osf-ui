@@ -55,9 +55,14 @@ performance tools live under `tools/profiling`; run those while Starfield is clo
 `-RealMods -SettingsManifest <manifest>` stages the installed Stock Exchange,
 Starcade, AISS and Somatic Camera payloads byte for byte into the private mod,
 enables their ESMs only in the private profile, and also isolates Starcade's
-Documents state. It never appends observers to consumer HTML or rebuilds their
+Documents state and the legacy `Data/SFSE/Plugins/OSFUI/settings/values` directory.
+Legacy values are seeded from copies of the installed payload and MO2 overwrite;
+the private VFS mapping also redirects new files and atomic replacements. Shared
+overwrite hashes must remain unchanged. It never appends observers to consumer HTML or rebuilds their
 DLLs/scripts. This mode waits up to 30 minutes for explicit review; it does not
 run the synthetic browser suite or infer success from the wait.
+Its private Settings binding is F11 because the original AISS message prompt uses
+F10. The ordinary packaged suite still exercises Settings on F10.
 
 Once `review-ready.json` exists, an authorized operator can dot-source
 `Review-Context.ps1 -RunPath <run> -Interactive` in another PowerShell session.
@@ -72,8 +77,13 @@ Cover Settings launcher handoff, edit/rebind callbacks and persistence, F7 Stock
 Exchange data/orders/charts/reopens, F8 Companion Log navigation, F9 Starcade
 gameplay/persistence and Somatic Camera settings/behavior. Keep missing original
 packages and untested workflows explicit. `-ResumeRun <completed-run>` carries
-private Settings/Starcade values and the saved game into a fresh private run for
+private Settings/Starcade/legacy-provider values and the saved game into a fresh private run for
 edition-switch checks; the old run remains intact.
+
+The private profile enables Papyrus tracing. The separate test script's
+`OSFUIBackendPapyrus.ObserveInventory` records actual player credits for comparison
+with Stock Exchange or Starcade transactions; console dispatch alone is not proof
+that the observation ran.
 
 `-Graphics luma` requires a locally installed Luma fixture. Stock results do not
 establish Luma/HDR/frame-generation compatibility, physical controller or IME

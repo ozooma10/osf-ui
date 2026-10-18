@@ -59,4 +59,8 @@ function Invoke-RealModReview {
     $save=Join-Path $script:SaveRoot 'OSFUIRealMods.sfs'
     $null=Wait-Observed 'Real-mod private save completed' {Get-Item -LiteralPath $save -ErrorAction SilentlyContinue} {param($f)$f -and $f.Length -gt 0 -and $f.LastWriteTimeUtc -ge $saveStarted} 30
     Copy-Item -LiteralPath $save -Destination $script:Run.path
+    $legacyValues=Join-Path $script:Run.path 'private-values\legacy'
+    $savedValues=Join-Path $script:Run.path 'legacy-values'
+    [IO.Directory]::CreateDirectory($savedValues)|Out-Null
+    if(Test-Path $legacyValues){Copy-Tree $legacyValues $savedValues}
 }

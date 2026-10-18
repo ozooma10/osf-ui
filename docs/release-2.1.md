@@ -1,7 +1,8 @@
 # OSF UI 2.1 release qualification
 
-Status: archives built; final game revalidation and real-mod qualification blocked
-by another task's desktop reservation and missing original fixtures. Not published.
+Status: both final archives passed packaged game acceptance with production
+Settings. Original-mod qualification is in progress; three original fixtures are
+unavailable locally. Not published.
 The two editions share native API
 2.0, browser protocol 2, the frozen legacy bridge, and identical common payloads.
 WebView2 remains the default; CEF is the bundled-runtime alternative. Install one.
@@ -43,8 +44,8 @@ audit found the legacy native `GetPluginVersion` still hardcoded to 2.0.0. The
 current fix uses the shared release constants without changing ABI slots or
 protocol versions. The compiled-binary probe now compares that actual virtual
 call with the PE version resource: the old DLL fails, the corrected DLL reports
-2.1.0 and passes. Current archives still need fresh game acceptance; earlier game
-results do not certify changed bytes. The old archives and logs remain intact.
+2.1.0 and passes. Both corrected archives have since passed fresh game acceptance.
+The old archives and logs remain intact.
 
 The production Settings candidate is 1.1.2 at
 `1a857dbab19815b0a86c47b217cb8ac1146c8ce4`, built with `test_harness=n`.
@@ -77,18 +78,22 @@ This is a local production candidate, not a claim that this artifact is publishe
   JSON object while waiting for storage redirection. Initializing an empty object
   fixed the fixture before production Settings loaded; no shipped code changed.
 - After the version-query fix: production builds, both archive checks and all
-  29 native tests passed again. Final game revalidation was blocked by the primary
-  harness lock before launching a game (`game-cef-version-query-fix.log`).
-- Pending: current candidate game suites, available real-mod workflows and
-  mod-manager switch persistence.
+  29 native tests passed again. The first game attempt was blocked by the primary
+  harness lock before launching a game (`game-cef-version-query-fix.log`). After
+  the other tests paused, both current ZIPs passed the complete production Settings
+  suite: `20261018-035844-454-webview2-stock` (99 assertions) and
+  `20261018-040245-433-cef-stock` (101 assertions), zero failures. Each included a
+  120-second soak and normal helper exit; live Settings hashes were unchanged.
+  All ten captures per run were visually inspected, including final gameplay.
+- Pending: available real-mod workflows and mod-manager switch persistence.
   The four available originals were copied and hash-verified without changing
   their DLLs, scripts or HTML. Run `20261018-032738-811-webview2-stock` verified
   private storage in Preload but ended during game startup, before any consumer
   workflow was accepted. An unrelated `OSF Defeat Testing` session then launched.
   The runner now reserves the primary harness lock as well as its isolated
   checkout lock; a subsequent attempt was correctly blocked by that reservation.
-  Resume only when the other task releases the desktop. Current real-mod support
-  builds and passes syntax checks; its full review/switch path is not yet accepted.
+  The desktop reservation is now available. Current real-mod support builds and
+  passes syntax checks; its full review/switch path is not yet accepted.
 - Missing original fixtures on this PC: DDC, Field.OS AEGIS and DevilzDad's Shop
   + Explorer. Their real-mod acceptance remains pending; fixture/unit tests do
   not establish game behavior. The user confirmed they may not be downloaded.
