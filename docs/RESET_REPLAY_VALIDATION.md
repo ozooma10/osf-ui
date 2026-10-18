@@ -1,5 +1,10 @@
 # Reset/replay fix validation - 2026-10-01
 
+Historical record: these package identities describe the October 1 candidate.
+See [2.1 release qualification](release-2.1.md) for the current candidates and
+consumer acceptance status. The original evidence and limitations below remain
+unchanged; do not deploy these old ZIPs as the 2.1 release.
+
 The pending-reset ordering defect is fixed locally on OSF UI `dev`, based on
 `b002fc360ec4a0bcf9fbeb6c044a56e8498f077a`. The code/test changes are uncommitted.
 OSF Settings remains clean and unchanged at `c0afdf0ade3ce6b6bb0c45875302c16551d09a22`.

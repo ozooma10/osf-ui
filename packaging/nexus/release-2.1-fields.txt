@@ -1,0 +1,67 @@
+TITLE
+OSF UI - Web Interface Framework
+
+SHORT DESCRIPTION
+An SFSE framework for custom menus and HUDs built with HTML, CSS, and JavaScript, connected to C++ or Papyrus. WebView2 is the recommended default; CEF is the bundled-runtime alternative. Requires OSF Settings. Install one edition.
+
+VERSION
+2.1.0
+
+CHANGELOG
+- Added separate WebView2 and bundled CEF editions with automatic backend selection and the same game DLL and public APIs.
+- Refined CEF damage copying, publication scheduling, and view reveal handling while retaining safe texture completion and full-copy fallbacks.
+- Added mixed menu/HUD/overlay validation; measured performance varies by workload and does not establish a general CEF speed or memory improvement.
+- Product version 2.1.0 retains native API 2.0, browser protocol 2, and the documented legacy compatibility interfaces.
+
+WEBVIEW2 FILE TITLE
+OSF UI 2.1 - WebView2 (Recommended Default)
+
+WEBVIEW2 ARCHIVE
+Use the archive ending in -webview2.zip. Current local candidate: OSF-UI-v2.1.0-webview2.zip.
+
+WEBVIEW2 FILE DESCRIPTION
+Recommended default: smaller download and lower measured CPU/memory overhead. Requires WebView2 Evergreen, SFSE, Address Library, and OSF Settings. Renderer selected automatically. Install one edition only; both share the same DLL and mod APIs.
+
+CEF FILE TITLE
+OSF UI 2.1 - CEF (Bundled-Runtime Alternative)
+
+CEF ARCHIVE
+Use the archive ending in -cef.zip. Current local candidate: OSF-UI-v2.1.0-cef.zip.
+
+CEF FILE DESCRIPTION
+Bundled-runtime alternative with Chromium included; no WebView2 required. Larger download and higher measured CPU/memory overhead. Requires SFSE, Address Library, and OSF Settings. Renderer selected automatically. Install one edition only.
+
+NEXUS REQUIREMENTS
+Starfield Script Extender (SFSE): https://www.nexusmods.com/starfield/mods/106
+Address Library for SFSE Plugins: https://www.nexusmods.com/starfield/mods/3256
+OSF Settings: https://www.nexusmods.com/starfield/mods/18326
+External requirement for the WebView2 edition only: Microsoft Edge WebView2 Evergreen Runtime
+https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+The CEF edition includes its browser runtime and does not require Evergreen.
+
+EDITOR NOTES (NOT PART OF THE PUBLIC DESCRIPTION)
+The paste-ready description is in description-2.1.bbcode.txt.
+It reuses the original OSF UI banner and all five original cyan section headers. No new image uploads are required. Troubleshooting uses a cyan text heading.
+Update Nexus's title, short description, and Requirements fields as well as the main description.
+List WebView2 first as the recommended default. List CEF as the bundled-runtime alternative, not as an upgrade, patch, or additional dependency. Use the separate file descriptions above and make the Evergreen requirement conditional on choosing WebView2.
+These are local publication drafts. Do not upload files, change the live listing, tag, or publish without explicit release authorization. Confirm final archive filenames, hashes, and matching source revision before publication.
+At an authorized release, ensure the public GitHub default branch contains the matching 2.1 author documentation.
+OSF Settings 1.0.0 or a compatible newer release is required. The current production candidate is 1.1.2; record the exact accepted artifact from docs/release-2.1.md. Older development builds with reused version numbers may have incompatible interfaces.
+The compatibility wording follows the documented 1.6 baseline. The earlier handoff packages passed the recorded stock in-game suite; final 2.1 acceptance is tracked in docs/release-2.1.md, but this does not establish every historical integration, GPU, Luma/HDR/frame-generation, physical-controller, or IME configuration. Measured tradeoffs and the acceptance boundary are documented in docs/browser-backends.md.
+
+EXISTING OSF UI IMAGE REFERENCES
+Main banner:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784309971-769134952.png
+01 Overview:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-930784041.png
+02 Features:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-1196566958.png
+03 Get Started:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306243-1886780377.png
+04 For Authors:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306243-115352482.png
+05 Credits:
+https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306246-1794772097.png
+
+OPTIONAL NEW ARTWORK
+For an image header on every section, add a cyan 05 Troubleshooting banner and renumber the Credits banner to 06. Both would need uploading to Nexus before their image URLs could be inserted. The current text heading avoids that requirement.

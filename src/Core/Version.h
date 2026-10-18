@@ -5,10 +5,10 @@
 namespace OSFUI
 {
 	inline constexpr const char* kPluginName = "OSF UI";
-	inline constexpr const char* kOsfuiReleaseVersion = "2.0.0";
+	inline constexpr const char* kOsfuiReleaseVersion = "2.1.0";
 	// Numeric release parts used by the Papyrus version surface.
 	inline constexpr std::uint32_t kOsfuiReleaseVersionMajor = 2;
-	inline constexpr std::uint32_t kOsfuiReleaseVersionMinor = 0;
+	inline constexpr std::uint32_t kOsfuiReleaseVersionMinor = 1;
 	inline constexpr std::uint32_t kOsfuiReleaseVersionPatch = 0;
 
 	// Wire value of payload.protocolVersion.

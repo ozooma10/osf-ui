@@ -20,11 +20,11 @@ if (-not $Staging.StartsWith($RepoRoot + [IO.Path]::DirectorySeparatorChar, [Str
     throw 'Refusing to stage outside the repository'
 }
 if (-not (Get-Command xmake -ErrorAction SilentlyContinue)) { throw 'xmake was not found on PATH' }
-if (-not $Version) {
-    $match = Select-String -LiteralPath (Join-Path $RepoRoot 'src/Core/Version.h') -Pattern 'kOsfuiReleaseVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
-    if (-not $match) { throw 'Could not determine OSF UI version' }
-    $Version = $match.Matches[0].Groups[1].Value
-}
+$match = Select-String -LiteralPath (Join-Path $RepoRoot 'src/Core/Version.h') -Pattern 'kOsfuiReleaseVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
+if (-not $match) { throw 'Could not determine OSF UI version' }
+$sourceVersion = $match.Matches[0].Groups[1].Value
+if ($Version -and $Version -cne $sourceVersion) { throw "Package version $Version differs from source version $sourceVersion. Update and rebuild the source first." }
+$Version = $sourceVersion
 $versionLabel = "v$Version"
 if ($Tag) { $versionLabel += "-$Tag" }
 $editions = @(if ($Backend -eq 'both') { 'webview2'; 'cef' } else { $Backend })

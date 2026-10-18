@@ -9,7 +9,7 @@ OSF UI has one game DLL and one public HTML/JavaScript, C++, and Papyrus API. Tw
 | WebView2 — recommended default | Smaller download and lower measured browser CPU and memory overhead. | Requires Microsoft's WebView2 Evergreen Runtime, which updates independently of OSF UI. |
 | CEF — bundled-runtime alternative | A Chromium runtime included and versioned with OSF UI; no WebView2 runtime dependency. | Larger download and higher measured CPU and memory overhead; browser updates must ship with OSF UI. |
 
-This recommendation reflects the measured implementations and workloads, not a claim that one engine is always faster. In the baseline below, CEF delivered more new frames in the single-view animation tests; WebView2 had better median delivery with three animated views. The [CEF compositing optimization follow-up](cef-compositing-profile.md) records subsequent changes, exploratory results and the remaining validation work.
+This recommendation reflects the measured implementations and workloads, not a claim that one engine is always faster. In the historical baseline below, CEF delivered more new frames in the single-view animation tests; WebView2 had better median delivery with three animated views. The [CEF compositing profile](cef-compositing-profile.md) records completed handoff validation and measured limits. See the [2.1 release record](release-2.1.md) for final release qualification.
 
 Both editions have a [production-package game acceptance suite](../tests/game/README.md) covering rendering, modern and legacy APIs, native/Papyrus messaging, input, save/load, recovery, and shutdown. Results include exact package and helper hashes. Stock-renderer acceptance does not establish every GPU, HDR, physical-controller, or IME configuration.
 

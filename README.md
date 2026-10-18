@@ -2,6 +2,10 @@
 
 A web view framework for Starfield.
 
+OSF UI **2.1.0** is prepared as separate WebView2 and CEF editions with one shared
+DLL and API. See the [2.1 release record](docs/release-2.1.md) for candidate identity,
+completed validation and outstanding release checks.
+
 | Reference | Use it to |
 | --- | --- |
 | [osfui.d.ts](sdk/osfui.d.ts) | Call `send`, `request`, `on`, and `state` from a page |
@@ -75,7 +79,7 @@ pwsh tools/package.ps1
 
 Writes separate `dist/OSF-UI-v<version>-<tag>-webview2.zip` (**recommended default**) and `-cef.zip` (**bundled-runtime alternative**) archives (`-Tag` defaults to `rc`), plus SHA-256 and manifest sidecars. Use `-Backend webview2` or `-Backend cef` for one edition. The common DLL, scripts, and web assets are byte-identical in both archives; each supplies its own `backend.json`. Packaging verifies the archives locally and never publishes. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
 
-The [Nexus release fields](packaging/nexus/release-2.0-fields.txt) include separate file titles and descriptions for the two editions; the [main description](packaging/nexus/description-2.0.bbcode.txt) explains their requirements and installation choices.
+The [Nexus release fields](packaging/nexus/release-2.1-fields.txt) include separate file titles and descriptions for the two editions; the [main description](packaging/nexus/description-2.1.bbcode.txt) explains their requirements and installation choices. Use `-Tag ''` for final filenames. Building archives does not publish them.
 
 ## License
 

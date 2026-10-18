@@ -1,5 +1,9 @@
 # Stock Exchange compatibility validation — 2026-10-01
 
+Historical record: the [2.1 release qualification](release-2.1.md) tracks the
+current production candidates and real-mod checks. The identities and unverified
+steps below describe the original adapter work and remain as provenance.
+
 Status: automated compatibility/build/package checks pass. **In-game acceptance is
 unverified.** No game profile was launched, no live installation was deployed, and
 Stock Exchange was not edited or rebuilt. No commit, push or publication was made.

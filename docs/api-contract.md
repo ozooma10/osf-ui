@@ -6,7 +6,7 @@ Product, native API, and browser protocol versions describe different contracts.
 
 | Surface | Release contract | Consumer |
 | --- | --- | --- |
-| Plugin version | 2.0.0 | Installation and release identity |
+| Plugin version | 2.1.0 | Installation and release identity |
 | `OSFUI_RequestAPI` | Native API 2.0 (`0x00020000`), `OSFUI::API::IUI` | New mods using [`OSFUI.h`](../sdk/OSFUI.h) |
 | `OSFUI_RequestBridge` | Frozen native ABI 1.7 prefix plus the ABI 1.8 retained-state slot | Supported existing compiled mods |
 | Modern browser bridge | Protocol 2 (`protocolVersion: 2`), [`osfui.d.ts`](../sdk/osfui.d.ts) | New views using the shipped shared web helper |
@@ -18,11 +18,9 @@ and saved values into the current runtime and OSF Settings. See the
 
 ## Native SDK versioning
 
-OSF UI 2.0 is not yet released. The current `OSFUI.h` defines the intended initial
-release contract for the new API at 2.0; development-only names can change without
-compatibility aliases. At release, virtual method order and signatures, callback
-signatures, payload layouts, enum values, and documented behavior become frozen.
-The following rules apply after that release:
+OSF UI 2.1 retains native API 2.0 and browser protocol 2. Virtual method order and
+signatures, callback signatures, payload layouts, enum values, and documented
+behavior are frozen for that contract. The following rules apply:
 
 - Compatible additions require a minor API version increase. Append new methods
   without moving existing slots and gate their use on the acquired API version.
@@ -46,12 +44,12 @@ Supported 1.6 mods using `OSFUI_RequestBridge` keep their original binaries.
 
 The ready envelope identifies the browser wire protocol with the integer
 `payload.protocolVersion: 2`. `payload.version` is the product release string,
-such as `"2.0.0"`; it is not a protocol or native ABI compatibility check.
+such as `"2.1.0"`; it is not a protocol or native ABI compatibility check.
 The development-only `bridgeVersion: "2.0"` field is removed without an alias.
 The complete payload is:
 
 ```json
-{"game":"Starfield","plugin":"OSF UI","version":"2.0.0","protocolVersion":2,"mod":"acme","view":"acme/panel"}
+{"game":"Starfield","plugin":"OSF UI","version":"2.1.0","protocolVersion":2,"mod":"acme","view":"acme/panel"}
 ```
 
 This browser version is independent of the private WebView2 host IPC protocol.

@@ -12,7 +12,11 @@ param(
 $ErrorActionPreference='Stop'
 if(-not $Interactive){throw '[blocked] This suite tests keyboard/mouse paths; explicitly supply -Interactive.'}
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-if(-not $Package){$Package=Join-Path $repo "dist\OSF-UI-v2.0.0-rc-$Backend.zip"}
+if(-not $Package){
+    $versionMatch=Select-String -LiteralPath (Join-Path $repo 'src/Core/Version.h') -Pattern 'kOsfuiReleaseVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if(-not $versionMatch){throw 'Could not determine the package version.'}
+    $Package=Join-Path $repo "dist\OSF-UI-v$($versionMatch.Matches[0].Groups[1].Value)-rc-$Backend.zip"
+}
 $Scenario='OSFUIBackend'
 . (Join-Path $HarnessRoot 'scripts\Common.ps1')
 . (Join-Path $HarnessRoot 'scripts\Environment.ps1')

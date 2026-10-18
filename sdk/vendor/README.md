@@ -14,7 +14,16 @@ Exact copies of the OSF Settings SDK at commit
 
 Include as `"vendor/OSFSettings.h"`; `sdk/` is on the include path. Copy these files unchanged when updating. OSF Settings owns their implementation; OSF UI owns the legacy adapter.
 
-## OSF UI 2.0 release pairing
+## OSF UI 2.1 release pairing
+
+The current production candidate is OSF Settings **1.1.2**, source commit
+`1a857dbab19815b0a86c47b217cb8ac1146c8ce4`. Its five SDK headers still match these
+vendored files byte for byte; the required ABI versions are unchanged. The
+[2.1 release record](../../docs/release-2.1.md) records the archive identity and
+acceptance status. A packaged production candidate is not itself proof of
+in-game acceptance or a published companion release.
+
+### Historical 2.0 pairing
 
 The companion dependency is OSF Settings **1.0.0**. The source baseline selected
 for release testing is
