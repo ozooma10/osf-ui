@@ -226,6 +226,12 @@ namespace OSFUI
         // Keeps only the generations this launch uses; switching editions or leaving MO2 removes them all.
         PruneCopies(localRoot / "cef-runtime", hostExe.parent_path(), "CEF runtime");
         PruneCopies(localRoot / "browser-broker", brokerExe.parent_path(), "browser broker");
+        // The WebView2 helper copy is unused once the CEF edition is running.
+        const auto webView2Copy = localRoot / "bin" / "osfui_webview2_host.exe";
+        if (SamePath(hostExe, webView2Copy)) return;
+        std::error_code ec;
+        if (std::filesystem::remove(webView2Copy, ec)) REX::INFO("Removed unused WebView2 helper copy");
+        if (ec) REX::WARN("Unused WebView2 helper copy not removed ({}); retrying next launch", ec.message());
     }
 
 }

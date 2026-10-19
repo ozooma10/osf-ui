@@ -1,3 +1,7 @@
+#ifdef NDEBUG
+#undef NDEBUG  // Keep assertions active even when the build mode appends -DNDEBUG.
+#endif
+
 #include "Views/ViewCache.h"
 
 #include <algorithm>
@@ -147,6 +151,34 @@ int main()
 	const auto rebuilt = OSFUI::ViewCache::Prepare(source, lockedCache, "runtime-v1", "rebuilt", error);
 	assert(rebuilt && !rebuilt->reused && rebuilt->generation == locked->generation);
 	assert(Read(rebuilt->generation / "shared" / "osfui.js") == "shared-v2");
+
+	// Whole-cache cleanup must demote nested mod entries before a locked asset stops deletion.
+	const auto unusedCache = root / "unused-cache";
+	const auto unused = OSFUI::ViewCache::PrepareMods(source, unusedCache, "runtime-v1", "unused", error);
+	assert(unused);
+	std::error_code removeError;
+	{
+		std::ifstream held(unused->root / "shared" / OSFUI::ViewCache::kCompleteMarker, std::ios::binary);
+		assert(held.is_open());
+		OSFUI::ViewCache::RemoveTree(unusedCache, removeError);
+		assert(removeError);
+		assert(Read(unused->root / "shared" / "osfui.js") == "shared-v2");
+		assert(Read(unused->root / "assets" / "exact-buffer.bin") == binary);
+	}
+	{
+		std::ifstream held(unused->root / "shared" / "osfui.js", std::ios::binary);
+		assert(held.is_open());
+		OSFUI::ViewCache::RemoveTree(unusedCache, removeError);
+		assert(removeError);
+		for (const auto& entry : unused->entries) {
+			assert(!fs::exists(entry.cache.generation / OSFUI::ViewCache::kCompleteMarker));
+		}
+	}
+	const auto unusedRebuilt = OSFUI::ViewCache::PrepareMods(source, unusedCache, "runtime-v1", "unused-rebuilt", error);
+	assert(unusedRebuilt && std::ranges::none_of(unusedRebuilt->entries, [](const auto& entry) { return entry.cache.reused; }));
+	assert(Read(unusedRebuilt->root / "shared" / "osfui.js") == "shared-v2");
+	OSFUI::ViewCache::RemoveTree(unusedCache, removeError);
+	assert(!removeError && !fs::exists(unusedCache));
 #endif
 
 	assert(!OSFUI::ViewCache::Prepare(
@@ -227,6 +259,22 @@ int main()
 	assert(caseRename && Entry(*caseRename, "BETA").reused && caseRename->removed == 0);
 	assert(Read(caseRename->root / "BETA" / "games" / "large.bin") == binary);
 	fs::rename(modsSource / "BETA", modsSource / "beta");
+
+	// A removed mod's cache held open no longer fails preparation; it is demoted and retried.
+	Write(modsSource / "gamma" / "main" / "index.html", "gamma");
+	const auto gammaAdded = OSFUI::ViewCache::PrepareMods(modsSource, modsCache, "v1", "gamma-added", error);
+	assert(gammaAdded && fs::exists(gammaAdded->root / "gamma" / OSFUI::ViewCache::kCompleteMarker));
+	fs::remove_all(modsSource / "gamma");
+	{
+		std::ifstream held(gammaAdded->root / "gamma" / "main" / "index.html", std::ios::binary);
+		assert(held.is_open());
+		const auto gammaLocked = OSFUI::ViewCache::PrepareMods(modsSource, modsCache, "v1", "gamma-locked", error);
+		assert(gammaLocked && gammaLocked->failed == 1 && gammaLocked->removed == 0);
+		assert(!fs::exists(gammaLocked->root / "gamma" / OSFUI::ViewCache::kCompleteMarker));
+	}
+	const auto gammaRetried = OSFUI::ViewCache::PrepareMods(modsSource, modsCache, "v1", "gamma-retried", error);
+	assert(gammaRetried && gammaRetried->failed == 0 && gammaRetried->removed == 1);
+	assert(!fs::exists(gammaRetried->root / "gamma"));
 	#endif
 
 	// Retire the old monolithic layout and staged backups without deleting live mod caches.

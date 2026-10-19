@@ -49,6 +49,7 @@ namespace OSFUI::ViewCache
 		std::filesystem::path root;
 		std::vector<ModPrepared> entries;
 		std::size_t removed{ 0 };
+		std::size_t failed{ 0 };  // stale entries still in use; retried next launch
 	};
 
 	using SkipFile = std::function<bool(const std::filesystem::path&)>;
@@ -64,6 +65,9 @@ namespace OSFUI::ViewCache
 	// Cache each top-level entry separately; verify changes before replacing it.
 	// Session preparation only; concurrent game instances are unsupported.
 	[[nodiscard]] std::optional<PreparedMods> PrepareMods(const std::filesystem::path& a_source, const std::filesystem::path& a_cacheRoot, std::string_view a_salt, std::string_view a_stagingId, std::string& a_error);
+
+	// Invalidate every completion marker before deleting an unused cache or mirror directory.
+	void RemoveTree(const std::filesystem::path& a_root, std::error_code& a_ec);
 
 	// Removes all staging entries and generations except a_keep. Not safe across concurrent game instances.
 	[[nodiscard]] ScavengeResult Scavenge(const std::filesystem::path& a_cacheRoot, const std::filesystem::path& a_keep);

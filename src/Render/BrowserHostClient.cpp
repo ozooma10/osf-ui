@@ -142,10 +142,21 @@ namespace OSFUI
 			REX::INFO("BrowserHostClient: USVFS {} ready {} ({} reused, {} rebuilt, {:.2f} MiB copied, {} ms; cleanup={} ms, {} obsolete entries, {} old cache(s) removed)",
 				a_label, ToUtf8(prepared->root.native()), reused, prepared->entries.size() - reused,
 				static_cast<double>(copiedBytes) / (1024.0 * 1024.0), elapsed, cleanupMs, prepared->removed, scavenged.removed);
-			if (scavenged.failed) {
-				REX::WARN("BrowserHostClient: {} {} item(s) could not be scavenged; they will be retried next launch", scavenged.failed, a_label);
+			if (scavenged.failed + prepared->failed) {
+				REX::WARN("BrowserHostClient: {} {} item(s) could not be scavenged; they will be retried next launch",
+					scavenged.failed + prepared->failed, a_label);
 			}
 			return prepared->root;
+		}
+
+		// Removes a copy this session no longer uses (MO2 left, dev mode off, legacy views gone).
+		void RemoveUnusedCopy(const std::filesystem::path& a_path)
+		{
+			std::error_code ec;
+			if (!std::filesystem::exists(a_path, ec)) return;
+			ViewCache::RemoveTree(a_path, ec);
+			if (ec) REX::WARN("BrowserHostClient: unused copy '{}' not removed ({}); retrying next launch", Utf8Path(a_path), ec.message());
+			else REX::INFO("BrowserHostClient: removed unused copy '{}'", Utf8Path(a_path));
 		}
 
 		std::vector<std::string> ReadLogTail(const std::filesystem::path& a_file,
@@ -420,30 +431,40 @@ namespace OSFUI
 			mappedViewsRoot = viewsRoot;
 			mappedLegacyViewsRoot = legacyViewsRoot;
 			usesDevViewsMirror = false;
-			if (!::GetModuleHandleW(L"usvfs_x64.dll")) return true;
 
 			const auto localRoot = LocalOsfuiDir();
 			RemoveLegacyMirrors(localRoot);
-			std::error_code legacyError;
-			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
-				const auto legacy = PrepareModCaches(legacyViewsRoot, localRoot / "legacy-views-cache", "legacy views cache");
-				if (!legacy) return false;
-				mappedLegacyViewsRoot = *legacy;
-			}
-			if (config.devMode) {
-				const auto mirror = localRoot / "views-dev";
-				std::string error;
-				if (!DevViewFiles::ReplaceTree(viewsRoot, mirror, error)) {
-					REX::ERROR("BrowserHostClient: developer views mirror failed ({})", error);
-					return false;
-				}
-				mappedViewsRoot = mirror;
-				usesDevViewsMirror = true;
-				REX::INFO("BrowserHostClient: USVFS developer views mirrored to {}", ToUtf8(mirror.native()));
+			const auto legacyCache = localRoot / "legacy-views-cache";
+			const auto modernCache = localRoot / ViewCache::kCacheDirectory;
+			const auto devMirror = localRoot / "views-dev";
+			if (!::GetModuleHandleW(L"usvfs_x64.dll")) {
+				// Real installs serve views in place; copies from earlier MO2 sessions are unused.
+				for (const auto& copy : { legacyCache, modernCache, devMirror }) RemoveUnusedCopy(copy);
 				return true;
 			}
 
-			const auto modern = PrepareModCaches(viewsRoot, localRoot / ViewCache::kCacheDirectory, "views cache");
+			std::error_code legacyError;
+			if (std::filesystem::is_directory(legacyViewsRoot, legacyError)) {
+				const auto legacy = PrepareModCaches(legacyViewsRoot, legacyCache, "legacy views cache");
+				if (!legacy) return false;
+				mappedLegacyViewsRoot = *legacy;
+			} else {
+				RemoveUnusedCopy(legacyCache);
+			}
+			if (config.devMode) {
+				std::string error;
+				if (!DevViewFiles::ReplaceTree(viewsRoot, devMirror, error)) {
+					REX::ERROR("BrowserHostClient: developer views mirror failed ({})", error);
+					return false;
+				}
+				mappedViewsRoot = devMirror;
+				usesDevViewsMirror = true;
+				REX::INFO("BrowserHostClient: USVFS developer views mirrored to {}", ToUtf8(devMirror.native()));
+				return true;  // The normal views cache stays for reuse when dev mode is turned off.
+			}
+
+			RemoveUnusedCopy(devMirror);
+			const auto modern = PrepareModCaches(viewsRoot, modernCache, "views cache");
 			if (!modern) return false;
 			mappedViewsRoot = *modern;
 			return true;

@@ -54,6 +54,14 @@ namespace OSFUI::ViewCache
 			return false;
 		}
 
+		// Drops a directory's marker first so a partially deleted entry is never reused as complete.
+		void RemoveEntry(const std::filesystem::path& a_path, std::error_code& a_ec)
+		{
+			a_ec.clear();
+			if (std::filesystem::is_directory(a_path, a_ec)) std::filesystem::remove(a_path / kCompleteMarker, a_ec);
+			if (!a_ec) std::filesystem::remove_all(a_path, a_ec);
+		}
+
 		bool SnapshotTree(const std::filesystem::path& a_source,
 			TreeSnapshot& a_snapshot, std::string& a_error, const SkipFile& a_skip = {})
 		{
@@ -457,12 +465,27 @@ namespace OSFUI::ViewCache
 				if (keep) break;
 			}
 			if (keep) continue;
-			std::filesystem::remove_all(it->path(), ec);
-			if (ec) break;
-			++prepared.removed;
+			// A stale entry held open (e.g. by an editor or scanner) must not block this session's views.
+			std::error_code removeEc;
+			RemoveEntry(it->path(), removeEc);
+			if (removeEc) ++prepared.failed;
+			else ++prepared.removed;
 		}
 		if (ec) { Fail(a_error, prepared.root, ec); return std::nullopt; }
 		return prepared;
+	}
+
+	void RemoveTree(const std::filesystem::path& a_root, std::error_code& a_ec)
+	{
+		a_ec.clear();
+		if (!std::filesystem::exists(a_root, a_ec) || a_ec) return;
+		// Finish invalidation before deleting assets; any locked marker leaves all assets intact.
+		for (std::filesystem::recursive_directory_iterator it(a_root, a_ec), end;
+			 !a_ec && it != end; it.increment(a_ec)) {
+			if (it->path().filename() == kCompleteMarker) std::filesystem::remove(it->path(), a_ec);
+			if (a_ec) return;
+		}
+		if (!a_ec) std::filesystem::remove_all(a_root, a_ec);
 	}
 
 	ScavengeResult Scavenge(const std::filesystem::path& a_cacheRoot, const std::filesystem::path& a_keep)
@@ -483,8 +506,7 @@ namespace OSFUI::ViewCache
 			}
 			// Drop the marker first so a partially deleted generation is never reused as complete.
 			std::error_code removeEc;
-			std::filesystem::remove(it->path() / kCompleteMarker, removeEc);
-			if (!removeEc) std::filesystem::remove_all(it->path(), removeEc);
+			RemoveEntry(it->path(), removeEc);
 			if (removeEc) {
 				++result.failed;
 			} else {
