@@ -24,6 +24,6 @@ Mods use the same public APIs with either edition. Native API 2.0, page bridge p
 
 ## Validation status
 
-Current native and build results are recorded in the [qualification ledger](release-2.1-qualification.md). Historical game acceptance does not validate the latest fixes. Fresh game acceptance, multi-GPU selection, profile persistence on shutdown, and browser media-seeking behavior remain to be checked.
+Current native, build and helper-runtime results are recorded in the [qualification ledger](release-2.1-qualification.md). CEF passed adapter selection on an RTX 3080 and AMD integrated GPU, storage persistence across shutdown, PCM media seeking, and view isolation through loading failures and renderer crashes. Those checks found and corrected HEAD and byte-range response bugs. Fresh Starfield acceptance, other hardware and video codecs remain to be checked.
 
 The CEF edition includes `CEF-LICENSE.txt` and Chromium third-party `CREDITS.html`. Thanks to the CEF and Chromium contributors.

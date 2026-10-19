@@ -1,5 +1,47 @@
 # OSF UI 2.1 release qualification
 
+## CEF runtime follow-up, 2026-10-19
+
+All four requested helper-runtime areas passed on implementation commit
+`ac4531a9218a7cdfc57a6eee33de2c29ac5ef496`. The final run is
+`build/cef-runtime/20261019-final/`; `metadata.json` records a clean checkout and
+the actual consumer/helper/runtime/fixture hashes. `summary.json` records six
+passing helper sessions (two GPU selections, storage write/read, media, isolation).
+The helper DLL SHA-256 is
+`8AA5345C61B82B1E53E39B63E7DFB3FC1E328DDBB140D71A6D698E1099051F8C`.
+
+| Check | Runtime evidence |
+| --- | --- |
+| GPU selection | RTX 3080 and AMD Radeon integrated graphics both produced valid accelerated pixels. ANGLE identified the requested adapter in each process. Requested LUIDs were `0,954964989` and `0,96102`; NVIDIA driver `32.0.16.1742`, AMD driver `32.0.21042.62`. |
+| Profile flushing | localStorage and IndexedDB each retained a 589,861-character payload, and a persistent cookie survived immediate pipe closure and a new helper process using the same private profile. All six helper exits returned zero within 111–140 ms, below the production client's six-second limit. |
+| Media seeking | A generated 20-second PCM WAV decoded after seeks to 14.25, 2.5 and 18.25 seconds (`readyState=4`). Exact bounded, suffix, open-ended and clipped range bytes passed, along with 416, HEAD without a body, HEAD with Range, unmatched If-Range, and local data/blob fetches. |
+| View isolation | The healthy view delivered 60–61 new GPU-validated marker frames per one-second sample during slow sibling loading, a 128-message pending overflow, failed navigation, missed reveal and a targeted renderer crash. The newest 64 queued messages survived. Partial frames preserved healthy content; complete frames resumed after retries and renderer recovery. |
+
+Runtime testing found and fixed two resource-response defects that native stream
+tests did not cover: HEAD advertised zero length, and range offsets were applied
+twice. CEF's loader also retained its own requested length for HEAD/If-Range and
+clipped ranges. A per-request handler now captures and removes the Range header
+before that loader handles it, and the asset stream supplies the selected bytes
+and representation length. See CEF's
+[stream loader](https://github.com/chromiumembedded/cef/blob/master/libcef/browser/net_service/stream_reader_url_loader.cc)
+and [resource wrapper](https://github.com/chromiumembedded/cef/blob/master/libcef/browser/net_service/resource_handler_wrapper.cc)
+for the automatic skip and length behavior. Failed runs remain under
+`build/cef-runtime/20261019-first`, `20261019-head-fix`, `20261019-range-fix`, and
+`20261019-head-range-detail`; `20261019-request-fix` is the focused passing media run.
+
+The tested helper and its manifest were deployed to the existing MO2 OSF UI CEF
+payload; all 240 manifest entries matched afterward (`deployment.json`). The
+configured and installed game DLL remains the WebView2 edition. The earlier
+`review-fixes` CEF archive below predates this correction and must be repackaged
+before distribution. No new archive was published.
+
+Reproduction instructions are in the
+[runtime acceptance section](../tools/profiling/backend-bench/README.md#cef-runtime-acceptance).
+These are real production-helper tests with private profiles and GPU readback,
+not a fresh Starfield integration run. They qualify this machine's two adapters
+and PCM seeking; other hardware, video codecs, and in-game acceptance remain
+separate checks.
+
 ## Review fixes, 2026-10-19
 
 The current source adds queue isolation, CEF/game adapter selection, partial-frame
@@ -45,9 +87,10 @@ Deployed development payload SHA-256 values:
 Local logs are `build/review-final-packages.log`, `build/review-lifecycle-tests.log`,
 `build/review-package-rejections.log`, `build/review-final-deploy.log`,
 `build/review-deployed-api.log`, and `build/review-deployed-hashes.log`.
-No game or browser harness was launched for these fixes. The historical acceptance
-below does not validate them. Multi-GPU selection, profile flushing, CEF media
-seeking, and live view isolation still need runtime acceptance. Nothing was published.
+At this earlier checkpoint no game or browser harness had been launched for these
+fixes. The helper runtime gaps were subsequently exercised in the follow-up above;
+the historical game acceptance below still does not validate the latest source.
+Nothing was published.
 
 ## Historical candidate record
 
