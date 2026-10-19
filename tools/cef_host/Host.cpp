@@ -27,6 +27,7 @@
 #include "FramePacer.h"
 #include "FrameTimer.h"
 #include "LocalAssets.h"
+#include "PendingMessages.h"
 #include "Scripts.h"
 #include "BrowserLocalUri.h"
 #include "BrowserPipe.h"
@@ -79,6 +80,7 @@ namespace osfui::cefhost
     {
     public:
         Host* host{}; // browser process only; outlives CefShutdown
+        std::string adapterLuid; // immutable after CefInitialize starts
         CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
         CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override { return this; }
         void OnContextInitialized() override;
@@ -93,6 +95,11 @@ namespace osfui::cefhost
             command->AppendSwitch("disable-component-update");
             command->AppendSwitch("disable-renderer-backgrounding");
             command->AppendSwitchWithValue("use-angle", "d3d11");
+            if (!adapterLuid.empty()) command->AppendSwitchWithValue("use-adapter-luid", adapterLuid);
+        }
+        void OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command) override
+        {
+            if (!adapterLuid.empty()) command->AppendSwitchWithValue("use-adapter-luid", adapterLuid);
         }
         void OnBrowserCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDictionaryValue> extra) override
         {
@@ -163,8 +170,8 @@ namespace osfui::cefhost
         CefMouseEvent mouse;
         UINT mouseButtons{};
         std::set<UINT> keys;
-        std::deque<std::string> pendingWeb;
-        std::size_t pendingBytes{};
+        PendingMessages pendingWeb;
+        bool pendingOverflowWarned{};
         ULONGLONG pageWindow{};
         UINT pageMessages{};
         int clickCount{}, clickButton{ -1 }, clickX{}, clickY{};
@@ -244,6 +251,7 @@ namespace osfui::cefhost
         std::uint64_t epoch{}, revealSerial{};
         bool initialized{}, stopping{}, focus{}, windowActive{}, pointerEnabled{};
         std::atomic_bool disconnected{};
+        std::atomic_bool queueOverflow{};
         std::thread reader;
         std::mutex queueMutex;
         std::deque<std::string> queue;
@@ -355,7 +363,10 @@ namespace osfui::cefhost
             while (pipe.ReadMessage(payload)) {
                 {
                     std::scoped_lock lock(queueMutex);
-                    if (queue.size() >= 512 || queueBytes + payload.size() > 16u * 1024u * 1024u) break;
+                    if (queue.size() >= 512 || queueBytes + payload.size() > 16u * 1024u * 1024u) {
+                        queueOverflow.store(true);
+                        break;
+                    }
                     queueBytes += payload.size(); queue.push_back(std::move(payload));
                 }
                 QueueMessages();
@@ -587,6 +598,8 @@ namespace osfui::cefhost
         }
         void DrainMessages()
         {
+            if (queueOverflow.exchange(false))
+                Fatal("host-connection", E_OUTOFMEMORY, "CEF incoming pipe queue exceeded 512 messages or 16 MiB; restarting helper");
             if (disconnected.load()) Stop();
             for (int count = 0; !stopping && count < 128; ++count) {
                 std::string payload;
@@ -705,10 +718,9 @@ namespace osfui::cefhost
     void View::Deliver(std::string payload)
     {
         if (!loaded || !browser) {
-            if (pendingWeb.size() >= 64 || pendingBytes + payload.size() > browser::kMaxMessageBytes) {
-                owner.Fatal("cef-bridge", E_OUTOFMEMORY, "CEF pending bridge queue overflow"); return;
-            }
-            pendingBytes += payload.size(); pendingWeb.push_back(std::move(payload)); return;
+            if (!pendingWeb.Push(std::move(payload)) && !std::exchange(pendingOverflowWarned, true))
+                owner.Log("view '" + id + "': pending web messages exceeded the 64-message/8-MiB cap; dropping oldest");
+            return;
         }
         auto message = CefProcessMessage::Create("osfui.receive");
         message->GetArgumentList()->SetString(0, payload);
@@ -723,7 +735,7 @@ namespace osfui::cefhost
         owner.Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = !loaded, .url = frame->GetURL().ToString(),
             .description = loaded ? "" : "CEF document load failed", .code = status }));
         if (!loaded) return;
-        auto messages = std::move(pendingWeb); pendingWeb.clear(); pendingBytes = 0;
+        auto messages = pendingWeb.Take(); pendingOverflowWarned = false;
         for (auto& message : messages) Deliver(std::move(message));
         if (!hidden) Reveal();
         owner.ReconcileFocus();
@@ -858,6 +870,9 @@ namespace osfui::cefhost
         const auto language = browser::LanguageTag::FromGameLanguage(host.init.language);
         if (!language.empty()) CefString(&settings.locale) = language;
         app->host = &host;
+        // ANGLE expects signed high-part, unsigned low-part, in decimal.
+        app->adapterLuid = std::to_string(static_cast<std::int32_t>(host.init.adapterLuidHigh)) + "," +
+            std::to_string(host.init.adapterLuidLow);
         if (!CefInitialize(args, settings, app, sandbox)) return CefGetExitCode();
         host.initialized = true;
         try { host.frameTimer.Start([&host] { host.Post([&host] { host.FrameReady(); }); }); }

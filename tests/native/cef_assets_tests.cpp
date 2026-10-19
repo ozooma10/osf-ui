@@ -1,4 +1,5 @@
 #include "../../tools/cef_host/LocalAssets.h"
+#include "../../tools/cef_host/PendingMessages.h"
 #include "check.h"
 #include <chrono>
 #include <fstream>
@@ -8,6 +9,18 @@ using namespace osfui::cefhost;
 
 int main()
 {
+    PendingMessages pending;
+    for (int i = 0; i < 64; ++i) CHECK(pending.Push(std::to_string(i)));
+    CHECK(!pending.Push("newest"));
+    auto messages = pending.Take();
+    CHECK(messages.size() == 64 && messages.front() == "1" && messages.back() == "newest");
+    CHECK(pending.Take().empty());
+    CHECK(pending.Push(std::string(PendingMessages::maxBytes, 'x')));
+    CHECK(!pending.Push("replacement"));
+    CHECK(!pending.Push(std::string(PendingMessages::maxBytes + 1, 'x')));
+    messages = pending.Take();
+    CHECK(messages.size() == 1 && messages.front() == "replacement");
+    CHECK(pending.Push("after drain"));
     CHECK(SafeAssetPath(L"/acme/menu/index.html"));
     CHECK(SafeAssetPath(L"/shared/my image.png"));
     for (const auto* invalid : { L"", L"index.html", L"//server/file", L"/../outside.txt",
