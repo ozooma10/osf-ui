@@ -604,11 +604,15 @@ namespace osfui::cefhost
                 output.Published(FramePacer::Clock::now());
             } else output.Blocked(); // New paints replace surfaces; an ack wakes publication.
         }
-        void DrainMessages()
+        void CheckConnection()
         {
             if (queueOverflow.exchange(false))
                 Fatal("host-connection", E_OUTOFMEMORY, "CEF incoming pipe queue exceeded 512 messages or 16 MiB; restarting helper");
             if (disconnected.load()) Stop();
+        }
+        void DrainMessages()
+        {
+            CheckConnection();
             for (int count = 0; !stopping && count < 128; ++count) {
                 std::string payload;
                 { std::scoped_lock lock(queueMutex);
@@ -641,7 +645,8 @@ namespace osfui::cefhost
         }
         void Maintenance()
         {
-            if (disconnected.load() || WaitForSingleObject(game, 0) != WAIT_TIMEOUT) Stop();
+            CheckConnection();
+            if (WaitForSingleObject(game, 0) != WAIT_TIMEOUT) Stop();
             if (!stopping) {
                 Send(msg::ToJson(msg::Heartbeat{}));
                 Post([this] { Maintenance(); }, browser::kHeartbeatIntervalMs);
