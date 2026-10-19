@@ -304,7 +304,7 @@ namespace OSFUI
 		bool IsRunning() const { return lifecycle.load(std::memory_order_acquire) == Lifecycle::Running; }
 		bool IsStarting() const { return lifecycle.load(std::memory_order_acquire) == Lifecycle::Starting; }
 
-		void SignalDead(std::string_view a_reason)
+		void SignalDead(std::string_view a_reason, std::string_view a_permanentStage = {})
 		{
 			// Ignore failures after stopping or an earlier failure.
 			auto prior = lifecycle.load(std::memory_order_acquire);
@@ -317,7 +317,9 @@ namespace OSFUI
 			}
 			if (failed) {
 				REX::ERROR("BrowserHostClient: {}", a_reason);
-				Push(Notify{ .kind = Notify::Kind::Dead });
+				if (a_permanentStage.empty()) Push(Notify{ .kind = Notify::Kind::Dead });
+				else Push(Notify{ .kind = Notify::Kind::Fatal, .text = std::string(a_permanentStage),
+					.detail = std::string(a_reason), .unsignedCode = static_cast<std::uint32_t>(E_INVALIDARG) });
 			}
 			outbound.Close();
 			pipe.Close();
@@ -671,7 +673,7 @@ namespace OSFUI
 				greeting.protocolVersion != osfui::browser::kBrowserHostProtocolVersion) {
 				REX::ERROR("BrowserHostClient: rejected browser-host hello (protocol={}, pid={}, browser-host log: {})",
 					greeting.protocolVersion, *peerPid, Utf8Path(browserHostLog));
-				SignalDead("browser-host protocol mismatch");
+				SignalDead("browser-host protocol mismatch; reinstall one complete OSF UI edition", "host-handshake");
 				return;
 			}
 
@@ -684,7 +686,7 @@ namespace OSFUI
 
 			const auto runtimeVersion = greeting.runtimeVersion.empty() ? std::string("?") : greeting.runtimeVersion;
             if (!msg::IsCompatibleHello(greeting, config.backend)) {
-                SignalDead("browser-host backend or capabilities do not match the selected edition");
+                SignalDead("browser-host backend or capabilities do not match the selected edition; reinstall one complete OSF UI edition", "host-handshake");
                 return;
             }
             REX::INFO("OSF UI: verified {} browser-host pid {} up (runtime {})",
@@ -956,7 +958,7 @@ namespace OSFUI
 		}
 
 
-		// Close the transport before terminating the host.
+		// EOF requests shutdown in both helpers. Give CEF time to close browsers and flush its profile.
 		void Stop()
 		{
 			auto prior = lifecycle.load(std::memory_order_acquire);
@@ -972,9 +974,12 @@ namespace OSFUI
 			frames->Disconnect();
 
 			if (const HANDLE browserHostProcess = std::exchange(hostProcess, nullptr)) {
-				::TerminateProcess(browserHostProcess, 9);
-				// Termination is async; wait so a restart can reuse the host's files.
-				::WaitForSingleObject(browserHostProcess, 1000u);
+				// CEF has its own five-second close deadline. Terminate only a helper that outlives it.
+				if (::WaitForSingleObject(browserHostProcess, 6000u) == WAIT_TIMEOUT) {
+					REX::WARN("BrowserHostClient: helper did not exit after pipe closure; terminating after six seconds");
+					::TerminateProcess(browserHostProcess, 9);
+					::WaitForSingleObject(browserHostProcess, 1000u);
+				}
 				::CloseHandle(browserHostProcess);
 			}
 

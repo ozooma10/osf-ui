@@ -492,7 +492,6 @@ namespace osfui::cefhost
         void Handle(const json& raw)
         {
             const auto type = Json::Get(raw, "type", "");
-            if (type == "shutdown") { Stop(); return; }
             if (type == msg::Init::kType) return; // consumed before CefInitialize
             if (type == msg::Navigate::kType) { Navigate(msg::FromJson<msg::Navigate>(raw)); return; }
             if (type == msg::Resize::kType) {

@@ -165,7 +165,7 @@ namespace OSFUI
 	bool Runtime::InitializeWebRuntime()
 	{
 		if (!InitializeRenderer()) {
-			m_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "WebView2 renderer failed to initialize");
+			m_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "OSF UI browser renderer failed to initialize; check the installed edition and its complete browser payload");
 			return false;
 		}
 		WireRendererLifecycleCallbacks();
