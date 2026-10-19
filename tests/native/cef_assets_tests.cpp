@@ -1,5 +1,7 @@
 #include "../../tools/cef_host/LocalAssets.h"
 #include "../../tools/cef_host/PendingMessages.h"
+#include "../../tools/cef_host/AssetStream.h"
+#include "../../tools/browser_shared/BrowserLocalUri.h"
 #include "check.h"
 #include <chrono>
 #include <fstream>
@@ -40,6 +42,37 @@ int main()
     std::filesystem::create_directories(root / "acme" / "menu");
     std::ofstream(root / "acme" / "menu" / "index.html") << "fixture";
     std::ofstream(fixture / "outside.txt") << "outside";
+    using osfui::browser::IsAllowedViewResourceUri;
+    const auto host = osfui::browser::kViewHost;
+    CHECK(IsAllowedViewResourceUri(L"data:text/plain,hello", host));
+    CHECK(IsAllowedViewResourceUri(L"blob:https://osfui.example/id", host));
+    CHECK(!IsAllowedViewResourceUri(L"blob:https://evil.example/id", host));
+    CHECK(!IsAllowedViewResourceUri(L"blob:https://osfui.example.evil/id", host));
+    CHECK(!IsAllowedViewResourceUri(L"file:///outside.txt", host));
+    CHECK(!IsAllowedViewResourceUri(L"https://evil.example/", host));
+    for (const auto range : { "bytes=1-3", "bytes=1-", "bytes=-3", "bytes=1-999" }) {
+        AssetStream stream;
+        CHECK(stream.Open(root / "acme/menu/index.html", false, range));
+        CHECK(stream.response.status == 206);
+        char buffer[32]{};
+        const auto count = stream.Read(buffer, sizeof(buffer));
+        CHECK(count == stream.response.length);
+        CHECK(std::string(buffer, count) == std::string("fixture").substr(stream.response.offset, stream.response.length));
+        CHECK(stream.Read(buffer, sizeof(buffer)) == 0);
+    }
+    for (const auto range : { "bytes=7-", "bytes=9-2", "bytes=-0" }) CHECK(SelectAssetRange(range, 7).status == 416);
+    for (const auto range : { "", "bytes=no", "bytes=0-1,3-4", "bytes=999999999999999999999999-", "items=0-1" })
+        CHECK(SelectAssetRange(range, 7).status == 200);
+    CHECK(SelectAssetRange("bytes=0-", 0).status == 416);
+    CHECK(SelectAssetRange("bytes=-2", 0).status == 416);
+    AssetStream head;
+    CHECK(head.Open(root / "acme/menu/index.html", true, "bytes=1-2"));
+    CHECK(head.response.status == 200 && head.response.length == 7 && head.Remaining() == 0);
+    AssetStream skipping;
+    CHECK(skipping.Open(root / "acme/menu/index.html", false, ""));
+    CHECK(skipping.Skip(3) == 3);
+    char tail[16]{};
+    CHECK(skipping.Read(tail, sizeof(tail)) == 4 && std::string(tail, 4) == "ture");
     CHECK(ResolveAsset(root, L"/acme/menu/index.html") == std::filesystem::canonical(root / "acme/menu/index.html"));
     CHECK(!ResolveAsset(root, L"/acme/menu"));
     CHECK(!ResolveAsset(root, L"/acme/menu/missing.html"));

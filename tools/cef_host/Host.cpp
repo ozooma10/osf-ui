@@ -19,7 +19,6 @@
 #include "include/cef_sandbox_win.h"
 #include "include/cef_v8.h"
 #include "include/cef_version.h"
-#include "include/wrapper/cef_stream_resource_handler.h"
 #include "Core/Ids.h"
 #include "Graphics.h"
 #include "FrameSchedule.h"
@@ -28,6 +27,7 @@
 #include "FrameTimer.h"
 #include "LocalAssets.h"
 #include "PendingMessages.h"
+#include "AssetStream.h"
 #include "Scripts.h"
 #include "BrowserLocalUri.h"
 #include "BrowserPipe.h"
@@ -63,7 +63,10 @@ namespace osfui::cefhost
         {
             if (arguments.size() != 1 || !arguments[0]->IsString()) return false;
             const auto text = arguments[0]->GetStringValue();
-            if (text.length() > browser::kMaxMessageBytes / 4) { exception = "OSF UI message too large"; return true; }
+            if (text.length() > browser::kMaxPageMessageBytes || text.ToString().size() > browser::kMaxPageMessageBytes) {
+                exception = "OSF UI page message exceeds the 64 KiB limit";
+                return true;
+            }
             auto context = CefV8Context::GetCurrentContext();
             if (!context || !context->GetFrame()->IsMain()) return false;
             auto message = CefProcessMessage::Create(name == "__osfCefPost" ? "osfui.post" : "osfui.reveal");
@@ -171,7 +174,7 @@ namespace osfui::cefhost
         UINT mouseButtons{};
         std::set<UINT> keys;
         PendingMessages pendingWeb;
-        bool pendingOverflowWarned{};
+        bool pendingOverflowWarned{}, pageSizeWarned{}, pageRateWarned{};
         ULONGLONG pageWindow{};
         UINT pageMessages{};
         int clickCount{}, clickButton{ -1 }, clickX{}, clickY{};
@@ -208,8 +211,8 @@ namespace osfui::cefhost
         bool OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool, bool) override
         { return !Trusted(request->GetURL()) && !(!frame->IsMain() && browser::IsAllowedBlankFrameUri(request->GetURL().ToWString())); }
         CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
-            CefRefPtr<CefRequest>, bool, bool, const CefString&, bool& disableDefault) override
-        { disableDefault = true; return this; }
+            CefRefPtr<CefRequest> request, bool, bool, const CefString&, bool& disableDefault) override
+        { disableDefault = !browser::IsInMemoryViewResourceUri(request->GetURL().ToWString(), browser::kViewHost); return this; }
         ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request,
             CefRefPtr<CefCallback>) override
         { return browser::IsAllowedViewResourceUri(request->GetURL().ToWString(), browser::kViewHost) ? RV_CONTINUE : RV_CANCEL; }
@@ -752,6 +755,45 @@ namespace osfui::cefhost
         owner.MarkDirty();
         owner.Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = true, .url = url.ToString(), .description = text.ToString(), .code = code }));
     }
+    class LocalResource final : public CefResourceHandler
+    {
+    public:
+        LocalResource(std::filesystem::path file, CefString mime, CefResponse::HeaderMap headers) :
+            file_(std::move(file)), mime_(std::move(mime)), headers_(std::move(headers)) {}
+        bool Open(CefRefPtr<CefRequest> request, bool& handle, CefRefPtr<CefCallback>) override
+        {
+            handle = true;
+            // Without a matching validator, If-Range requires the full representation.
+            return stream_.Open(file_, request->GetMethod() == "HEAD",
+                request->GetHeaderByName("If-Range").empty() ? request->GetHeaderByName("Range").ToString() : "");
+        }
+        void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& length, CefString&) override
+        {
+            const auto& range = stream_.response;
+            response->SetStatus(range.status);
+            response->SetStatusText(range.status == 206 ? "Partial Content" : range.status == 416 ? "Range Not Satisfiable" : "OK");
+            response->SetMimeType(mime_);
+            headers_.emplace("Accept-Ranges", "bytes");
+            headers_.emplace("Content-Length", std::to_string(range.length));
+            if (range.status == 206) headers_.emplace("Content-Range", "bytes " + std::to_string(range.offset) + "-" +
+                std::to_string(range.offset + range.length - 1) + "/" + std::to_string(stream_.size));
+            else if (range.status == 416) headers_.emplace("Content-Range", "bytes */" + std::to_string(stream_.size));
+            response->SetHeaderMap(headers_);
+            length = stream_.Remaining();
+        }
+        bool Read(void* data, int capacity, int& read, CefRefPtr<CefResourceReadCallback>) override
+        { read = stream_.Read(data, capacity); return read > 0; }
+        bool Skip(int64_t count, int64_t& skipped, CefRefPtr<CefResourceSkipCallback>) override
+        { skipped = stream_.Skip(count); return skipped >= 0; }
+        void Cancel() override {}
+    private:
+        const std::filesystem::path file_;
+        const CefString mime_;
+        CefResponse::HeaderMap headers_;
+        AssetStream stream_;
+        IMPLEMENT_REFCOUNTING(LocalResource);
+    };
+
     CefRefPtr<CefResourceHandler> View::GetResourceHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request)
     {
         if (request->GetMethod() != "GET" && request->GetMethod() != "HEAD") return nullptr;
@@ -760,8 +802,6 @@ namespace osfui::cefhost
         const auto decoded = CefURIDecode(uri->path, false, static_cast<cef_uri_unescape_rule_t>(UU_NORMAL | UU_SPACES | UU_URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS)).ToWString();
         const auto file = ResolveAsset(root, decoded);
         if (!file) return nullptr; // default network handling is disabled
-        auto stream = CefStreamReader::CreateForFile(file->wstring());
-        if (!stream) return nullptr;
         auto extension = file->extension().wstring();
         if (!extension.empty()) extension.erase(0, 1);
         auto mime = CefGetMimeType(extension);
@@ -769,8 +809,8 @@ namespace osfui::cefhost
         CefResponse::HeaderMap headers;
         headers.emplace("Cache-Control", "no-store");
         headers.emplace("X-Content-Type-Options", "nosniff");
-        headers.emplace("Content-Security-Policy", "connect-src https://osfui.example; worker-src 'none'; object-src 'none'");
-        return new CefStreamResourceHandler(200, "OK", mime, headers, stream);
+        headers.emplace("Content-Security-Policy", "connect-src https://osfui.example data: blob:; worker-src 'none'; object-src 'none'");
+        return new LocalResource(*file, mime, std::move(headers));
     }
     void View::OnRenderProcessTerminated(CefRefPtr<CefBrowser>, TerminationStatus status, int code, const CefString& text)
     {
@@ -783,11 +823,17 @@ namespace osfui::cefhost
     {
         if (source != PID_RENDERER || !frame->IsMain() || !Trusted(frame->GetURL()) || closing) return false;
         const auto payload = message->GetArgumentList()->GetString(0).ToString();
-        if (payload.size() > browser::kMaxMessageBytes / 2) return true;
+        if (payload.size() > browser::kMaxPageMessageBytes) {
+            if (!std::exchange(pageSizeWarned, true)) owner.Log("view '" + id + "': dropped page message over the 64 KiB limit");
+            return true;
+        }
         if (message->GetName() == "osfui.post") {
             const auto now = GetTickCount64();
             if (now - pageWindow >= 1000) { pageWindow = now; pageMessages = 0; }
-            if (++pageMessages > 128) return true;
+            if (++pageMessages > browser::kMaxPageMessagesPerSecond) {
+                if (!std::exchange(pageRateWarned, true)) owner.Log("view '" + id + "': page-message rate exceeded 128/s; excess messages are dropped");
+                return true;
+            }
             owner.Send(msg::ToJson(msg::WebMessage{ .view = id, .json = payload }));
         } else if (message->GetName() == "osfui.reveal") {
             if (!hidden && loaded && payload == std::to_string(reveal.Token()) && reveal.Sentinel()) {

@@ -116,9 +116,15 @@ namespace osfui::browser
 		return parsed->path == root || parsed->path.starts_with(root + L"/");
 	}
 
+	[[nodiscard]] inline bool IsInMemoryViewResourceUri(std::wstring_view a_uri, std::wstring_view a_viewHost)
+	{
+		if (EqualsAsciiCaseInsensitive(a_uri.substr(0, 5), L"data:")) return true;
+		return EqualsAsciiCaseInsensitive(a_uri.substr(0, 5), L"blob:") && IsHttpsUriForHost(a_uri.substr(5), a_viewHost);
+	}
+
 	[[nodiscard]] inline bool IsAllowedViewResourceUri(std::wstring_view a_uri, std::wstring_view a_viewHost)
 	{
-		return IsHttpsUriForHost(a_uri, a_viewHost);
+		return IsHttpsUriForHost(a_uri, a_viewHost) || IsInMemoryViewResourceUri(a_uri, a_viewHost);
 	}
 
 	[[nodiscard]] inline bool IsAllowedBlankFrameUri(std::wstring_view a_uri) noexcept

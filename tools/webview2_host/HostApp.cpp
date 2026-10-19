@@ -389,7 +389,7 @@ namespace osfui::webview2
 			void ShowView(View& a_view)
 			{
 				if (!a_view.hidden) {
-					log.Info(std::format("view '{}': show â€” already visible (visual={})",
+					log.Info(std::format("view '{}': show - already visible (visual={})",
 						a_view.id, a_view.visual && a_view.visual.IsVisible()));
 					if (captureOpening.view == a_view.id) {
 						PromoteChangedPresentation(a_view); // require a fresh capture even when already shown
@@ -409,7 +409,7 @@ namespace osfui::webview2
 					a_view.revealPending = true;
 					a_view.revealToken = NewRevealToken();
 					a_view.revealDeadline = ::GetTickCount64() + kRevealTimeoutMs;
-					log.Info(std::format("view '{}': show â€” reveal pending ({} ms timeout)",
+					log.Info(std::format("view '{}': show - reveal pending ({} ms timeout)",
 						a_view.id, kRevealTimeoutMs));
 					const auto revealScript = std::format(
 						L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
@@ -420,7 +420,7 @@ namespace osfui::webview2
 							[](HRESULT, LPCWSTR) -> HRESULT { return S_OK; }).Get());
 				} else {
 					log.Info(std::format(
-						"view '{}': show â€” direct (visual={} webView={} domSeen={})", a_view.id,
+						"view '{}': show - direct (visual={} webView={} domSeen={})", a_view.id,
 						a_view.visual != nullptr, a_view.webView != nullptr, a_view.domSeen));
 					if (a_view.visual) a_view.visual.IsVisible(true);
 					PromoteChangedPresentation(a_view);
@@ -434,9 +434,9 @@ namespace osfui::webview2
 				a_view.revealToken.clear();
 				if (a_timedOut) {
 					log.Info(std::format(
-						"view '{}': reveal sentinel timed out â€” showing anyway", a_view.id));
+						"view '{}': reveal sentinel timed out - showing anyway", a_view.id));
 				} else {
-					log.Info(std::format("view '{}': reveal sentinel arrived â€” showing", a_view.id));
+					log.Info(std::format("view '{}': reveal sentinel arrived - showing", a_view.id));
 				}
 				if (a_view.visual && !a_view.hidden) a_view.visual.IsVisible(true);
 				PromoteChangedPresentation(a_view);
@@ -689,7 +689,7 @@ namespace osfui::webview2
 					settings->put_AreDevToolsEnabled(devMode ? TRUE : FALSE);
 					settings->put_IsZoomControlEnabled(FALSE);
 				} else {
-					log.Warn(std::format("view '{}': settings unavailable â€” the browser "
+					log.Warn(std::format("view '{}': settings unavailable - the browser "
 						"context menu stays enabled", a_view.id));
 				}
 				a_view.controller->put_Bounds(
@@ -852,7 +852,7 @@ namespace osfui::webview2
 								warned.insert(ToUtf8(UriHost(uri))).second) {
 								log.Warn(std::format("view '{}': blocked network egress to {} (further denials for this origin are silent)", view->id, ToUtf8(uri)));
 								if (warned.size() == kMaxEgressWarnsPerView) {
-									log.Warn(std::format("view '{}': {} distinct blocked origins â€” further " "egress denials for this view are silent", view->id, kMaxEgressWarnsPerView));
+									log.Warn(std::format("view '{}': {} distinct blocked origins - further " "egress denials for this view are silent", view->id, kMaxEgressWarnsPerView));
 								}
 							}
 							return S_OK;
@@ -922,9 +922,7 @@ namespace osfui::webview2
 					Callback<ICoreWebView2WebMessageReceivedEventHandler>(
 						[this, view](ICoreWebView2*,
 							ICoreWebView2WebMessageReceivedEventArgs* a_args) -> HRESULT {
-							constexpr std::size_t kMaxPageMessageChars = 64 * 1024;
-							constexpr std::size_t kMaxPageMessageBytes = 64 * 1024;
-							constexpr std::uint32_t kMaxPageMessagesPerSecond = 128;
+							constexpr std::size_t kMaxPageMessageChars = kMaxPageMessageBytes;
 							if (!a_args) {
 								ReportSecurityFailure(*view, E_POINTER, "web-message arguments were unavailable");
 								return S_OK;
@@ -1247,7 +1245,7 @@ namespace osfui::webview2
 				if (!a_view.controller) return;
 				ComPtr<ICoreWebView2Controller4> controller4;
 				if (FAILED(a_view.controller.As(&controller4)) || !controller4) {
-					log.Warn(std::format("view '{}': ICoreWebView2Controller4 unavailable â€” "
+					log.Warn(std::format("view '{}': ICoreWebView2Controller4 unavailable - "
 						"rasterization scale not applied (WebView2 Runtime too old)", a_view.id));
 					return;
 				}
@@ -1513,7 +1511,7 @@ namespace osfui::webview2
 							return false;
 						}
 						log.Info(std::format(
-							"game process exited (code 0x{:08X}) â€” shutting down", code));
+							"game process exited (code 0x{:08X}) - shutting down", code));
 						return true;
 					};
 					while (!quit.load()) {
@@ -1531,7 +1529,7 @@ namespace osfui::webview2
 							break;
 						}
 						if (pipeDead.load()) {
-							if (!captureGameExit()) log.Info("game pipe closed â€” shutting down");
+							if (!captureGameExit()) log.Info("game pipe closed - shutting down");
 							break;
 						}
 						DrainGameMessages();

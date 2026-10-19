@@ -40,6 +40,8 @@ namespace osfui::browser
 #endif
 
 	inline constexpr std::uint32_t kMaxMessageBytes = 8u * 1024u * 1024u;
+	inline constexpr std::uint32_t kMaxPageMessageBytes = 64u * 1024u;
+	inline constexpr std::uint32_t kMaxPageMessagesPerSecond = 128;
 
 	inline constexpr std::uint32_t kRingSlots = 4;
 
