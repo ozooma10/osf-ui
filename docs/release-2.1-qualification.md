@@ -8,13 +8,46 @@ handshake mismatch reporting, consistent page limits, and CEF byte-range assets.
 WebView2 tolerates isolated callback errors and retries known transient graphics
 initialization failures. The raw-input checks now run in release builds.
 
-Focused native results: recovery 184 checks, raw input 23, frame state 414,
-message serialization 60, CEF assets/queues/ranges/resource policy 134; zero
-failures. The symlink escape case was skipped because Windows denied symlink
-creation. Both helpers and the WebView2 game DLL compiled. No game or browser
-harness was launched for these fixes. The historical acceptance below does not
-validate them. Multi-GPU selection, profile flushing, CEF media seeking, and live
-view isolation still need runtime acceptance.
+Implementation revision: `9090c9ff9aff9dc69cc8a8f6b7d9541f2dd1601c`, comprising
+eight review-fix commits after `f317a6d`. Validation:
+
+- Focused native results: recovery 184 checks, raw input 23, frame state 414,
+  message serialization 60, CEF assets/queues/ranges/resource policy 134;
+  **815 checks, zero failures**. The symlink escape case was skipped because
+  Windows denied symlink creation.
+- Both editions' lifecycle scenarios and the backend test passed: **21/21**.
+- Both full editions compiled and passed package ownership, actual DLL API,
+  55 compiled Papyrus signatures, browser payload, and archive hash checks.
+  Common files are byte-identical between editions; neither archive contains PDBs.
+- All **nine package rejection checks** passed and restored their staging files.
+- The configured build was restored to WebView2 and deployed to
+  `C:\Modding\Starfield\MO2\mods\OSF UI` while Starfield was stopped. The deployed
+  DLL's APIs and 55 Papyrus signatures passed; DLL, PDB, helper, and PEX hashes
+  matched the local build. This development rebuild is separate from the archives
+  below and retains local debugging symbols.
+
+Both local archives in `build/review-fixes/packages/` record the implementation
+revision above and `sourceDirty: false` in their sidecar manifests:
+
+| Archive | SHA-256 |
+| --- | --- |
+| `OSF-UI-v2.1.0-review-fixes-webview2.zip` | `0759EE4A3CB96BA88AB9CF953802B1D64E1218FE0F5ED5B236647E1F627130AB` |
+| `OSF-UI-v2.1.0-review-fixes-cef.zip` | `D975249BE702EBB0D6463EFD96A85E447D3E79282AC07555BC97C8E3BD917AAB` |
+
+Deployed development payload SHA-256 values:
+
+| File | SHA-256 |
+| --- | --- |
+| `OSFUI.dll` | `FFBF70DE0DCA5118992A295D84066FE97664A284F425FE5643E7E10E85BBD04C` |
+| `osfui_webview2_host.exe` | `47EE4D85711115DCF28EE42A0B7342404D45AFED867FA464FB08D5457BF3018B` |
+| `OSFUI.pex` | `815F26FEDBB2BF00594E63334F890107E8482E0804E6125783B4AEF0995C9E57` |
+
+Local logs are `build/review-final-packages.log`, `build/review-lifecycle-tests.log`,
+`build/review-package-rejections.log`, `build/review-final-deploy.log`,
+`build/review-deployed-api.log`, and `build/review-deployed-hashes.log`.
+No game or browser harness was launched for these fixes. The historical acceptance
+below does not validate them. Multi-GPU selection, profile flushing, CEF media
+seeking, and live view isolation still need runtime acceptance. Nothing was published.
 
 ## Historical candidate record
 
