@@ -6,7 +6,7 @@ default 120-second soak. The measurements do not establish a general CEF speed
 or memory improvement; WebView2 remains the default and CEF the bundled alternative.
 
 This report describes the optimization handoff. The subsequent
-[2.1 release record](release-2.1.md) covers the final production Settings packages,
+[2.1 release record](release-2.1-qualification.md) covers the final production Settings packages,
 later input/frame fixes, original-mod diagnoses and completed scoped edition-switch
 round trip, including remaining consumer limitations.
 

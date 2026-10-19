@@ -9,21 +9,14 @@ Install it alongside mods that require it, then open their interfaces through th
 
 [quote][b]New in 2.0:[/b] Mod settings, keybindings, and issue reporting have moved to [url=https://www.nexusmods.com/starfield/mods/18326]OSF Settings[/url]. [b]OSF Settings is now required by OSF UI.[/b] Install both to use OSF UI mods. Mods built for OSF Settings alone do not need OSF UI.[/quote]
 
-[b]Choose one edition[/b]
-[list]
-[*][b]WebView2 — recommended default:[/b] Choose this for most installations. It has a smaller download and lower measured browser CPU and memory overhead. Requires the Microsoft Edge WebView2 Evergreen Runtime.[/*]
-[*][b]CEF — bundled-runtime alternative:[/b] Choose this when you want Chromium included with OSF UI. No WebView2 runtime is required. The download is larger, measured CPU and memory overhead are higher, and browser updates ship with OSF UI.[/*]
-[/list]
-Both editions provide the same mod APIs. [b]Install one edition only.[/b] The installed edition determines the renderer; no settings change is needed. Performance depends on the interface and system; CEF delivered more new frames with one animated view in our desktop tests, while WebView2 had better median output with three animated views. These tests do not measure Starfield FPS.
-
 [center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306240-1196566958.png[/img][/center]
 [list]
-[*][b]Custom Interfaces:[/b] Build menus and interactive panels using HTML, CSS, and JavaScript, rendered in-game through your selected WebView2 or CEF edition.[/*]
+[*][b]Custom Interfaces:[/b] Build menus and interactive panels using HTML, CSS, and JavaScript, rendered in-game through Microsoft WebView2.[/*]
 [*][b]HUD Overlays:[/b] Display transparent, passive views during gameplay, with support for multiple HUD layers.[/*]
 [*][b]C++ and Papyrus Support:[/b] Connect interfaces to mod logic, send commands, request data, and update what the player sees.[/*]
 [*][b]Keyboard, Mouse, and Controller Input:[/b] Support interactive controls and gamepad navigation. Controller support depends on the individual interface.[/*]
 [*][b]Shared Launcher:[/b] Supporting mods can list their menus in OSF Settings for easy access.[/*]
-[*][b]Loads When Needed:[/b] The selected browser helper starts when a view is requested.[/*]
+[*][b]Loads When Needed:[/b] The WebView2 helper starts when a view is requested.[/*]
 [/list]
 
 [i]OSF UI is a framework. Custom menus and HUDs are supplied by individual mods; installing it alone does not add a new interface to the game.[/i]
@@ -34,10 +27,10 @@ Both editions provide the same mod APIs. [b]Install one edition only.[/b] The in
 [*][url=https://www.nexusmods.com/starfield/mods/106]Starfield Script Extender (SFSE)[/url][/*]
 [*][url=https://www.nexusmods.com/starfield/mods/3256]Address Library for SFSE Plugins[/url][/*]
 [*][url=https://www.nexusmods.com/starfield/mods/18326]OSF Settings[/url] - install the companion 1.0.0 release or a compatible newer release.[/*]
-[*][b]WebView2 edition only:[/b] [url=https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section]Microsoft Edge WebView2 Evergreen Runtime[/url]. The CEF edition includes its own runtime.[/*]
+[*][url=https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section]Microsoft Edge WebView2 Evergreen Runtime[/url][/*]
 [/list]
 
-Install the requirements, then install and enable [b]one OSF UI edition[/b] with MO2 or Vortex. Choose [b]WebView2 (Recommended Default)[/b] unless you want the [b]CEF (Bundled-Runtime Alternative)[/b].
+Install the requirements, then install and enable OSF UI with MO2 or Vortex.
 [b]No ESM or ESP activation is needed for OSF UI.[/b]
 
 Launch Starfield through SFSE and load a save. Open [b]MOD SETTINGS[/b] from the Pause menu, or press [font=Courier New]F10[/font] by default, then select [b]LAUNCHER[/b] to open a registered mod menu. Some mods open their interfaces through their own hotkeys or gameplay actions instead.
@@ -48,9 +41,6 @@ Exit the game, update OSF UI through your mod manager, and install OSF Settings 
 2.0 includes built-in compatibility for supported mods using the 1.6 interfaces. These mods can keep their existing compiled plugins, scripts, view files, and saved settings. [b]Keep mod-provided files and existing saved values in place.[/b] Compatibility covers the documented 1.6 interfaces; other integrations may need an update from their author.
 
 The old OSF UI settings and keybindings pages are replaced by OSF Settings. [font=Courier New]F10[/font] now belongs to OSF Settings and can be rebound there.
-
-[b]Switching editions[/b]
-Close Starfield, then replace or disable the previous OSF UI edition before enabling the other one. Do not enable both together or merge their browser files. Keep mod-provided views and saved values. Browser-local storage stays separate between editions and is not migrated when switching.
 
 [b]Installing and updating mid-save[/b]
 OSF UI itself does not require a new save. Follow any separate installation or update instructions provided by the mods using it.
@@ -96,12 +86,12 @@ Install and enable OSF Settings, launch through SFSE, and confirm that [font=Cou
 Only menus registered for the launcher appear there. HUDs and menus opened through a mod's own controls may not have a launcher entry.
 
 [b]A menu fails to open or appears blank.[/b]
-Check that exactly one complete OSF UI edition is enabled and the mod's interface files are present. For WebView2, confirm that the Evergreen Runtime is installed. For CEF, reinstall the complete CEF package if any bundled browser files are missing. Check [b]MOD ISSUES[/b] in OSF Settings for any reported problem and suggested steps.
+Check that the WebView2 Evergreen Runtime is installed, OSF UI's complete package is enabled, and the mod's interface files are present. Check [b]MOD ISSUES[/b] in OSF Settings for any reported problem and suggested steps.
 
 [b]Reporting a bug[/b]
-Include what happened, steps to reproduce it, the affected mod, your Starfield, OSF UI, and OSF Settings versions, and which browser edition you installed. For rendering problems, also include whether you use HDR, frame generation, or other overlays.
+Include what happened, steps to reproduce it, the affected mod, and your Starfield, OSF UI, and OSF Settings versions. For rendering problems, also include whether you use HDR, frame generation, or other overlays.
 
-Attach the OSF UI, OSF Settings, and SFSE logs, plus the selected browser's [font=Courier New]OSF UI.webview2-host.log[/font] or [font=Courier New]OSF UI.cef-host.log[/font] (and [font=Courier New]OSF UI.cef-host.log.chromium.log[/font] if present), from:
+Attach the OSF UI, OSF Settings, and SFSE logs, plus [font=Courier New]OSF UI.webview2-host.log[/font] if present, from:
 [code]Documents/My Games/Starfield/SFSE/Logs[/code]
 
 [center][img]https://staticdelivery.nexusmods.com/mods/4187/images/17711/17711-1784306246-1794772097.png[/img][/center]

@@ -1,7 +1,7 @@
 # Reset/replay fix validation - 2026-10-01
 
 Historical record: these package identities describe the October 1 candidate.
-See [2.1 release qualification](release-2.1.md) for the current candidates and
+See [2.1 release qualification](release-2.1-qualification.md) for the current candidates and
 consumer acceptance status. The original evidence and limitations below remain
 unchanged; do not deploy these old ZIPs as the 2.1 release.
 

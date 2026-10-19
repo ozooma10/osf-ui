@@ -3,8 +3,7 @@
 A web view framework for Starfield.
 
 OSF UI **2.1.0** is prepared as separate WebView2 and CEF editions from one codebase,
-with edition-specific DLLs and a shared API. See the [2.1 release record](docs/release-2.1.md) for candidate identity,
-completed validation and outstanding release checks.
+with edition-specific DLLs and a shared API. See the [2.1 release notes](docs/release-2.1.md) for changes and upgrade requirements.
 
 | Reference | Use it to |
 | --- | --- |
@@ -26,7 +25,7 @@ completed validation and outstanding release checks.
 
 ## Runtime
 
-Both editions require SFSE, Address Library, and the companion OSF Settings 1.0.0 release or a compatible newer release.
+Both editions require SFSE, Address Library, and OSF Settings 1.1.2 or a compatible newer release. This is the supported 2.1 dependency baseline; older versions have not been qualified against these candidates.
 
 | Edition | Recommendation | Browser requirement |
 | --- | --- | --- |
@@ -78,7 +77,7 @@ The doubles supply load, engine-focus, and frame-readiness events. SFSE hook del
 pwsh tools/package.ps1
 ```
 
-Writes separate `dist/OSF-UI-v<version>-<tag>-webview2.zip` (**recommended default**) and `-cef.zip` (**bundled-runtime alternative**) archives (`-Tag` defaults to `rc`), plus SHA-256 and manifest sidecars. Use `-Backend webview2` or `-Backend cef` for one edition. Each edition builds its own DLL and browser payload; scripts and shared web assets remain byte-identical. `-SkipBuild` requires one explicit `-Backend` and an existing matching DLL. Packaging verifies the archives locally and never publishes. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
+Writes separate `dist/OSF-UI-v<version>-<tag>-webview2.zip` (**recommended default**) and `-cef.zip` (**bundled-runtime alternative**) archives (`-Tag` defaults to `rc`), plus SHA-256 and manifest sidecars. Use `-Backend webview2` or `-Backend cef` for one edition. Each edition builds its own DLL and browser payload; scripts and shared web assets remain byte-identical. `-SkipBuild` requires one explicit `-Backend` and an existing matching DLL. Packaging omits PDB files by default; use `-IncludePdb` for private debugging packages. PDBs retain local build paths. Packaging verifies the archives locally and never publishes. The archive owns the OSF UI binaries, `views/shared`, scripts, and `osfui.json`; it never removes the shared `OSF` parent or the OSF Settings subtree.
 
 The [Nexus release fields](packaging/nexus/release-2.1-fields.txt) include separate file titles and descriptions for the two editions; the [main description](packaging/nexus/description-2.1.bbcode.txt) explains their requirements and installation choices. Use `-Tag ''` for final filenames. Building archives does not publish them.
 

@@ -5,6 +5,7 @@ param(
     [string]$Version,
     [string]$Tag = 'rc',
     [switch]$NoPdb,
+    [switch]$IncludePdb,
     [string]$Mode = 'releasedbg',
     [switch]$SkipBuild,
     [string]$WebView2SdkDir,
@@ -12,6 +13,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($NoPdb -and $IncludePdb) { throw 'Choose either -IncludePdb or -NoPdb, not both.' }
 $RepoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 $OutDir = [IO.Path]::GetFullPath($OutDir)
@@ -86,7 +88,9 @@ try {
             foreach ($doc in 'LICENSE', 'EXCEPTIONS') {
                 Copy-Item -LiteralPath (Join-Path $RepoRoot $doc) -Destination (Join-Path $ui $doc)
             }
-            if ($NoPdb) {
+            # Release archives omit symbols and their account-specific source/temp paths.
+            # Keep -NoPdb accepted for existing release commands.
+            if (-not $IncludePdb) {
                 Get-ChildItem -LiteralPath (Join-Path $data 'SFSE/Plugins') -Filter '*.pdb' -File | Remove-Item -Force
             }
             # PEX embeds compilation timestamps; share the first edition's script bytes.

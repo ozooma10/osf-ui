@@ -1,6 +1,6 @@
 # Stock Exchange compatibility validation — 2026-10-01
 
-Historical record: the [2.1 release qualification](release-2.1.md) tracks the
+Historical record: the [2.1 release qualification](release-2.1-qualification.md) tracks the
 current production candidates and real-mod checks. The identities and unverified
 steps below describe the original adapter work and remain as provenance.
 
