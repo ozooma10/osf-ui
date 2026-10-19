@@ -4,6 +4,8 @@ param(
     [Parameter(Mandatory)][ValidateSet('webview2','cef')][string]$Backend,
     [ValidateSet('stock','luma')][string]$Graphics='stock',
     [switch]$Interactive,
+    [switch]$RuntimeChecks,
+    [string]$VideoFixture,
     [ValidateRange(0,1800)][int]$SoakSeconds=120,
     [string]$Package,
     [string]$SettingsManifest,
@@ -19,7 +21,8 @@ param(
     [string]$SettingsTestDll='C:\Modding\Starfield\OSF Settings\build\windows\x64\releasedbg\OSFSettings.dll'
 )
 $ErrorActionPreference='Stop'
-if(-not $Interactive){throw '[blocked] This suite tests keyboard/mouse paths; explicitly supply -Interactive.'}
+if(-not $Interactive -and -not $RuntimeChecks){throw '[blocked] This suite tests keyboard/mouse paths; explicitly supply -Interactive, or select background -RuntimeChecks.'}
+if($RuntimeChecks -and ($Backend -ne 'cef' -or $RealMods -or $Interactive -or -not $SettingsManifest -or -not $VideoFixture)){throw 'RuntimeChecks requires CEF, production SettingsManifest and VideoFixture, without Interactive or RealMods.'}
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if(-not $Package){
     $versionMatch=Select-String -LiteralPath (Join-Path $repo 'src/Core/Version.h') -Pattern 'kOsfuiReleaseVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
@@ -43,6 +46,7 @@ if($SomaticModRoot -and -not $RealMods){throw 'SomaticModRoot requires RealMods.
 $diagnosticComparison=$DiagnosticWithoutUI -or $DiagnosticDisableQuickSaveLoad -or [bool]$DiagnosticSomaticIni
 if($diagnosticComparison -and (-not $RealMods -or $ResumeRun)){throw 'Diagnostic comparisons require a fresh RealMods run; they cannot create an edition-switch baseline.'}
 . (Join-Path $PSScriptRoot 'RealMods.ps1')
+. (Join-Path $PSScriptRoot 'Runtime.ps1')
 function Get-StorageHashes([string]$Root) {
     $files=@(if(Test-Path -LiteralPath $Root){Get-ChildItem -LiteralPath $Root -File -Recurse | Sort-Object FullName | ForEach-Object {
         [ordered]@{path=[IO.Path]::GetRelativePath($Root,$_.FullName);sha256=(Get-FileHash -LiteralPath $_.FullName).Hash}
@@ -108,7 +112,7 @@ try {
     }
     $lock=[IO.File]::Open((Join-Path $script:StateRoot 'runner.lock'),'OpenOrCreate','ReadWrite','None')
     if(@(Get-GameProcess).Count){throw '[blocked] Existing Starfield will not be interrupted.'}
-    $null=Start-RunArtifacts "$Backend-$Graphics"
+    $null=Start-RunArtifacts "$Backend-$Graphics$(if($RuntimeChecks){'-runtime'})"
     $sources=@(Get-ChildItem $PSScriptRoot -File | ForEach-Object {@{name=$_.Name;sha256=(Get-FileHash $_.FullName).Hash}})
     Write-JsonFile (Join-Path $script:Run.path 'test-sources.json') $sources
     $script:ProbeSession=[guid]::NewGuid().ToString('N')
@@ -217,6 +221,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'index.html'),(Join-Path $PSScriptRoot 'test.js') -Destination $viewRoot
         Write-JsonFile (Join-Path $viewRoot 'manifest.json') @{manifestVersion=1;title="Backend test $view";entry='index.html';kind=$(if($view -eq 'hud'){'hud'}else{'menu'});width=1920;height=1080;capturesInput=($view -ne 'hud');pausesGame=($view -eq 'paused');launcher=($view -eq 'panel')}
     }
+    if($RuntimeChecks){Initialize-RuntimeFixtures $mod}
     $legacyRoot=Join-Path $mod 'SFSE\Plugins\OSFUI\views\osfui-backend-test\legacy'
     [IO.Directory]::CreateDirectory($legacyRoot)|Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'legacy.html') -Destination (Join-Path $legacyRoot 'index.html')
@@ -262,13 +267,14 @@ try {
     foreach($folder in @('saves','settings-values')){Copy-Tree (Join-Path $seed $folder) (Join-Path $script:FixtureRoot $folder)}
     Copy-Item -LiteralPath (Join-Path $seed 'fixture.json') -Destination $script:FixtureRoot
     Write-JsonFile (Join-Path $script:FixtureRoot 'settings-values\osfui.json') @{formatVersion=1;values=@{developerMode=$false;cefPrototype=($Backend -eq 'webview2')}}
-    Write-JsonFile (Join-Path $script:Run.path 'candidate.json') @{sourceCommit=(& git -C $repo rev-parse HEAD);package=(Get-FileHash $Package);settingsDll=(Get-FileHash (Join-Path $mod 'SFSE\Plugins\OSFSettings.dll'));settingsProduction=[bool]$SettingsManifest;settingsManifest=$SettingsManifest;backend=$Backend;graphics=$Graphics;diagnosticComparison=[bool]$diagnosticComparison;withoutUI=[bool]$DiagnosticWithoutUI;disableQuickSaveLoad=[bool]$DiagnosticDisableQuickSaveLoad}
+    Write-JsonFile (Join-Path $script:Run.path 'candidate.json') @{sourceCommit=(& git -C $repo rev-parse HEAD);package=(Get-FileHash $Package);settingsDll=(Get-FileHash (Join-Path $mod 'SFSE\Plugins\OSFSettings.dll'));settingsProduction=[bool]$SettingsManifest;settingsManifest=$SettingsManifest;backend=$Backend;graphics=$Graphics;runtimeChecks=[bool]$RuntimeChecks;diagnosticComparison=[bool]$diagnosticComparison;withoutUI=[bool]$DiagnosticWithoutUI;disableQuickSaveLoad=[bool]$DiagnosticDisableQuickSaveLoad}
     if($SettingsManifest){
         $controller=Join-Path $PSScriptRoot 'private_storage.py'
         $controllerArguments='"{0}" "{1}"' -f $controller,$probeConfigPath
         $storageController=Start-Process -FilePath (Get-Command python).Source -ArgumentList $controllerArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $script:Run.path 'storage-controller.out') -RedirectStandardError (Join-Path $script:Run.path 'storage-controller.err')
     }
-    $null=Start-TestGame -RequiredTestMods @($script:HarnessModName) -RefocusAfterLoad
+    if($RuntimeChecks){Enter-PrivateCefProfile}
+    $null=Start-TestGame -RequiredTestMods @($script:HarnessModName) -RefocusAfterLoad:$Interactive
     $consumer=Wait-Observed 'Public SDK consumer initialized' {Read-Consumer} {param($c)$c -and $c.pid -eq $script:Session.pid -and ($DiagnosticWithoutUI -or ($c.initialized -and $c.registered))} 20
     $packageVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $data 'SFSE\Plugins\OSFUI.dll'))
     $expectedVersion='{0}.{1}.{2}' -f $packageVersion.FileMajorPart,$packageVersion.FileMinorPart,$packageVersion.FileBuildPart
@@ -287,7 +293,7 @@ try {
         $saved=Read-JsonFile (Join-Path $privateSettings 'osfui.json')
         Assert-Test ($saved.values.developerMode -eq $true) 'Production Settings commits public API edits into private storage'
         Send-Probe settingsBool @{mod='osfui';key='developerMode';value=$false}
-        if(-not $RealMods){
+        if(-not $RealMods -and -not $RuntimeChecks){
             Send-Key 121
             $null=Wait-Observed 'Production Settings opens from its normal hotkey' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
             $null=Save-Capture 'production-settings'
@@ -296,7 +302,7 @@ try {
         }
     }
     Assert-Test ((@($modules | Where-Object name -eq 'Luma.dll').Count -gt 0) -eq ($Graphics -eq 'luma')) 'Selected graphics integration loaded'
-    if($RealMods){Invoke-RealModReview} else {
+    if($RuntimeChecks){Invoke-CefGameRuntimeChecks} elseif($RealMods){Invoke-RealModReview} else {
     Open-Panel
     $hosts=@(Get-TestHosts); Assert-Test ($hosts.Count -eq 1) 'Package automatically selected expected browser helper'
     Add-Evidence 'browser-host' $Backend (Get-ProcessIdentity $hosts[0])
@@ -398,6 +404,7 @@ try {
     Assert-Test ($log -notmatch 'device removed|device lost|DXGI_ERROR_DEVICE|hook set incomplete|self-test FAILED') 'No device loss or hook failure'
     $outcome='passed';$message='Production package passed browser, native/Papyrus bridge, input, lifecycle and recovery scenarios.';$exitCode=0
     if($RealMods){$message='Real-mod review completed; see review-complete.json for the exact checked workflows and limitations.'}
+    if($RuntimeChecks){$message='CEF background game checks passed: GPU adapter, decoded video seeks, view isolation/recovery, and browser storage across normal game exit.'}
 } catch {
     $message=$_.Exception.Message
     if($message.StartsWith('[failed]')){$outcome='failed';$exitCode=1}
@@ -416,6 +423,9 @@ try {
     }}catch{Write-Warning "Cleanup: $_";$message+="; cleanup: $_";$outcome='blocked';$exitCode=2}
     if($storageController -and -not $storageController.HasExited){
         if(-not $storageController.WaitForExit(3000)){Stop-Process -InputObject $storageController -Force}
+    }
+    if($RuntimeChecks){
+        try {Exit-PrivateCefProfile} catch {Write-Warning $_;$message+="; browser profile restore: $_";$outcome='blocked';$exitCode=2}
     }
     if($null -ne $liveStorageBefore){
         $after=Get-StorageHashes $liveSettings

@@ -7,11 +7,13 @@
 #include <vendor/OSFSettings_Providers.h>
 #include <RE/E/Events.h>
 #include <RE/M/MenuControls.h>
+#include <RE/C/CreationRenderer.h>
 #include "../../src/Compat/V1/LegacyABI.h"
 #include <nlohmann/json.hpp>
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
+#include <d3d12.h>
 #undef ERROR
 #include <filesystem>
 #include <fstream>
@@ -134,6 +136,20 @@ void Run() {
                     if (action == "menu") accepted = api.RequestMenu(view.c_str(), command.value("open", false));
                     if (action == "state") accepted = api.SetState("osfui-backend-test", "value", command.at("value").dump().c_str());
                     if (action == "event") accepted = api.EmitEvent(view.c_str(), command.at("name").get<std::string>().c_str(), command.at("value").dump().c_str());
+                    if (action == "graphics") {
+                        // Read the same typed renderer interface used by the production
+                        // compositor. No game mutation or rendering hook is installed.
+                        auto* renderer = RE::CreationRendererPrivate::Renderer::GetSingleton();
+                        auto* unknown = renderer ? reinterpret_cast<IUnknown*>(renderer->GetDevice()) : nullptr;
+                        ID3D12Device* device{};
+                        if (unknown && SUCCEEDED(unknown->QueryInterface(IID_PPV_ARGS(&device)))) {
+                            const auto luid = device->GetAdapterLuid();
+                            device->Release();
+                            std::scoped_lock lock(mutex);
+                            observations["graphics"] = {{"adapterLuidHigh", luid.HighPart}, {"adapterLuidLow", luid.LowPart}};
+                            accepted = true;
+                        }
+                    }
                     if (legacy && action == "legacyMenu") accepted = legacy->RequestMenu("osfui-backend-test/legacy", command.value("open", false));
                     if (legacy && action == "legacyState") accepted = legacy->SetViewState("osfui-backend-test", "legacy", command.at("value").dump().c_str());
                     if (legacy && action == "legacyEvent") accepted = legacy->SendToWeb("osfui-backend-test/legacy", "backend.event", command.at("value").dump().c_str());

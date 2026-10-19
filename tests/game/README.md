@@ -119,3 +119,44 @@ an unchanged copy of AISS's stylesheet; it does not alter the original view.
 establish Luma/HDR/frame-generation compatibility, physical controller or IME
 behavior, every resolution/adapter combination, or operation on another machine
 without Evergreen. Those remain separate acceptance checks.
+
+## Background CEF runtime checks
+
+`-RuntimeChecks` runs a focused CEF suite without desktop input or focus changes.
+It requires a production Settings archive and an explicitly generated video:
+
+```powershell
+pwsh tests/game/Build-VideoFixture.ps1 -FFmpeg <path-to-ffmpeg.exe>
+pwsh tests/game/Build.ps1
+pwsh tools/package.ps1 -Backend cef -Tag game-runtime -OutDir build/cef-game/packages
+pwsh tests/game/Test-Backend.ps1 -Backend cef -RuntimeChecks `
+  -Package build/cef-game/packages/OSF-UI-v2.1.0-game-runtime-cef.zip `
+  -SettingsManifest <production-settings-manifest.json> `
+  -VideoFixture build/cef-game/fixtures/seek.webm
+```
+
+The consumer reads Starfield's D3D12 adapter LUID and compares it with the owned
+Chromium GPU process. The page reports its hardware ANGLE renderer. The 20-second
+1280x720 VP8 fixture has a moving background and timestamp-specific color patches;
+the page checks Range responses and decoded canvas pixels after forward, backward
+and near-end seeks, followed by resumed playback. Browser events or `currentTime`
+alone cannot pass this check.
+
+Two passive HUDs exercise a slow parser, failed navigation and automatic retry,
+missing reveal, and a renderer crash. The runner identifies the sibling's
+renderer by its controlled parser CPU loop among the owned helper's children,
+then rechecks its PID/creation time before terminating only that process. This
+also handles Chromium's spare renderers. Captures decode the healthy HUD's binary frame marker in the
+actual game window, requiring distinct rendered frames across each scenario.
+
+After a committed IndexedDB/localStorage/cookie write, the runner closes the game
+normally and requires the helper to exit with code zero. A fresh game process
+reads the same data. All browser data is private: with the harness lock held and
+all Starfield/CEF processes stopped, the runner temporarily renames the original
+`%LOCALAPPDATA%/OSFUI/CEF` directory, uses a marked empty test directory, retains
+it with the run's evidence, then restores and hash-checks the original directory.
+If processes remain, it preserves both directories and reports blocked cleanup.
+
+This scoped suite does not claim keyboard/controller acceptance, every codec,
+an additional game GPU, or Luma/HDR/frame-generation coverage. Failed attempts
+remain in the artifact directory alongside successful runs.
