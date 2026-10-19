@@ -3,7 +3,7 @@
   "description": "Starfield Web Interface Framework",
   "version": "2.1.0",
   "dependencies": {
-    "osfsettings": "1.1.2"
+    "osfsettings": "1.2.0"
   },
   "groups": {
     "Developer": [
