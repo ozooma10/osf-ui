@@ -160,3 +160,32 @@ If processes remain, it preserves both directories and reports blocked cleanup.
 This scoped suite does not claim keyboard/controller acceptance, every codec,
 an additional game GPU, or Luma/HDR/frame-generation coverage. Failed attempts
 remain in the artifact directory alongside successful runs.
+
+### Verified October 19, 2026
+
+Run `build/backend-validation/game/20261019-073300-298-cef-stock-runtime` passed
+**68 assertions, zero failures**, with 16 game-window captures and two fresh
+Starfield 1.16.244.0 processes. Test sources were commit `1248ec7`; the unchanged
+production CEF package was built from clean `3c2b849`:
+
+- Archive SHA-256: `53EFB38E92F97A9DA2EE3049C58E4ADA40621D326D16D6C4F05FEC81B6723C74`.
+- Helper DLL SHA-256: `8AA5345C61B82B1E53E39B63E7DFB3FC1E328DDBB140D71A6D698E1099051F8C`.
+- Production Settings 1.1.2 archive SHA-256: `EF5183DCBD6A72D7871780FF10EA1FA09621054913AE31F8A7F8B2137788E44A`.
+
+| Check | Observed result |
+| --- | --- |
+| GPU selection | Native game D3D12 LUID `0,954964989` matched Chromium's GPU process; WebGL reported NVIDIA GeForce RTX 3080 / ANGLE D3D11. Game captures contained the rendered HUD. |
+| Video seeking | 10,036,850-byte, 20-second VP8/WebM; bounded and suffix HTTP 206 responses; decoded colors matched seeks to 14.25, 2.5, 9.25 and 18.25 seconds, all at readyState 4; playback resumed. |
+| View isolation | Distinct healthy-HUD game pixels during slow load, renderer crash, automatic recovery, failed navigation/retry and missed reveal. The healthy document survived the sibling renderer crash. |
+| Profile persistence | 622,625-character payload survived in localStorage and IndexedDB, plus a persistent cookie. Normal game/helper shutdown after the write took 924 ms in total, helper exit code 0; a fresh game read the data. Both helpers exited cleanly. |
+
+The original CEF profile was restored byte-for-byte and live Settings hashes
+were unchanged. Consumer publication was error-free in both processes. No new
+production CEF defect was found. The test consumer did expose a transient
+Windows atomic-replace error; `1248ec7` adds bounded retries for access-denied
+and sharing-violation errors without replaying mutations. Earlier diagnostic
+attempts are retained; the final run above supersedes their probe failures.
+
+This is stock-graphics acceptance on this machine's RTX 3080 at a 3440x1409 game
+client size. Other game adapters, codecs, Luma/HDR/frame generation and interactive
+input remain outside this scoped run. The installed WebView2 edition was retained.
