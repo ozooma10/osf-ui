@@ -86,7 +86,7 @@ namespace OSFUI
 			}
 		}
 
-		PublishResult Publish(std::uint32_t a_slot, std::uint64_t a_serial, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_epoch)
+		PublishResult Publish(std::uint32_t a_slot, std::uint64_t a_serial, std::uint32_t a_width, std::uint32_t a_height, std::uint64_t a_epoch, bool a_complete = true)
 		{
 			if (!m_generation || a_slot >= m_generation->slotCount || !a_serial) return PublishResult::Invalid;
 			if (a_serial <= m_generation->lastSerial) return PublishResult::Discarded;
@@ -97,7 +97,8 @@ namespace OSFUI
 				return PublishResult::Invalid;
 			}
 			m_generation->lastSerial = a_serial;
-			if (!m_acceptFrames || a_epoch != m_epoch || a_width != m_generation->width || a_height != m_generation->height) {
+			if (!m_acceptFrames || a_epoch != m_epoch || a_width != m_generation->width || a_height != m_generation->height ||
+				(!a_complete && m_preparation != Preparation::None)) {
 				m_generation->released[a_slot] = a_serial;
 				return PublishResult::Discarded;
 			}
@@ -110,7 +111,7 @@ namespace OSFUI
 				return PublishResult::Accepted;
 			}
 			m_pending = std::make_shared<Frame>(view, m_generation);
-			m_latest = view;
+			if (a_complete) m_latest = view;
 			return PublishResult::Accepted;
 		}
 

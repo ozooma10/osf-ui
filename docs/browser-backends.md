@@ -62,7 +62,7 @@ The packager configures, builds, and stages each edition separately. It verifies
 - `tools/browser_shared` contains the common protocol, messages, pipe, launch broker, local URI rules, and input data. CDP input remains private to `tools/webview2_host`.
 - `tools/browser_broker` is the shared disposable launcher. Under MO2, this process inherits USVFS and asks the desktop broker to launch the selected host outside that environment. Neither browser executable doubles as the injected launcher. In-game testing found that using CEF's sandbox bootstrap for that first injected process crashes before the host handshake. The separate launcher preserves the CEF sandbox and keeps COM launch calls out of Starfield.
 - `tools/webview2_host` owns WebView2 controllers/capture; `tools/cef_host` owns CEF callbacks and accelerated off-screen rendering.
-- Private host protocol 4 identifies the backend separately from the runtime version and requires shared textures, frame acknowledgments, and presentation epochs. Game DLL and helpers must be installed as one matching package. Public API versions are unchanged.
+- Private host protocol 5 identifies the backend separately from the runtime version and requires shared textures, frame acknowledgments, and presentation epochs. Game DLL and helpers must be installed as one matching package. Public API versions are unchanged.
 
 ## Implementation
 

@@ -40,6 +40,22 @@ namespace
 
 int main()
 {
+	// A failed sibling must not freeze a running scene or falsely complete a menu reveal.
+	{
+		auto state = Open();
+		CHECK(state.Publish(0, 1, 1920, 1080, 1, false) == Result::Accepted);
+		CHECK(state.Record(listA, 1, 1)->frameIndex == 1);
+		CHECK(!state.Latest());
+		state.BeginPreparation();
+		CHECK(state.Publish(1, 2, 1920, 1080, 1, false) == Result::Discarded);
+		CHECK(state.TakeReleases()[1] == 2);
+		CHECK(!state.PreparationReady(1, 2, 1920, 1080));
+		CHECK(Publish(state, 1, 3) == Result::Accepted);
+		CHECK(state.PreparationReady(1, 3, 1920, 1080));
+		CHECK(state.Publish(2, 4, 1920, 1080, 1, false) == Result::Discarded);
+		state.EndPreparation(true);
+		CHECK(state.Record(listB, 1, 4)->frameIndex == 3);
+	}
 	// Pin the prepared frame for the launcher handshake, then display the newest
 	// capture even if the page stops painting before Settings finishes closing.
 	{

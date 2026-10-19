@@ -386,6 +386,7 @@ namespace osfui::cefhost
                 auto& view = *found->second;
                 view.ReleaseInput(); view.loaded = false; view.reveal.Reset();
                 view.surface.Clear(); view.popup.Clear(); view.popupShown = false;
+                MarkDirty();
                 view.browser->GetMainFrame()->LoadURL(url);
                 return;
             }
@@ -565,11 +566,16 @@ namespace osfui::cefhost
         {
             if (!output.Pending()) return;
             std::vector<View*> visible;
+            bool complete = true, anyVisible = false;
             for (auto& [id, view] : views) if (!view->hidden && !view->closing) {
-                if (!view->loaded || !view->reveal.Ready() || !view->surface.texture) return;
+                anyVisible = true;
+                if (!view->loaded || !view->reveal.Ready() || !view->surface.texture) {
+                    complete = false;
+                    continue;
+                }
                 visible.push_back(view.get());
             }
-            if (visible.empty()) { output.NoViews(); return; }
+            if (!anyVisible) { output.NoViews(); return; }
             const auto now = FramePacer::Clock::now();
             const bool fresh = std::any_of(visible.begin(), visible.end(), [](auto* view) {
                 return view->paintSerial != view->publishedPaintSerial;
@@ -591,7 +597,7 @@ namespace osfui::cefhost
                         view->popupRect.width * scale, view->popupRect.height * scale });
                 }
             }
-            if (graphics.Publish(layers, width, height, epoch)) {
+            if (graphics.Publish(layers, width, height, epoch, complete)) {
                 for (auto* view : visible) view->publishedPaintSerial = view->paintSerial;
                 output.Published(FramePacer::Clock::now());
             } else output.Blocked(); // New paints replace surfaces; an ack wakes publication.
@@ -727,7 +733,7 @@ namespace osfui::cefhost
         browser->GetMainFrame()->SendProcessMessage(PID_RENDERER, message);
     }
     void View::OnLoadStart(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, TransitionType)
-    { if (frame->IsMain()) { ReleaseInput(); loaded = false; reveal.Reset(); popupShown = false; } }
+    { if (frame->IsMain()) { ReleaseInput(); loaded = false; reveal.Reset(); popupShown = false; owner.MarkDirty(); } }
     void View::OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, int status)
     {
         if (!frame->IsMain() || closing) return;
@@ -744,6 +750,7 @@ namespace osfui::cefhost
     {
         if (!frame->IsMain() || code == ERR_ABORTED || closing) return;
         ReleaseInput(); loaded = false; reveal.Reset();
+        owner.MarkDirty();
         owner.Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = true, .url = url.ToString(), .description = text.ToString(), .code = code }));
     }
     CefRefPtr<CefResourceHandler> View::GetResourceHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request)
@@ -877,7 +884,8 @@ namespace osfui::cefhost
         host.initialized = true;
         try { host.frameTimer.Start([&host] { host.Post([&host] { host.FrameReady(); }); }); }
         catch (const std::exception& error) { host.Fatal("cef-timer", E_FAIL, error.what()); }
-        host.Log("CEF " CEF_VERSION "; accelerated off-screen rendering; sandbox enabled; shared host protocol 4; event-driven messages; coalesced 60 Hz output");
+        host.Log("CEF " CEF_VERSION "; accelerated off-screen rendering; sandbox enabled; shared host protocol " +
+            std::to_string(browser::kBrowserHostProtocolVersion) + "; event-driven messages; coalesced 60 Hz output");
         host.reader = std::thread([&host] { host.Reader(); });
         CefRunMessageLoop();
         host.tasksAlive->store(false);

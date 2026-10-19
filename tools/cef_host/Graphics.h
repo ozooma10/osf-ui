@@ -41,7 +41,7 @@ namespace osfui::cefhost
         ~Graphics();
         void Initialize(LUID adapter, HANDLE game, Send send);
         void CopyPaint(HANDLE borrowed, PaintRect visible, PaintRect copy, Surface& destination);
-        bool Publish(std::span<const Layer> layers, UINT width, UINT height, std::uint64_t epoch);
+        bool Publish(std::span<const Layer> layers, UINT width, UINT height, std::uint64_t epoch, bool complete);
         void Acknowledge(UINT slot, std::uint64_t serial);
 
     private:

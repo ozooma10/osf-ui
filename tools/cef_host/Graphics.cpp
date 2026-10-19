@@ -184,7 +184,7 @@ namespace osfui::cefhost
             throw;
         }
     }
-    bool Graphics::Publish(std::span<const Layer> layers, UINT width, UINT height, std::uint64_t epoch)
+    bool Graphics::Publish(std::span<const Layer> layers, UINT width, UINT height, std::uint64_t epoch, bool complete)
     {
         EnsureRing(width, height);
         UINT index = browser::kRingSlots;
@@ -221,7 +221,7 @@ namespace osfui::cefhost
         slot.serial = serial;
         nextSlot_ = (index + 1) % static_cast<UINT>(slots_.size());
         if (!send_(browser::msg::ToJson(browser::msg::Frame{ .slot = index, .serial = serial,
-            .width = width, .height = height, .presentationEpoch = epoch })))
+            .width = width, .height = height, .presentationEpoch = epoch, .complete = complete })))
             throw GraphicsError(E_FAIL, "Send CEF frame");
         return true;
     }

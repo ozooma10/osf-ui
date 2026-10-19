@@ -860,7 +860,7 @@ namespace OSFUI
 
 		void OnFrameMessage(const msg::Frame& a_msg)
 		{
-			if (frames->Publish(a_msg.slot, a_msg.serial, a_msg.width, a_msg.height, a_msg.presentationEpoch) == SharedFrameState::PublishResult::Invalid) {
+			if (frames->Publish(a_msg.slot, a_msg.serial, a_msg.width, a_msg.height, a_msg.presentationEpoch, a_msg.complete) == SharedFrameState::PublishResult::Invalid) {
 				SignalDead("browser host published an invalid or still-owned ring slot");
 			}
 		}

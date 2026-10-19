@@ -115,9 +115,9 @@ int main()
 	}
 	{
 		const msg::Frame sent{ .slot = 3, .serial = 0xDEAD'BEEF'0000'0001ull,
-			.width = 1920, .height = 1080, .presentationEpoch = 9 };
+			.width = 1920, .height = 1080, .presentationEpoch = 9, .complete = false };
 		const auto got = RoundTrip(sent);
-		Check(got.slot == 3 && got.serial == sent.serial && got.presentationEpoch == 9, "frame survives");
+		Check(got.slot == 3 && got.serial == sent.serial && got.presentationEpoch == 9 && !got.complete, "partial frame survives");
 	}
 	{
 		const auto got = RoundTrip(msg::FrameAck{ .slot = 2, .serial = 77 });

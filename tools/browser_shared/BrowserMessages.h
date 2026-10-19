@@ -373,6 +373,7 @@ namespace osfui::browser::msg
 		std::uint32_t width{ 0 };
 		std::uint32_t height{ 0 };
 		std::uint64_t presentationEpoch{ 0 };
+		bool complete{ true }; // partial composites may update an existing scene, never finish a reveal
 
 		static constexpr auto kFields = std::tuple{
 			F("slot", &Frame::slot),
@@ -380,6 +381,7 @@ namespace osfui::browser::msg
 			F("width", &Frame::width),
 			F("height", &Frame::height),
 			F("presentationEpoch", &Frame::presentationEpoch),
+			F("complete", &Frame::complete),
 		};
 	};
 
