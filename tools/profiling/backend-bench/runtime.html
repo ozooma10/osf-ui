@@ -1,0 +1,135 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>OSF UI private runtime checks</title>
+<style>html,body{margin:0;background:transparent}canvas{position:absolute;top:0;left:0}</style>
+<canvas id="marker" width="32" height="32"></canvas>
+<script>
+(() => {
+  const main = location.pathname.includes('/main/');
+  const api = window.osfui, canvas = document.querySelector('canvas'), ctx = canvas.getContext('2d');
+  let serial = 0x110000, animate = false, queueCount = 0, queueLast = -1;
+  function send(name, payload) { api.postMessage(JSON.stringify({kind:'send', name, payload})); }
+  function result(test, values = {}) { send('runtime.result', {test, passed:true, ...values}); }
+  function require(ok, message) { if (!ok) throw new Error(message); }
+  function mark() {
+    if (!main) return;
+    serial++;
+    for (let block = 0; block < 8; ++block) {
+      const value = serial >> ((7-block)*3);
+      ctx.fillStyle = `rgb(${value&4?255:0},${value&2?255:0},${value&1?255:0})`;
+      ctx.fillRect(block%4*8, Math.floor(block/4)*16, 8, 16);
+    }
+  }
+  function tick() { if (animate) mark(); requestAnimationFrame(tick); }
+  function event(target, name, timeout = 10000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => finish(new Error(`timeout: ${name}, media error ${target.error?.code}`)), timeout);
+      const success = () => finish();
+      const failure = () => finish(new Error(`media error ${target.error?.code}`));
+      function finish(error) {
+        clearTimeout(timer); target.removeEventListener(name, success); target.removeEventListener('error', failure);
+        error ? reject(error) : resolve();
+      }
+      target.addEventListener(name, success, {once:true}); target.addEventListener('error', failure, {once:true});
+    });
+  }
+  async function database() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('osfui-runtime-acceptance', 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('values');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  async function storage(test, token) {
+    const db = await database(), writing = test === 'storage-write';
+    const expected = token + ':' + 'stored-on-shutdown'.repeat(32768);
+    let persisted;
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('values', writing ? 'readwrite' : 'readonly');
+      const store = tx.objectStore('values');
+      if (writing) store.put(expected, 'payload');
+      else { const get = store.get('payload'); get.onsuccess = () => persisted = get.result; }
+      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+    if (writing) {
+      document.cookie = `runtimeToken=${token}; Max-Age=86400; Path=/; Secure; SameSite=Strict`;
+      localStorage.setItem('runtime-payload', expected);
+    } else {
+      require(localStorage.getItem('runtime-payload') === expected, 'localStorage did not survive immediate shutdown');
+      require(persisted === expected, 'IndexedDB did not survive immediate shutdown');
+    }
+    require(document.cookie.split('; ').includes(`runtimeToken=${token}`), 'persistent cookie mismatch');
+    result(test, {token, bytes:expected.length, localStorage:true, indexedDB:true, cookie:true});
+  }
+  async function media() {
+    const all = new Uint8Array(await (await fetch('tone.wav')).arrayBuffer());
+    const head = await fetch('tone.wav', {method:'HEAD'});
+    require(head.status === 200 && Number(head.headers.get('content-length')) === all.length,
+      `HEAD status/length ${head.status}/${head.headers.get('content-length')}, expected 200/${all.length}`);
+    require((await head.arrayBuffer()).byteLength === 0, 'HEAD sent a body');
+    const headRange = await fetch('tone.wav', {method:'HEAD',headers:{Range:'bytes=144-239'}});
+    const headRangeBytes = (await headRange.arrayBuffer()).byteLength;
+    require(headRange.status === 200 && Number(headRange.headers.get('content-length')) === all.length &&
+      headRangeBytes === 0, `HEAD Range status/length/body ${headRange.status}/${headRange.headers.get('content-length')}/${headRangeBytes}`);
+    const ifRange = await fetch('tone.wav', {headers:{Range:'bytes=144-239','If-Range':'"unmatched-validator"'}});
+    const full = new Uint8Array(await ifRange.arrayBuffer());
+    require(ifRange.status === 200 && full.length === all.length && full.every((byte,index) => byte === all[index]),
+      'unmatched If-Range must return the full representation');
+    const samples = [];
+    for (const [header, start, end] of [['bytes=144-239',144,239], ['bytes=-80',all.length-80,all.length-1],
+      ['bytes=512-',512,all.length-1], [`bytes=${all.length-10}-${all.length+300}`,all.length-10,all.length-1]]) {
+      const response = await fetch('tone.wav', {headers:{Range:header}});
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      require(response.status === 206, `range status ${response.status}`);
+      require(response.headers.get('content-range') === `bytes ${start}-${end}/${all.length}`, 'Content-Range mismatch');
+      require(bytes.length === end-start+1 && bytes.every((byte,index) => byte === all[start+index]), 'range bytes mismatch');
+      samples.push({header,status:response.status,bytes:bytes.length});
+    }
+    const invalid = await fetch('tone.wav', {headers:{Range:`bytes=${all.length+1}-`}});
+    require(invalid.status === 416 && invalid.headers.get('content-range') === `bytes */${all.length}`, 'unsatisfied range');
+    require(await (await fetch('data:text/plain,local-data')).text() === 'local-data', 'data fetch');
+    const blob = URL.createObjectURL(new Blob(['local-blob']));
+    try { require(await (await fetch(blob)).text() === 'local-blob', 'blob fetch'); } finally { URL.revokeObjectURL(blob); }
+    const audio = document.createElement('audio'); audio.muted = true; audio.preload = 'metadata';
+    document.body.append(audio);
+    const metadata = event(audio, 'loadedmetadata'); audio.src = 'tone.wav'; await metadata;
+    require(Math.abs(audio.duration-20) < .01, `media duration ${audio.duration}`);
+    const seeks = [];
+    for (const target of [14.25,2.5,18.25]) {
+      const completed = event(audio, 'seeked'); audio.currentTime = target; await completed;
+      require(Math.abs(audio.currentTime-target) < .01 && audio.readyState >= 2, 'seek did not decode target position');
+      seeks.push({target,actual:audio.currentTime,readyState:audio.readyState});
+    }
+    audio.removeAttribute('src'); audio.load(); audio.remove();
+    result('media', {bytes:all.length, head:{status:head.status,length:Number(head.headers.get('content-length')),body:0},
+      headRange:{status:headRange.status,length:Number(headRange.headers.get('content-length')),body:headRangeBytes},
+      ifRange:{status:ifRange.status,bytes:full.length},ranges:samples,unsatisfied:416,seeks,dataFetch:true,blobFetch:true});
+  }
+  api.onMessage = text => {
+    const message = JSON.parse(text);
+    if (message.name !== 'runtime.command') return;
+    const {test,token,sequence} = message.payload;
+    Promise.resolve().then(async () => {
+      if (test === 'gpu') {
+        const gl = document.createElement('canvas').getContext('webgl');
+        require(gl, 'WebGL context unavailable'); const extension = gl.getExtension('WEBGL_debug_renderer_info');
+        require(extension, 'ANGLE renderer information unavailable');
+        result(test, {renderer:gl.getParameter(extension.UNMASKED_RENDERER_WEBGL),vendor:gl.getParameter(extension.UNMASKED_VENDOR_WEBGL)});
+      } else if (test.startsWith('storage-')) await storage(test, token);
+      else if (test === 'media') await media();
+      else if (test === 'animate') { animate = true; result(test); }
+      else if (test === 'queue') { queueCount++; queueLast = sequence; }
+      else if (test === 'queue-result') result(test, {count:queueCount,last:queueLast});
+    }).catch(error => result(test, {passed:false,error:String(error),stack:error.stack}));
+  };
+  if (location.pathname.endsWith('/missed.html')) window.requestAnimationFrame = () => 0;
+  mark(); requestAnimationFrame(tick);
+  if (location.pathname.endsWith('/slow.html')) {
+    result('slow-start'); const end = performance.now() + 3000;
+    while (performance.now() < end) {} // Real parser/load stall in this view's renderer.
+  }
+  send('bench.ready', {});
+})();
+</script>

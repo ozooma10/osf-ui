@@ -211,12 +211,10 @@ namespace osfui::cefhost
         bool OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool, bool) override
         { return !Trusted(request->GetURL()) && !(!frame->IsMain() && browser::IsAllowedBlankFrameUri(request->GetURL().ToWString())); }
         CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
-            CefRefPtr<CefRequest> request, bool, bool, const CefString&, bool& disableDefault) override
-        { disableDefault = !browser::IsInMemoryViewResourceUri(request->GetURL().ToWString(), browser::kViewHost); return this; }
+            CefRefPtr<CefRequest> request, bool, bool, const CefString&, bool& disableDefault) override;
         ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request,
             CefRefPtr<CefCallback>) override
         { return browser::IsAllowedViewResourceUri(request->GetURL().ToWString(), browser::kViewHost) ? RV_CONTINUE : RV_CANCEL; }
-        CefRefPtr<CefResourceHandler> GetResourceHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request) override;
         void OnRenderProcessTerminated(CefRefPtr<CefBrowser>, TerminationStatus status, int code, const CefString& text) override;
         bool OnRenderProcessUnresponsive(CefRefPtr<CefBrowser>, CefRefPtr<CefUnresponsiveProcessCallback> callback) override
         { callback->Terminate(); return true; }
@@ -763,14 +761,12 @@ namespace osfui::cefhost
     class LocalResource final : public CefResourceHandler
     {
     public:
-        LocalResource(std::filesystem::path file, CefString mime, CefResponse::HeaderMap headers) :
-            file_(std::move(file)), mime_(std::move(mime)), headers_(std::move(headers)) {}
+        LocalResource(std::filesystem::path file, CefString mime, CefResponse::HeaderMap headers, std::string range) :
+            file_(std::move(file)), mime_(std::move(mime)), headers_(std::move(headers)), range_(std::move(range)) {}
         bool Open(CefRefPtr<CefRequest> request, bool& handle, CefRefPtr<CefCallback>) override
         {
             handle = true;
-            // Without a matching validator, If-Range requires the full representation.
-            return stream_.Open(file_, request->GetMethod() == "HEAD",
-                request->GetHeaderByName("If-Range").empty() ? request->GetHeaderByName("Range").ToString() : "");
+            return stream_.Open(file_, request->GetMethod() == "HEAD", range_);
         }
         void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& length, CefString&) override
         {
@@ -784,28 +780,63 @@ namespace osfui::cefhost
                 std::to_string(range.offset + range.length - 1) + "/" + std::to_string(stream_.size));
             else if (range.status == 416) headers_.emplace("Content-Range", "bytes */" + std::to_string(stream_.size));
             response->SetHeaderMap(headers_);
-            length = stream_.Remaining();
+            // CEF derives Content-Length from this value, including for HEAD.
+            // AssetStream independently suppresses HEAD body reads.
+            length = range.length;
         }
         bool Read(void* data, int capacity, int& read, CefRefPtr<CefResourceReadCallback>) override
         { read = stream_.Read(data, capacity); return read > 0; }
-        bool Skip(int64_t count, int64_t& skipped, CefRefPtr<CefResourceSkipCallback>) override
-        { skipped = stream_.Skip(count); return skipped >= 0; }
         void Cancel() override {}
     private:
         const std::filesystem::path file_;
         const CefString mime_;
         CefResponse::HeaderMap headers_;
+        const std::string range_;
         AssetStream stream_;
         IMPLEMENT_REFCOUNTING(LocalResource);
     };
 
-    CefRefPtr<CefResourceHandler> View::GetResourceHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request)
+    // One handler per request keeps the original Range private while the request
+    // passes through CEF's loader. That loader otherwise applies a second offset
+    // and forces the requested length even for HEAD, If-Range, and clipped ranges.
+    class LocalRequest final : public CefResourceRequestHandler
+    {
+    public:
+        LocalRequest(std::filesystem::path root, CefRefPtr<CefRequest> request) : root_(std::move(root)),
+            range_(request->GetHeaderByName("If-Range").empty() ? request->GetHeaderByName("Range").ToString() : "") {}
+        ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request,
+            CefRefPtr<CefCallback>) override
+        {
+            if (!browser::IsAllowedViewResourceUri(request->GetURL().ToWString(), browser::kViewHost)) return RV_CANCEL;
+            CefRequest::HeaderMap headers;
+            request->GetHeaderMap(headers);
+            std::erase_if(headers, [](const auto& header) { return _stricmp(header.first.ToString().c_str(), "Range") == 0; });
+            request->SetHeaderMap(headers);
+            return RV_CONTINUE;
+        }
+        CefRefPtr<CefResourceHandler> GetResourceHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request) override;
+    private:
+        const std::filesystem::path root_;
+        const std::string range_;
+        IMPLEMENT_REFCOUNTING(LocalRequest);
+    };
+
+    CefRefPtr<CefResourceRequestHandler> View::GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+        CefRefPtr<CefRequest> request, bool, bool, const CefString&, bool& disableDefault)
+    {
+        disableDefault = !browser::IsInMemoryViewResourceUri(request->GetURL().ToWString(), browser::kViewHost);
+        const auto uri = browser::ParseHttpsUri(request->GetURL().ToWString());
+        if (uri && uri->host == browser::kViewHost) return new LocalRequest(root, request);
+        return this;
+    }
+
+    CefRefPtr<CefResourceHandler> LocalRequest::GetResourceHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request)
     {
         if (request->GetMethod() != "GET" && request->GetMethod() != "HEAD") return nullptr;
         const auto uri = browser::ParseHttpsUri(request->GetURL().ToWString());
         if (!uri || uri->host != browser::kViewHost) return nullptr;
         const auto decoded = CefURIDecode(uri->path, false, static_cast<cef_uri_unescape_rule_t>(UU_NORMAL | UU_SPACES | UU_URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS)).ToWString();
-        const auto file = ResolveAsset(root, decoded);
+        const auto file = ResolveAsset(root_, decoded);
         if (!file) return nullptr; // default network handling is disabled
         auto extension = file->extension().wstring();
         if (!extension.empty()) extension.erase(0, 1);
@@ -815,7 +846,7 @@ namespace osfui::cefhost
         headers.emplace("Cache-Control", "no-store");
         headers.emplace("X-Content-Type-Options", "nosniff");
         headers.emplace("Content-Security-Policy", "connect-src https://osfui.example data: blob:; worker-src 'none'; object-src 'none'");
-        return new LocalResource(*file, mime, std::move(headers));
+        return new LocalResource(*file, mime, std::move(headers), range_);
     }
     void View::OnRenderProcessTerminated(CefRefPtr<CefBrowser>, TerminationStatus status, int code, const CefString& text)
     {

@@ -71,9 +71,9 @@ struct Consumer {
     ComPtr<ID3D11Texture2D> owned,pixel;HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);UINT64 serial=0;
     LUID adapter{};std::string adapterName;UINT width{},height{};
     ~Consumer(){if(event)CloseHandle(event);}
-    Consumer(){
+    void Initialize(UINT adapterIndex){
         ComPtr<IDXGIFactory6> factory;Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"DXGI factory");
-        ComPtr<IDXGIAdapter1> selected;Check(factory->EnumAdapterByGpuPreference(0,DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,IID_PPV_ARGS(&selected)),"GPU selection");
+        ComPtr<IDXGIAdapter1> selected;Check(factory->EnumAdapterByGpuPreference(adapterIndex,DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,IID_PPV_ARGS(&selected)),"GPU selection");
         DXGI_ADAPTER_DESC1 desc{};selected->GetDesc1(&desc);adapter=desc.AdapterLuid;adapterName=osfui::win32::ToUtf8(desc.Description);
         Check(D3D11CreateDevice(selected.Get(),D3D_DRIVER_TYPE_UNKNOWN,nullptr,D3D11_CREATE_DEVICE_BGRA_SUPPORT,nullptr,0,D3D11_SDK_VERSION,&device,nullptr,&context),"D3D11 consumer");
         Check(device.As(&device1),"device1");Check(device.As(&device5),"device5");Check(context.As(&context4),"context4");
@@ -148,15 +148,23 @@ struct Bench {
     size_t invalidHudPixels{};
     std::vector<double> intervals,uniqueIntervals,consumeTimes,pingTimes;
     std::map<int,double> pings;int nextPing{};std::vector<json> pageStats;
+    UINT adapterIndex{},debugPort{};
+    std::string runtimeCheck,storageToken;
+    std::map<std::string,json> runtimeReplies;
+    std::set<std::string> failedViews;
+    size_t incompleteFrames{};
+    bool lastComplete{};
     ~Bench(){Stop();if(window)DestroyWindow(window);if(wake)CloseHandle(wake);}
     void Send(const json& value){if(pipe.WriteMessage(value.dump())!=osfui::browser::Pipe::WriteResult::Written)throw std::runtime_error("pipe write failed");}
     template<class T>void Send(const T& value){Send(msg::ToJson(value));}
     void Start(){
+        consumer.Initialize(adapterIndex);
         fs::create_directories(output);fs::create_directories(profile);events.open(output/"events.jsonl");
         window=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,L"STATIC",L"OSF UI benchmark consumer",WS_POPUP,-32000,-32000,width,height,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
         const auto pipeName=L"osfui-bench-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64());pipe.PrepareForOpen();
         if(!pipe.CreateServer(pipeName))throw std::runtime_error(pipe.LastErrorText());
         auto command=L"\""+host.wstring()+L"\" --pipe="+pipeName+L" --game-pid="+std::to_wstring(GetCurrentProcessId())+L" --log=\""+(output/L"host.log").wstring()+L"\"";
+        if(debugPort)command+=L" --remote-debugging-port="+std::to_wstring(debugPort);
         STARTUPINFOW si{sizeof(si)};si.dwFlags=STARTF_USESHOWWINDOW;si.wShowWindow=SW_HIDE;PROCESS_INFORMATION pi{};
         job=CreateJobObjectW(nullptr,nullptr);JOBOBJECT_EXTENDED_LIMIT_INFORMATION limit{};limit.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         if(!job||!SetInformationJobObject(job,JobObjectExtendedLimitInformation,&limit,sizeof(limit)))throw std::runtime_error("create owned benchmark job");
@@ -167,6 +175,7 @@ struct Bench {
         if(!pipe.WaitForClient(20000))throw std::runtime_error("host did not connect: "+pipe.LastErrorText());
         reader=std::thread([this]{std::string payload;while(pipe.ReadMessage(payload)){auto value=json::parse(payload,nullptr,false);if(value.is_discarded())continue;const auto now=Seconds();{std::lock_guard lock(mutex);messages.push_back({std::move(value),now});}SetEvent(wake);}disconnected=true;SetEvent(wake);});
         result["adapter"]=consumer.adapterName;result["width"]=width;result["height"]=height;result["pid"]=pi.dwProcessId;
+        result["adapter_index"]=adapterIndex;result["adapter_luid"]={{"high",consumer.adapter.HighPart},{"low",consumer.adapter.LowPart}};
         result["consumer"]="D3D11 GPU copy plus 32x32 binary marker (3 and HUD erase/bar/background probes for mixed views) in one readback; acknowledgements after GPU completion";
         Send(msg::Init{.topLevelHwnd=reinterpret_cast<UINT64>(window),.viewsPath=osfui::win32::ToUtf8(assets.wstring()),.legacyViewsPath=osfui::win32::ToUtf8(assets.wstring()),.width=width,.height=height,.userDataDir=osfui::win32::ToUtf8(profile.wstring()),.devMode=false,.language="en",.adapterLuidLow=consumer.adapter.LowPart,.adapterLuidHigh=static_cast<UINT>(consumer.adapter.HighPart)});
         Send(msg::WindowActive{.active=true});Send(msg::Viewport{.width=width,.height=height,.presentationEpoch=1});
@@ -188,10 +197,17 @@ struct Bench {
             if(type!="frame"&&type!="heartbeat")events<<json{{"seconds",received.time-start},{"message",v}}.dump()<<'\n';
             if(type=="hello"){if(!msg::IsCompatibleHello(msg::FromJson<msg::Hello>(v),backend))throw std::runtime_error("browser host handshake mismatch"); result["runtime"]=v.value("runtimeVersion","");result["hello_ms"]=(received.time-start)*1000;}
             else if(type=="fatal")throw std::runtime_error("host fatal: "+v.dump());
-            else if(type==msg::LoadEvent::kType){if(v.value("failed",false))throw std::runtime_error("load failure: "+v.dump());loadedViews.insert(v.value("view",""));if(!loaded)loaded=received.time;}
+            else if(type==msg::LoadEvent::kType){
+                const auto view=v.value("view","");
+                if(v.value("failed",false)){
+                    if(runtimeCheck!="isolation"||view!="bench/second")throw std::runtime_error("load failure: "+v.dump());
+                    failedViews.insert(view);result["expected_view_failures"].push_back(v);
+                }else{loadedViews.insert(view);if(!loaded)loaded=received.time;}
+            }
             else if(type=="textures")consumer.Ring(msg::FromJson<msg::Textures>(v));
             else if(type=="frame"){
                 auto frame=msg::FromJson<msg::Frame>(v);const auto before=Seconds();const auto markers=consumer.Consume(frame,mixed);const UINT marker=markers[0];const auto cost=(Seconds()-before)*1000;
+                lastComplete=frame.complete;if(!frame.complete)++incompleteFrames;
                 if(coldOpen&&!firstEpochMarker.contains(frame.presentationEpoch)){
                     firstEpochMarker.emplace(frame.presentationEpoch,marker);
                     firstEpochPixel.emplace(frame.presentationEpoch,consumer.Pixel(consumer.width/2,consumer.height/2));
@@ -222,6 +238,7 @@ struct Bench {
             }else if(type=="webMessage"){
                 const auto m=json::parse(v.value("json",""),nullptr,false);if(m.is_discarded())continue;const auto name=m.value("name","");const auto view=v.value("view","");
                 if(name=="bench.ready")ready.insert(view);
+                if(name=="runtime.result")runtimeReplies[view+":"+m.at("payload").value("test","")]=m.at("payload");
                 if(name=="bench.modeReady")modeReady.insert(view);
                 if(name=="bench.stats"&&measuring)pageStats.push_back({{"view",view},{"payload",m.value("payload",json::object())}});
                 if(name=="bench.pong"){int id=m.at("payload").at("id");auto found=pings.find(id);if(found!=pings.end()){if(measuring)pingTimes.push_back((received.time-found->second)*1000);pings.erase(found);}}
@@ -233,6 +250,7 @@ struct Bench {
     void WaitUntil(std::function<bool()> condition,double timeout,const char* what){const auto end=Seconds()+timeout;while(!condition()){if(Seconds()>end)throw std::runtime_error(std::string("timeout: ")+what);WaitForSingleObject(wake,5);Drain();}}
     void RunFor(double seconds){const auto end=Seconds()+seconds;while(Seconds()<end){WaitForSingleObject(wake,5);Drain();}}
     void SetMode(const std::string& view,const std::string& mode){Send(msg::PostWeb{.view=view,.json=json{{"kind","event"},{"name","bench.mode"},{"payload",{{"mode",mode}}}}.dump()});}
+    void RuntimeChecks();
     void ColdOpen(){
         // Production launchers load a new view while hidden, then request its
         // first presentation after a previously opened menu has been closed.
@@ -401,12 +419,20 @@ struct Bench {
     }
 };
 
+#include "RuntimeChecks.h"
+
 int wmain(int argc,wchar_t** argv){
     CoInitializeEx(nullptr,COINIT_MULTITHREADED);SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     try{Bench bench;
         for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];if(key==L"--backend"){auto parsed=osfui::browser::ParseBackend(osfui::win32::ToUtf8(value));if(!parsed)throw std::runtime_error("invalid backend");bench.backend=*parsed;}else if(key==L"--host")bench.host=fs::absolute(value);else if(key==L"--out")bench.output=fs::absolute(value);else if(key==L"--views")bench.assets=fs::absolute(value);else if(key==L"--profile")bench.profile=fs::absolute(value);else if(key==L"--width")bench.width=std::stoul(value);else if(key==L"--height")bench.height=std::stoul(value);else if(key==L"--seconds")bench.duration=std::stod(value);else if(key==L"--warmup")bench.warmup=std::stod(value);else if(key==L"--allow-no-output")bench.allowNoOutput=value==L"true";else if(key==L"--lifecycle")bench.lifecycle=value==L"true";else if(key==L"--retention")bench.retention=value==L"true";else if(key==L"--cold-open")bench.coldOpen=value==L"true";else if(key==L"--cold-legacy")bench.coldLegacy=value==L"true";}
+        for(int i=1;i+1<argc;i+=2){std::wstring key=argv[i],value=argv[i+1];
+            if(key==L"--adapter-index")bench.adapterIndex=std::stoul(value);
+            else if(key==L"--runtime-check")bench.runtimeCheck=osfui::win32::ToUtf8(value);
+            else if(key==L"--storage-token")bench.storageToken=osfui::win32::ToUtf8(value);
+            else if(key==L"--debug-port")bench.debugPort=std::stoul(value);
+        }
         if(bench.host.empty()||bench.output.empty()||bench.assets.empty()||bench.profile.empty())throw std::runtime_error("required: --host --out --views --profile");
-        try{bench.Start();if(bench.coldOpen)bench.ColdOpen();else if(bench.lifecycle)bench.Lifecycle();else if(bench.retention)bench.Retention();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);bench.Phase("mixed10","mixed10",3);bench.Phase("mixed30","mixed30",3);}bench.result["status"]="passed";}
+        try{bench.Start();if(!bench.runtimeCheck.empty())bench.RuntimeChecks();else if(bench.coldOpen)bench.ColdOpen();else if(bench.lifecycle)bench.Lifecycle();else if(bench.retention)bench.Retention();else{bench.Phase("idle","idle",1);bench.Phase("canvas","canvas",1);bench.Phase("dom","dom",1);bench.Phase("three_views","canvas",3);bench.Phase("mixed10","mixed10",3);bench.Phase("mixed30","mixed30",3);}bench.result["status"]="passed";}
         catch(const std::exception& e){bench.result["status"]="failed";bench.result["error"]=e.what();std::cerr<<e.what()<<std::endl;try{bench.FailureEvidence();}catch(const std::exception& capture){bench.result["failure_capture_error"]=capture.what();}}
         bench.Stop();bench.Write();return bench.result.value("status","")=="passed"?0:1;
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 2;}

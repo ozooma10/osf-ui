@@ -61,3 +61,41 @@ controlled comparisons. Metadata identifies that override and hashes the actual
 host DLL/runtime beside the executable; source hashes describe the current
 checkout, which may differ from an overridden binary. Failed runs retain the last
 epoch, sampled layer pixels and a screenshot when the GPU remains available.
+
+## CEF runtime acceptance
+
+After building the CEF helper and this consumer, explicitly run the focused checks
+with Node 24 and PowerShell 7 on an otherwise quiet Windows desktop:
+
+```powershell
+pwsh tools/build-cef-host.ps1
+cmake --build build/backend-bench --config Release --parallel 4
+node tools/profiling/Run-CefRuntimeChecks.mjs --out build/cef-runtime/my-run --adapter-indices 0,1
+```
+
+Adapter indices use DXGI high-performance ordering. Use `0` on a one-adapter PC;
+the runner defaults to `0` and fails if a requested adapter is unavailable. These
+checks use the production helper, private profiles, real Chromium processes and
+completed GPU texture reads. They do not use the game or installed profiles.
+
+- GPU selection requires ANGLE's reported renderer to match the requested DXGI
+  adapter and validates pixels copied from the accelerated CEF texture.
+- Storage writes localStorage, IndexedDB and a persistent cookie, immediately
+  closes the pipe, and reads them back in a fresh helper process using that profile.
+- Media checks HEAD, bounded/open/suffix/clipped ranges, 416, unmatched If-Range,
+  and data/blob fetches. A generated 20-second PCM WAV must decode after forward,
+  backward and near-end seeks. This does not qualify every video codec.
+- View isolation checks fresh healthy-view pixels during a sibling's slow parser,
+  pending-message overflow, failed navigation, missed reveal and renderer crash,
+  then checks recovery. Partial frames must retain the healthy pixels; complete
+  frames must resume when the sibling becomes ready.
+
+Only the crash check enables a temporary loopback debugging port. The runner
+targets the private helper's `bench/second` page with `Page.crash`; the consumer
+must receive its renderer-termination event and continue receiving main-view
+frames. Each consumer owns a kill-on-close job for fallback cleanup, and passing
+requires normal helper exit within the production client's six-second deadline.
+The runner refuses an existing output directory, stops its own consumer if
+Starfield starts, and records source/binary hashes, JSON results, logs and PNGs.
+Use `--checks media` (or a comma-separated subset of `gpu,storage,media,isolation`)
+for diagnosis, then use a fresh full run to qualify a final helper.
