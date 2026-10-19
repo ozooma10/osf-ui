@@ -4,6 +4,7 @@
 
 #include "Core/Ids.h"
 #include "Core/Json.h"
+#include "Render/BrowserHostRecovery.h"
 #include "BrowserBoundedQueue.h"
 #include "BrowserLocalUri.h"
 #include "BrowserMessages.h"
@@ -234,6 +235,7 @@ namespace osfui::webview2
 			winrt::event_token frameToken{};
 			// Capture callbacks, ring publication and game-message handling share the host STA.
 			bool              captureClosing{ true };
+			unsigned          captureCallbackFailures{};
 			bool              captureHasVisibleView{ false };
 			std::uint32_t      captureCadenceHz{ 0 };
 
@@ -1205,7 +1207,15 @@ namespace osfui::webview2
 					D3D11_TEXTURE2D_DESC desc{};
 					source->GetDesc(&desc);
 					PublishFrame(source.Get(), desc.Width, desc.Height, framePresentationEpoch);
+					captureCallbackFailures = 0;
 				} catch (const winrt::hresult_error& a_error) {
+					// Preserve 2.0's tolerance of an isolated callback error. Device loss
+					// needs immediate recovery; persistent unknown failures still surface.
+					if (!OSFUI::BrowserHostRecovery::IsRetryable("capture-frame", static_cast<std::uint32_t>(a_error.code().value)) &&
+						++captureCallbackFailures < 3) {
+						log.Warn(std::format("dropping capture frame after callback error ({}/3): {}", captureCallbackFailures, ToUtf8(a_error.message())));
+						return;
+					}
 					FailHost("capture-frame", a_error.code(),
 						std::format("capture callback failed: {}", ToUtf8(a_error.message())));
 				}
