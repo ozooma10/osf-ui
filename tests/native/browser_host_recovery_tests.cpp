@@ -11,10 +11,11 @@ int main()
 	using Phase = BrowserHostRecovery::Phase;
 	using namespace std::literals;
 
-	// Retry only explicit capture failures that replacing the helper can repair.
+	// Retry only explicit graphics failures that replacing either helper can repair.
 	CHECK(BrowserHostRecovery::IsRetryable("host-connection", 0));
 	for (const auto stage : { "capture-ring"sv, "capture-frame"sv, "capture-signal"sv,
-		"capture-recreate"sv, "capture-resize"sv, "capture-setup"sv }) {
+		"capture-recreate"sv, "capture-resize"sv, "capture-setup"sv,
+		"cef-graphics"sv, "graphics-init"sv }) {
 		for (const auto code : { 0x8007000Eu, 0x887A0005u, 0x887A0007u, 0x887A0020u }) {
 			CHECK(BrowserHostRecovery::IsRetryable(stage, code));
 		}
@@ -23,7 +24,7 @@ int main()
 		}
 	}
 	for (const auto stage : { "environment"sv, "composition-controller"sv, "browser-security"sv,
-		"game-device"sv, "graphics-init"sv, "unknown"sv }) {
+		"game-device"sv, "host-handshake"sv, "cef-bridge"sv, "unknown"sv }) {
 		CHECK(!BrowserHostRecovery::IsRetryable(stage, 0x887A0005u));
 	}
 

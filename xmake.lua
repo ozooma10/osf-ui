@@ -205,7 +205,7 @@ target("osfui-raw-input-tests")
     set_default(false)
     add_tests("default")
     add_files("tests/native/raw_input_packet_tests.cpp")
-    add_includedirs("src")
+    add_includedirs("src", "tests/native/stubs")
 
 target("osfui-shared-frame-tests")
     set_kind("binary")

@@ -28,7 +28,8 @@ namespace OSFUI
 			if (a_stage == "host-connection") return true;
 			if (a_stage != "capture-ring" && a_stage != "capture-frame" &&
 				a_stage != "capture-signal" && a_stage != "capture-recreate" &&
-				a_stage != "capture-resize" && a_stage != "capture-setup") return false;
+				a_stage != "capture-resize" && a_stage != "capture-setup" &&
+				a_stage != "cef-graphics" && a_stage != "graphics-init") return false;
 			switch (a_code) {
 			case 0x8007000Eu: // E_OUTOFMEMORY
 			case 0x887A0005u: // DXGI_ERROR_DEVICE_REMOVED (helper device only)
