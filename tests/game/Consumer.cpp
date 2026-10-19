@@ -36,11 +36,13 @@ fs::path Utf8Path(const std::string& value) { return fs::path(std::u8string(valu
 void Write(const fs::path& path, const json& value) {
     const auto temporary = path.wstring() + L".tmp";
     { std::ofstream stream(temporary, std::ios::binary); stream << value.dump(); }
-    // Readers can briefly hold the destination without delete sharing.
+    // Windows can report either sharing violation or access denied when a
+    // reader briefly holds the destination without delete sharing. Retry this
+    // publication (never the command mutation) for a bounded half second.
     for (int attempt = 0; ; ++attempt) {
         if (MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return;
         const auto error = GetLastError();
-        if (error != ERROR_SHARING_VIOLATION || attempt == 9)
+        if ((error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED) || attempt == 99)
             throw std::runtime_error("Could not publish consumer evidence: " + std::to_string(error));
         Sleep(5);
     }

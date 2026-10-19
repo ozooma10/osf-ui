@@ -141,6 +141,7 @@ function Invoke-CefGameRuntimeChecks {
     $page=Wait-Observed 'Sibling reveal restored' {Read-Page runtime-second} {param($p)$p -and $p.path.EndsWith('/index.html') -and $p.frame -gt 0} 15
     $script:RuntimeStorageToken=[guid]::NewGuid().ToString('N')
     $null=Runtime-Command storage-write @{token=$script:RuntimeStorageToken}
+    Assert-Test (-not (Read-Consumer).ContainsKey('error')) 'Consumer published all evidence without errors before game exit'
     Write-JsonFile (Join-Path $script:Run.path 'runtime-write-consumer.json') (Read-Consumer)
     Close-RuntimeGame storage-write
     foreach($name in @('storage-ready.json','storage-mapped.json','storage-verified.json','consumer.json')){
@@ -154,6 +155,7 @@ function Invoke-CefGameRuntimeChecks {
     $null=Wait-Observed 'Fresh game consumer ready' {Read-Consumer} {param($c)$c -and $c.pid -eq $script:Session.pid -and $c.initialized -and $c.registered} 20
     Open-RuntimeView runtime-main
     $null=Runtime-Command storage-read @{token=$script:RuntimeStorageToken}
+    Assert-Test (-not (Read-Consumer).ContainsKey('error')) 'Fresh consumer published all evidence without errors'
     Capture-RuntimeProgress fresh-game-storage
     Write-JsonFile (Join-Path $script:Run.path 'runtime-read-consumer.json') (Read-Consumer)
 }
