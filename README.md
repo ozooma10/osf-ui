@@ -2,8 +2,7 @@
 
 A web view framework for Starfield.
 
-OSF UI **2.1.0** is prepared as separate WebView2 and CEF editions from one codebase,
-with edition-specific DLLs and a shared API. See the [2.1 release notes](docs/release-2.1.md) for changes and upgrade requirements.
+OSF UI **2.1.0** supports 2 different backends, WebView2 and CEF. See [Runtime](#runtime) for edition requirements.
 
 **Making a mod with OSF UI? Start with the [authoring guide](docs/authoring.md).**
 

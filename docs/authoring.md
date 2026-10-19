@@ -20,10 +20,11 @@ install alongside OSF UI. See [Settings and hotkeys](#settings-and-hotkeys).
 | You want | You ship |
 | --- | --- |
 | A page that only shows static content, listed in the OSF Settings launcher | A view folder |
-| A page that reads or changes game state | A view folder plus a Papyrus script (with a quest to register it) |
+| A page that calls a Papyrus `Global` function without a reply | A view folder plus a compiled script; no quest or registration needed. See [Direct Global calls](#direct-global-calls). |
+| A page that exchanges requests, events, or state with Papyrus | A view folder plus a Papyrus script (with a quest to register it) |
 | Native speed, engine access, or relative mouse input | A view folder plus an SFSE plugin |
 
-All three use the same page API. The page can't tell which kind of backend answered it.
+All use the same page API. Registered endpoints can be implemented in Papyrus or C++.
 
 ## 1. Your first view
 
@@ -164,6 +165,9 @@ messages per second. Native events and state can be up to 1 MiB each.
 
 ## 3. A Papyrus backend
 
+For requests, events, and retained state, use the registered backend below. For a
+one-way call to a `Global` function, see [Direct Global calls](#direct-global-calls).
+
 Papyrus registrations last for one session only. **They are cleared on every game
 load and on return to the main menu.** Register from a quest that starts with the
 game, and register again on every load:
@@ -227,6 +231,51 @@ Papyrus details:
 - The `SetView*`, `RegisterForViewActions*`, `ListenFor*`, `ReplyView*`,
   `RegisterForHotkey*`, and `Unregister` functions at the bottom of `OSFUI.psc` are
   frozen 1.x compatibility. Don't use them in new mods.
+
+### Direct Global calls
+
+`papyrus.call` lets a page invoke an installed Papyrus `Global` function by script
+and function name, without registering an endpoint or creating a quest. Ship the
+compiled `.pex` for your script:
+
+```papyrus
+ScriptName MyMod:Actions Hidden
+
+Function ShowMessage(string asMessage) Global
+    Debug.Notification(asMessage)
+EndFunction
+```
+
+```js
+osfui.send("papyrus.call", {
+  script: "MyMod:Actions",
+  function: "ShowMessage",
+  args: ["Hello from My Panel"]
+});
+```
+
+This is a **one-way send**. It does not return the function's result or confirm
+completion. `send` returning `true` only means the page posted the message to the
+bridge. `request("papyrus.call", …)` rejects with `wrong-endpoint-kind`; use a
+registered request and `Reply` when you need an answer.
+
+- `script` accepts colon-separated namespaces; `function` is a bare Papyrus
+  identifier. Each name is limited to 128 characters.
+- `args` is optional (defaults to `[]`), with at most 32 arguments. Arguments can
+  be strings, booleans, signed 32-bit integers, or finite 32-bit floats. Unlike
+  registered Papyrus endpoints, this call does not accept null, Forms, arrays, or
+  arbitrary objects as arguments.
+- Whole JS numbers are sent as Papyrus integers. To force a float, including a
+  whole value such as `1.0`, use `{ "$papyrus": "float", "value": 1 }` as the
+  argument. The shared helper has no `osfui.papyrus.float` method.
+- **There is no function allowlist or mod ownership restriction.** Any page can
+  target any installed script's `Global` functions that accept these argument
+  types. Only the `OSFUI` script itself is blocked, case-insensitively. The local
+  file sandbox does not restrict this access to game functions.
+- Invalid names or arguments report `invalid-request`; targeting `OSFUI` reports
+  `forbidden`; failure to queue the call reports `papyrus-unavailable`. These are
+  protocol faults, shown in the page console when developer mode is enabled, not
+  Promise rejections or completion replies.
 
 ## 4. An SFSE plugin backend
 
@@ -292,12 +341,22 @@ These endpoints are always available to a page:
 | `await osfui.request("menu.open", { view: "mymod/other" })` | Open another view (menu or HUD). Rejects with `unknown-view` if it doesn't exist. |
 | `await osfui.request("menu.close", { view: "mymod/hud" })` | Close a view. If you omit `view`, it closes this one. |
 | `await osfui.request("ping")` | Round-trip check. |
+| `osfui.send("papyrus.call", { script: "MyMod:Actions", function: "ShowMessage", args: ["Hello"] })` | Invoke a Papyrus `Global` function without a reply. See [Direct Global calls](#direct-global-calls). |
 | `osfui.send("osfui.handleBack", { handle: true })` | Escape/B is delivered to the page as an Escape keypress instead of closing the menu. |
 | `osfui.send("osfui.handleBack", { handle: true, view: "mymod/main" })` | Escape/B opens that menu instead (for a "back to parent" flow). |
 | `osfui.send("osfui.gamepadMode", { mode: "buttons" })` | See [Input](#input). |
 
 `handleBack` and `gamepadMode` reset each time the page loads, so send them on
 startup.
+
+Older pages may also use these duplicate controls. Prefer the calls above in new
+code:
+
+| Existing call | Preferred control |
+| --- | --- |
+| `osfui.send("setVisible", { visible: false })` | `osfui.send("close")`; for `visible: true`, use `osfui.request("menu.open")` for this view. |
+| `osfui.request("setViewHidden", { view: "mymod/hud", hidden: true })` | `menu.close` with the same `view`; for `hidden: false`, use `menu.open`. Omitting `view` targets this view. |
+| `osfui.send("osfui.gamepadRaw", { raw: true })` | `osfui.gamepadMode` with `mode: "raw"`; for `raw: false`, use `mode: "default"`. |
 
 The runtime sends these events to the open menu (HUDs don't receive them):
 

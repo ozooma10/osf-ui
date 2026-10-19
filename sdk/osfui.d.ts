@@ -109,6 +109,13 @@ export interface ViewManifestV1 {
   mod?: string;
   title?: string;
   description?: string;
+  /** Menu only. Omit or use false to stay out of the OSF Settings launcher. */
+  launcher?: boolean | {
+    /** Defaults to the containing mod folder name. */
+    modId?: string;
+    /** Defaults to the view title. */
+    modTitle?: string;
+  };
   entry?: string;
   width?: number;
   height?: number;
