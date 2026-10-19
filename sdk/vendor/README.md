@@ -16,12 +16,12 @@ Include as `"vendor/OSFSettings.h"`; `sdk/` is on the include path. Copy these f
 
 ## OSF UI 2.1 release pairing
 
-The current production candidate is OSF Settings **1.1.2**, source commit
-`1a857dbab19815b0a86c47b217cb8ac1146c8ce4`. Its five SDK headers still match these
-vendored files byte for byte; the required ABI versions are unchanged. The
-[2.1 release record](../../docs/release-2.1-qualification.md) records the archive identity and
-acceptance status. A packaged production candidate is not itself proof of
-in-game acceptance or a published companion release.
+The production artifact used for release testing is OSF Settings **1.1.2**, source
+commit `6de2876bab663f6a515e99dedf7ac294bbb9942a`. Its five SDK headers match these
+vendored files after line-ending normalization; the required ABI versions are
+unchanged. The [2.1 release record](../../packaging/release-2.1.md) pins the exact
+archive and acceptance evidence. A reused version number alone does not identify
+the tested artifact, and local acceptance does not establish publication status.
 
 ### Historical 2.0 pairing
 

@@ -12,6 +12,7 @@ CHANGELOG
 - Refined CEF damage copying, publication scheduling, and view reveal handling while retaining safe texture completion and full-copy fallbacks.
 - Added mixed menu/HUD/overlay validation; measured performance varies by workload and does not establish a general CEF speed or memory improvement.
 - Fixed missed repeated hotkeys after closing an overlay and blank first menu presentation during a Settings launcher handoff.
+- Improved browser recovery and CEF view isolation, bounded message queues, graceful shutdown, GPU selection, and local media seeking.
 - Product version 2.1.0 retains native API 2.0, browser protocol 2, and the documented legacy compatibility interfaces.
 
 WEBVIEW2 FILE TITLE
@@ -47,8 +48,8 @@ Update Nexus's title, short description, and Requirements fields as well as the 
 List WebView2 first as the recommended default. List CEF as the bundled-runtime alternative, not as an upgrade, patch, or additional dependency. Use the separate file descriptions above and make the Evergreen requirement conditional on choosing WebView2.
 These are local publication drafts. Do not upload files, change the live listing, tag, or publish without explicit release authorization. Confirm final archive filenames, hashes, and matching source revision before publication.
 At an authorized release, ensure the public GitHub default branch contains the matching 2.1 author documentation.
-OSF Settings 1.1.2 or a compatible newer release is the supported dependency baseline. The current production candidate is 1.1.2; record the exact accepted artifact from docs/release-2.1-qualification.md. Older development builds with reused version numbers may have incompatible interfaces.
-The compatibility wording follows the documented 1.6 baseline. The earlier handoff packages passed the recorded stock in-game suite; final 2.1 acceptance is tracked in docs/release-2.1-qualification.md, but this does not establish every historical integration, GPU, Luma/HDR/frame-generation, physical-controller, or IME configuration. Measured tradeoffs and the acceptance boundary are documented in docs/browser-backends.md.
+OSF Settings 1.1.2 or a compatible newer release is the supported dependency baseline. packaging/release-2.1.md pins the exact production Settings archive used for acceptance. Older development builds with reused version numbers may have incompatible interfaces.
+Final package identities and acceptance are tracked in packaging/release-2.1.md; tests/game/README.md describes the in-game checks. This evidence does not establish every historical integration, GPU, Luma/HDR/frame-generation, physical-controller, or IME configuration. Performance comparisons are workload-specific and do not establish a general CEF speed or memory improvement.
 
 EXISTING OSF UI IMAGE REFERENCES
 Main banner:
