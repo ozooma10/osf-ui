@@ -189,3 +189,23 @@ attempts are retained; the final run above supersedes their probe failures.
 This is stock-graphics acceptance on this machine's RTX 3080 at a 3440x1409 game
 client size. Other game adapters, codecs, Luma/HDR/frame generation and interactive
 input remain outside this scoped run. The installed WebView2 edition was retained.
+
+### Final 2.1 archives — October 19, 2026
+
+Both final archives from clean `b8b701f` were subsequently tested with the exact
+production Settings 1.1.2 artifact above:
+
+- `20261019-212157-179-webview2-stock`: **100 assertions passed, zero failures**,
+  114 completed observations, 10 visually reviewed captures. Includes keyboard,
+  mouse, focus, Settings F10, menu/HUD, pause, legacy/native/Papyrus, save/load,
+  helper recovery and the full 120-second animation/bridge soak.
+- `20261019-212526-736-cef-stock-runtime`: **68 assertions passed, zero failures**,
+  56 completed observations and 16 captures across two fresh games. Repeated GPU
+  matching, decoded video seeking, view isolation, storage flushing/restoration
+  and graceful exit against the final CEF ZIP.
+
+Both runs used stock graphics on RTX 3080 with a 2560x1409 client. Live Settings
+storage was unchanged, helpers exited with code zero, and there were no evidence
+warnings or device/hook failures. The original CEF profile was restored exactly.
+No new runtime defect was found. The [release record](../../packaging/release-2.1.md)
+pins both archive hashes, source, dependency, deployment and acceptance limits.
