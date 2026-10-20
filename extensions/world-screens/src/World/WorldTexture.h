@@ -63,8 +63,10 @@ namespace OSFUI::WorldTexture
 	[[nodiscard]] bool IsInstalled();
 
     void SetService(API::Surfaces::IService*);
-    // Runtime tick drives demand. Rendering stops before returning a released lease.
-    void SetDemand(std::size_t index, bool demanded);
+    // Runtime tick reports whether any reference binds this view. Copies run only while the engine
+    // also holds the material; the lease (and its browser) is returned after a short grace without it.
+    // Rendering stops before returning a released lease.
+    void SetDemand(std::size_t index, bool bound);
     API::Surfaces::Handle Feed(std::size_t index);
 	[[nodiscard]] std::vector<SurfaceStats> Snapshot();
 }

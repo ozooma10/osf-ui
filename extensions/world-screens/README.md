@@ -29,8 +29,10 @@ geometry instance and original material before binding succeeds. Small/medium pl
 form-ID resolution is not implemented; catalogs currently resolve full plugins.
 
 Several references may show the same view. They share one browser and output texture;
-different view IDs use separate browsers/profiles and outputs. Browsers start on demand
-and retire after the final binding releases demand and outstanding GPU reads finish.
+different view IDs use separate browsers/profiles and outputs. A view has demand while a
+binding exists and the engine has its screen material loaded; bindings in unloaded cells
+copy nothing. Browsers start on demand and retire once outstanding GPU reads finish after
+the final binding is released, or 10 seconds after the last loaded screen unloads.
 The 256 MiB output-texture budget excludes browser/helper memory and shared capture
 rings. Live engine resource owners prevent eviction; budget pressure defers new outputs.
 

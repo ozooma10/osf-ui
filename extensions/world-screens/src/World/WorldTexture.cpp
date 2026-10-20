@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <climits>
 #include <cstring>
 #include <limits>
@@ -33,6 +34,8 @@ namespace OSFUI::WorldTexture
 		constexpr auto        kShaderState = static_cast<D3D12_RESOURCE_STATES>(
 			static_cast<unsigned>(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) | static_cast<unsigned>(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 		constexpr auto           kFenceFailure = (std::numeric_limits<std::uint64_t>::max)();
+		// Bound views keep their browser through brief engine texture reloads.
+		constexpr auto           kFeedGrace = std::chrono::seconds(10);
 		std::atomic<CreateSrvFn> g_createSrv{ nullptr };
 		std::atomic<ExecuteFn>   g_execute{ nullptr };
 		// Set lock-free when an output loses its last engine owner; it then needs a retirement fence.
@@ -116,7 +119,8 @@ namespace OSFUI::WorldTexture
 			bool                    evictRequested{ false };
 			std::uint64_t           lastUse{ 0 };
 			API::Surfaces::Handle feed{};
-            bool demanded{};
+            bool demanded{}; // bound and the engine holds the material
+            std::chrono::steady_clock::time_point residentAt; // last tick with demand
 		};
 
 		struct Initialization
@@ -346,7 +350,8 @@ namespace OSFUI::WorldTexture
             g_ownerReleased.store(false);
             if (!QueueRetirements(state) || !RetireCopies(state)) return;
             for (auto& surface : state.surfaces) {
-                if (!surface.feed || !surface.demanded || !surface.output) continue;
+                // An unloaded cell's material has no engine owner: nothing samples the output.
+                if (!surface.feed || !surface.demanded || !surface.output || !surface.output->engineOwners.load()) continue;
                 const auto frame=state.service->CopyFrame(surface.feed,surface.output->texture,surface.output->generation,state.engine.directQueue);
                 surface.stats.submittedFrames=frame.submitted;
                 surface.stats.completedFrames=frame.completed;
@@ -600,22 +605,22 @@ namespace OSFUI::WorldTexture
 
 
     void SetService(API::Surfaces::IService* service) { GetState().service=service; }
-    void SetDemand(std::size_t index, bool demanded)
+    void SetDemand(std::size_t index, bool bound)
     {
         auto& state=GetState();
         std::scoped_lock lock(state.mutex);
         if (!state.service || index>=state.count) return;
         auto& surface=state.surfaces[index];
-        surface.demanded=demanded;
-        if (demanded) {
-            surface.evictRequested=false;
-            if (!surface.feed && surface.output) surface.feed=state.service->Acquire(surface.stats.id.c_str());
-        } else {
-            surface.evictRequested=true;
-            if (surface.feed && state.service->IsIdle(surface.feed)) {
-                state.service->Release(surface.feed); surface.feed=0;
-                surface.stats.lastCompletedFrame=0;
-            }
+        // Bindings outlive cell unloads; only a material the engine still holds is worth feeding.
+        const auto now=std::chrono::steady_clock::now();
+        surface.demanded=bound && surface.output && surface.output->engineOwners.load();
+        if (surface.demanded) surface.residentAt=now;
+        surface.evictRequested=!surface.demanded;
+        if (surface.demanded) {
+            if (!surface.feed) surface.feed=state.service->Acquire(surface.stats.id.c_str());
+        } else if (surface.feed && (!bound || now-surface.residentAt >= kFeedGrace) && state.service->IsIdle(surface.feed)) {
+            state.service->Release(surface.feed); surface.feed=0;
+            surface.stats.lastCompletedFrame=0;
         }
         RefreshWork(state);
     }
