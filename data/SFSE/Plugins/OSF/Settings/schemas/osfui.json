@@ -1,7 +1,9 @@
 {
+  "$schema": "https://raw.githubusercontent.com/ozooma10/osf-settings/dev/sdk/osf-settings.schema.json",
   "title": "OSF UI",
   "description": "Starfield Web Interface Framework",
   "version": "2.1.0",
+  "nexusModId": 17711,
   "dependencies": {
     "osfsettings": "1.2.0"
   },
