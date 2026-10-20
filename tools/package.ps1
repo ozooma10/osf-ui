@@ -73,16 +73,16 @@ try {
         $commonPex = $null
         $archiveRecords = @()
         foreach ($edition in $editions) {
-            xmake f -P $RepoRoot -m $Mode "--browser_backend=$edition" -y
+            xmake f -P $RepoRoot -F (Join-Path $RepoRoot 'xmake.lua') -m $Mode "--browser_backend=$edition" -y
             if ($LASTEXITCODE) { throw 'XMake configuration failed' }
             if (-not $SkipBuild) {
-                xmake build -P $RepoRoot -j4 -y 'OSF UI'
+                xmake build -P $RepoRoot -F (Join-Path $RepoRoot 'xmake.lua') -j4 -y 'OSF UI'
                 if ($LASTEXITCODE) { throw "OSF UI $edition build failed" }
             }
             $editionRoot = Join-Path $Staging $edition
             $data = Join-Path $editionRoot 'Data'
             New-Item -ItemType Directory -Path $data -Force | Out-Null
-            xmake install -P $RepoRoot -o $data 'OSF UI'
+            xmake install -P $RepoRoot -F (Join-Path $RepoRoot 'xmake.lua') -o $data 'OSF UI'
             if ($LASTEXITCODE) { throw "OSF UI $edition installation failed" }
             $ui = Join-Path $data 'SFSE/Plugins/OSF/UI'
             foreach ($doc in 'LICENSE', 'EXCEPTIONS') {

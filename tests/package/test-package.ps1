@@ -28,6 +28,10 @@ foreach ($relative in $required) {
     }
 }
 
+foreach ($extensionPath in @('SFSE/Plugins/OSFUIWorldScreens.dll', 'SFSE/Plugins/OSF/WorldScreens', 'Scripts/OSFUIWorldScreens.pex', 'Scripts/Source/OSFUIWorldScreens.psc')) {
+    if (Test-Path -LiteralPath (Join-Path $root $extensionPath)) { throw "Optional extension leaked into core package: $extensionPath" }
+}
+
 $ui = Join-Path $root 'SFSE/Plugins/OSF/UI'
 $description = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $root 'SFSE/Plugins/OSFUI.dll')).FileDescription
 if ($description -notmatch '^Web Interface Framework for Starfield \((webview2|cef)\)$') {
