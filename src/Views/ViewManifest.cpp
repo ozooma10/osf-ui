@@ -6,6 +6,7 @@
 #include "Core/Ids.h"
 #include "Core/Json.h"
 #include "Core/Utf8Path.h"
+#include "BrowserSurface.h"
 
 namespace OSFUI
 {
@@ -40,7 +41,7 @@ namespace OSFUI
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry", "launcher",
-					"width", "height", "transparent", "kind", "texture", "fullscreen",
+					"width", "height", "transparent", "kind", "texture", "fullscreen", "browser",
 					"capturesInput", "pausesGame", "openOnStart", "order" },
 				"ViewManifest: [content] " + Utf8Path(a_path), /*a_warn=*/false);
 		}
@@ -73,6 +74,22 @@ namespace OSFUI
             return std::nullopt;
         }
 		manifest.fullscreen = Json::Get(*json, "fullscreen", false);
+		if (const auto browser = json->find("browser"); browser != json->end()) {
+			if (manifest.id != osfui::browser::kBrowserView || manifest.kind != ViewKind::Surface ||
+				!browser->is_object() || !browser->contains("chrome") || !(*browser)["chrome"].is_string() ||
+				(browser->contains("chromeHeight") && !(*browser)["chromeHeight"].is_number_integer())) {
+				REX::ERROR("ViewManifest: browser requires the reserved osfui.browser/tv world view");
+				return std::nullopt;
+			}
+			manifest.browserChrome = (*browser)["chrome"].get<std::string>();
+			const auto band = Json::Get(*browser, "chromeHeight", 56);
+			const auto& chrome = manifest.browserChrome;
+			if (chrome.empty() || chrome.front() == '/' || chrome.find_first_of("\\:?#%") != chrome.npos ||
+				chrome.find("..") != chrome.npos || band < 32 || band > 256 || static_cast<std::uint32_t>(band) >= manifest.height) return std::nullopt;
+			manifest.browserChromeHeight = static_cast<std::uint32_t>(band);
+			manifest.entry = chrome;
+			manifest.fullscreen = true;
+		}
 		if (manifest.fullscreen && manifest.kind != ViewKind::Surface) {
 			REX::ERROR("ViewManifest: [content] {} fullscreen applies only to world views", Utf8Path(a_path));
 			return std::nullopt;

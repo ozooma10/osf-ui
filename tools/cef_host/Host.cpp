@@ -30,6 +30,9 @@
 #include "AssetStream.h"
 #include "Scripts.h"
 #include "BrowserLocalUri.h"
+#include "BrowserContentPolicy.h"
+#include "BrowserSurface.h"
+#include "RemoteContent.h"
 #include "BrowserPipe.h"
 #include "Win32Util.h"
 #include "LanguageTag.h"
@@ -84,40 +87,49 @@ namespace osfui::cefhost
     public:
         Host* host{}; // browser process only; outlives CefShutdown
         std::string adapterLuid; // immutable after CefInitialize starts
+        bool remoteMode{}; // selected by Init in the browser process
         CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
         CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override { return this; }
         void OnContextInitialized() override;
-        void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command) override
+        void OnBeforeCommandLineProcessing(const CefString& processType, CefRefPtr<CefCommandLine> command) override
         {
-            command->AppendSwitchWithValue("proxy-server", "http://osfui-egress.invalid:9");
-            command->AppendSwitchWithValue("proxy-bypass-list", "<-loopback>");
-            command->AppendSwitchWithValue("host-resolver-rules", "MAP * ~NOTFOUND");
+            if (!processType.empty()) remoteMode = command->HasSwitch("osfui-remote-mode");
+            if (remoteMode) command->AppendSwitchWithValue("autoplay-policy", "no-user-gesture-required");
+            else {
+                command->AppendSwitchWithValue("proxy-server", "http://osfui-egress.invalid:9");
+                command->AppendSwitchWithValue("proxy-bypass-list", "<-loopback>");
+                command->AppendSwitchWithValue("host-resolver-rules", "MAP * ~NOTFOUND");
+            }
             command->AppendSwitchWithValue("force-webrtc-ip-handling-policy", "disable_non_proxied_udp");
             command->AppendSwitch("disable-quic");
             command->AppendSwitch("disable-background-networking");
             command->AppendSwitch("disable-component-update");
             command->AppendSwitch("disable-renderer-backgrounding");
+            command->AppendSwitch("disable-backgrounding-occluded-windows");
             command->AppendSwitchWithValue("use-angle", "d3d11");
             if (!adapterLuid.empty()) command->AppendSwitchWithValue("use-adapter-luid", adapterLuid);
         }
         void OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command) override
         {
+            if (remoteMode) command->AppendSwitch("osfui-remote-mode");
             if (!adapterLuid.empty()) command->AppendSwitchWithValue("use-adapter-luid", adapterLuid);
         }
         void OnBrowserCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDictionaryValue> extra) override
         {
-            if (extra) documents_[browser->GetIdentifier()] = { extra->GetString("view").ToString(), extra->GetBool("legacy") };
+            if (extra) documents_[browser->GetIdentifier()] = {
+                extra->GetString("view").ToString(), extra->GetBool("legacy"), extra->GetBool("remoteContent") };
         }
         void OnBrowserDestroyed(CefRefPtr<CefBrowser> browser) override { documents_.erase(browser->GetIdentifier()); }
         void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefV8Context> context) override
         {
+            const auto found = documents_.find(browser->GetIdentifier());
+            if (found == documents_.end() || found->second.remoteContent) return;
             // Disable non-request network transports in every frame.
             CefRefPtr<CefV8Value> networkResult;
             CefRefPtr<CefV8Exception> networkError;
             context->Eval(std::string(kNetworkScript), frame->GetURL(), 0, networkResult, networkError);
-            const auto found = documents_.find(browser->GetIdentifier());
-            if (!frame->IsMain() || found == documents_.end()) return;
-            const auto& [id, legacy] = found->second;
+            if (!frame->IsMain()) return;
+            const auto& [id, legacy, remoteContent] = found->second;
             if (!browser::IsTrustedViewDocumentUri(frame->GetURL().ToWString(), browser::kViewHost,
                 ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id)))) return;
             auto handler = CefRefPtr<Binding>(new Binding);
@@ -133,10 +145,15 @@ namespace osfui::cefhost
                 frame->SendProcessMessage(PID_BROWSER, failure);
             }
         }
-        bool OnProcessMessageReceived(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+        bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
             CefProcessId source, CefRefPtr<CefProcessMessage> message) override
         {
             if (source != PID_BROWSER || !frame->IsMain() || message->GetName() != "osfui.receive") return false;
+            const auto found = documents_.find(browser->GetIdentifier());
+            if (found == documents_.end() || found->second.remoteContent) return true;
+            const auto& id = found->second.id;
+            if (!browser::IsTrustedViewDocumentUri(frame->GetURL().ToWString(), browser::kViewHost,
+                ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id)))) return true;
             auto context = frame->GetV8Context();
             if (!context || !context->Enter()) return true;
             auto receiver = context->GetGlobal()->GetValue("__osfCefReceive");
@@ -146,14 +163,15 @@ namespace osfui::cefhost
             return true;
         }
     private:
-        std::map<int, std::pair<std::string, bool>> documents_;
+        struct Document { std::string id; bool legacy{}, remoteContent{}; };
+        std::map<int, Document> documents_;
         IMPLEMENT_REFCOUNTING(Application);
     };
 
     class View final : public CefClient, public CefLifeSpanHandler, public CefRenderHandler,
         public CefLoadHandler, public CefRequestHandler, public CefResourceRequestHandler,
         public CefDisplayHandler, public CefContextMenuHandler, public CefJSDialogHandler,
-        public CefDialogHandler, public CefDownloadHandler
+        public CefDialogHandler, public CefDownloadHandler, public CefPermissionHandler
     {
     public:
         View(Host& owner, const msg::Navigate& nav, std::filesystem::path root);
@@ -161,6 +179,7 @@ namespace osfui::cefhost
         const std::string id;
         const std::filesystem::path root;
         const bool legacy;
+        const bool remoteContent;
         const UINT logicalHeight;
         CefRefPtr<CefBrowser> browser;
         Surface surface, popup;
@@ -179,8 +198,12 @@ namespace osfui::cefhost
         UINT pageMessages{};
         int clickCount{}, clickButton{ -1 }, clickX{}, clickY{};
         ULONGLONG clickAt{};
+        std::string title, lastBrowserState;
+        UINT cursor{32512};
+        void PublishBrowserState();
         double Scale() const;
         bool Trusted(const CefString& url) const;
+        bool AllowedDocument(const CefString& url, bool child = false) const;
         void ReleaseInput();
         void Reveal();
         void Deliver(std::string payload);
@@ -193,11 +216,12 @@ namespace osfui::cefhost
         CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
         CefRefPtr<CefDialogHandler> GetDialogHandler() override { return this; }
         CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+        CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
         void OnAfterCreated(CefRefPtr<CefBrowser> value) override { browser = value; }
         void OnBeforeClose(CefRefPtr<CefBrowser>) override;
         bool OnBeforePopup(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, int, const CefString&, const CefString&,
             cef_window_open_disposition_t, bool, const CefPopupFeatures&, CefWindowInfo&, CefRefPtr<CefClient>&,
-            CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool*) override { return true; }
+            CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool*) override;
         void GetViewRect(CefRefPtr<CefBrowser>, CefRect& rect) override;
         bool GetScreenInfo(CefRefPtr<CefBrowser>, CefScreenInfo& info) override;
         bool GetScreenPoint(CefRefPtr<CefBrowser>, int x, int y, int& screenX, int& screenY) override;
@@ -208,13 +232,17 @@ namespace osfui::cefhost
         void OnLoadStart(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, TransitionType) override;
         void OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, int status) override;
         void OnLoadError(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, ErrorCode code, const CefString& text, const CefString& url) override;
+        void OnLoadingStateChange(CefRefPtr<CefBrowser>, bool, bool, bool) override { PublishBrowserState(); }
+        void OnAddressChange(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, const CefString&) override
+        { if (frame->IsMain()) PublishBrowserState(); }
+        void OnTitleChange(CefRefPtr<CefBrowser>, const CefString& value) override { title=value; PublishBrowserState(); }
         bool OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool, bool) override
-        { return !Trusted(request->GetURL()) && !(!frame->IsMain() && browser::IsAllowedBlankFrameUri(request->GetURL().ToWString())); }
+        { return !AllowedDocument(request->GetURL(), frame && !frame->IsMain()); }
         CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
             CefRefPtr<CefRequest> request, bool, bool, const CefString&, bool& disableDefault) override;
         ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request,
             CefRefPtr<CefCallback>) override
-        { return browser::IsAllowedViewResourceUri(request->GetURL().ToWString(), browser::kViewHost) ? RV_CONTINUE : RV_CANCEL; }
+        { return browser::IsAllowedContentResource(remoteContent, request->GetURL().ToWString()) ? RV_CONTINUE : RV_CANCEL; }
         void OnRenderProcessTerminated(CefRefPtr<CefBrowser>, TerminationStatus status, int code, const CefString& text) override;
         bool OnRenderProcessUnresponsive(CefRefPtr<CefBrowser>, CefRefPtr<CefUnresponsiveProcessCallback> callback) override
         { callback->Terminate(); return true; }
@@ -232,6 +260,21 @@ namespace osfui::cefhost
             const std::vector<CefString>&, const std::vector<CefString>&, const std::vector<CefString>&,
             CefRefPtr<CefFileDialogCallback> callback) override { callback->Cancel(); return true; }
         bool CanDownload(CefRefPtr<CefBrowser>, const CefString&, const CefString&) override { return false; }
+        bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, const CefString&,
+            uint32_t, CefRefPtr<CefMediaAccessCallback> callback) override
+        { callback->Cancel(); return true; }
+        bool OnShowPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t, const CefString&,
+            uint32_t, CefRefPtr<CefPermissionPromptCallback> callback) override
+        { callback->Continue(CEF_PERMISSION_RESULT_DENY); return true; }
+        bool GetAuthCredentials(CefRefPtr<CefBrowser>, const CefString&, bool, const CefString&, int,
+            const CefString&, const CefString&, CefRefPtr<CefAuthCallback>) override { return false; }
+        bool OnCertificateError(CefRefPtr<CefBrowser>, cef_errorcode_t, const CefString&,
+            CefRefPtr<CefSSLInfo>, CefRefPtr<CefCallback>) override { return false; }
+        bool OnSelectClientCertificate(CefRefPtr<CefBrowser>, bool, const CefString&, int,
+            const X509CertificateList&, CefRefPtr<CefSelectClientCertificateCallback> callback) override
+        { callback->Select(nullptr); return true; }
+        void OnProtocolExecution(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest>,
+            bool& allowOS) override { allowOS = false; }
     private:
         IMPLEMENT_REFCOUNTING(View);
     };
@@ -245,8 +288,12 @@ namespace osfui::cefhost
         HANDLE game{};
         std::ofstream log;
         std::map<std::string, CefRefPtr<View>> views;
+        CefRefPtr<CefRequestContext> remoteContext;
         std::vector<CefRefPtr<View>> retiring;
         std::string inputTarget;
+        std::string pointerTarget;
+        std::optional<msg::BrowserLayout> browserLayout;
+        browser::BrowserPointerRouter browserPointer;
         UINT width{ 1 }, height{ 1 }, viewportWidth{ 1 }, viewportHeight{ 1 };
         HWND gameWindow{};
         std::uint64_t epoch{}, revealSerial{};
@@ -333,6 +380,7 @@ namespace osfui::cefhost
         }
         void ReconcileFocus()
         {
+            if (!focus || !windowActive) { browserPointer.Reset(); pointerTarget.clear(); }
             auto* target = Input();
             for (auto& [id, view] : views) {
                 if (!view->browser) continue;
@@ -378,12 +426,21 @@ namespace osfui::cefhost
         void Navigate(const msg::Navigate& nav)
         {
             if (!OSFUI::Ids::IsValidQualifiedViewId(nav.id)) { Fatal("cef-navigation", E_INVALIDARG, "Invalid view ID"); return; }
-            const auto url = "https://osfui.example/" + nav.id + "/" + nav.entry;
-            if (!browser::IsTrustedViewDocumentUri(ToWide(url), browser::kViewHost,
-                ToWide(OSFUI::Ids::ModOf(nav.id)), ToWide(ViewName(nav.id)))) {
-                Fatal("cef-navigation", E_INVALIDARG, "Invalid view entry"); return;
+            const auto found = views.find(nav.id);
+            if (!browser::CanCreateContentView(init.remoteMode, nav.remoteContent, nav.legacy) ||
+                (found != views.end() &&
+                    (found->second->remoteContent != nav.remoteContent || found->second->legacy != nav.legacy))) {
+                Fatal("cef-navigation", E_ACCESSDENIED, "Cannot create or change this view's trust role"); return;
             }
-            if (const auto found = views.find(nav.id); found != views.end()) {
+            const auto url = nav.remoteContent ? nav.url : "https://osfui.example/" + nav.id + "/" + nav.entry;
+            if ((!nav.remoteContent && !nav.url.empty()) ||
+                !browser::IsAllowedContentDocument(nav.remoteContent, ToWide(url),
+                    ToWide(OSFUI::Ids::ModOf(nav.id)), ToWide(ViewName(nav.id)))) {
+                Send(msg::ToJson(msg::LoadEvent{ .view = nav.id, .failed = true,
+                    .description = "Navigation blocked by content policy", .code = E_ACCESSDENIED }));
+                return;
+            }
+            if (found != views.end()) {
                 auto& view = *found->second;
                 view.ReleaseInput(); view.loaded = false; view.reveal.Reset();
                 view.surface.Clear(); view.popup.Clear(); view.popupShown = false;
@@ -401,8 +458,20 @@ namespace osfui::cefhost
             settings.background_color = CefColorSetARGB(0, 0, 0, 0);
             auto extra = CefDictionaryValue::Create();
             extra->SetString("view", nav.id); extra->SetBool("legacy", nav.legacy);
+            extra->SetBool("remoteContent", nav.remoteContent);
+            if (nav.remoteContent && !remoteContext) {
+                CefRequestContextSettings contextSettings;
+                CefString(&contextSettings.cache_path) =
+                    (std::filesystem::path(ToWide(init.userDataDir)) / "Content").wstring();
+                remoteContext = CefRequestContext::CreateContext(contextSettings, new RemoteContext(
+                    [this](std::string error) { Post([this, error = std::move(error)] {
+                        Fatal("cef-content-policy", E_ACCESSDENIED, error);
+                    }); }));
+                if (!remoteContext) { Fatal("cef-content-policy", E_FAIL, "Cannot create remote request context"); return; }
+            }
             views.emplace(nav.id, view);
-            auto browser = CefBrowserHost::CreateBrowserSync(window, view, url, settings, extra, nullptr);
+            auto browser = CefBrowserHost::CreateBrowserSync(window, view, url, settings, extra,
+                nav.remoteContent ? remoteContext : nullptr);
             if (!browser) { views.erase(nav.id); Fatal("cef-browser", E_FAIL, "CEF browser creation failed"); return; }
             // Hidden documents may load and receive bridge messages without
             // allocating/copying full-size paint surfaces until they are shown.
@@ -419,13 +488,33 @@ namespace osfui::cefhost
                 if (!view->hidden) view->Reveal();
             }
         }
+#include "BrowserSurface.inl"
         void Mouse(const msg::Mouse& event)
         {
+            if (!focus || !windowActive || !pointerEnabled) return;
             auto* view = Input();
-            if (!view || !focus || !windowActive || !pointerEnabled) return;
+            if (browserLayout) {
+                const auto& layout=*browserLayout;
+                const auto panel=browserPointer.Route(event.x,event.y,event.kind == "button",event.button,event.down,
+                    browser::BrowserPanelRect(viewportWidth,viewportHeight,layout.chromeHeight,layout.fullscreen,layout.landing,browser::BrowserPanel::Chrome),
+                    browser::BrowserPanelRect(viewportWidth,viewportHeight,layout.chromeHeight,layout.fullscreen,layout.landing,browser::BrowserPanel::Content));
+                const auto found=views.find(panel == browser::BrowserPanel::Chrome ? layout.chrome :
+                    panel == browser::BrowserPanel::Content ? layout.content : "");
+                view=found == views.end() ? nullptr : found->second.get();
+                if (view && pointerTarget != view->id) {
+                    const auto previous=views.find(pointerTarget);
+                    if (previous != views.end()) previous->second->browser->GetHost()->SendMouseMoveEvent(previous->second->mouse,true);
+                    pointerTarget=view->id; Send(msg::ToJson(msg::Cursor{.id=view->cursor}));
+                }
+                if (view && !view->hidden && event.kind == "button" && event.down && inputTarget != view->id) {
+                    inputTarget=view->id; ReconcileFocus();
+                }
+            }
+            if (!view || view->hidden || !view->loaded || view->closing) return;
+            const auto bounds=ViewBounds(*view);
             auto browser = view->browser->GetHost();
-            view->mouse.x = static_cast<int>(std::floor(event.x / view->Scale()));
-            view->mouse.y = static_cast<int>(std::floor(event.y / view->Scale()));
+            view->mouse.x = static_cast<int>(std::floor((event.x - bounds.x) / view->Scale()));
+            view->mouse.y = static_cast<int>(std::floor((event.y - bounds.y) / view->Scale()));
             if (event.kind == "button") {
                 if (event.button < 0 || event.button > 2) return;
                 const UINT flags[]{ EVENTFLAG_LEFT_MOUSE_BUTTON, EVENTFLAG_RIGHT_MOUSE_BUTTON, EVENTFLAG_MIDDLE_MOUSE_BUTTON };
@@ -451,6 +540,7 @@ namespace osfui::cefhost
         }
         void Keyboard(const msg::Keyboard& key)
         {
+            if (BrowserFocusShortcut(key)) return;
             auto* view = Input();
             if (!view || !focus || !windowActive) return;
             CefKeyEvent event;
@@ -495,6 +585,9 @@ namespace osfui::cefhost
             const auto type = Json::Get(raw, "type", "");
             if (type == msg::Init::kType) return; // consumed before CefInitialize
             if (type == msg::Navigate::kType) { Navigate(msg::FromJson<msg::Navigate>(raw)); return; }
+            if (type == msg::BrowserLayout::kType) { BrowserLayout(msg::FromJson<msg::BrowserLayout>(raw)); return; }
+            if (type == msg::BrowserCommand::kType) { BrowserCommand(msg::FromJson<msg::BrowserCommand>(raw)); return; }
+            if (type == msg::Back::kType && BrowserBack(msg::FromJson<msg::Back>(raw))) return;
             if (type == msg::Resize::kType) {
                 const auto value = msg::FromJson<msg::Resize>(raw);
                 width = (std::max)(1u, value.width); height = (std::max)(1u, value.height);
@@ -518,7 +611,10 @@ namespace osfui::cefhost
             }
             if (type == msg::PointerInput::kType) {
                 pointerEnabled = msg::FromJson<msg::PointerInput>(raw).enabled;
-                if (!pointerEnabled) for (auto& [id, view] : views) view->ReleaseInput();
+                if (!pointerEnabled) {
+                    browserPointer.Reset(); pointerTarget.clear();
+                    for (auto& [id, view] : views) view->ReleaseInput();
+                }
                 return;
             }
             if (type == msg::Focus::kType) { focus = msg::FromJson<msg::Focus>(raw).focused; ReconcileFocus(); return; }
@@ -526,7 +622,10 @@ namespace osfui::cefhost
             if (type == msg::Mouse::kType) { Mouse(msg::FromJson<msg::Mouse>(raw)); return; }
             if (type == msg::Keyboard::kType) { Keyboard(msg::FromJson<msg::Keyboard>(raw)); return; }
             if (type == msg::TextInput::kType) { Text(msg::FromJson<msg::TextInput>(raw)); return; }
-            const auto found = views.find(Json::Get(raw, "view", ""));
+            auto target=Json::Get(raw,"view","");
+            if (type == msg::OpenDevTools::kType && browserLayout && target == browserLayout->chrome)
+                target=browserLayout->content;
+            const auto found = views.find(target);
             if (found == views.end()) return;
             auto view = found->second; // close callbacks may erase the map entry
             if (type == msg::SetHidden::kType) {
@@ -590,10 +689,12 @@ namespace osfui::cefhost
             const float y = (static_cast<float>(height) - viewportHeight) * 0.5f;
             std::vector<Layer> layers;
             for (auto* view : visible) {
-                layers.push_back({ &view->surface, x, y, static_cast<float>(viewportWidth), static_cast<float>(viewportHeight) });
+                const auto bounds=ViewBounds(*view);
+                const float left=x+bounds.x, top=y+bounds.y;
+                layers.push_back({ &view->surface, left, top, static_cast<float>(bounds.width), static_cast<float>(bounds.height) });
                 if (view->popupShown && view->popup.texture) {
                     const float scale = static_cast<float>(view->Scale());
-                    layers.push_back({ &view->popup, x + view->popupRect.x * scale, y + view->popupRect.y * scale,
+                    layers.push_back({ &view->popup, left + view->popupRect.x * scale, top + view->popupRect.y * scale,
                         view->popupRect.width * scale, view->popupRect.height * scale });
                 }
             }
@@ -653,17 +754,36 @@ namespace osfui::cefhost
     };
 
     View::View(Host& host, const msg::Navigate& nav, std::filesystem::path assets) :
-        owner(host), id(nav.id), root(std::move(assets)), legacy(nav.legacy), logicalHeight((std::max)(1u, nav.logicalHeight)) {}
+        owner(host), id(nav.id), root(std::move(assets)), legacy(nav.legacy), remoteContent(nav.remoteContent),
+        logicalHeight((std::max)(1u, nav.logicalHeight)) {}
     double View::Scale() const { return static_cast<double>(owner.viewportHeight) / logicalHeight; }
     bool View::Trusted(const CefString& url) const
-    { return browser::IsTrustedViewDocumentUri(url.ToWString(), browser::kViewHost, ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id))); }
+    { return !remoteContent && browser::IsTrustedViewDocumentUri(url.ToWString(), browser::kViewHost,
+        ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id))); }
+    bool View::AllowedDocument(const CefString& url, bool child) const
+    { return browser::IsAllowedContentDocument(remoteContent, url.ToWString(),
+        ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id)), child); }
+    bool View::OnBeforePopup(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, int, const CefString& url, const CefString&,
+        cef_window_open_disposition_t, bool, const CefPopupFeatures&, CefWindowInfo&, CefRefPtr<CefClient>&,
+        CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool*)
+    {
+        if (remoteContent && browser::IsAllowedRemoteNavigationUri(url.ToWString()))
+            owner.Post([view = CefRefPtr<View>(this), url = url.ToString()] {
+                if (!view->closing && view->browser) view->browser->GetMainFrame()->LoadURL(url);
+            });
+        return true;
+    }
     void View::OnBeforeClose(CefRefPtr<CefBrowser>)
     {
         browser = nullptr; surface.Clear(); popup.Clear();
         owner.Post([host = &owner] { host->CheckShutdown(); });
     }
     void View::GetViewRect(CefRefPtr<CefBrowser>, CefRect& rect)
-    { rect = CefRect(0, 0, (std::max)(1, static_cast<int>(std::lround(owner.viewportWidth / Scale()))), static_cast<int>(logicalHeight)); }
+    {
+        const auto bounds=owner.ViewBounds(*this);
+        rect = CefRect(0,0,(std::max)(1,static_cast<int>(std::lround(bounds.width / Scale()))),
+            (std::max)(1,static_cast<int>(std::lround(bounds.height / Scale()))));
+    }
     bool View::GetScreenInfo(CefRefPtr<CefBrowser> b, CefScreenInfo& info)
     {
         info.device_scale_factor = static_cast<float>(Scale());
@@ -674,8 +794,9 @@ namespace osfui::cefhost
     }
     bool View::GetScreenPoint(CefRefPtr<CefBrowser>, int x, int y, int& screenX, int& screenY)
     {
-        POINT position{ static_cast<LONG>((static_cast<double>(owner.width) - owner.viewportWidth) / 2 + x * Scale()),
-            static_cast<LONG>((static_cast<double>(owner.height) - owner.viewportHeight) / 2 + y * Scale()) };
+        const auto bounds=owner.ViewBounds(*this);
+        POINT position{ static_cast<LONG>((static_cast<double>(owner.width) - owner.viewportWidth) / 2 + bounds.x + x * Scale()),
+            static_cast<LONG>((static_cast<double>(owner.height) - owner.viewportHeight) / 2 + bounds.y + y * Scale()) };
         if (owner.gameWindow) ClientToScreen(owner.gameWindow, &position);
         screenX = position.x; screenY = position.y; return true;
     }
@@ -722,12 +843,25 @@ namespace osfui::cefhost
     {
         reveal.Begin(++owner.revealSerial);
         if (!loaded || hidden || !browser) return;
+        if (remoteContent) {
+            // Untrusted pages get no native reveal binding. Wait for a new
+            // completed paint after this browser-owned invalidation instead.
+            reveal.Sentinel();
+            browser->GetHost()->Invalidate(PET_VIEW);
+            const auto token = reveal.Token();
+            owner.Post([view = CefRefPtr<View>(this), token] {
+                if (view->browser && !view->closing && !view->hidden && view->loaded &&
+                    view->reveal.NeedsRefresh(token)) view->browser->GetHost()->Invalidate(PET_VIEW);
+            }, 34);
+            return;
+        }
         browser->GetMainFrame()->ExecuteJavaScript(
             "requestAnimationFrame(()=>requestAnimationFrame(()=>window.__osfCefReveal?.('" + std::to_string(reveal.Token()) + "')))",
             browser->GetMainFrame()->GetURL(), 0);
     }
     void View::Deliver(std::string payload)
     {
+        if (remoteContent) return;
         if (!loaded || !browser) {
             if (!pendingWeb.Push(std::move(payload)) && !std::exchange(pendingOverflowWarned, true))
                 owner.Log("view '" + id + "': pending web messages exceeded the 64-message/8-MiB cap; dropping oldest");
@@ -738,11 +872,14 @@ namespace osfui::cefhost
         browser->GetMainFrame()->SendProcessMessage(PID_RENDERER, message);
     }
     void View::OnLoadStart(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, TransitionType)
-    { if (frame->IsMain()) { ReleaseInput(); loaded = false; reveal.Reset(); popupShown = false; owner.MarkDirty(); } }
+    { if (frame->IsMain()) { ReleaseInput(); loaded = false; reveal.Reset(); popupShown = false; owner.MarkDirty(); PublishBrowserState(); } }
     void View::OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, int status)
     {
         if (!frame->IsMain() || closing) return;
-        loaded = status >= 200 && status < 400 && Trusted(frame->GetURL());
+        // HTTP error pages are still browsable documents, as is the idle blank page.
+        loaded = remoteContent ? AllowedDocument(frame->GetURL()) :
+            status >= 200 && status < 400 && Trusted(frame->GetURL());
+        PublishBrowserState();
         owner.Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = !loaded, .url = frame->GetURL().ToString(),
             .description = loaded ? "" : "CEF document load failed", .code = status }));
         if (!loaded) return;
@@ -755,6 +892,7 @@ namespace osfui::cefhost
     {
         if (!frame->IsMain() || code == ERR_ABORTED || closing) return;
         ReleaseInput(); loaded = false; reveal.Reset();
+        PublishBrowserState();
         owner.MarkDirty();
         owner.Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = true, .url = url.ToString(), .description = text.ToString(), .code = code }));
     }
@@ -824,6 +962,12 @@ namespace osfui::cefhost
     CefRefPtr<CefResourceRequestHandler> View::GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
         CefRefPtr<CefRequest> request, bool, bool, const CefString&, bool& disableDefault)
     {
+        if (remoteContent) {
+            // Let the remote request context handle this and worker requests
+            // alike. No local asset resolver is reachable from this role.
+            disableDefault = false;
+            return nullptr;
+        }
         disableDefault = !browser::IsInMemoryViewResourceUri(request->GetURL().ToWString(), browser::kViewHost);
         const auto uri = browser::ParseHttpsUri(request->GetURL().ToWString());
         if (uri && uri->host == browser::kViewHost) return new LocalRequest(root, request);
@@ -891,8 +1035,7 @@ namespace osfui::cefhost
     }
     bool View::OnCursorChange(CefRefPtr<CefBrowser>, CefCursorHandle, cef_cursor_type_t type, const CefCursorInfo&)
     {
-        if (owner.inputTarget != id) return true;
-        UINT cursor = 32512; // IDC_ARROW; transport accepts system IDs, not process-local handles
+        cursor = 32512; // IDC_ARROW; transport accepts system IDs, not process-local handles
         if (type == CT_IBEAM) cursor = 32513;
         else if (type == CT_HAND) cursor = 32649;
         else if (type == CT_CROSS) cursor = 32515;
@@ -901,7 +1044,19 @@ namespace osfui::cefhost
         else if (type == CT_NOTALLOWED) cursor = 32648;
         else if (type == CT_EASTWESTRESIZE) cursor = 32644;
         else if (type == CT_NORTHSOUTHRESIZE) cursor = 32645;
-        owner.Send(msg::ToJson(msg::Cursor{ .id = cursor })); return true;
+        if ((owner.browserLayout ? owner.pointerTarget : owner.inputTarget) == id)
+            owner.Send(msg::ToJson(msg::Cursor{ .id = cursor }));
+        return true;
+    }
+    void View::PublishBrowserState()
+    {
+        if (!remoteContent || !browser || closing) return;
+        const auto url=browser->GetMainFrame()->GetURL().ToString();
+        const msg::BrowserState state{.view=id,.url=url,.title=title,
+            .canGoBack=browser->CanGoBack(),.canGoForward=browser->CanGoForward(),.loading=browser->IsLoading(),
+            .secure=loaded && url.starts_with("https://"),.muted=browser->GetHost()->IsAudioMuted(),.audibleKnown=false};
+        const auto encoded=Json::Dump(msg::ToJson(state));
+        if (encoded != lastBrowserState) { lastBrowserState=encoded; owner.Send(msg::ToJson(state)); }
     }
     bool View::OnConsoleMessage(CefRefPtr<CefBrowser>, cef_log_severity_t level, const CefString& message, const CefString&, int)
     {
@@ -945,6 +1100,18 @@ namespace osfui::cefhost
         std::error_code ec;
         std::filesystem::create_directories(profile, ec);
         if (ec) { host.Fatal("cef-profile", HRESULT_FROM_WIN32(ec.value()), "Cannot create CEF profile"); return 7; }
+        const auto clearMarker=profile / "clear-browser-data";
+        if (host.init.remoteMode && std::filesystem::exists(clearMarker,ec)) {
+            // The profile belongs to this surface host. Never traverse a redirected cache directory.
+            for (const auto* directory : {"Default","Content"}) {
+                const auto target=profile / directory;
+                if (std::filesystem::is_symlink(target,ec)) { ec=std::make_error_code(std::errc::permission_denied); break; }
+                ec.clear(); std::filesystem::remove_all(target,ec);
+                if (ec) break;
+            }
+            if (!ec) std::filesystem::remove(clearMarker,ec);
+            if (ec) { host.Fatal("cef-profile",E_FAIL,"Cannot clear browser data"); return 7; }
+        }
         try {
             host.graphics.Initialize({ host.init.adapterLuidLow, static_cast<LONG>(host.init.adapterLuidHigh) }, host.game,
                 [&host](const json& message) { return host.Send(message); });
@@ -958,6 +1125,7 @@ namespace osfui::cefhost
         const auto language = browser::LanguageTag::FromGameLanguage(host.init.language);
         if (!language.empty()) CefString(&settings.locale) = language;
         app->host = &host;
+        app->remoteMode = host.init.remoteMode;
         // ANGLE expects signed high-part, unsigned low-part, in decimal.
         app->adapterLuid = std::to_string(static_cast<std::int32_t>(host.init.adapterLuidHigh)) + "," +
             std::to_string(host.init.adapterLuidLow);
@@ -973,7 +1141,7 @@ namespace osfui::cefhost
         host.frameTimer.Stop();
         host.pipe.Close();
         if (host.reader.joinable()) host.reader.join();
-        host.views.clear(); host.retiring.clear();
+        host.views.clear(); host.retiring.clear(); host.remoteContext = nullptr;
         CefShutdown();
         app->host = nullptr;
         return host.exitCode;

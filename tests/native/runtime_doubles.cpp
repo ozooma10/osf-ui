@@ -61,6 +61,7 @@ namespace OSFUI
     {
         ++env.rendererInitializations;
         m_impl->name = config.instanceName;
+        env.remoteMode[m_impl->name]=config.remoteMode;
         env.rendererUsesCef = config.backend == osfui::browser::Backend::Cef;
         CHECK(env.settings.reads > 0); // Settings must be acquired before renderer setup.
         return env.rendererInitializes;
@@ -81,6 +82,17 @@ namespace OSFUI
         env.hidden[manifest.id] = true;
     }
     bool BrowserHostClient::RefreshModFiles(std::string_view) { return true; }
+    bool BrowserHostClient::CreateOrNavigateRemoteView(std::string_view id, std::string_view, std::uint32_t)
+    {
+        CHECK(env.remoteMode[m_impl->name]);
+        env.navigations.emplace_back(id); env.viewHosts[std::string(id)]=m_impl->name;
+        return true;
+    }
+    void BrowserHostClient::SetBrowserLayout(osfui::browser::msg::BrowserLayout layout) { env.browserLayouts.push_back(std::move(layout)); }
+    bool BrowserHostClient::SendBrowserCommand(const osfui::browser::msg::BrowserCommand& command)
+    { env.browserCommands.push_back(command); return true; }
+    void BrowserHostClient::SetBrowserStateHandler(BrowserStateHandler handler) { env.hosts[m_impl->name].browserState=std::move(handler); }
+    void BrowserHostClient::SetBrowserResultHandler(BrowserResultHandler handler) { env.hosts[m_impl->name].browserResult=std::move(handler); }
     void BrowserHostClient::SetInputTargetView(std::string_view id)
     {
         CHECK(!env.settings.blocks.empty()); // Suppression must precede input focus.
@@ -105,7 +117,7 @@ namespace OSFUI
     void BrowserHostClient::SetLoadHandler(LoadHandler handler) { env.load = handler; env.hosts[m_impl->name].load = std::move(handler); }
     void BrowserHostClient::SetFailureHandler(FailureHandler handler) { env.failure = handler; env.hosts[m_impl->name].failure = std::move(handler); }
     void BrowserHostClient::SetCursorChangeHandler(CursorChangeHandler) {}
-    void BrowserHostClient::SetBackHandler(BackHandler) {}
+    void BrowserHostClient::SetBackHandler(BackHandler handler) { env.hosts[m_impl->name].back=std::move(handler); }
     void BrowserHostClient::RequestBack(std::string_view) { env.backWindowActive.push_back(env.rendererWindowActive); }
     bool BrowserHostClient::IsCurrentInputPresentation(std::string_view, std::uint64_t) const { return true; }
     void BrowserHostClient::SetInputFocus(bool focused)

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>World Screens browser</title>
+  <link rel="stylesheet" href="chrome.css">
+  <script defer src="/shared/osfui.js"></script>
+  <script defer src="chrome.js"></script>
+</head>
+<body>
+  <nav id="toolbar" aria-label="Browser controls">
+    <span class="brand" aria-hidden="true">WORLD SCREENS</span>
+    <button id="back" title="Back" aria-label="Back">←</button>
+    <button id="forward" title="Forward" aria-label="Forward">→</button>
+    <button id="reload" title="Reload" aria-label="Reload">↻</button>
+    <button id="home" title="Home">Home</button>
+    <form id="navigation">
+      <span id="security" title="Local page">LOCAL</span>
+      <input id="address" aria-label="Address or search" placeholder="Search or enter a public web address" autocomplete="off" spellcheck="false" maxlength="8192">
+      <button type="submit" id="go">Go</button>
+    </form>
+    <button id="engine" title="Change search engine">DuckDuckGo</button>
+    <button id="set-home" title="Use the current page as home">Set home</button>
+    <button id="mute" aria-pressed="false">Mute</button>
+    <button id="clear" title="Clear cookies, sign-ins and browser preferences">Clear data</button>
+    <button id="close" title="Close browser controls; playback continues">Close <kbd>Esc</kbd></button>
+  </nav>
+  <main id="landing">
+    <div class="eyebrow">WORLD SCREENS / BROWSER</div>
+    <h1 id="heading">Your screen. Your channel.</h1>
+    <p id="description">Search, open a website, or start a video. Close the controls and keep watching in the world.</p>
+    <p id="hint">Activate this screen to browse.</p>
+    <p class="footnote">Web audio plays at browser volume. Use Mute to silence it. Playback stops when this screen unloads.</p>
+  </main>
+  <div id="notice" role="status" aria-live="polite"></div>
+</body>
+</html>

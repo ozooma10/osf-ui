@@ -4,6 +4,7 @@
 #include "Render/BrowserHostClient.h"
 #include "Input/XInputPoller.h"
 #include "SettingsServices.h"
+#include "BrowserMessages.h"
 
 #include <deque>
 #include <map>
@@ -62,6 +63,9 @@ namespace RuntimeTest
         std::vector<MouseEvent> mouse;
         std::vector<bool> backWindowActive;
         std::vector<SentMessage> sent;
+        std::map<std::string,bool> remoteMode;
+        std::vector<osfui::browser::msg::BrowserLayout> browserLayouts;
+        std::vector<osfui::browser::msg::BrowserCommand> browserCommands;
         OSFUI::BrowserHostClient::LoadHandler load;
         OSFUI::BrowserHostClient::FailureHandler failure;
         OSFUI::BrowserHostClient::WebMessageHandler message;
@@ -70,6 +74,9 @@ namespace RuntimeTest
             OSFUI::BrowserHostClient::LoadHandler load;
             OSFUI::BrowserHostClient::FailureHandler failure;
             OSFUI::BrowserHostClient::WebMessageHandler message;
+            OSFUI::BrowserHostClient::BrowserStateHandler browserState;
+            OSFUI::BrowserHostClient::BrowserResultHandler browserResult;
+            OSFUI::BrowserHostClient::BackHandler back;
         };
         std::map<std::string, HostCallbacks> hosts;
         std::map<std::string, std::string> viewHosts;

@@ -35,6 +35,14 @@
     "kind": { "type": "string", "enum": ["menu", "hud", "world"], "default": "menu" },
     "texture": { "type": "string", "minLength": 1, "description": "World view only: generated named placeholder texture from the World Screens extension tools." },
     "fullscreen": { "type": "boolean", "default": false, "description": "World view only: allows Fullscreen interactions (cursor + pause, the page drawn letterboxed over the game, mouse input)." },
+    "browser": {
+      "type": "object", "required": ["chrome"],
+      "description": "Reserved for World Screens' osfui.browser/tv world view. Implies fullscreen and uses chrome as its local entry. Other view IDs are rejected.",
+      "properties": {
+        "chrome": { "type": "string", "minLength": 1, "description": "Relative local HTML path with no traversal, URL delimiters or percent escapes." },
+        "chromeHeight": { "type": "integer", "minimum": 32, "maximum": 256, "default": 56, "description": "Chrome band height in output pixels; must be less than the view height." }
+      }
+    },
     "capturesInput": {
       "type": "boolean",
       "default": true,
@@ -62,6 +70,9 @@
     }
   },
   "allOf": [{
+    "if": { "required": ["browser"] },
+    "then": { "required": ["kind"], "properties": { "kind": { "const": "world" } } }
+  }, {
     "if": { "required": ["launcher"], "properties": { "launcher": { "anyOf": [{ "const": true }, { "type": "object" }] } } },
     "then": { "properties": { "kind": { "const": "menu" } } }
   }, {

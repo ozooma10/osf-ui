@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 1,
+  "title": "World Screens browser",
+  "kind": "world",
+  "width": 1920,
+  "height": 1080,
+  "transparent": false,
+  "capturesInput": false,
+  "pausesGame": false,
+  "texture": "textures/osfui/feeds/a38d323ae4f0b194bbb4971eff370bd1/06b5e53e5a73da990f666b53e6057caf.dds",
+  "browser": {
+    "chrome": "chrome.html",
+    "chromeHeight": 56
+  }
+}

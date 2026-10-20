@@ -10,6 +10,11 @@ function install(target)
     local docs=path.join(root,"SFSE","Plugins","OSF","WorldScreens")
     os.mkdir(docs)
     os.cp(path.join(extension,"README.md"), path.join(docs,"README.md"))
+    local views=path.join(root,"SFSE","Plugins","OSF","UI","views","osfui.browser")
+    os.mkdir(views)
+    os.cp(path.join(extension,"data","SFSE","Plugins","OSF","UI","views","osfui.browser","tv"),views)
+    os.mkdir(path.join(root,"textures","osfui","feeds"))
+    os.cp(path.join(extension,"data","textures","osfui","feeds","*"),path.join(root,"textures","osfui","feeds"))
     for _, name in ipairs({"LICENSE", "EXCEPTIONS"}) do
         os.cp(path.join(os.projectdir(),name),path.join(docs,name))
     end

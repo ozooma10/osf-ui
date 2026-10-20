@@ -421,10 +421,12 @@
 				return nullptr;
 			}
 
-			View& CreateView(const std::string& a_id)
+			View& CreateView(const std::string& a_id, bool a_remoteContent, bool a_legacy)
 			{
 				auto owned = std::make_unique<View>();
 				owned->id = a_id;
+				owned->remoteContent = a_remoteContent;
+				owned->legacy = a_legacy;
 				owned->generation = nextViewGeneration++;
 				const auto slash = a_id.find('/');
 				owned->modId = ToWide(a_id.substr(0, slash));

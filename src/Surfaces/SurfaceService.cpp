@@ -3,6 +3,9 @@
 #include "Core/Paths.h"
 #include "Core/Ids.h"
 #include "Render/BrowserBuild.h"
+#include "BrowserSurface.h"
+#define NOGDI
+#include "BrowserMessages.h"
 
 namespace OSFUI
 {
@@ -17,8 +20,74 @@ namespace OSFUI
         }
     }
     void SurfaceService::Initialize(MessageBridge& bridge, bool developer, std::function<std::optional<std::string>()> language,
-        std::function<void(std::string_view)> resetPage)
-    { m_bridge = &bridge; m_developerMode = developer; m_language = std::move(language); m_resetPage = std::move(resetPage); }
+        std::function<void(std::string_view)> resetPage, std::function<bool()> browserAllowed)
+    {
+        m_bridge = &bridge; m_developerMode = developer; m_language = std::move(language);
+        m_resetPage = std::move(resetPage); m_browserAllowed = std::move(browserAllowed);
+        for (const auto* action : {"navigate","back","forward","reload","stop","home","mute","clearData","close","getState"})
+            bridge.RegisterRequest(std::string("browser.") + action,
+                [this, action](const nlohmann::json& payload, MessageBridge& b) { BrowserRequest(action, payload, b); });
+    }
+    nlohmann::json SurfaceService::BrowserState(const Entry& e) const
+    {
+        auto state = e.browserState;
+        state.erase("type"); state.erase("view");
+        state["enabled"] = e.browserEnabled; state["fullscreen"] = e.browserFullscreen;
+        const auto url = Json::Get(state,"url","");
+        state["landing"] = !e.browserEnabled || url.empty() || url == "about:blank" || !e.browserError.empty();
+        state["error"] = e.browserError;
+        return state;
+    }
+    void SurfaceService::BrowserLayout(Entry& e)
+    {
+        if (e.manifest.browserChrome.empty() || !e.host) return;
+        e.host->SetBrowserLayout({.chrome=e.manifest.id,
+            .content=e.browserEnabled ? std::string(osfui::browser::kBrowserContent) : "",
+            .chromeHeight=e.manifest.browserChromeHeight, .fullscreen=e.browserFullscreen,
+            .landing=BrowserState(e)["landing"].get<bool>()});
+        m_bridge->Emit(e.manifest.id,"browser.state",BrowserState(e));
+    }
+    void SurfaceService::RejectBrowserRequests(Entry& e)
+    {
+        for (auto token : e.browserRequests) m_bridge->RejectTo(token,"browser-unavailable","The browser stopped");
+        e.browserRequests.clear();
+    }
+    void SurfaceService::BrowserRequest(std::string_view action, const nlohmann::json& payload, MessageBridge& b)
+    {
+        const auto found = std::ranges::find_if(m_entries, [&](const auto& e) {
+            return e->manifest.id == b.CurrentSource() && e->manifest.id == osfui::browser::kBrowserView &&
+                !e->manifest.browserChrome.empty() && e->host && !e->failed;
+        });
+        if (found == m_entries.end()) { b.Reject("browser-forbidden","Browser controls belong to the trusted browser chrome"); return; }
+        auto& e = **found;
+        if (action == "getState") { b.Respond(BrowserState(e)); return; }
+        if (action == "close") {
+            b.Respond(nlohmann::json::object());
+            if (InputView() == e.manifest.id) FinishInteraction("closed");
+            return;
+        }
+        if (!e.browserEnabled) { b.Reject("browsing-disabled","Web browsing is disabled"); return; }
+        osfui::browser::msg::BrowserCommand command{.view=std::string(osfui::browser::kBrowserContent), .action=std::string(action)};
+        if (action == "navigate" || action == "home") {
+            const auto input = Json::Get(payload,"input","");
+            if (action == "home" && input.empty()) command.url = "about:blank";
+            else {
+                const auto destination = osfui::browser::BrowserDestination(input, Json::Get(payload,"searchEngine","duckduckgo"));
+                if (!destination) { b.Reject("invalid-url","Enter a public HTTP or HTTPS address, or search terms"); return; }
+                command.url = *destination;
+            }
+            command.action = "navigate"; e.browserError.clear();
+        } else if (action == "mute") {
+            const auto muted = payload.find("muted");
+            if (muted == payload.end() || !muted->is_boolean()) { b.Reject("invalid-payload","muted must be a boolean"); return; }
+            command.value = muted->get<bool>();
+        }
+        std::erase_if(e.browserRequests, [&](auto token) { return !b.HasPending(token); });
+        command.token = b.Defer();
+        if (!e.host->SendBrowserCommand(command)) b.RejectTo(command.token,"browser-unavailable","The browser is not ready");
+        else e.browserRequests.insert(command.token);
+    }
+    void SurfaceService::RequestBack() { m_backRequested = true; }
     void SurfaceService::VisitViews(API::Surfaces::Visitor visit, void* context) noexcept
     {
         if (!visit) return;
@@ -74,6 +143,18 @@ namespace OSFUI
         API::BridgeApi::Get().SetViewInstantiated(entry.manifest.id, true);
         entry.host->CreateOrNavigateView(entry.manifest);
         entry.host->SetViewHidden(entry.manifest.id, false);
+        if (!entry.manifest.browserChrome.empty()) {
+            entry.browserFullscreen = false;
+            entry.browserError.clear();
+            entry.browserState = osfui::browser::msg::ToJson(osfui::browser::msg::BrowserState{
+                .view=std::string(osfui::browser::kBrowserContent),.url="about:blank"});
+            if (entry.browserEnabled) {
+                entry.host->CreateOrNavigateRemoteView(osfui::browser::kBrowserContent,"about:blank",entry.manifest.height);
+                entry.host->SetViewHidden(osfui::browser::kBrowserContent,false);
+                entry.host->SetViewOrder(osfui::browser::kBrowserContent,-1);
+            }
+            BrowserLayout(entry);
+        }
         entry.host->SetPointerInputEnabled(false);
         entry.host->Frames()->SetVisible(true);
     }
@@ -82,8 +163,10 @@ namespace OSFUI
         if (entry->manifest.debugOnly && !m_developerMode) return;
         auto host = std::make_shared<BrowserHostClient>();
         auto profile = StringUtil::ToLowerAscii(entry->manifest.id); std::ranges::replace(profile, '/', '!');
+        entry->browserEnabled = !entry->manifest.browserChrome.empty() && m_browserAllowed && m_browserAllowed();
         if (!host->Initialize({.width=entry->manifest.width, .height=entry->manifest.height, .devMode=m_developerMode,
-            .backend=kCompiledBrowserBackend, .resolveLanguage=m_language, .dataDir=Paths::DataDir(), .instanceName="surface-"+profile})) {
+            .backend=kCompiledBrowserBackend, .resolveLanguage=m_language, .dataDir=Paths::DataDir(), .instanceName="surface-"+profile,
+            .remoteMode=entry->browserEnabled})) {
             entry->failed = true; return;
         }
         entry->host = std::move(host);
@@ -93,17 +176,39 @@ namespace OSFUI
         });
         entry->host->SetLoadHandler([this, weak=std::weak_ptr(entry)](const BrowserHostClient::LoadEvent& event) {
             if (const auto e=weak.lock()) {
+                if (e->browserEnabled && event.viewId == osfui::browser::kBrowserContent) {
+                    e->browserError = event.failed ? std::string(event.description) : "";
+                    BrowserLayout(*e); return; // Site errors do not retire the chrome or end interaction.
+                }
                 if (event.viewId != e->manifest.id || (!event.failed && !e->recovery.IsAvailable() && !e->recovery.CanAcceptResponse())) return;
                 e->loaded = !event.failed; e->failed = event.failed;
                 if (event.failed) { (void)e->recovery.OnFailure(Now(), true); if (InputView() == e->manifest.id) CancelInteraction(); }
                 else { e->recovery.OnResponse(Now()); }
             }
         });
+        entry->host->SetBrowserStateHandler([this, weak=std::weak_ptr(entry)](const auto& state) {
+            if (const auto e=weak.lock(); e && e->browserEnabled && state.view == osfui::browser::kBrowserContent) {
+                e->browserState=osfui::browser::msg::ToJson(state);
+                if (state.loading) e->browserError.clear();
+                BrowserLayout(*e);
+            }
+        });
+        entry->host->SetBrowserResultHandler([this, weak=std::weak_ptr(entry)](const auto& result) {
+            if (const auto e=weak.lock(); e && e->browserRequests.erase(result.token)) {
+                if (result.success) m_bridge->RespondTo(result.token,{{"restartRequired",result.restartRequired}});
+                else m_bridge->RejectTo(result.token,"browser-command-failed",result.error);
+            }
+        });
+        entry->host->SetBackHandler([this, weak=std::weak_ptr(entry)](std::string_view view, std::uint64_t epoch) {
+            if (const auto e=weak.lock(); e && InputView() == e->manifest.id && view == e->manifest.id &&
+                e->host->IsCurrentInputPresentation(view,epoch)) FinishInteraction("closed");
+        });
         entry->host->SetCursorChangeHandler([this, weak=std::weak_ptr(entry->host)](std::uint32_t id) {
             if (FullscreenActive() && m_cursor && weak.lock() == m_input.load()) m_cursor(id);
         });
         entry->host->SetFailureHandler([this, weak=std::weak_ptr(entry)](const BrowserHostClient::FailureEvent& event) {
             if (const auto e=weak.lock()) {
+                RejectBrowserRequests(*e);
                 e->loaded=false; e->failed=true;
                 if (BrowserHostRecovery::IsRetryable(event.stage, event.errorCode)) (void)e->recovery.OnFailure(Now(), true);
                 else (void)e->recovery.OnFailure(Now(), false);
@@ -129,6 +234,7 @@ namespace OSFUI
             if (!demand && e->host) {
                 if (InputView() == e->manifest.id) FinishInteraction("surface-released");
                 if (e->gpu && !e->gpu->Idle()) continue;
+                RejectBrowserRequests(*e);
                 if (m_resetPage) m_resetPage(e->manifest.id);
                 m_bridge->OnViewDestroyed(e->manifest.id);
                 API::BridgeApi::Get().SetViewInstantiated(e->manifest.id, false);
@@ -201,6 +307,9 @@ namespace OSFUI
         { std::scoped_lock lock(m_mutex); m_fullscreenFrames.reset(); }
         m_interactionToken=0; m_neutral=0;
         if (auto request=std::exchange(m_interaction, {})) {
+            for (const auto& e : m_entries) if (e->manifest.id == request->view && e->browserFullscreen) {
+                e->browserFullscreen=false; BrowserLayout(*e);
+            }
             if (m_bridge && request->started)
                 m_bridge->Emit(request->view,"ui.interaction",nlohmann::json{{"active",false},{"reason",reason}});
             request->callback(request->token,request->started ? API::Surfaces::Phase::Ended : API::Surfaces::Phase::Rejected,reason,request->context);
@@ -213,6 +322,11 @@ namespace OSFUI
     }
     void SurfaceService::UpdateInteraction(bool allowed, bool neutral, bool fullscreenAvailable, const std::function<bool()>& admit)
     {
+        if (m_backRequested.exchange(false) && m_interaction && m_interaction->started) {
+            const auto e=Find(m_interaction->lease);
+            if (e && !e->manifest.browserChrome.empty()) e->host->RequestBack(e->manifest.id);
+            else CancelInteraction();
+        }
         // Cancellation applies only to requests that existed at that event.
         // Loading/focus changes while idle cannot poison a later activation.
         const auto cancelled=[this](const Request& r) { return r.cancelGeneration != m_cancelGeneration.load(); };
@@ -234,7 +348,10 @@ namespace OSFUI
             FinishInteraction("surface-unavailable"); return;
         }
         if (m_interaction->started) {
-            if (!e->loaded || !e->gpu || !e->gpu->Ready()) FinishInteraction("surface-unavailable");
+            // Browser layout changes invalidate the old presentation while the
+            // same documents repaint. That temporary gap must not close controls.
+            if (!e->loaded || !e->gpu || (e->manifest.browserChrome.empty() && !e->gpu->Ready()))
+                FinishInteraction("surface-unavailable");
             return;
         }
         if (!e->loaded || !e->host || !e->gpu || !e->gpu->Ready()) return;
@@ -243,6 +360,7 @@ namespace OSFUI
         if (!admit()) { FinishInteraction("input-unavailable"); return; }
         e->host->SetInputTargetView(e->manifest.id);
         if (m_interaction->presentation == API::Surfaces::Presentation::Fullscreen) {
+            if (!e->manifest.browserChrome.empty()) { e->browserFullscreen=true; BrowserLayout(*e); }
             e->host->SetPointerInputEnabled(true);
             { std::scoped_lock lock(m_mutex); m_fullscreenFrames=e->gpu; }
             m_fullscreenSize=(static_cast<std::uint64_t>(e->manifest.width) << 32) | e->manifest.height;

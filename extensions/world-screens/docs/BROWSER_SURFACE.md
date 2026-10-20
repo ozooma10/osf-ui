@@ -1,8 +1,13 @@
 # Browser surface — design
 
 Status: 2026-10-20. Steps 1–3 (ABI 1.1, fullscreen presentation, pointer routing) are
-implemented and covered by native tests, with in-game verification still pending.
-Steps 4–7 are design only. Applies to the unreleased Surfaces ABI and World Screens 0.1.0.
+implemented and covered by native tests. The WebView2 fullscreen draw, letterbox,
+clicks/cursors and audio continuing after Esc passed an in-game check on 2026-10-20;
+CEF and the remaining acceptance cases below are still pending.
+Steps 4–5 are implemented for WebView2 and CEF; browser-runtime acceptance is pending.
+Production remains offline: step 6 must connect the default-off consent setting before
+remote mode can launch. Step 7 (the TV content mod) is not implemented.
+Applies to the unreleased Surfaces ABI and World Screens 0.1.0.
 
 ## Goal
 
@@ -14,7 +19,7 @@ same page keeps playing on the screen in the world.
 This doc covers the core and extension work, and ends with a Papyrus-only TV mod
 that is the landmark consumer.
 
-## Why the overlay can't do this today
+## Original constraints
 
 1. **Surfaces and the overlay are separate browsers.** `SurfaceService::Start` creates a
    dedicated `BrowserHostClient` per surface view (`instanceName="surface-"+profile`,
@@ -47,7 +52,7 @@ Don't move the page. Draw the surface's own browser fullscreen, then shrink it b
 ```
 
 - **One browser surface view, shipped by World Screens.** It's a reserved surface view
-  (proposed id `osfui.browser/tv`) whose manifest is shipped by the extension. Content mods
+  (id `osfui.browser/tv`) whose manifest is shipped by the extension. Content mods
   bind screens to that id and never ship pages for it.
 - **Two views in one host.** The *content view* loads remote sites top-level. Most large
   sites, YouTube included, refuse to be framed, so iframes are not an option. The
@@ -118,7 +123,8 @@ A surface manifest gains one field. Only the reserved browser view may set it:
 
 ```json
 {
-  "kind": "surface",
+  "manifestVersion": 1,
+  "kind": "world",
   "width": 1920, "height": 1080,
   "texture": "...",
   "browser": { "chrome": "chrome.html", "chromeHeight": 56 }
@@ -138,7 +144,7 @@ decides what remote content can reach, and content-mod pages never share a host 
 
 ### v1: fixed output size
 
-The browser surface renders at its manifest size (proposed 1920×1080) all the time.
+The browser surface renders at its manifest size (1920×1080) all the time.
 
 - **Fullscreen** scales that texture to the backbuffer, letterboxed to preserve aspect
   ratio. There is no host resize, so `CopyFrame`'s matching-size contract is never
@@ -203,7 +209,7 @@ When a fullscreen interaction starts:
 | Hardware cursor | Allow it (`wantHwCursor` no longer excludes fullscreen surfaces). Hook `SetCursorChangeHandler` on the surface host so link and text cursors show. |
 | Keyboard / text | Unchanged: `InputRenderer()` already returns the surface host. |
 | Controller | `ui.gamepad` goes to the chrome view. Stick-as-cursor is a later addition; v1 is mouse-first. |
-| Esc / pad Back | End the interaction (implemented). Step 5 adds a first stage for the content view: exit page fullscreen if it has a fullscreen element. |
+| Esc / pad Back / pad B | Exit page fullscreen first; otherwise end the interaction. Plain surfaces retain their existing immediate exit. |
 | F12 (dev mode) | DevTools for the content view. |
 
 Inside the host, pointer events go to the view whose bounds contain the pointer. A press
@@ -271,6 +277,15 @@ These go through a fixed `browser.*` set, which core validates:
 | `browser.mute { muted }` | WebView2 `put_IsMuted`, CEF `SetAudioMuted`. Neither has a volume API. |
 | `browser.clearData` | Clears the profile (see above). |
 | `browser.close` | Ends the interaction with reason `closed`. |
+| `browser.getState` | Returns the current native state, including enabled/landing/fullscreen flags and any site-load error. |
+
+Only the reserved chrome view may invoke these requests. Remote page messages are
+dropped at both host and core boundaries. Navigations accept an optional
+`searchEngine` key (`duckduckgo`, `google`, `bing`); arbitrary search URL templates
+are rejected. `browser.home { input, searchEngine }` uses chrome's stored home;
+an empty input opens the local landing page via content's `about:blank`.
+Native commands complete deferred requests by token; failure/retirement rejects
+outstanding requests and late results are ignored.
 
 ### Events (core → page)
 
@@ -280,11 +295,22 @@ These go through a fixed `browser.*` set, which core validates:
 never from the content page. The address bar shows the real origin with a lock or warning
 state. That's the only anti-phishing measure, which is why it must not be spoofable.
 
+The event also carries `audibleKnown`, `enabled`, `fullscreen`, `landing` and `error`.
+The pinned CEF API supplies mute state but no audibility observation without installing
+an audio-capture handler (which changes playback ownership). CEF reports
+`audibleKnown: false`; chrome omits the playing-audio indicator for that edition.
+`browser.focusAddress` is a host-owned event for Ctrl+L/F6.
+
 ### Persistence
 
 The chrome page owns the home page, last URL and search-engine choice in its own
 `localStorage` (local origin, so the content view can't reach it). On load it asks core to
 navigate to the last URL, so the TV resumes where it left off after the browser retires.
+The agreed defaults are the local landing page and DuckDuckGo. Chrome can save the
+current page as Home and cycle through the three search engines. Clear data resets
+these preferences. WebView2 clears browsing data through `ClearBrowsingDataAll`;
+CEF writes a marker and removes this surface's `Default` and `Content` caches before
+the next `CefInitialize`, reporting `restartRequired: true` to chrome.
 
 ## Consent
 
@@ -357,10 +383,42 @@ A Papyrus-and-content mod with no DLL:
 3. **Pointer routing** (done). Letterbox mapping shared with drawing (`FitCentered`), bar
    presses swallowed with releases always forwarded, wheel and pad wheel, and the hardware
    cursor with the page's cursor shapes.
-4. **Host remote mode.** `Init` flag, process args, profile and the content-view policy
-   table in WebView2, then CEF. Drop untrusted web messages without `FailHost` in remote mode.
-5. **Two-view browser surface.** Content and chrome views in one surface host, bounds per
-   presentation, in-host hit testing and focus, and the `browser.*` requests and events.
+4. **Host remote mode** (implemented; browser-runtime acceptance pending). Both hosts
+   consume `Init.remoteMode` and `Navigate.remoteContent`/`url` (introduced in
+   protocol 6; step 5 advances the matched core/hosts to protocol 7).
+   The process mode defaults off; the view role is fixed before controller/browser
+   creation and survives core's host-recovery replay. Remote views cannot become trusted
+   local views by navigating, and their page messages are discarded by both host and core.
+   `tools/browser_shared/BrowserRemoteUri.h` implements the shared absolute
+   HTTP/HTTPS gate, with `remote_uri_tests` in the native runner and XMake.
+   It rejects local names, the virtual asset host, private IP literals, IPv4 aliases,
+   private IPv4 embedded in mapped/NAT64/6to4 IPv6, credentials and ambiguous authorities.
+   IDNs must be normalized to ASCII/IDNA before this gate; raw Unicode hosts are rejected.
+   Both hosts apply it to navigation and intercepted requests. Remote content receives
+   neither the bridge/network shim nor a local asset mapping/handler. The idle document
+   may be `about:blank`; child `about:srcdoc` and in-memory data/public-origin blob
+   resources grant no local privileges.
+   WebView2 installs the required deny handlers/settings before navigation and filters
+   all request source kinds, including workers. CEF uses a dedicated request context
+   for content, including requests without a browser (service workers), and checks
+   redirect destinations in `OnResourceRedirect`. CEF cannot cancel in that callback,
+   so it replaces a rejected redirect with `about:blank`.
+   Profiles are under `LocalOsfuiDir()/browser/{webview2,cef}/`, followed by the existing
+   instance-name directory. CEF keeps content's `Content` cache separate from trusted
+   chrome's `Default` cache. Required settings/preferences fail closed.
+   `BrowserHostConfig.remoteMode` and `CreateOrNavigateRemoteView` are internal plumbing
+   only: **no production caller enables remote mode yet**. No caller may enable it
+   before the consent path exists.
+5. **Two-view browser surface** (implemented; browser-runtime acceptance pending).
+   World Screens ships `osfui.browser/tv`, its trusted chrome files and named placeholder.
+   The core creates a separate `osfui.browser/content` view only when the internal
+   consent callback permits it; the production caller currently leaves that callback
+   unset, so the local disabled page is the only view. Both hosts implement per-view
+   bounds, press capture, click focus, Ctrl+L/F6, content DevTools and fullscreen-first
+   Back. Layout changes preserve both documents and output dimensions; the temporary
+   frame-readiness gap during repaint no longer ends a browser interaction.
+   `browser.*` commands and native state drive chrome. A site-load error expands the
+   local page for retry instead of failing the surface host.
 6. **Consent setting** and the disabled state.
 7. **TV mod.**
 
@@ -379,10 +437,106 @@ mode, and can ship before any remote content exists.
 - `chrome.webview.postMessage` from a remote page does not fail the host.
 - Consent off: no remote-mode host process is launched.
 
+### Verification record — 2026-10-20
+
+- **Build under test:** `1babb8b1` on `dev`, WebView2 edition, runtime
+  `155.0.4283.62`, RTX 3080, 3440×1409 client area. Core and extension were built
+  and deployed; their source/deployment hashes matched.
+- **Fixture:** `tests/manual/OSFFullscreenProbe.psc` and `fullscreen.html`, deployed
+  only in the temporary `OSF Browser Fullscreen 20261020` MO2 profile/mod. The
+  `starcade.arcade/screen-play` override opts into fullscreen at 1200×600. Nothing
+  from this fixture belongs in the extension package.
+- **Initial failure:** invoking `OpenFullscreen` synchronously from the console
+  produced `Rejected/unavailable` because the console blocks surface interaction.
+  The corrected probe uses `Utility.Wait(1.0)` (which does not count menu time)
+  before requesting admission. The old failure also occurred after the browser
+  was loaded; it was not a cold-start/frame-readiness failure.
+- **Direct commands:** the existing native SFSE mailbox dispatched
+  `coc SettleRedMile02` and `cgf "OSFFullscreenProbe.OpenRedMile"` in an isolated
+  copy of the pinned test save. Native cell readback confirmed the teleport.
+  No Computer Use or injected input was used for this successful run.
+- **Observed:** the compositor logged its first fullscreen surface draw,
+  `1200x600 -> 3440x1409`, scale `2.348`. A game-window capture showed the page
+  centered with opaque black side bars. The user confirmed all corner clicks,
+  hand/text cursors, Esc closing and the tone continuing afterward. Post-Esc
+  native readback reported no open menus and `pauseRequestCount=0`.
+  Subsequent fullscreen attachments and detachment on focus loss were logged.
+- **Evidence:** local captures and mailbox receipts are under
+  `build/browser-fullscreen/evidence/20261020-045542-379-FullscreenNativeCommands/`.
+  The first capture shows document `08abd3a4` at 7.2 seconds. The later capture
+  occurred after focus loss had already closed fullscreen, so it does **not**
+  establish the document ID/timer on reopen. The owned game exited through `qqq`.
+- **Native verification:** all 32 suites passed, including 141 remote-URL checks
+  and 58 `surface-fullscreen` checks. The CEF asset symlink-escape case was skipped
+  because Windows denied symlink creation.
+- **Still open:** same-document/timer comparison on reopen, direct visual
+  confirmation of the continuing animation on the bound world screen, black-bar
+  click rejection, pad Back, save/load and unload acceptance, and CEF in-game
+  verification. Remote browsing/YouTube is not available yet.
+
+The URI gate deliberately rejects ambiguous inputs instead of reproducing the
+browser's repair rules. Its numeric-host cases follow the
+[WHATWG URL host parsing rules](https://url.spec.whatwg.org/#host-parsing);
+address-range references are the IANA
+[IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/) and
+[IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/) registries.
+The gate does not resolve DNS. DNS rebinding remains subject to Chromium's private-network
+protections, as stated in the design; it is not prevented by this parser.
+
+### Step 4 build/native verification — 2026-10-20
+
+- WebView2 host, CEF host and core compile successfully against the local SDKs.
+  The core build deployed the matched WebView2 edition through XMake. CEF was built
+  into `build/cef-host/runtime`; the selected deployed edition was not changed.
+- All 32 native suites passed. `remote_uri_tests` now covers 297 URL, role, resource,
+  profile and process-argument checks; `wv2_messages_tests` passes 64 checks including
+  default-off mode and remote navigation IPC. The CEF symlink case remains skipped
+  because Windows denied symlink creation.
+- These checks do **not** execute a remote browser. Actual public navigation/playback,
+  mixed trusted/content views, redirects, worker requests, permission/download/dialog
+  suppression, CEF preference acceptance, and persistence still need browser-runtime
+  acceptance. No game or browser harness was launched for step 4.
+- Native request callbacks are not a general network firewall. In particular,
+  WebView2's documented `WebResourceRequested` schemes do not include WebSockets;
+  non-HTTP transports and private-target coverage must be resolved/tested before
+  enabling browsing for users. The design's WebView2 file-picker and print-preview
+  gaps remain open. Remote content currently receives no optional form-control shim.
+
+References for these runtime limits:
+[WebView2 request interception](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2#add_webresourcerequested)
+and [Chromium password preferences](https://github.com/chromium/chromium/blob/main/components/password_manager/core/common/password_manager_pref_names.h).
+
+### Step 5 build/native verification — 2026-10-20
+
+- Core, WebView2 host, CEF host and World Screens build successfully. Core/WebView2
+  and the extension were deployed through XMake, including an explicit extension
+  install. SHA-256 matches were verified for all three deployed binaries and all
+  five browser manifest/chrome/texture assets. CEF is staged in `build/cef-host/runtime`;
+  the deployed edition remains WebView2.
+- All **33 native suites** pass. The new browser policy/geometry/capture suite has
+  46 checks; enabled and default-disabled browser lifecycle scenarios have 71 and
+  37 checks. Manifest validation passes 124 checks, shared IPC 70, and the remote
+  URI policy 297. Existing fullscreen coverage remains green. The CEF asset
+  symlink-escape case is still skipped because Windows denied symlink creation.
+- Lifecycle coverage includes non-chrome request rejection, URL rejection before
+  dispatch, deferred results, remote-message isolation, close/Back handling,
+  unchanged navigation counts across presentation changes, temporary frame
+  unreadiness during reflow, site errors and late results after retirement.
+- Chrome JavaScript passes `node --check`. Build/test logs are
+  `build/browser-surface-{core-build,cef-build,extension-build,native}.log`.
+  No browser harness or game was launched for this step, and no commit was made.
+- **Still unverified in game:** two-view composition and hit testing in both
+  editions, Ctrl+L/F6, page-fullscreen Esc, content DevTools, actual website playback
+  across close/reopen, preference/profile clearing and persistence. The step 4
+  network/file-picker/print limitations above remain open. CEF audibility is
+  explicitly unknown; native mute is implemented. Step 6 remains the gate before
+  any production remote host can launch.
+
 ## Open decisions
 
-1. Reserved id: `osfui.browser/tv`, or a World Screens-owned mod id.
-2. Default search engine and home page.
-3. Fullscreen always pauses (implemented). Decide whether to expose that as an option.
-4. Plain surfaces can already set `fullscreen: true` (steps 1–3 landed). Decide whether to
+The reserved id (`osfui.browser/tv`), local home page and DuckDuckGo default were
+confirmed by the user on 2026-10-20.
+
+1. Fullscreen always pauses (implemented). Decide whether to expose that as an option.
+2. Plain surfaces can already set `fullscreen: true` (steps 1–3 landed). Decide whether to
    ship that before the browser.

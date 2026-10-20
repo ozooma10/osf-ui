@@ -615,6 +615,105 @@ void SurfaceFullscreenLifecycle()
     service.Release(tv); runtime().Update();
 }
 
+void BrowserSurfaceLifecycle(bool enabled)
+{
+    namespace msg = osfui::browser::msg;
+    constexpr auto view="osfui.browser/tv", content="osfui.browser/content", host="surface-osfui.browser!tv";
+    FixtureFiles::Write(view, R"({"manifestVersion":1,"kind":"world","texture":"browser.dds","width":1920,"height":1080,"browser":{"chrome":"chrome.html","chromeHeight":56}})");
+    PluginLoad(); PostLoad(); DataReady(); LoadHud();
+    auto& service=SurfaceService::Get();
+    MessageBridge bridge([](std::string_view id,std::string_view text) { env.sent.push_back({std::string(id),nlohmann::json::parse(text)}); });
+    if (enabled) service.Initialize(bridge,false,{}, {},[]{ return true; });
+    else service.Initialize(bridge,false,{}, {}); // Production remains default-off without step 6.
+    const auto lease=service.Acquire(view);
+    runtime().Update(); QueueLoad(view); QueueHello(view); runtime().Update();
+    CHECK(env.remoteMode.at(host) == enabled);
+    CHECK(env.viewHosts.contains(content) == enabled);
+    CHECK(env.browserLayouts.back().landing && !env.browserLayouts.back().fullscreen);
+    CHECK(env.browserLayouts.back().content == (enabled ? content : ""));
+    const auto request=[&](std::string_view source,std::string id,std::string action,nlohmann::json payload=nlohmann::json::object()) {
+        bridge.HandleWebMessage(source,nlohmann::json{{"kind","request"},{"id",id},{"name","browser."+action},{"payload",payload}}.dump());
+    };
+    const auto reply=[&](std::string_view id) {
+        for (auto it=env.sent.rbegin(); it != env.sent.rend(); ++it)
+            if (it->body.value("id","") == id) return it->body;
+        return nlohmann::json::object();
+    };
+    request(view,"state","getState");
+    CHECK(reply("state")["payload"]["enabled"] == enabled);
+    request("acme/menu","forbidden","navigate",{{"input","example.com"}});
+    CHECK(reply("forbidden")["payload"]["code"] == "browser-forbidden");
+    request(view,"nav","navigate",{{"input","space music"}});
+    if (!enabled) {
+        CHECK(reply("nav")["payload"]["code"] == "browsing-disabled");
+        CHECK(env.browserCommands.empty());
+        service.Release(lease); runtime().Update(); return;
+    }
+    CHECK(reply("nav").empty()); // Completion is correlated to the native result, not the send.
+    const auto command=env.browserCommands.back();
+    CHECK(command.view == content && command.action == "navigate" && command.url == "https://duckduckgo.com/?q=space%20music");
+    env.hosts.at(host).browserResult({.token=command.token,.success=true});
+    CHECK(reply("nav")["kind"] == "reply");
+    const auto count=env.browserCommands.size();
+    for (const auto* address : {"http://localhost","file:///secret","https://osfui.example","192.168.1.1"}) {
+        request(view,"bad","navigate",{{"input",address}});
+        CHECK(reply("bad")["payload"]["code"] == "invalid-url");
+    }
+    CHECK(env.browserCommands.size() == count);
+    request(view,"mute-bad","mute",{{"muted","yes"}});
+    CHECK(reply("mute-bad")["payload"]["code"] == "invalid-payload");
+    request(view,"mute","mute",{{"muted",true}});
+    CHECK(env.browserCommands.back().action == "mute" && env.browserCommands.back().value);
+    env.hosts.at(host).browserResult({.token=env.browserCommands.back().token,.success=false,.error="native failure"});
+    CHECK(reply("mute")["payload"]["code"] == "browser-command-failed");
+    env.hosts.at(host).browserState({.view=content,.url="https://example.com/video",.title="Native title",.canGoBack=true,.secure=true});
+    request(view,"state2","getState");
+    CHECK(reply("state2")["payload"]["url"] == "https://example.com/video");
+    CHECK(reply("state2")["payload"]["canGoBack"] == true && reply("state2")["payload"]["landing"] == false);
+    CHECK(!env.browserLayouts.back().landing);
+    // A content-page bridge injection cannot reach chrome's endpoint.
+    const auto sent=env.sent.size();
+    env.hosts.at(host).message(content,R"({"kind":"request","name":"browser.close","id":"attack","payload":{}})");
+    CHECK(env.sent.size() == sent && reply("attack").empty());
+
+    std::vector<API::Surfaces::Phase> phases;
+    const auto callback=+[](std::uint64_t,API::Surfaces::Phase phase,const char*,void* context) noexcept {
+        static_cast<std::vector<API::Surfaces::Phase>*>(context)->push_back(phase);
+    };
+    const auto navigationCount=env.navigations.size();
+    CHECK(service.BeginInteractionWith(lease,{.presentation=API::Surfaces::Presentation::Fullscreen},callback,&phases));
+    runtime().Update(); runtime().Update(); env.engineFocus=true; runtime().Update();
+    CHECK(service.FullscreenActive() && env.browserLayouts.back().fullscreen);
+    surfaceGpuReady=false; runtime().Update();
+    CHECK(service.FullscreenActive()); // The new layout can be between presentations.
+    surfaceGpuReady=true;
+    service.RequestBack(); runtime().Update();
+    CHECK(service.FullscreenActive()); // Page-fullscreen may consume Back; wait for native fallback.
+    env.hosts.at(host).back(view,1); runtime().Update();
+    CHECK(!service.FullscreenActive() && !env.browserLayouts.back().fullscreen);
+    CHECK((phases == std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    CHECK(env.navigations.size() == navigationCount); // Reflow does not recreate either document.
+    CHECK(service.IsInstantiated(view));
+    CHECK(service.BeginInteractionWith(lease,{.presentation=API::Surfaces::Presentation::Fullscreen},callback,&phases));
+    runtime().Update(); runtime().Update(); env.engineFocus=true; runtime().Update();
+    request(view,"close","close"); runtime().Update();
+    CHECK(reply("close")["kind"] == "reply" && !service.FullscreenActive());
+    CHECK(env.navigations.size() == navigationCount);
+    request(view,"clear","clearData");
+    env.hosts.at(host).browserResult({.token=env.browserCommands.back().token,.success=true,.restartRequired=true});
+    CHECK(reply("clear")["payload"]["restartRequired"] == true);
+    env.hosts.at(host).load({.viewId=content,.failed=true,.description="Site failed"});
+    CHECK(service.LoadState(view) == std::string_view("loaded") && env.browserLayouts.back().landing);
+    request(view,"state3","getState");
+    CHECK(reply("state3")["payload"]["error"] == "Site failed");
+    request(view,"pending","reload");
+    service.Release(lease); runtime().Update();
+    CHECK(reply("pending")["payload"]["code"] == "browser-unavailable");
+    const auto replies=env.sent.size();
+    env.hosts.at(host).browserResult({.token=env.browserCommands.back().token,.success=true});
+    CHECK(env.sent.size() == replies); // Late completion cannot revive a retired request.
+}
+
 int main(int argc, char** argv)
 {
     // One scenario per process: Runtime and BridgeApi deliberately have process lifetimes.
@@ -631,6 +730,8 @@ int main(int argc, char** argv)
     }
     else if (scenario == "surface-input") SurfaceInputLifecycle();
     else if (scenario == "surface-fullscreen") SurfaceFullscreenLifecycle();
+    else if (scenario == "browser-surface") BrowserSurfaceLifecycle(true);
+    else if (scenario == "browser-disabled") BrowserSurfaceLifecycle(false);
     else if (scenario == "surfaces") SurfaceLifecycle();
     else if (scenario == "normal") {
         env.settings.values["cefPrototype"] = true; // Obsolete setting cannot override the installed edition.

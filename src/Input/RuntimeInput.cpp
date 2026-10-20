@@ -1,6 +1,7 @@
 #include "Runtime/Runtime.h"
 
 #include "BrowserMessages.h"
+#include "BrowserSurface.h"
 #include "Input/MenuEventSink.h"
 #include "Input/OverlayInputHook.h"
 
@@ -25,7 +26,7 @@ namespace OSFUI
 		}
 		if (IsInputCaptured() && a_key.vk == kVkEscape) {
 			if (a_key.down && !a_key.repeat) {
-                if (SurfaceService::Get().InputRenderer()) SurfaceService::Get().CancelInteraction();
+                if (SurfaceService::Get().InputRenderer()) SurfaceService::Get().RequestBack();
                 else EnqueuePresentationRequest(ViewPresentationRequest::Back);
             }
 			return true;
@@ -147,7 +148,7 @@ namespace OSFUI
 			case GamepadSession::Action::kRight:    key = 0x27; break;  // VK_RIGHT
 			case GamepadSession::Action::kActivate: key = 0x0D; break;  // VK_RETURN
 			case GamepadSession::Action::kBack:
-				if (SurfaceService::Get().InputRenderer()) SurfaceService::Get().CancelInteraction();
+				if (SurfaceService::Get().InputRenderer()) SurfaceService::Get().RequestBack();
                 else EnqueuePresentationRequest(ViewPresentationRequest::Back);
 				return;
 			case GamepadSession::Action::kNone:
@@ -159,8 +160,10 @@ namespace OSFUI
 
 		for (std::size_t i = 0; i < frame.buttonEdgeCount; ++i) {
 			const auto& edge = frame.buttonEdges[i];
-            if (edge.down && edge.idCode == XInputButton::kBack && SurfaceService::Get().InputRenderer()) {
-                SurfaceService::Get().CancelInteraction();
+            if (edge.down && SurfaceService::Get().InputRenderer() &&
+                (edge.idCode == XInputButton::kBack ||
+                    (edge.idCode == XInputButton::kB && *active == osfui::browser::kBrowserView))) {
+                SurfaceService::Get().RequestBack();
                 continue;
             }
 			if (m_bridge) {

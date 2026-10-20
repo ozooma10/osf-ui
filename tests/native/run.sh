@@ -59,6 +59,8 @@ SUITES=(
 "wv2_cdp_input_tests wv2_cdp_input_tests.cpp ../../src/Core/Json.cpp"
 "wv2_mouse_buttons_tests wv2_mouse_buttons_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
+"remote_uri_tests remote_uri_tests.cpp"
+"browser_surface_tests browser_surface_tests.cpp"
 "cef_assets_tests cef_assets_tests.cpp"
 "cef_frame_pacer_tests cef_frame_pacer_tests.cpp"
 "cef_paint_damage_tests cef_paint_damage_tests.cpp"
@@ -146,7 +148,7 @@ for suite in "${SUITES[@]}"; do
     bin="$BUILD/$name"
     [[ -f "$bin" ]] || bin="$bin.exe"
     if [[ "$name" == runtime_lifecycle_tests ]]; then
-        for scenario in normal stale-selection missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure surfaces surface-input surface-fullscreen; do
+        for scenario in normal stale-selection missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure surfaces surface-input surface-fullscreen browser-surface browser-disabled; do
             "$bin" "$scenario" || failures=$((failures + $?))
         done
     else

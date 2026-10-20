@@ -35,6 +35,8 @@ namespace OSFUI
 
 		std::string texture; // Optional extension-owned material binding metadata.
 		bool fullscreen{ false }; // World-only: admits Fullscreen surface interactions.
+		std::string browserChrome; // Reserved browser surface only.
+		std::uint32_t browserChromeHeight{56};
 		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud"
 
 		// Menu-only; forced false for HUDs.

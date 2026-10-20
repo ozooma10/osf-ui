@@ -66,6 +66,7 @@
 
 			void HandleKeyboard(const json& a_msg)
 			{
+				if (BrowserFocusShortcut(msg::FromJson<msg::Keyboard>(a_msg))) return;
 				auto* view = CdpInputTarget();
 				if (!view) return;
 				const auto key = msg::FromJson<msg::Keyboard>(a_msg);
@@ -95,6 +96,7 @@
 			void HandleBack(const json& a_msg)
 			{
 				const auto request = msg::FromJson<msg::Back>(a_msg);
+				if (HandleBrowserBack(request)) return;
 				auto* view = CdpInputTarget();
 				if (!view || !view->domSeen || view->id != request.view) return;
 				const auto input = view->cdpInput;

@@ -164,6 +164,30 @@ int main()
 	CHECK(!OSFUI::Ids::IsValidQualifiedViewId("osfui/keybinds"));
 
 	const auto brokenPath = addView("broken", "main");
+	// Remote mode can be requested only by the built-in world surface.
+	const auto browserPath = root / "osfui.browser" / "tv" / "manifest.json";
+	nlohmann::json browser = {{"manifestVersion",1},{"kind","world"},{"texture","x"},
+		{"width",1920},{"height",1080},{"browser",{{"chrome","chrome.html"},{"chromeHeight",56}}}};
+	auto builtIn = OSFUI::ViewManifest::Parse(browserPath,browser);
+	CHECK(builtIn && builtIn->fullscreen && builtIn->browserChrome == "chrome.html" &&
+		builtIn->entry == "chrome.html" && builtIn->browserChromeHeight == 56);
+	CHECK(!OSFUI::ViewManifest::Parse(path,browser));
+	for (const auto* kind : {"menu","hud"}) {
+		auto invalid=browser; invalid["kind"]=kind;
+		CHECK(!OSFUI::ViewManifest::Parse(browserPath,invalid));
+	}
+	for (const auto* entry : {"","../chrome.html","/chrome.html","https://example.com","a\\b","%2e%2e/page.html","a?b","a#b"}) {
+		auto invalid=browser; invalid["browser"]["chrome"]=entry;
+		CHECK(!OSFUI::ViewManifest::Parse(browserPath,invalid));
+	}
+	for (const auto height : {0,31,257,1080}) {
+		auto invalid=browser; invalid["browser"]["chromeHeight"]=height;
+		CHECK(!OSFUI::ViewManifest::Parse(browserPath,invalid));
+	}
+	for (const auto value : {nlohmann::json(false),nlohmann::json("chrome.html"),nlohmann::json::object()}) {
+		auto invalid=browser; invalid["browser"]=value;
+		CHECK(!OSFUI::ViewManifest::Parse(browserPath,invalid));
+	}
 	Write(brokenPath, "{ broken JSON");
 	// Both diagnostics paths, including the parse-error catch, format Unicode filenames without throwing.
 	CHECK(!OSFUI::Json::ParseFile(brokenPath));

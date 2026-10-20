@@ -1,0 +1,27 @@
+:root { color-scheme: dark; font: 16px "Segoe UI", sans-serif; color: #e8edf2; background: #0c121c; }
+* { box-sizing: border-box; }
+body { margin: 0; overflow: hidden; }
+button, input, select { font: inherit; color: inherit; border: 1px solid #364352; background: #172331; border-radius: 4px; }
+button, select { height: 36px; padding: 0 12px; cursor: pointer; white-space: nowrap; }
+button:hover:not(:disabled) { background: #2b4051; border-color: #92d8e4; }
+button:disabled, input:disabled, select:disabled { opacity: .45; cursor: default; }
+:focus-visible { outline: 2px solid #99e6ef; outline-offset: 2px; }
+#toolbar { display: flex; align-items: center; gap: 8px; height: 56px; padding: 8px 16px; border-bottom: 1px solid #506474; background: #0c121c; }
+.brand { color: #a3b7c8; font-size: 12px; letter-spacing: .14em; margin-right: 12px; }
+#navigation { flex: 1; min-width: 180px; display: flex; align-items: center; height: 36px; border: 1px solid #506474; border-radius: 4px; background: #050a11; }
+#security { padding: 0 10px; color: #e7c786; font-size: 11px; }
+#security[data-secure="true"] { color: #a7dfce; }
+#address { flex: 1; width: 100%; min-width: 0; height: 32px; background: transparent; border: 0; }
+#go { border: 0; height: 32px; }
+kbd { font: 11px "Segoe UI", sans-serif; opacity: .6; margin-left: 8px; }
+#landing { height: calc(100vh - 56px); padding: 14vh 12vw; background: radial-gradient(ellipse at 90% 100%, #233746, #0c121c 65%); }
+.eyebrow { color: #9bd9e3; font-size: 14px; letter-spacing: .25em; }
+h1 { font-weight: 400; font-size: clamp(36px, 4vw, 72px); margin: 28px 0; }
+p { max-width: 760px; line-height: 1.7; color: #b9c8d4; font-size: 22px; }
+#hint { color: #9bd9e3; }
+.footnote { margin-top: 9vh; font-size: 15px; color: #8295a5; }
+#notice { position: absolute; top: 56px; left: 12vw; right: 12vw; padding: 16px 0; color: #f4cf98; }
+body:not(.landing) #landing { display: none; }
+body:not(.landing) #notice { top: 0; left: auto; right: 104px; max-width: 650px; padding: 17px; background: #172331; font-size: 14px; pointer-events: none; }
+#notice:empty { display: none; }
+body:not(.interactive) #toolbar { visibility: hidden; }

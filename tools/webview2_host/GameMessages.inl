@@ -13,9 +13,10 @@
 				viewportHeight = height;
 				userData = std::filesystem::path(ToWide(a_msg.userDataDir));
 				devMode = a_msg.devMode;
+				remoteMode = a_msg.remoteMode;
 				language = a_msg.language;
 				log.InfoFwd("input mode: forwarded CDP; native focus remains in Starfield");
-				if (userData.empty()) {
+				if (!userData.is_absolute()) {
 					FailHost("init", E_INVALIDARG, "init without userDataDir");
 					return;
 				}
@@ -43,13 +44,27 @@
 					return;
 				}
 				auto* view = FindView(a_msg.id);
-				if (!view) view = &CreateView(a_msg.id);
-				view->logicalHeight = (std::max)(1u, a_msg.logicalHeight);
-				view->legacy = a_msg.legacy;
-				ApplyScale(*view);
+				if (!CanCreateContentView(remoteMode, a_msg.remoteContent, a_msg.legacy) ||
+					(view && (view->remoteContent != a_msg.remoteContent || view->legacy != a_msg.legacy))) {
+					FailHost("navigation-policy", E_ACCESSDENIED, "invalid or changed view trust role", a_msg.id);
+					return;
+				}
+				const auto mod = ToWide(OSFUI::Ids::ModOf(a_msg.id));
+				const auto name = ToWide(a_msg.id.substr(a_msg.id.find('/') + 1));
 				std::string entry = a_msg.entry;
 				std::ranges::replace(entry, '\\', '/');
-				view->pendingNavigate = L"https://" + std::wstring(kViewHost) + L"/" + view->modId + L"/" + view->viewName + L"/" + ToWide(entry);
+				const auto uri = a_msg.remoteContent ? ToWide(a_msg.url) :
+					L"https://" + std::wstring(kViewHost) + L"/" + mod + L"/" + name + L"/" + ToWide(entry);
+				if ((!a_msg.remoteContent && !a_msg.url.empty()) ||
+					!IsAllowedContentDocument(a_msg.remoteContent, uri, mod, name)) {
+					Send(msg::ToJson(msg::LoadEvent{ .view = a_msg.id, .failed = true,
+						.description = "Navigation blocked by content policy", .code = E_ACCESSDENIED }));
+					return;
+				}
+				if (!view) view = &CreateView(a_msg.id, a_msg.remoteContent, a_msg.legacy);
+				view->logicalHeight = (std::max)(1u, a_msg.logicalHeight);
+				ApplyScale(*view);
+				view->pendingNavigate = uri;
 				if (view->webView) DrainQueuedViewWork(*view);
 				else RequestController(*view);
 			}
@@ -139,6 +154,7 @@
 			void HandlePostWeb(const json& a_msg)
 			{
 				if (auto* view = ResolveView(a_msg)) {
+					if (view->remoteContent) return;
 					constexpr std::size_t kMaxQueuedPostWeb = 64;
 					constexpr std::size_t kMaxQueuedPostWebBytes = 8u * 1024u * 1024u;
 					auto payload = msg::FromJson<msg::PostWeb>(a_msg).json;
@@ -164,7 +180,10 @@
 					log.Warn("openDevTools ignored outside devMode");
 					return;
 				}
-				if (auto* view = ResolveView(a_msg); view && view->webView) {
+				auto* view = ResolveView(a_msg);
+				if (browserLayout && view && view->id == browserLayout->chrome && !browserLayout->content.empty())
+					view=FindView(browserLayout->content);
+				if (view && view->webView) {
 					const auto hr = view->webView->OpenDevToolsWindow();
 					if (FAILED(hr)) {
 						log.Warn(std::format(
@@ -194,6 +213,8 @@
 			{
 				using Handler = void (App::*)(const json&);
 				static constexpr std::pair<std::string_view, Handler> handlers[]{
+					{ msg::BrowserLayout::kType, &App::HandleBrowserLayout },
+					{ msg::BrowserCommand::kType, &App::HandleBrowserCommand },
 					{ msg::Init::kType, &App::HandleInit },
 					{ msg::Navigate::kType, &App::HandleNavigate },
 					{ msg::Resize::kType, &App::HandleResize },

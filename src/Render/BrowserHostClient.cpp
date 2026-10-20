@@ -12,6 +12,7 @@
 
 #include "Composite/EngineD3D12.h"
 #include "Core/Log.h"
+#include "Core/Ids.h"
 #include "Core/Utf8Path.h"
 #include "Core/Version.h"
 #include "Views/Dev/DevViewFiles.h"
@@ -32,6 +33,7 @@
 #include "BrowserBoundedQueue.h"
 #include "BrowserBrokerLaunch.h"
 #include "BrowserMessages.h"
+#include "BrowserContentPolicy.h"
 #include "BrowserPipe.h"
 #include "BrowserProtocol.h"
 #include "Win32Util.h"
@@ -215,7 +217,7 @@ namespace OSFUI
 	{
 		struct Notify
 		{
-			enum class Kind { Web, Load, Fatal, Console, Log, Dead, Back };
+			enum class Kind { Web, Load, Fatal, Console, Log, Dead, Back, BrowserState, BrowserResult };
 			Kind           kind{ Kind::Web };
 			std::string    view;
 			std::string    text, detail;
@@ -244,6 +246,9 @@ namespace OSFUI
 		FailureHandler          onFailure;
 		CursorChangeHandler     onCursorChange;
 		BackHandler             onBack;
+		BrowserStateHandler onBrowserState;
+		BrowserResultHandler onBrowserResult;
+		std::optional<msg::BrowserLayout> browserLayout;
 		// Game-thread only (Drain/setters).
 		std::unordered_map<std::string, ConsoleHandler>    consoleHandlers;  // viewId -> cb
 
@@ -252,6 +257,8 @@ namespace OSFUI
 		{
 			std::string id;
 			std::string entry;
+			bool remoteContent{};
+			std::string url;
 			bool legacy{};
 			bool        hidden{ true };
 			bool settleColdOpen{ false };
@@ -718,6 +725,7 @@ namespace OSFUI
 					.language = language,
 					.adapterLuidLow = adapterLuidLow,
 					.adapterLuidHigh = adapterLuidHigh,
+					.remoteMode = config.remoteMode,
 				}));
 				addBootstrap(ToJson(msg::Viewport{
 					.width = viewportWidth,
@@ -728,10 +736,15 @@ namespace OSFUI
 				addBootstrap(ToJson(msg::WindowActive{ .active = windowActive }));
 				for (const auto& view : views) {
 					addBootstrap(ToJson(msg::Navigate{ .id = view.id, .entry = view.entry,
-						.logicalHeight = view.logicalHeight, .legacy = view.legacy }));
+						.logicalHeight = view.logicalHeight, .legacy = view.legacy,
+						.remoteContent = view.remoteContent, .url = view.url }));
 					addBootstrap(ToJson(msg::SetHidden{ .view = view.id,
 						.hidden = view.hidden, .presentationEpoch = presentationEpoch, .settleColdOpen = view.settleColdOpen }));
 					addBootstrap(ToJson(msg::SetOrder{ .view = view.id, .order = view.order }));
+				}
+				if (browserLayout) {
+					browserLayout->presentationEpoch = presentationEpoch;
+					addBootstrap(ToJson(*browserLayout));
 				}
 				if (!inputTargetId.empty()) {
 					addBootstrap(ToJson(msg::SetInputTarget{ .view = inputTargetId }));
@@ -781,6 +794,9 @@ namespace OSFUI
 					OnFrameMessage(msg::FromJson<msg::Frame>(message));
 				} else if (type == msg::Textures::kType) {
 					OnTexturesMessage(msg::FromJson<msg::Textures>(message));
+				} else if (type == msg::BrowserState::kType || type == msg::BrowserResult::kType) {
+					Push(Notify{ .kind = type == msg::BrowserState::kType ? Notify::Kind::BrowserState : Notify::Kind::BrowserResult,
+						.text = Json::Dump(message) });
 				} else if (type == msg::WebMessage::kType) {
 					const auto web = msg::FromJson<msg::WebMessage>(message);
 					Push(Notify{ .kind = Notify::Kind::Web,
@@ -879,6 +895,23 @@ namespace OSFUI
 			}
 			for (auto& value : local) {
 				switch (value.kind) {
+				case Notify::Kind::BrowserState:
+					if (const auto raw = Json::Parse(value.text)) {
+						const auto state = msg::FromJson<msg::BrowserState>(*raw);
+						bool accepted{};
+						{
+							std::scoped_lock lock(stateMutex);
+							if (auto* view = FindView(state.view); view && view->remoteContent) {
+								accepted = true;
+								if (osfui::browser::IsAllowedContentDocument(true, ToWide(state.url), {}, {})) view->url = state.url;
+							}
+						}
+						if (accepted && onBrowserState) onBrowserState(state);
+					}
+					break;
+				case Notify::Kind::BrowserResult:
+					if (onBrowserResult) if (const auto raw = Json::Parse(value.text)) onBrowserResult(msg::FromJson<msg::BrowserResult>(*raw));
+					break;
 				case Notify::Kind::Back:
 					if (onBack) onBack(value.view, value.presentationEpoch);
 					break;
@@ -887,7 +920,8 @@ namespace OSFUI
 						bool knownView = false;
 						{
 							std::scoped_lock lock(stateMutex);
-							knownView = FindView(value.view) != nullptr;
+							const auto* view = FindView(value.view);
+							knownView = view && !view->remoteContent;
 						}
 						if (onWebMessage && knownView) onWebMessage(value.view, value.text);
 					}
@@ -1038,7 +1072,8 @@ namespace OSFUI
         REX::INFO("Browser backend: {}; Starfield retains native focus", osfui::browser::BackendName(a_config.backend));
         m_impl->viewsRoot = a_config.dataDir / "views";
         m_impl->legacyViewsRoot = a_config.dataDir.parent_path().parent_path() / "OSFUI" / "views";
-        m_impl->userData = LocalOsfuiDir() / layout.profile;
+        m_impl->userData = a_config.remoteMode ?
+            osfui::browser::RemoteProfilePath(LocalOsfuiDir(), a_config.backend) : LocalOsfuiDir() / layout.profile;
         m_impl->browserHostLog = SFSE::log::log_directory().value_or(LocalOsfuiDir()) / layout.log;
         if (!a_config.instanceName.empty()) {
             if (a_config.instanceName.size() > 256 || a_config.instanceName.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-~!") != std::string::npos) return false;
@@ -1073,6 +1108,7 @@ namespace OSFUI
 		const auto logicalHeight = (std::max)(1u, a_manifest.height);
 		std::scoped_lock lock(m_impl->stateMutex);
 		auto* view = m_impl->FindView(a_manifest.id);
+		if (view && view->remoteContent) return; // Roles are immutable until DestroyView.
 		if (!view) {
 			view = &m_impl->views.emplace_back();
 			view->id = a_manifest.id;
@@ -1088,6 +1124,49 @@ namespace OSFUI
 		m_impl->Send(ToJson(msg::Navigate{ .id = a_manifest.id, .entry = a_manifest.entry,
 			.logicalHeight = logicalHeight, .legacy = a_manifest.legacy }));
 	}
+
+	bool BrowserHostClient::CreateOrNavigateRemoteView(std::string_view a_id, std::string_view a_url,
+		std::uint32_t a_logicalHeight)
+	{
+		if (!m_impl->config.remoteMode || !Ids::IsValidQualifiedViewId(a_id) ||
+			!osfui::browser::IsAllowedContentDocument(true, ToWide(a_url), {}, {})) return false;
+		std::scoped_lock lock(m_impl->stateMutex);
+		auto* view = m_impl->FindView(a_id);
+		if (view && !view->remoteContent) return false;
+		if (!view) {
+			view = &m_impl->views.emplace_back();
+			view->id = a_id;
+			view->remoteContent = true;
+		}
+		view->url = a_url;
+		view->logicalHeight = (std::max)(1u, a_logicalHeight);
+		if (m_impl->inputTargetId.empty()) m_impl->inputTargetId = a_id;
+		m_impl->Send(ToJson(msg::Navigate{ .id = std::string(a_id), .logicalHeight = view->logicalHeight,
+			.remoteContent = true, .url = view->url }));
+		return true;
+	}
+
+	void BrowserHostClient::SetBrowserLayout(msg::BrowserLayout layout)
+	{
+		std::scoped_lock lock(m_impl->stateMutex);
+		if (m_impl->browserLayout && m_impl->browserLayout->chrome == layout.chrome &&
+			m_impl->browserLayout->content == layout.content && m_impl->browserLayout->chromeHeight == layout.chromeHeight &&
+			m_impl->browserLayout->fullscreen == layout.fullscreen && m_impl->browserLayout->landing == layout.landing) return;
+		m_impl->BeginPresentation();
+		layout.presentationEpoch = m_impl->presentationEpoch;
+		m_impl->browserLayout = layout;
+		m_impl->Send(ToJson(layout));
+	}
+	bool BrowserHostClient::SendBrowserCommand(const msg::BrowserCommand& command)
+	{
+		std::scoped_lock lock(m_impl->stateMutex);
+		const auto* view = m_impl->FindView(command.view);
+		if (!m_impl->config.remoteMode || !view || !view->remoteContent || !m_impl->IsRunning()) return false;
+		m_impl->Send(ToJson(command));
+		return true;
+	}
+	void BrowserHostClient::SetBrowserStateHandler(BrowserStateHandler handler) { m_impl->onBrowserState = std::move(handler); }
+	void BrowserHostClient::SetBrowserResultHandler(BrowserResultHandler handler) { m_impl->onBrowserResult = std::move(handler); }
 
     bool BrowserHostClient::RefreshModFiles(std::string_view a_mod)
     {
@@ -1184,7 +1263,8 @@ namespace OSFUI
 		std::string_view a_viewId, std::string_view a_json)
 	{
 		std::scoped_lock lock(m_impl->stateMutex);
-		if (!m_impl->FindView(a_viewId)) return;
+		const auto* view = m_impl->FindView(a_viewId);
+		if (!view || view->remoteContent) return;
 		m_impl->SendOrQueue(ToJson(msg::PostWeb{ .view = std::string(a_viewId),
 			.json = std::string(a_json) }));
 	}

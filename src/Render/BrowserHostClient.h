@@ -7,7 +7,7 @@
 #include "Views/ViewManifest.h"
 #include "BrowserBackend.h"
 
-namespace osfui::browser::msg { struct Keyboard; struct TextInput; }
+namespace osfui::browser::msg { struct Keyboard; struct TextInput; struct BrowserLayout; struct BrowserCommand; struct BrowserState; struct BrowserResult; }
 
 namespace OSFUI
 {
@@ -21,6 +21,7 @@ namespace OSFUI
 		std::function<std::optional<std::string>()> resolveLanguage;
 		std::filesystem::path dataDir;
 		std::string instanceName; // Separate profile/log for an independently rendered surface.
+		bool remoteMode{ false }; // Core-owned browser only; existing callers remain offline.
 	};
 
 	// Backend-neutral transport and browser lifetime. Both helpers implement the same private protocol.
@@ -50,6 +51,8 @@ namespace OSFUI
 		using CursorChangeHandler = std::function<void(std::uint32_t a_id)>;
 		using ConsoleHandler = std::function<void(int a_level, std::string a_message)>;
 		using BackHandler = std::function<void(std::string_view a_viewId, std::uint64_t a_presentationEpoch)>;
+		using BrowserStateHandler = std::function<void(const osfui::browser::msg::BrowserState&)>;
+		using BrowserResultHandler = std::function<void(const osfui::browser::msg::BrowserResult&)>;
 		// DrainNotifications runs callbacks on the runtime tick; cursor callbacks use the transport thread.
 
 		BrowserHostClient();
@@ -60,6 +63,11 @@ namespace OSFUI
 		void PrepareViewFiles();
 		void RestartAfterFailure();
 		void CreateOrNavigateView(const ViewManifest& a_manifest);
+		bool CreateOrNavigateRemoteView(std::string_view a_id, std::string_view a_url, std::uint32_t a_logicalHeight);
+		void SetBrowserLayout(osfui::browser::msg::BrowserLayout);
+		bool SendBrowserCommand(const osfui::browser::msg::BrowserCommand&);
+		void SetBrowserStateHandler(BrowserStateHandler);
+		void SetBrowserResultHandler(BrowserResultHandler);
 		bool RefreshModFiles(std::string_view a_mod);
 		void SetInputTargetView(std::string_view a_id);
 		void Resize(std::uint32_t a_width, std::uint32_t a_height);

@@ -158,6 +158,10 @@ namespace OSFUI
 		if (!m_devToolsRequested.exchange(false) || !m_renderer) {
 			return;
 		}
+		if (auto surface = SurfaceService::Get().InputRenderer()) {
+			if (const auto view = SurfaceService::Get().InputView()) surface->OpenDevTools(*view);
+			return;
+		}
 		const auto active = m_presentation.ActiveMenu();
 		if (!active) {
 			REX::DEBUG("Runtime: F12 DevTools — no open menu to inspect");

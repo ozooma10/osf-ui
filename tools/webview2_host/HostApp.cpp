@@ -7,6 +7,8 @@
 #include "Render/BrowserHostRecovery.h"
 #include "BrowserBoundedQueue.h"
 #include "BrowserLocalUri.h"
+#include "BrowserContentPolicy.h"
+#include "BrowserSurface.h"
 #include "BrowserMessages.h"
 #include "Wv2CdpInput.h"
 #include "BrowserMouseButtons.h"
@@ -158,6 +160,7 @@ namespace osfui::webview2
 			std::uint32_t         width{ 1 }, height{ 1 };
 			std::uint32_t         viewportWidth{ 1 }, viewportHeight{ 1 };
 			bool                  devMode{ false };
+			bool                  remoteMode{ false };
 			std::string           language;  // game language code from init; empty keeps the WebView2 default
 			bool                  windowActive{ true };
 
@@ -189,6 +192,10 @@ namespace osfui::webview2
 				bool pageMessageFloodWarned{ false };
 				std::uint32_t logicalHeight{ kDefaultLogicalHeight };
 				bool legacy{};
+				bool remoteContent{}; // Set before controller creation; immutable.
+				bool browserLoading{}, browserLoadSucceeded{};
+				std::string lastBrowserState;
+				int mouseX{}, mouseY{};
 				bool          revealPending{ false };
 				std::uint64_t revealDeadline{ 0 };
 				std::string   revealToken;
@@ -208,6 +215,9 @@ namespace osfui::webview2
 				bool cdpComposition{ false };
 			};
 			std::vector<std::unique_ptr<View>> views;  // creation order (= z tie-break)
+			std::optional<msg::BrowserLayout> browserLayout;
+			BrowserPointerRouter browserPointer;
+			View* pointerTarget{};
 			std::uint64_t nextViewGeneration{ 1 };
 			View* inputTarget{ nullptr };  // mouse/focus/synthetic-key target
 			bool  captureStarted{ false };
@@ -407,7 +417,7 @@ namespace osfui::webview2
 				RefreshCaptureVisibility();
 				if (a_view.controller) a_view.controller->put_IsVisible(TRUE);
 				ReconcileCdpFocus();
-				if (a_view.visual && a_view.webView && a_view.domSeen) {
+				if (!a_view.remoteContent && a_view.visual && a_view.webView && a_view.domSeen) {
 					a_view.revealPending = true;
 					a_view.revealToken = NewRevealToken();
 					a_view.revealDeadline = ::GetTickCount64() + kRevealTimeoutMs;
@@ -457,6 +467,7 @@ namespace osfui::webview2
 
 			void DestroyOneView(View& a_view)
 			{
+				if (pointerTarget == &a_view) { pointerTarget=nullptr; browserPointer.Reset(); }
 				if (captureOpening.view == a_view.id) {
 					captureOpening = {};
 					pendingCaptureEpoch = 0;
@@ -528,17 +539,9 @@ namespace osfui::webview2
 					environmentRequested = false;
 					return false;
 				}
-				constexpr wchar_t kCaptureBrowserArguments[] =
-					L"--disable-backgrounding-occluded-windows --disable-renderer-backgrounding "
-					L"--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor,"
-					L"WindowsScrollingPersonality,PercentBasedScrolling "
-					// Virtual-host files are served before networking; every real transport
-					// (including WebSocket and child frames) is forced into a dead proxy.
-					L"--proxy-server=http://osfui-egress.invalid:9 --proxy-bypass-list=\"<-loopback>\" "
-					L"--host-resolver-rules=\"MAP * ~NOTFOUND\" --disable-quic "
-					L"--force-webrtc-ip-handling-policy=disable_non_proxied_udp";
+				const auto browserArguments = WebViewBrowserArguments(remoteMode);
 				const auto optionsHr = environmentOptions->put_AdditionalBrowserArguments(
-					kCaptureBrowserArguments);
+					browserArguments.c_str());
 				if (FAILED(optionsHr)) {
 					FailHost("environment-options", optionsHr, "WebView2 browser arguments rejected");
 					environmentRequested = false;
@@ -623,9 +626,11 @@ namespace osfui::webview2
 				}
 				std::wstring uri(raw);
 				::CoTaskMemFree(raw);
-				const bool allowed = IsTrustedViewDocumentUri(uri, kViewHost, a_view.modId, a_view.viewName) || (a_frame && IsAllowedBlankFrameUri(uri));
+				const bool allowed = IsAllowedContentDocument(a_view.remoteContent, uri, a_view.modId, a_view.viewName, a_frame);
 				if (allowed) {
 					if (!a_frame) {
+						a_view.browserLoading=true; a_view.browserLoadSucceeded=false;
+						PublishBrowserState(a_view);
 						RecoverPressedMouseButtons(a_view, "main-frame navigation");
 						a_view.domSeen = false;
 						a_view.captureWarm = false;
@@ -664,6 +669,9 @@ namespace osfui::webview2
 						}).Get(), &token);
 				return hr;
 			}
+
+#include "RemoteContent.inl"
+#include "BrowserSurface.inl"
 
 			HRESULT OnController(View& a_view, HRESULT a_hr,
 				ICoreWebView2CompositionController* a_composition)
@@ -716,17 +724,27 @@ namespace osfui::webview2
 					FailHost("composition-target", result, "put_RootVisualTarget failed", a_view.id);
 					return S_OK;
 				}
-				ComPtr<ICoreWebView2_3> webView3;
-				if (FAILED(a_view.webView.As(&webView3))) {
-					ReportSecurityFailure(a_view, E_NOINTERFACE, "virtual-host mapping API unavailable");
-					return S_OK;
+				if (a_view.remoteContent) {
+					result = InstallRemoteContentPolicy(a_view);
+					if (SUCCEEDED(result)) result = InstallBrowserStateEvents(a_view);
+					if (FAILED(result)) {
+						ReportSecurityFailure(a_view, result, "remote-content policy installation failed");
+						return S_OK;
+					}
+				} else {
+					ComPtr<ICoreWebView2_3> webView3;
+					if (FAILED(a_view.webView.As(&webView3))) {
+						ReportSecurityFailure(a_view, E_NOINTERFACE, "virtual-host mapping API unavailable");
+						return S_OK;
+					}
+					const auto& assetRoot = a_view.legacy ? legacyViewsRoot : viewsRoot;
+					result = webView3->SetVirtualHostNameToFolderMapping(kViewHost.data(), assetRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
+					if (FAILED(result)) {
+						ReportSecurityFailure(a_view, result, "OSF UI virtual-host mapping failed");
+						return S_OK;
+					}
 				}
-				const auto& assetRoot = a_view.legacy ? legacyViewsRoot : viewsRoot;
-				result = webView3->SetVirtualHostNameToFolderMapping(kViewHost.data(), assetRoot.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
-				if (FAILED(result)) {
-					ReportSecurityFailure(a_view, result, "OSF UI virtual-host mapping failed");
-					return S_OK;
-				}
+				ApplyViewLayout();
 				result = InstallOriginGuards(a_view);
 				if (FAILED(result)) {
 					ReportSecurityFailure(a_view, result, "navigation origin-policy installation failed");
@@ -807,7 +825,9 @@ namespace osfui::webview2
 						a_view.id, static_cast<unsigned>(filterHr)));
 					return FAILED(filterHr) ? filterHr : E_NOINTERFACE;
 				}
-				for (const auto* pattern : { L"http://*", L"https://*" }) {
+				const std::vector<const wchar_t*> patterns = a_view.remoteContent ?
+					std::vector<const wchar_t*>{ L"*" } : std::vector<const wchar_t*>{ L"http://*", L"https://*" };
+				for (const auto* pattern : patterns) {
 					filterHr = webView22->AddWebResourceRequestedFilterWithRequestSourceKinds(
 						pattern, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
 						COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
@@ -841,7 +861,7 @@ namespace osfui::webview2
 							}
 							std::wstring uri(raw);
 							::CoTaskMemFree(raw);
-							if (IsAllowedViewResourceUri(uri, kViewHost)) return S_OK;
+							if (IsAllowedContentResource(view->remoteContent, uri)) return S_OK;
 							ComPtr<ICoreWebView2WebResourceResponse> response;
 							const auto responseHr = environment ? environment->CreateWebResourceResponse(nullptr, 403, L"Forbidden", L"", &response) : E_POINTER;
 							const auto putHr = SUCCEEDED(responseHr) && response ? a_args->put_Response(response.Get()) : E_POINTER;
@@ -864,6 +884,12 @@ namespace osfui::webview2
 						"view '{}': WebResourceRequested handler registration failed (0x{:08X})",
 						a_view.id, static_cast<unsigned>(eventHr)));
 					return eventHr;
+				}
+				if (a_view.remoteContent) {
+					// Remote pages receive neither the bridge nor the offline
+					// transport shim. All native policy must be installed first.
+					FinishControllerSetup(a_view);
+					return S_OK;
 				}
 				const auto viewId = a_view.id;
 				const auto generation = a_view.generation;
@@ -906,7 +932,7 @@ namespace osfui::webview2
 					Callback<ICoreWebView2CursorChangedEventHandler>(
 						[this, view](ICoreWebView2CompositionController* a_sender, ::IUnknown*) -> HRESULT {
 							// Only the input-target view drives the real OS pointer.
-							if (view != inputTarget) return S_OK;
+							if (view != (browserLayout ? pointerTarget : inputTarget)) return S_OK;
 							UINT32 id = 0;
 							if (SUCCEEDED(a_sender->get_SystemCursorId(&id))) {
 								Send(msg::ToJson(msg::Cursor{ .id = id }));
@@ -924,6 +950,7 @@ namespace osfui::webview2
 					Callback<ICoreWebView2WebMessageReceivedEventHandler>(
 						[this, view](ICoreWebView2*,
 							ICoreWebView2WebMessageReceivedEventArgs* a_args) -> HRESULT {
+							if (view->remoteContent) return S_OK; // No parsing, logging, forwarding or FailHost.
 							constexpr std::size_t kMaxPageMessageChars = kMaxPageMessageBytes;
 							if (!a_args) {
 								ReportSecurityFailure(*view, E_POINTER, "web-message arguments were unavailable");
@@ -996,7 +1023,7 @@ namespace osfui::webview2
 								.json = std::move(text) }));
 							return S_OK;
 						}).Get(), &token);
-				a_view.webView->add_NewWindowRequested(
+				if (!a_view.remoteContent) a_view.webView->add_NewWindowRequested(
 					Callback<ICoreWebView2NewWindowRequestedEventHandler>(
 						[this, view](ICoreWebView2*,
 							ICoreWebView2NewWindowRequestedEventArgs* a_args) -> HRESULT {
@@ -1017,6 +1044,9 @@ namespace osfui::webview2
 							a_args->get_WebErrorStatus(&status);
 							// Canceled or replaced navigations must not count as recovery failures.
 							if (status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) return S_OK;
+							view->browserLoading = false;
+							view->browserLoadSucceeded = success == TRUE;
+							PublishBrowserState(*view);
 							LPWSTR raw = nullptr;
 							std::string source;
 							if (SUCCEEDED(a_sender->get_Source(&raw)) && raw) source = ToUtf8(raw);
@@ -1242,6 +1272,7 @@ namespace osfui::webview2
 					}
 				}
 				if (!a_view.domSeen) return;
+				if (a_view.remoteContent) return;
 				for (auto& message : a_view.queuedPostWeb) {
 					const auto wide = ToWide(message);
 					a_view.webView->PostWebMessageAsString(wide.c_str());
@@ -1272,15 +1303,14 @@ namespace osfui::webview2
 				const float offsetY =
 					(static_cast<float>(height) - static_cast<float>(viewportHeight)) * 0.5f;
 				for (auto& view : views) {
+					const auto rect = ViewBounds(*view);
 					if (view->visual) {
-						view->visual.Size({ static_cast<float>(viewportWidth),
-							static_cast<float>(viewportHeight) });
-						view->visual.Offset({ offsetX, offsetY, 0.0f });
+						view->visual.Size({ static_cast<float>(rect.width), static_cast<float>(rect.height) });
+						view->visual.Offset({ offsetX + rect.x, offsetY + rect.y, 0.0f });
 					}
 					if (view->controller) {
 						view->controller->put_Bounds(RECT{ 0, 0,
-							static_cast<LONG>(viewportWidth),
-							static_cast<LONG>(viewportHeight) });
+							(std::max)(1,rect.width), (std::max)(1,rect.height) });
 						ApplyScale(*view);
 					}
 				}
@@ -1378,7 +1408,7 @@ namespace osfui::webview2
 					const auto hr = a_view.compositionController ?
 						a_view.compositionController->SendMouseInput(
 							MouseButtonUpKind(button), MouseVirtualKeys(remaining), 0,
-							POINT{ capturedMouseX, capturedMouseY }) :
+							POINT{ a_view.mouseX, a_view.mouseY }) :
 						E_POINTER;
 					if (FAILED(hr)) failed |= bit;
 				}
@@ -1392,17 +1422,39 @@ namespace osfui::webview2
 			void RecoverAllPressedMouseButtons(std::string_view a_reason)
 			{
 				for (auto& view : views) RecoverPressedMouseButtons(*view, a_reason);
+				browserPointer.Reset();
 			}
 
 			void SendMouse(const json& a_msg)
 			{
 				if (!focusGranted || !windowActive) return;
-				if (!pointerInputEnabled || !inputTarget || inputTarget->hidden ||
-					!inputTarget->domSeen || !inputTarget->compositionController) return;
+				if (!pointerInputEnabled) return;
 				const auto mouse = msg::FromJson<msg::Mouse>(a_msg);
+				View* mouseView = inputTarget;
+				if (browserLayout) {
+					const auto panel = browserPointer.Route(mouse.x, mouse.y, mouse.kind == "button",
+						mouse.button, mouse.down,
+						BrowserPanelRect(viewportWidth,viewportHeight,browserLayout->chromeHeight,browserLayout->fullscreen,browserLayout->landing,BrowserPanel::Chrome),
+						BrowserPanelRect(viewportWidth,viewportHeight,browserLayout->chromeHeight,browserLayout->fullscreen,browserLayout->landing,BrowserPanel::Content));
+					mouseView = panel == BrowserPanel::None ? nullptr :
+						FindView(panel == BrowserPanel::Chrome ? browserLayout->chrome : browserLayout->content);
+					if (pointerTarget != mouseView) {
+						if (pointerTarget && pointerTarget->compositionController)
+							pointerTarget->compositionController->SendMouseInput(COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE,
+								COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,0,POINT{});
+						pointerTarget = mouseView;
+						UINT32 cursor = 32512;
+						if (mouseView && mouseView->compositionController) mouseView->compositionController->get_SystemCursorId(&cursor);
+						Send(msg::ToJson(msg::Cursor{.id=cursor}));
+					}
+					if (mouseView && mouse.kind == "button" && mouse.down) FocusBrowserView(mouseView);
+				}
+				if (!mouseView || mouseView->hidden || !mouseView->domSeen || !mouseView->compositionController) return;
 				const std::string& kind = mouse.kind;
-				int x = mouse.x;
-				int y = mouse.y;
+				const auto rect = ViewBounds(*mouseView);
+				int x = mouse.x - rect.x;
+				int y = mouse.y - rect.y;
+				mouseView->mouseX=x; mouseView->mouseY=y;
 				if (kind == "move") {
 					capturedMouseX = std::clamp(x, 0, static_cast<int>(viewportWidth) - 1);
 					capturedMouseY = std::clamp(y, 0, static_cast<int>(viewportHeight) - 1);
@@ -1431,14 +1483,14 @@ namespace osfui::webview2
 						eventKind = down ? COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN : COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
 					}
 				}
-				auto buttons = inputTarget->syntheticMouseButtons;
+				auto buttons = mouseView->syntheticMouseButtons;
 				if (trackedButton) buttons.Observe(*trackedButton, buttonDown);
 				const auto virtualKeys = static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(
 					static_cast<UINT32>(MouseVirtualKeys(buttons.Pressed())) | (mouse.modifiers & (MK_SHIFT | MK_CONTROL)));
-				const auto hr = inputTarget->compositionController->SendMouseInput(eventKind,
+				const auto hr = mouseView->compositionController->SendMouseInput(eventKind,
 					virtualKeys, data, POINT{ x, y });
 				if (SUCCEEDED(hr) && trackedButton) {
-					inputTarget->syntheticMouseButtons.Observe(*trackedButton, buttonDown);
+					mouseView->syntheticMouseButtons.Observe(*trackedButton, buttonDown);
 				}
 			}
 

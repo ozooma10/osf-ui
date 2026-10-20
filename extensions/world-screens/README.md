@@ -13,6 +13,13 @@ It uses the browser backend selected by the installed OSF UI edition. It ships i
 `Scripts/OSFUIWorldScreens.pex` and source, with no replacement for `OSFUI.dll`,
 `OSFUI.pex`, browser helpers, or the core web kit. Core remains usable without it.
 
+The extension also owns the reserved `osfui.browser/tv` view, its trusted browser
+controls and named placeholder texture. Content mods bind to that ID instead of
+shipping copies of its pages. Its two-view implementation exists for both editions,
+but production browsing remains disabled until the consent setting is connected;
+the craftable TV content mod is a later step. Status and acceptance:
+[Browser surface design](docs/BROWSER_SURFACE.md).
+
 ## Ownership and supported screens
 
 OSF UI owns browser processes, the web/native bridge, shared GPU frame transport, and
@@ -41,11 +48,13 @@ rings. Live engine resource owners prevent eviction; budget pressure defers new 
 ```powershell
 xmake build 'OSF UI'
 xmake build 'OSF UI - World Screens'
+xmake install 'OSF UI - World Screens'
 pwsh tools/package-world-screens.ps1
 ```
 
-Normal builds deploy through `XSE_SF_MODS_PATH` into separate `OSF UI` and
-`OSF UI - World Screens` mod folders. Unset that variable and `XSE_SF_GAME_PATH` to
+Core builds deploy through `XSE_SF_MODS_PATH` into `OSF UI`. Extension builds copy
+scripts, docs and view assets; `xmake install 'OSF UI - World Screens'` installs
+the extension DLL into its separate mod folder. Unset that variable and `XSE_SF_GAME_PATH` to
 build without deployment. The packaging script always disables deployment, creates a
 local development archive, verifies its allowlisted payload, and does not publish.
 The ordinary core packaging script continues to package core only. Do not swap DLLs

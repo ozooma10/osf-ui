@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>World Screens fullscreen acceptance</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #102033; color: #ecf5ff; font: 22px system-ui; }
+  body { border: 4px solid #51e0c1; }
+  main { position: absolute; inset: 75px 150px; text-align: center; }
+  h1 { font-size: 30px; margin: 8px; }
+  button, input, a { font: inherit; padding: 10px; }
+  button { cursor: pointer; background: #51e0c1; color: #102033; border: 0; }
+  input { width: 260px; }
+  a { color: #51e0c1; }
+  .corner { position: absolute; width: 125px; height: 60px; }
+  #tl { top: 8px; left: 8px; } #tr { top: 8px; right: 8px; }
+  #bl { bottom: 8px; left: 8px; } #br { bottom: 8px; right: 8px; }
+  #clock { font: 46px ui-monospace, monospace; margin: 8px; }
+  #track { height: 14px; background: #304055; margin: 18px 0; position: relative; }
+  #dot { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #51e0c1; }
+  p { margin: 10px; }
+  small { font-size: 16px; }
+</style>
+<button class="corner" id="tl">Top left</button>
+<button class="corner" id="tr">Top right</button>
+<button class="corner" id="bl">Bottom left</button>
+<button class="corner" id="br">Bottom right</button>
+<main>
+  <h1>World Screens · fullscreen</h1>
+  <small id="document"></small>
+  <div id="clock"></div>
+  <div id="track"><span id="dot"></span></div>
+  <p><button id="tone">Start quiet tone</button> <input aria-label="Text cursor target" placeholder="Type here"> <a href="#link">Link cursor</a></p>
+  <p id="result">Click each corner, then close with Esc.</p>
+  <small>The timer, moving dot, document ID and tone must survive closing and reopening.<br>
+  Black bars must remain black; clicks in the bars must not activate a target.</small>
+</main>
+<script>
+  const started = performance.now(), documentId = crypto.randomUUID().slice(0, 8);
+  document.getElementById('document').textContent = `Document ${documentId} · fixed 1200 × 600`;
+  const clock = document.getElementById('clock'), dot = document.getElementById('dot');
+  function frame(now) {
+    clock.textContent = `${((now - started) / 1000).toFixed(1)} seconds`;
+    dot.style.left = `${(Math.sin(now / 700) + 1) * 48}%`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  let clicks = 0, audio;
+  document.querySelectorAll('.corner, a').forEach(target => target.addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('result').textContent = `${++clicks}: ${target.textContent} at ${event.clientX}, ${event.clientY}`;
+  }));
+  document.getElementById('tone').addEventListener('click', async event => {
+    if (!audio) {
+      audio = new AudioContext();
+      const oscillator = audio.createOscillator(), gain = audio.createGain();
+      oscillator.frequency.value = 220;
+      gain.gain.value = 0.015;
+      oscillator.connect(gain).connect(audio.destination);
+      oscillator.start();
+    }
+    if (audio.state !== 'running') await audio.resume();
+    else if (event.target.dataset.playing) await audio.suspend();
+    event.target.dataset.playing = audio.state === 'running' ? 'yes' : '';
+    event.target.textContent = audio.state === 'running' ? 'Stop tone' : 'Start quiet tone';
+  });
+</script>
+</html>

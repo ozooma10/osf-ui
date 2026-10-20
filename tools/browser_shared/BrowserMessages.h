@@ -88,6 +88,7 @@ namespace osfui::browser::msg
 		std::string   language;  // game language code ("en", "ptbr"); empty keeps the browser default
 		std::uint32_t adapterLuidLow{ 0 };
 		std::uint32_t adapterLuidHigh{ 0 };
+		bool          remoteMode{ false };
 
 		static constexpr auto kFields = std::tuple{
 			F("topLevelHwnd", &Init::topLevelHwnd),
@@ -100,6 +101,7 @@ namespace osfui::browser::msg
 			F("language", &Init::language),
 			F("adapterLuidLow", &Init::adapterLuidLow),
 			F("adapterLuidHigh", &Init::adapterLuidHigh),
+			F("remoteMode", &Init::remoteMode),
 		};
 	};
 
@@ -110,12 +112,16 @@ namespace osfui::browser::msg
 		std::string entry{ "index.html" };
 		std::uint32_t logicalHeight{ kDefaultLogicalHeight };
 		bool legacy{};
+		bool remoteContent{};
+		std::string url; // Absolute URL for an untrusted content view; never a local entry.
 
 		static constexpr auto kFields = std::tuple{
 			F("id", &Navigate::id),
 			F("entry", &Navigate::entry),
 			F("logicalHeight", &Navigate::logicalHeight),
 			F("legacy", &Navigate::legacy),
+			F("remoteContent", &Navigate::remoteContent),
+			F("url", &Navigate::url),
 		};
 	};
 
@@ -129,6 +135,52 @@ namespace osfui::browser::msg
 			F("width", &Resize::width),
 			F("height", &Resize::height),
 		};
+	};
+
+	struct BrowserLayout
+	{
+		static constexpr std::string_view kType = "browserLayout";
+		std::string chrome, content;
+		std::uint32_t chromeHeight{56};
+		bool fullscreen{}, landing{true};
+		std::uint64_t presentationEpoch{};
+		static constexpr auto kFields = std::tuple{
+			F("chrome", &BrowserLayout::chrome), F("content", &BrowserLayout::content),
+			F("chromeHeight", &BrowserLayout::chromeHeight), F("fullscreen", &BrowserLayout::fullscreen),
+			F("landing", &BrowserLayout::landing), F("presentationEpoch", &BrowserLayout::presentationEpoch)
+		};
+	};
+	struct BrowserCommand
+	{
+		static constexpr std::string_view kType = "browserCommand";
+		std::string view, action, url;
+		bool value{};
+		std::uint64_t token{};
+		static constexpr auto kFields = std::tuple{ F("view", &BrowserCommand::view),
+			F("action", &BrowserCommand::action), F("url", &BrowserCommand::url),
+			F("value", &BrowserCommand::value), F("token", &BrowserCommand::token) };
+	};
+	struct BrowserResult
+	{
+		static constexpr std::string_view kType = "browserResult";
+		std::uint64_t token{};
+		bool success{};
+		bool restartRequired{};
+		std::string error;
+		static constexpr auto kFields = std::tuple{ F("token", &BrowserResult::token),
+			F("success", &BrowserResult::success), F("restartRequired", &BrowserResult::restartRequired), F("error", &BrowserResult::error) };
+	};
+	struct BrowserState
+	{
+		static constexpr std::string_view kType = "browserState";
+		std::string view, url, title;
+		bool canGoBack{}, canGoForward{}, loading{}, secure{}, audible{}, muted{};
+		bool audibleKnown{true};
+		static constexpr auto kFields = std::tuple{ F("view", &BrowserState::view), F("url", &BrowserState::url),
+			F("title", &BrowserState::title), F("canGoBack", &BrowserState::canGoBack),
+			F("canGoForward", &BrowserState::canGoForward), F("loading", &BrowserState::loading),
+			F("secure", &BrowserState::secure), F("audible", &BrowserState::audible), F("muted", &BrowserState::muted),
+			F("audibleKnown", &BrowserState::audibleKnown) };
 	};
 
 	struct Viewport

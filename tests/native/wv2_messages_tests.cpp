@@ -33,6 +33,19 @@ namespace
 int main()
 {
 	{
+		Check(!msg::FromJson<msg::Init>(json{ { "type", "init" } }).remoteMode,
+			"omitted mode keeps the helper offline");
+		Check(RoundTrip(msg::Init{ .remoteMode = true }).remoteMode,
+			"remote process mode survives startup IPC");
+		const auto local = msg::FromJson<msg::Navigate>(json{ { "type", "navigate" }, { "id", "test/local" } });
+		Check(!local.remoteContent && local.url.empty(), "local callers cannot implicitly select remote content");
+		const auto remote = RoundTrip(msg::Navigate{ .id = "test/content", .logicalHeight = 720,
+			.remoteContent = true, .url = "https://example.com/watch?v=1&start=2" });
+		Check(remote.remoteContent && !remote.legacy && remote.url == "https://example.com/watch?v=1&start=2" &&
+			remote.id == "test/content" && remote.logicalHeight == 720,
+			"remote role and URL survive navigation and host recovery IPC");
+	}
+	{
 		const auto launch = RoundTrip(msg::SetHidden{ .view = "starcade.arcade/launcher",
 			.hidden = false, .presentationEpoch = 7, .settleColdOpen = true });
 		Check(launch.settleColdOpen && !launch.hidden && launch.presentationEpoch == 7,
@@ -218,6 +231,20 @@ int main()
 		Check(junk.protocolVersion == 0, "an unreadable protocol version reads as 0 so the gate fails closed");
 	}
 
+	{
+		const auto layout=RoundTrip(msg::BrowserLayout{.chrome="osfui.browser/tv",.content="osfui.browser/content",
+			.chromeHeight=56,.fullscreen=true,.landing=false,.presentationEpoch=42});
+		Check(layout.fullscreen && !layout.landing && layout.chromeHeight == 56 && layout.presentationEpoch == 42, "browser layout survives");
+		Check(layout.chrome == "osfui.browser/tv" && layout.content == "osfui.browser/content", "browser roles stay distinct");
+		const auto command=RoundTrip(msg::BrowserCommand{.view="osfui.browser/content",.action="navigate",.url="https://example.com",.token=123});
+		Check(command.token == 123 && command.url == "https://example.com" && command.action == "navigate", "browser command correlates native result");
+		const auto result=RoundTrip(msg::BrowserResult{.token=123,.success=true,.restartRequired=true});
+		Check(result.token == 123 && result.success && result.restartRequired, "CEF clear can require next-start cleanup");
+		const auto state=RoundTrip(msg::BrowserState{.view="osfui.browser/content",.url="https://example.com",
+			.title="Remote title",.canGoBack=true,.loading=true,.muted=true,.audibleKnown=false});
+		Check(state.url == "https://example.com" && state.title == "Remote title" && state.canGoBack && state.loading, "native address and history state survive");
+		Check(state.muted && !state.audibleKnown && !state.secure, "unknown audibility does not pretend to be silence");
+	}
 	std::cout << "wv2_messages_tests: " << checks << " checks, " << failures  << " failure(s)\n";
 	return failures;
 }

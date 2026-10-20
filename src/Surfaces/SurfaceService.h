@@ -16,12 +16,13 @@ namespace OSFUI
         static SurfaceService& Get();
         void Configure(const std::vector<ViewManifest>&);
         void Initialize(MessageBridge&, bool developerMode, std::function<std::optional<std::string>()> language,
-            std::function<void(std::string_view)> resetPage);
+            std::function<void(std::string_view)> resetPage, std::function<bool()> browserAllowed = {});
         void Update(bool dataLoaded);
         bool WantsInteraction() const;
         // fullscreenAvailable: the overlay compositor can draw a fullscreen surface.
         void UpdateInteraction(bool allowed, bool neutral, bool fullscreenAvailable, const std::function<bool()>& admit);
         void CancelInteraction() { ++m_cancelGeneration; }
+        void RequestBack(); // WndProc-safe; dispatched on the runtime tick.
         void FinishInteraction(const char* reason);
         std::shared_ptr<BrowserHostClient> InputRenderer() const { return m_input.load(); }
         std::optional<std::string> InputView() const;
@@ -55,6 +56,10 @@ namespace OSFUI
             BrowserHostRecovery recovery;
             std::size_t demand{};
             bool loaded{}, failed{};
+            bool browserEnabled{}, browserFullscreen{};
+            nlohmann::json browserState = nlohmann::json::object();
+            std::string browserError;
+            std::unordered_set<MessageBridge::DeferToken> browserRequests;
         };
         struct Request
         {
@@ -71,6 +76,10 @@ namespace OSFUI
         std::shared_ptr<Entry> Find(API::Surfaces::Handle) const;
         void Start(const std::shared_ptr<Entry>&);
         void Navigate(Entry&);
+        void BrowserLayout(Entry&);
+        nlohmann::json BrowserState(const Entry&) const;
+        void BrowserRequest(std::string_view action, const nlohmann::json&, MessageBridge&);
+        void RejectBrowserRequests(Entry&);
         mutable std::mutex m_mutex;
         std::vector<std::shared_ptr<Entry>> m_entries;
         std::unordered_map<API::Surfaces::Handle, std::shared_ptr<Entry>> m_leases;
@@ -86,10 +95,12 @@ namespace OSFUI
         std::shared_ptr<SurfaceFrames> m_fullscreenFrames; // m_mutex
         std::function<void(std::uint32_t)> m_cursor;
         std::atomic<std::uint64_t> m_cancelGeneration{};
+        std::atomic_bool m_backRequested{};
         unsigned m_neutral{};
         MessageBridge* m_bridge{};
         bool m_developerMode{};
         std::function<std::optional<std::string>()> m_language;
         std::function<void(std::string_view)> m_resetPage;
+        std::function<bool()> m_browserAllowed;
     };
 }
