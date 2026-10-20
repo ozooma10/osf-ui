@@ -25,6 +25,7 @@ namespace OSFUI
 			return false;
 		}
 		ReadStartupBool("developerMode", m_developerMode);
+		ReadStartupBool("allowWebBrowsing", m_allowWebBrowsing);
 		ClearFailure("dependency");
 		return true;
 	}

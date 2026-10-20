@@ -15,9 +15,11 @@ It uses the browser backend selected by the installed OSF UI edition. It ships i
 
 The extension also owns the reserved `osfui.browser/tv` view, its trusted browser
 controls and named placeholder texture. Content mods bind to that ID instead of
-shipping copies of its pages. Its two-view implementation exists for both editions,
-but production browsing remains disabled until the consent setting is connected;
-the craftable TV content mod is a later step. Status and acceptance:
+shipping copies of its pages. Its two-view implementation exists for both editions.
+Browsing defaults off: enable **Allow web browsing on World Screens** in
+**Mods → OSF UI**, then restart Starfield. Turning it off also takes effect on the next
+launch. Websites store cookies and sign-ins in the OSF UI profile folder. The
+craftable TV content mod and browser in-game acceptance are still pending. Status:
 [Browser surface design](docs/BROWSER_SURFACE.md).
 
 ## Ownership and supported screens

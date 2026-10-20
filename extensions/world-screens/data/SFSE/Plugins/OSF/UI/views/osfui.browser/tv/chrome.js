@@ -48,7 +48,7 @@
     $("heading").textContent = !state.enabled ? "Web browsing is disabled" :
       state.error ? "This page couldn't load" : "Your screen. Your channel.";
     $("description").textContent = !state.enabled ?
-      "Web browsing is disabled. The browsing option in Mods → OSF UI is coming in a later update." :
+      "Enable “Allow web browsing on World Screens” in Mods → OSF UI, then restart Starfield. Websites store cookies and sign-ins in the OSF UI profile folder." :
       state.error || "Search, open a website, or start a video. Close the controls and keep watching in the world.";
     $("hint").textContent = state.fullscreen ? "Ctrl+L or F6 selects the address bar. Esc closes the controls." : "Activate this screen to browse.";
     if (state.enabled && !state.loading && !state.error) save("last", local ? "" : state.url);

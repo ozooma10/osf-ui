@@ -21,6 +21,7 @@ int main()
         OSFSettingsClient client;
         CHECK(!client.Initialize());
         CHECK(!client.Available());
+        CHECK(!client.AllowWebBrowsing());
         CHECK(!client.AcquireInputSuppression());
         CHECK(!client.Language());
     }
@@ -47,7 +48,53 @@ int main()
         settings.values["developerMode"] = false;
         settings.values["cefPrototype"] = false;
         CHECK(client.DeveloperMode()); // Startup-only, no live subscription.
-        CHECK(settings.reads == 1 && !settings.changed);
+        CHECK(settings.reads == 2 && !settings.changed);
+        CHECK(!client.AllowWebBrowsing()); // Developer mode is not consent.
+    }
+    for (const bool enabled : {false,true}) {
+        SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
+        settings.values["allowWebBrowsing"] = enabled;
+        Install(&settings,&diagnostics);
+        OSFSettingsClient client;
+        CHECK(!client.AllowWebBrowsing());
+        CHECK(client.Initialize());
+        CHECK(client.AllowWebBrowsing() == enabled && !client.DeveloperMode());
+        settings.values["allowWebBrowsing"] = !enabled;
+        CHECK(client.AllowWebBrowsing() == enabled); // A running host keeps its launch-time trust policy.
+        OSFSettingsClient nextLaunch;
+        CHECK(nextLaunch.Initialize());
+        CHECK(nextLaunch.AllowWebBrowsing() == !enabled);
+    }
+    for (const auto status : {Status::UnknownMod,Status::UnknownSetting,Status::TypeMismatch,Status::NotReady,Status::InternalError}) {
+        SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
+        settings.values["allowWebBrowsing"] = true;
+        settings.readStatus["allowWebBrowsing"] = status;
+        Install(&settings,&diagnostics);
+        OSFSettingsClient client;
+        CHECK(client.Initialize()); // Only browsing is disabled; ordinary OSF UI remains usable.
+        CHECK(!client.AllowWebBrowsing());
+        CHECK(diagnostics.Has("settings.allowWebBrowsing"));
+    }
+    {
+        SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;
+        settings.values.erase("allowWebBrowsing"); // An older/missing schema cannot grant consent.
+        Install(&settings,&diagnostics);
+        OSFSettingsClient client;
+        CHECK(client.Initialize() && !client.AllowWebBrowsing());
+        CHECK(diagnostics.Has("settings.allowWebBrowsing"));
+    }
+    {
+        const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+        std::ifstream file(root / "data/SFSE/Plugins/OSF/Settings/schemas/osfui.json");
+        const auto schema=nlohmann::json::parse(file);
+        int consentSettings=0;
+        for (const auto& group : schema.at("groups")) for (const auto& setting : group)
+            if (setting.at("key") == "allowWebBrowsing") {
+                ++consentSettings;
+                CHECK(setting.at("type") == "bool" && setting.at("default").is_boolean() && setting.at("default") == false);
+                CHECK(setting.at("requires") == "restart");
+            }
+        CHECK(consentSettings == 1);
     }
     {
         SettingsTest::Settings settings; SettingsTest::Diagnostics diagnostics;

@@ -714,6 +714,38 @@ void BrowserSurfaceLifecycle(bool enabled)
     CHECK(env.sent.size() == replies); // Late completion cannot revive a retired request.
 }
 
+void BrowserConsentLifecycle(bool enabled, bool failedRead)
+{
+    constexpr auto view="osfui.browser/tv", content="osfui.browser/content", host="surface-osfui.browser!tv";
+    FixtureFiles::Write(view, R"({"manifestVersion":1,"kind":"world","texture":"browser.dds","browser":{"chrome":"chrome.html"}})");
+    FixtureFiles::Write("acme/screen", R"({"manifestVersion":1,"kind":"world","texture":"plain.dds"})");
+    env.settings.values["allowWebBrowsing"]=enabled;
+    if (failedRead) env.settings.readStatus["allowWebBrowsing"]=OSFSettings::API::Status::TypeMismatch;
+    PluginLoad(); PostLoad(); DataReady(); LoadHud();
+    const bool allowed=enabled && !failedRead;
+    // Changing a restart setting after startup must not change the launch policy.
+    env.settings.values["allowWebBrowsing"]=!enabled;
+    env.settings.readStatus.erase("allowWebBrowsing");
+    auto& service=SurfaceService::Get();
+    const auto lease=service.Acquire(view), plain=service.Acquire("acme/screen");
+    runtime().Update(); QueueLoad(view); QueueHello(view); runtime().Update();
+    CHECK(env.remoteMode.at(host) == allowed);
+    CHECK(env.viewHosts.contains(content) == allowed);
+    CHECK(!env.remoteMode.at("") && !env.remoteMode.at("surface-acme!screen")); // Consent is not global network permission.
+    CHECK(env.browserLayouts.back().content == (allowed ? content : ""));
+    env.hosts.at(host).message(view,R"({"kind":"request","id":"consent-state","name":"browser.getState","payload":{}})");
+    bool replied=false;
+    for (const auto& message : env.sent) if (message.body.value("id","") == "consent-state") {
+        replied=true; CHECK(message.body["payload"]["enabled"] == allowed);
+    }
+    CHECK(replied);
+    env.hosts.at(host).message(view,R"({"kind":"request","id":"consent-nav","name":"browser.navigate","payload":{"input":"example.com"}})");
+    CHECK(env.browserCommands.empty() == !allowed);
+    if (!allowed) CHECK(env.sent.back().body["payload"]["code"] == "browsing-disabled");
+    CHECK(env.diagnostics.Has("settings.allowWebBrowsing") == failedRead);
+    service.Release(lease); service.Release(plain); runtime().Update();
+}
+
 int main(int argc, char** argv)
 {
     // One scenario per process: Runtime and BridgeApi deliberately have process lifetimes.
@@ -732,6 +764,9 @@ int main(int argc, char** argv)
     else if (scenario == "surface-fullscreen") SurfaceFullscreenLifecycle();
     else if (scenario == "browser-surface") BrowserSurfaceLifecycle(true);
     else if (scenario == "browser-disabled") BrowserSurfaceLifecycle(false);
+    else if (scenario == "browser-consent-on") BrowserConsentLifecycle(true,false);
+    else if (scenario == "browser-consent-off") BrowserConsentLifecycle(false,false);
+    else if (scenario == "browser-consent-failed") BrowserConsentLifecycle(true,true);
     else if (scenario == "surfaces") SurfaceLifecycle();
     else if (scenario == "normal") {
         env.settings.values["cefPrototype"] = true; // Obsolete setting cannot override the installed edition.

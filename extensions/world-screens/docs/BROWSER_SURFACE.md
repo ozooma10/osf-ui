@@ -4,9 +4,10 @@ Status: 2026-10-20. Steps 1–3 (ABI 1.1, fullscreen presentation, pointer routi
 implemented and covered by native tests. The WebView2 fullscreen draw, letterbox,
 clicks/cursors and audio continuing after Esc passed an in-game check on 2026-10-20;
 CEF and the remaining acceptance cases below are still pending.
-Steps 4–5 are implemented for WebView2 and CEF; browser-runtime acceptance is pending.
-Production remains offline: step 6 must connect the default-off consent setting before
-remote mode can launch. Step 7 (the TV content mod) is not implemented.
+Steps 4–6 are implemented for WebView2 and CEF; browser-runtime acceptance is pending.
+Steps 4–5 are committed as `c06f8f14`; step 6 is included in the consent commit. Browsing defaults off.
+Remote mode can launch only when the OSF Settings consent toggle was enabled at game
+startup. Step 7 (the TV content mod) is not implemented.
 Applies to the unreleased Surfaces ABI and World Screens 0.1.0.
 
 ## Goal
@@ -314,11 +315,24 @@ the next `CefInitialize`, reporting `restartRequired: true` to chrome.
 
 ## Consent
 
-OSF UI's own OSF Settings schema gains **"Allow web browsing on World Screens"**,
-default **off**. While it's off, core never launches a remote-mode host. The browser
+OSF UI's own OSF Settings schema has **"Allow web browsing on World Screens"**
+(`osfui/allowWebBrowsing`), default **off**, in the **World Screens** group.
+It is a **restart setting**: both enabling and disabling take effect on the next
+Starfield launch. `OSFSettingsClient` reads it once during startup, using the same
+pattern as developer mode. A missing, wrong-type, unavailable or failed read gives
+no consent and reports the existing startup-setting warning in Mod Issues.
+
+With effective consent off, core never launches a remote-mode host. The browser
 surface then loads only the chrome view in a "browsing is disabled — enable it in
-Mods → OSF UI" state. The setting's description says the screen loads real websites with
-their own cookies and sign-ins, stored in the OSF UI profile folder.
+Mods → OSF UI, then restart Starfield" state. The setting's description says the screen
+loads real websites with their own cookies and sign-ins, stored in the OSF UI profile
+folder. Enabling the setting does not create a host by itself: the reserved view must
+have surface demand. Plain surfaces and overlay views stay offline regardless of consent.
+
+The runtime passes the startup value to `SurfaceService`'s browser-creation callback.
+Changing the saved setting mid-session does not change a running host's security mode,
+nor the mode used by later surface bindings or host recovery in that session. Restarting
+is required to stop existing web playback and enforce a newly disabled value.
 
 ## Lifetime and limits
 
@@ -406,20 +420,22 @@ A Papyrus-and-content mod with no DLL:
    Profiles are under `LocalOsfuiDir()/browser/{webview2,cef}/`, followed by the existing
    instance-name directory. CEF keeps content's `Content` cache separate from trusted
    chrome's `Default` cache. Required settings/preferences fail closed.
-   `BrowserHostConfig.remoteMode` and `CreateOrNavigateRemoteView` are internal plumbing
-   only: **no production caller enables remote mode yet**. No caller may enable it
-   before the consent path exists.
+   `BrowserHostConfig.remoteMode` and `CreateOrNavigateRemoteView` are internal plumbing.
+   Step 6's startup consent is the only production path enabling the reserved browser.
 5. **Two-view browser surface** (implemented; browser-runtime acceptance pending).
    World Screens ships `osfui.browser/tv`, its trusted chrome files and named placeholder.
    The core creates a separate `osfui.browser/content` view only when the internal
-   consent callback permits it; the production caller currently leaves that callback
-   unset, so the local disabled page is the only view. Both hosts implement per-view
+   consent callback permits it; step 6 connects the production caller to Settings.
+   Without effective consent the local disabled page is the only view. Both hosts implement per-view
    bounds, press capture, click focus, Ctrl+L/F6, content DevTools and fullscreen-first
    Back. Layout changes preserve both documents and output dimensions; the temporary
    frame-readiness gap during repaint no longer ends a browser interaction.
    `browser.*` commands and native state drive chrome. A site-load error expands the
    local page for retry instead of failing the surface host.
-6. **Consent setting** and the disabled state.
+6. **Consent setting** (implemented; Settings/in-game acceptance pending).
+   Default-off `allowWebBrowsing`, explicitly requiring restart, is read through
+   `OSFSettingsClient` and wired into reserved browser host creation. Disabled chrome
+   points to Mods → OSF UI and explains the restart. A failed read stays offline.
 7. **TV mod.**
 
 Steps 1–3 also give plain surfaces (e.g. Starcade) an optional mouse-driven fullscreen
@@ -531,6 +547,24 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
   network/file-picker/print limitations above remain open. CEF audibility is
   explicitly unknown; native mute is implemented. Step 6 remains the gate before
   any production remote host can launch.
+
+### Step 6 build/native verification — 2026-10-20
+
+- All **33 native suites** pass. Three new runtime consent scenarios each pass
+  39 checks through the production Settings callback: allowed, disabled, and failed
+  read. They verify that consent never enables remote mode for plain world surfaces
+  or the overlay, and that changing a saved restart setting cannot change the
+  effective value during the session.
+- Settings client tests cover the default-off schema, missing settings, wrong-type
+  and unavailable/error reads, independence from developer mode, and the next-start
+  behavior. Chrome JavaScript syntax also passes.
+- Core and World Screens build successfully after Starfield exited. Core/WebView2
+  and the extension were deployed through XMake, including an explicit extension
+  install. SHA-256 matches were verified for the three deployed binaries, consent
+  schema and browser chrome. The deployed edition remains WebView2.
+- Evidence: `build/browser-consent-{core-build,extension-build,native}.log` and
+  `build/browser-consent-deployment.json`. Settings UI/in-game acceptance remains
+  pending; no game or browser harness was launched for this step.
 
 ## Open decisions
 
