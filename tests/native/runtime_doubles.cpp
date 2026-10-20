@@ -28,19 +28,19 @@ namespace RuntimeTest
     void QueueLoad(std::string view)
     {
         env.notifications.push_back([view = std::move(view)] {
-            env.load({ .viewId = view, .url = "https://local/index.html" });
+            env.hosts.at(env.viewHosts.at(view)).load({ .viewId = view, .url = "https://local/index.html" });
         });
     }
     void QueueHello(std::string view)
     {
         env.notifications.push_back([view = std::move(view)] {
-            env.message(view, R"({"kind":"send","name":"osfui.hello","payload":{}})");
+            env.hosts.at(env.viewHosts.at(view)).message(view, R"({"kind":"send","name":"osfui.hello","payload":{}})");
         });
     }
-    void QueueFailure(std::string stage, std::uint32_t code)
+    void QueueFailure(std::string stage, std::uint32_t code, std::string host)
     {
-        env.notifications.push_back([stage = std::move(stage), code] {
-            env.failure({ .stage = stage, .description = "EXPECTED TEST: injected host failure", .errorCode = code });
+        env.notifications.push_back([stage = std::move(stage), code, host = std::move(host)] {
+            env.hosts.at(host).failure({ .stage = stage, .description = "EXPECTED TEST: injected host failure", .errorCode = code });
         });
     }
 }
@@ -52,6 +52,7 @@ namespace OSFUI
     // All renderer methods use the real class declaration so interface drift fails compilation.
     struct BrowserHostClient::Impl
     {
+        std::string name;
         std::shared_ptr<SharedFrameConsumer> frames = std::make_shared<SharedFrameConsumer>();
     };
     BrowserHostClient::BrowserHostClient() : m_impl(std::make_unique<Impl>()) {}
@@ -59,6 +60,7 @@ namespace OSFUI
     bool BrowserHostClient::Initialize(const BrowserHostConfig& config)
     {
         ++env.rendererInitializations;
+        m_impl->name = config.instanceName;
         env.rendererUsesCef = config.backend == osfui::browser::Backend::Cef;
         CHECK(env.settings.reads > 0); // Settings must be acquired before renderer setup.
         return env.rendererInitializes;
@@ -67,13 +69,15 @@ namespace OSFUI
     void BrowserHostClient::RestartAfterFailure()
     {
         ++env.restarts;
-        env.hidden.clear();
-        env.browserFocus = false;
-        env.preparedFrameReady = false;
+        for (const auto& [view, host] : env.viewHosts)
+            if (host == m_impl->name) env.hidden.erase(view);
+        if (env.inputTarget.empty() || env.viewHosts.at(env.inputTarget) == m_impl->name) env.browserFocus = false;
+        if (m_impl->name.empty()) env.preparedFrameReady = false;
     }
     void BrowserHostClient::CreateOrNavigateView(const ViewManifest& manifest)
     {
         env.navigations.push_back(manifest.id);
+        env.viewHosts[manifest.id] = m_impl->name;
         env.hidden[manifest.id] = true;
     }
     bool BrowserHostClient::RefreshModFiles(std::string_view) { return true; }
@@ -97,9 +101,9 @@ namespace OSFUI
     {
         env.sent.push_back({ std::string(view), nlohmann::json::parse(json) });
     }
-    void BrowserHostClient::SetWebMessageHandler(WebMessageHandler handler) { env.message = std::move(handler); }
-    void BrowserHostClient::SetLoadHandler(LoadHandler handler) { env.load = std::move(handler); }
-    void BrowserHostClient::SetFailureHandler(FailureHandler handler) { env.failure = std::move(handler); }
+    void BrowserHostClient::SetWebMessageHandler(WebMessageHandler handler) { env.message = handler; env.hosts[m_impl->name].message = std::move(handler); }
+    void BrowserHostClient::SetLoadHandler(LoadHandler handler) { env.load = handler; env.hosts[m_impl->name].load = std::move(handler); }
+    void BrowserHostClient::SetFailureHandler(FailureHandler handler) { env.failure = handler; env.hosts[m_impl->name].failure = std::move(handler); }
     void BrowserHostClient::SetCursorChangeHandler(CursorChangeHandler) {}
     void BrowserHostClient::SetBackHandler(BackHandler) {}
     void BrowserHostClient::RequestBack(std::string_view) { env.backWindowActive.push_back(env.rendererWindowActive); }

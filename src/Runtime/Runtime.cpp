@@ -170,7 +170,8 @@ namespace OSFUI
 			m_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "OSF UI browser renderer failed to initialize; check the installed edition and its complete browser payload");
 			return false;
 		}
-		SurfaceService::Get().Initialize(*m_bridge, m_developerMode, [this] { return m_osfSettings.Language(); });
+		SurfaceService::Get().Initialize(*m_bridge, m_developerMode, [this] { return m_osfSettings.Language(); },
+			[this](std::string_view view) { m_viewInputGrants.ResetPage(view); });
 		SurfaceService::Get().SetCursorHandler([](std::uint32_t a_id) { HardwareCursor::SetSystemCursorId(a_id); });
 		WireRendererLifecycleCallbacks();
 		InitializeCompositor();
@@ -644,7 +645,7 @@ namespace OSFUI
 
 		m_relativePointer.Cancel();
 		m_viewRecovery.ClearAll();
-		m_viewInputGrants.ResetAll();
+		// NavigateView resets each reloaded page; healthy surface hosts retain their grants.
 		m_pointerInput.DiscardMouseMove();
 		m_viewReveal.Cancel();
 		m_inputCapture.ResetBrowserFocus();

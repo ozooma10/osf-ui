@@ -16,8 +16,9 @@ namespace OSFUI
             auto entry = std::make_shared<Entry>(); entry->manifest = view; m_entries.push_back(std::move(entry));
         }
     }
-    void SurfaceService::Initialize(MessageBridge& bridge, bool developer, std::function<std::optional<std::string>()> language)
-    { m_bridge = &bridge; m_developerMode = developer; m_language = std::move(language); }
+    void SurfaceService::Initialize(MessageBridge& bridge, bool developer, std::function<std::optional<std::string>()> language,
+        std::function<void(std::string_view)> resetPage)
+    { m_bridge = &bridge; m_developerMode = developer; m_language = std::move(language); m_resetPage = std::move(resetPage); }
     void SurfaceService::VisitViews(API::Surfaces::Visitor visit, void* context) noexcept
     {
         if (!visit) return;
@@ -68,6 +69,7 @@ namespace OSFUI
     void SurfaceService::Navigate(Entry& entry)
     {
         entry.loaded = false;
+        if (m_resetPage) m_resetPage(entry.manifest.id);
         m_bridge->OnViewCreated(entry.manifest.id);
         API::BridgeApi::Get().SetViewInstantiated(entry.manifest.id, true);
         entry.host->CreateOrNavigateView(entry.manifest);
@@ -127,6 +129,7 @@ namespace OSFUI
             if (!demand && e->host) {
                 if (InputView() == e->manifest.id) FinishInteraction("surface-released");
                 if (e->gpu && !e->gpu->Idle()) continue;
+                if (m_resetPage) m_resetPage(e->manifest.id);
                 m_bridge->OnViewDestroyed(e->manifest.id);
                 API::BridgeApi::Get().SetViewInstantiated(e->manifest.id, false);
                 { std::scoped_lock lock(m_mutex); e->gpu.reset(); }

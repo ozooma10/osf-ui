@@ -515,6 +515,37 @@ void SurfaceInputLifecycle()
     runtime().Update(); runtime().Update(); CheckReleased();
     CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
     phases.clear(); env.gamepad={}; begin();
+    env.message("acme/screen",R"({"kind":"send","name":"osfui.gamepadMode","payload":{"mode":"raw"}})");
+    const auto waitForRestart=[&](int expected) {
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+        while (env.restarts<expected && std::chrono::steady_clock::now()<deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            runtime().Update();
+        }
+        CHECK(env.restarts==expected);
+    };
+    // Recovery belongs to the failed host: the healthy surface keeps its document and raw mode.
+    QueueFailure("host-connection");
+    runtime().Update();
+    waitForRestart(1);
+    QueueLoad("acme/hud"); QueueHello("acme/hud"); runtime().Update(); runtime().Update();
+    CHECK(std::ranges::count(env.navigations,"acme/hud")==2);
+    CHECK(std::ranges::count(env.navigations,"acme/screen")==1);
+    env.gamepad.buttons=XInputButton::kB; runtime().Update(); runtime().Update();
+    CHECK(runtime().IsInputCaptured() && phases.size()==1);
+    env.gamepad={}; runtime().Update();
+    // Replacing the surface's own document cancels input and clears its previous raw-mode grant.
+    QueueFailure("host-connection",0,"surface-acme!screen"); runtime().Update();
+    CheckReleased();
+    CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    waitForRestart(2);
+    QueueLoad("acme/screen"); QueueHello("acme/screen"); runtime().Update();
+    CHECK(std::ranges::count(env.navigations,"acme/screen")==2);
+    phases.clear(); begin();
+    env.gamepad.buttons=XInputButton::kB; runtime().Update(); runtime().Update();
+    CheckReleased();
+    CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    phases.clear(); env.gamepad={}; begin();
     // An unavailable overlay rejects its menu open without canceling the healthy surface.
     overlayFailure({.stage="test-permanent",.description="EXPECTED TEST: overlay unavailable"});
     runtime().EnqueueOpenView("acme/menu"); runtime().Update();
@@ -530,7 +561,6 @@ void SurfaceFullscreenLifecycle()
     FixtureFiles::Write("acme/screen", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/test.dds"})");
     PluginLoad(); PostLoad(); DataReady(); LoadHud();
     auto& service = SurfaceService::Get();
-    // The doubles route loads to the newest host, so only one surface is instantiated at a time.
     const auto screen=service.Acquire("acme/screen");
     runtime().Update();
     struct Seen { std::vector<API::Surfaces::Phase> phases; std::string reason; } seen;

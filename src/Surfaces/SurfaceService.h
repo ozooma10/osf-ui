@@ -15,7 +15,8 @@ namespace OSFUI
     public:
         static SurfaceService& Get();
         void Configure(const std::vector<ViewManifest>&);
-        void Initialize(MessageBridge&, bool developerMode, std::function<std::optional<std::string>()> language);
+        void Initialize(MessageBridge&, bool developerMode, std::function<std::optional<std::string>()> language,
+            std::function<void(std::string_view)> resetPage);
         void Update(bool dataLoaded);
         bool WantsInteraction() const;
         // fullscreenAvailable: the overlay compositor can draw a fullscreen surface.
@@ -89,5 +90,6 @@ namespace OSFUI
         MessageBridge* m_bridge{};
         bool m_developerMode{};
         std::function<std::optional<std::string>()> m_language;
+        std::function<void(std::string_view)> m_resetPage;
     };
 }

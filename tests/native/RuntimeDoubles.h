@@ -65,6 +65,14 @@ namespace RuntimeTest
         OSFUI::BrowserHostClient::LoadHandler load;
         OSFUI::BrowserHostClient::FailureHandler failure;
         OSFUI::BrowserHostClient::WebMessageHandler message;
+        struct HostCallbacks
+        {
+            OSFUI::BrowserHostClient::LoadHandler load;
+            OSFUI::BrowserHostClient::FailureHandler failure;
+            OSFUI::BrowserHostClient::WebMessageHandler message;
+        };
+        std::map<std::string, HostCallbacks> hosts;
+        std::map<std::string, std::string> viewHosts;
         std::deque<std::function<void()>> notifications;
         OSFUI::API::Papyrus::PendingBatch papyrus;
     };
@@ -72,5 +80,5 @@ namespace RuntimeTest
     extern Environment env;
     void QueueLoad(std::string view);
     void QueueHello(std::string view);
-    void QueueFailure(std::string stage, std::uint32_t code = 0);
+    void QueueFailure(std::string stage, std::uint32_t code = 0, std::string host = {});
 }
