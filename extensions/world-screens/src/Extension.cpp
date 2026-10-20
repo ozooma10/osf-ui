@@ -111,7 +111,14 @@ namespace OSFUI::Extension
     {
         core=API::Surfaces::RequestInterface();
         if (!core) { REX::ERROR("World Screens requires OSF UI with surface service ABI 1.1; extension disabled"); return false; }
-        core->VisitViews([](const API::Surfaces::View& view,void*) noexcept { views.push_back({view.id,view.texture,view.width,view.height}); },nullptr);
+        std::vector<WorldTexture::SurfaceDesc> discovered;
+        core->VisitViews([](const API::Surfaces::View& view,void* context) noexcept {
+            static_cast<std::vector<WorldTexture::SurfaceDesc>*>(context)->push_back({view.id,view.texture,view.width,view.height});
+        },&discovered);
+        auto catalog=WorldTexture::SelectSupportedSurfaces(discovered);
+        for (const auto& rejected:catalog.rejected)
+            REX::ERROR("World Screens: skipping view '{}': {}",rejected.id,rejected.reason);
+        views=std::move(catalog.accepted);
         WorldTexture::SetService(core);
         if (views.empty() || !WorldTexture::Configure(views)) {
             REX::WARN("World Screens has no supported feeds or its rendering hook gate failed; extension disabled"); return false;

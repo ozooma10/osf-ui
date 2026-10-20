@@ -187,6 +187,16 @@ target("osfui-screen-binding-tests")
     add_files("extensions/world-screens/tests/screen_binding_tests.cpp")
     add_includedirs("extensions/world-screens/tests/stubs", "extensions/world-screens/src")
 
+target("osfui-surface-catalog-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("extensions/world-screens/tests/surface_catalog_tests.cpp",
+        "extensions/world-screens/src/World/SurfaceCatalog.cpp",
+        "extensions/world-screens/src/World/WorldAssets.cpp")
+    add_includedirs("extensions/world-screens/src", "src")
+    add_syslinks("bcrypt")
+
 target("osfui-game-consumer")
     set_default(false)
     set_basename("OSFUIBackendTest")

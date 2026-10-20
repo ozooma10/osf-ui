@@ -65,7 +65,9 @@ while Starfield is running. Enable the extension in the mod manager only when wa
    into that view folder. The generator refuses to overwrite existing files. View IDs
    are exact, including case; use the same ID in generation, manifests, and binding.
    Keep the generated texture identity: it is derived from the qualified view ID,
-   not from its dimensions or pixels. The `.mat` outputs are MaterialDB JSON authoring
+   not from its dimensions or pixels. An invalid or mismatched texture identity
+   disables only that view; the extension logs the rejected view and keeps valid feeds.
+   The `.mat` outputs are MaterialDB JSON authoring
    sources; integrate them through your existing material/asset build workflow.
 3. Ship a catalog at `Data/SFSE/Plugins/OSF/WorldScreens/screens/mymod.json`:
 

@@ -7,18 +7,11 @@
 #include <vector>
 
 #include "OSFUI_Surfaces.h"
+#include "World/SurfaceCatalog.h"
 
 namespace OSFUI::WorldTexture
 {
 	inline constexpr std::uint64_t kDefaultBudgetBytes = 256ull * 1024 * 1024;
-
-	struct SurfaceDesc
-	{
-		std::string   id;
-		std::string   texture;
-		std::uint32_t width{ 0 };
-		std::uint32_t height{ 0 };
-	};
 
 	struct SurfaceStats
 	{
