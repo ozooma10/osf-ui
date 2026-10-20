@@ -88,7 +88,11 @@ namespace osfui::cefhost
                     Check(failure.exchange(S_OK),"Audio device");
                     if (seenGeneration!=version) { destroySource(); seenGeneration=version; }
                     const auto now=GetTickCount64();
-                    if (live && now>=retryAt && !engine) {
+                    // Device activation can take hundreds of milliseconds.
+                    // Prepare it when the reserved view is created, before CEF
+                    // delivers its first PCM packet, so the bounded queue need
+                    // not discard the beginning of playback during activation.
+                    if (now>=retryAt && !engine) {
                         Check(XAudio2Create(&engine),"XAudio2Create");
                         Check(engine->RegisterForCallbacks(this),"Register audio callback");
                         // Default virtual client follows Windows' default endpoint.
@@ -104,7 +108,7 @@ namespace osfui::cefhost
                         Check(source->SetVolume(0),"Initial silence");
                         Check(source->Start(),"Start TV voice");
                         spatialAt=0;
-                        { std::lock_guard lock(mutex); error.clear(); head=count=0; }
+                        { std::lock_guard lock(mutex); error.clear(); }
                     }
                     if (source && now-spatialAt>=10) {
                         AudioScene snapshot; ULONGLONG expires; bool muted;
