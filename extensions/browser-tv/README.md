@@ -30,9 +30,10 @@ spatial. DRM services are unsupported, and codec support varies by browser editi
 The trusted browser controls provide **Clear data**.
 
 The TV uses the vanilla DisplayScreen5 model and the existing wall placement
-data. It adds no placed objects or edits to vanilla records. Workshop crafting,
-placement/movement/removal, save/load and actual web playback still need in-game
-acceptance for this new mod.
+data. It adds no placed objects or edits to vanilla records. Watch activation,
+public video playback and continuing after Esc passed a basic WebView2 in-game
+check. Workshop crafting, placement/movement/removal, save/load and CEF still need
+in-game acceptance for this new mod.
 
 ## Build
 
@@ -52,8 +53,8 @@ hashes. It validates the generated records, script attachment, catalog and works
 data before deployment. It does not enable the mod, change a profile or launch the game.
 
 The payload contains `OSFBrowserTV.esm`, `OSFBrowserTV.pex`, its `.psc` source, the
-screen catalog and notices. World Screens supplies the browser view, texture and
-API script; this mod does not bundle framework files or vanilla assets.
+screen catalog and notices. World Screens supplies the browser view, materials,
+textures and API script; this mod does not bundle framework files or vanilla assets.
 
 | Record | Local FormID | Purpose |
 | --- | --- | --- |

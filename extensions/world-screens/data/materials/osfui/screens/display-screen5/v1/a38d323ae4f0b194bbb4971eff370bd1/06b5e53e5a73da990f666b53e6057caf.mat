@@ -1,0 +1,167 @@
+{
+  "Version": 1,
+  "Objects": [
+    {
+      "Parent": "materials\\layered\\root\\layeredmaterials.mat",
+      "Components": [
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:18F03B16:00045203:A422C9E5"
+          }
+        },
+        {
+          "Type": "BSMaterial::ShaderModelComponent",
+          "Index": 0,
+          "Data": {
+            "FileName": "ColorEmissive"
+          }
+        },
+        {
+          "Type": "BSMaterial::EmissiveSettingsComponent",
+          "Index": 0,
+          "Data": {
+            "Enabled": "true",
+            "Settings": {
+              "Type": "BSMaterial::EmittanceSettings",
+              "Data": {
+                "LuminousEmittance": "300.0",
+                "AdaptiveEmittance": "true",
+                "ExposureOffset": "5.5",
+                "EmissiveClipThreshold": "0.0",
+                "EmissiveTint": {
+                  "Type": "BSMaterial::Color",
+                  "Data": {
+                    "Value": {
+                      "Type": "XMFLOAT4",
+                      "Data": {
+                        "x": "1.0",
+                        "y": "1.0",
+                        "z": "1.0",
+                        "w": "1.0"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "ID": "res:18F03B16:00045203:A422C9E5",
+      "Parent": "materials\\layered\\root\\layers.mat",
+      "Components": [
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:82F6F8DD:00041E17:A7436AD2"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:DF7BDF8A:0005796A:A2F0C7FD"
+          }
+        }
+      ]
+    },
+    {
+      "ID": "res:DF7BDF8A:0005796A:A2F0C7FD",
+      "Parent": "materials\\layered\\root\\uvstreams.mat",
+      "Components": [
+        {
+          "Type": "BSMaterial::Scale",
+          "Index": 0,
+          "Data": {
+            "Value": {
+              "Type": "XMFLOAT2",
+              "Data": {
+                "x": "1.0989010989010988",
+                "y": "2.1505376344086025"
+              }
+            }
+          }
+        },
+        {
+          "Type": "BSMaterial::Offset",
+          "Index": 0,
+          "Data": {
+            "Value": {
+              "Type": "XMFLOAT2",
+              "Data": {
+                "x": "-0.0824175824175824",
+                "y": "-0.05376344086021506"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "ID": "res:82F6F8DD:00041E17:A7436AD2",
+      "Parent": "materials\\layered\\root\\materials.mat",
+      "Components": [
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:9F7E248C:0004AC9F:A0BB3015"
+          }
+        }
+      ]
+    },
+    {
+      "ID": "res:9F7E248C:0004AC9F:A0BB3015",
+      "Parent": "materials\\layered\\root\\texturesets.mat",
+      "Components": [
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "textures\\osfui\\feeds\\a38d323ae4f0b194bbb4971eff370bd1\\06b5e53e5a73da990f666b53e6057caf.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "textures\\osfui\\feeds\\a38d323ae4f0b194bbb4971eff370bd1\\normal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 3,
+          "Data": {
+            "FileName": "textures\\osfui\\feeds\\a38d323ae4f0b194bbb4971eff370bd1\\rough.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 4,
+          "Data": {
+            "FileName": "textures\\osfui\\feeds\\a38d323ae4f0b194bbb4971eff370bd1\\black.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 5,
+          "Data": {
+            "FileName": "textures\\osfui\\feeds\\a38d323ae4f0b194bbb4971eff370bd1\\white.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 7,
+          "Data": {
+            "FileName": "textures\\osfui\\feeds\\a38d323ae4f0b194bbb4971eff370bd1\\06b5e53e5a73da990f666b53e6057caf.dds"
+          }
+        }
+      ]
+    }
+  ]
+}

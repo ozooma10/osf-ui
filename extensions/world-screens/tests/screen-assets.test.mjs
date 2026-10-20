@@ -1,7 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { screenAssets, screenMaterialPath } from '../tools/screen-assets.mjs';
 import { worldTexturePath } from '../tools/world-texture.mjs';
+
+test('bundled browser has both screen materials and every referenced texture', async()=>{
+  const id='osfui.browser/tv';
+  const root=new URL('../data/',import.meta.url);
+  const manifest=JSON.parse(await readFile(new URL('SFSE/Plugins/OSF/UI/views/osfui.browser/tv/manifest.json',root)));
+  assert.equal(manifest.texture,worldTexturePath(id));
+  for(const profile of ['display-screen5','full-uv']) {
+    for(const [path,expected] of screenAssets(id,profile)) {
+      const actual=await readFile(new URL(path,root));
+      if(path.endsWith('.mat')) assert.deepEqual(JSON.parse(actual),JSON.parse(expected));
+      else assert.deepEqual(actual,expected);
+    }
+    const material=JSON.parse(await readFile(new URL(screenMaterialPath(id,profile),root)));
+    for(const component of material.Objects.flatMap(o=>o.Components).filter(c=>c.Type==='BSMaterial::MRTextureFile')) {
+      const bytes=await readFile(new URL(component.Data.FileName.replaceAll('\\','/'),root));
+      assert.equal(bytes.toString('ascii',0,4),'DDS ');
+    }
+  }
+});
 
 test('screen materials have independent graphs and use their named texture',()=>{
   const ids=new Set();

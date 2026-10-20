@@ -10,7 +10,13 @@ $required = @(
     'SFSE/Plugins/OSF/UI/views/osfui.browser/tv/chrome.html',
     'SFSE/Plugins/OSF/UI/views/osfui.browser/tv/chrome.css',
     'SFSE/Plugins/OSF/UI/views/osfui.browser/tv/chrome.js',
-    'textures/osfui/feeds/a38d323ae4f0b194bbb4971eff370bd1/06b5e53e5a73da990f666b53e6057caf.dds'
+    'textures/osfui/feeds/a38d323ae4f0b194bbb4971eff370bd1/06b5e53e5a73da990f666b53e6057caf.dds',
+    'textures/osfui/feeds/a38d323ae4f0b194bbb4971eff370bd1/normal.dds',
+    'textures/osfui/feeds/a38d323ae4f0b194bbb4971eff370bd1/rough.dds',
+    'textures/osfui/feeds/a38d323ae4f0b194bbb4971eff370bd1/black.dds',
+    'textures/osfui/feeds/a38d323ae4f0b194bbb4971eff370bd1/white.dds',
+    'materials/osfui/screens/display-screen5/v1/a38d323ae4f0b194bbb4971eff370bd1/06b5e53e5a73da990f666b53e6057caf.mat',
+    'materials/osfui/screens/full-uv/v1/a38d323ae4f0b194bbb4971eff370bd1/06b5e53e5a73da990f666b53e6057caf.mat'
 )
 $allowed = $required + 'SFSE/Plugins/OSFUIWorldScreens.pdb'
 foreach ($name in $required) {

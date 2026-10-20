@@ -15,6 +15,8 @@ function install(target)
     os.cp(path.join(extension,"data","SFSE","Plugins","OSF","UI","views","osfui.browser","tv"),views)
     os.mkdir(path.join(root,"textures","osfui","feeds"))
     os.cp(path.join(extension,"data","textures","osfui","feeds","*"),path.join(root,"textures","osfui","feeds"))
+    os.mkdir(path.join(root,"materials","osfui","screens"))
+    os.cp(path.join(extension,"data","materials","osfui","screens","*"),path.join(root,"materials","osfui","screens"))
     for _, name in ipairs({"LICENSE", "EXCEPTIONS"}) do
         os.cp(path.join(os.projectdir(),name),path.join(docs,name))
     end
