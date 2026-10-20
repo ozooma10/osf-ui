@@ -714,8 +714,25 @@ void BrowserSurfaceLifecycle(bool enabled)
     CHECK(service.IsInstantiated(view));
     CHECK(service.BeginInteractionWith(lease,{.presentation=API::Surfaces::Presentation::Fullscreen},callback,&phases));
     runtime().Update(); runtime().Update(); env.engineFocus=true; runtime().Update();
+    request(view,"guide-bad","guide",{{"open","yes"}});
+    CHECK(reply("guide-bad")["payload"]["code"] == "invalid-payload");
+    request(view,"guide","guide",{{"open",true}});
+    CHECK(reply("guide")["kind"] == "reply" && env.browserLayouts.back().landing && env.browserLayouts.back().fullscreen);
+    request(view,"state-guide","getState");
+    CHECK(reply("state-guide")["payload"]["guide"] == true && reply("state-guide")["payload"]["screens"] == 1);
+    service.RequestBack(); runtime().Update();
+    CHECK(service.FullscreenActive() && !env.browserLayouts.back().landing); // Back leaves the guide first.
+    request(view,"guide2","guide",{{"open",true}});
+    CHECK(env.browserLayouts.back().landing);
+    request(view,"nav2","navigate",{{"input","example.org"}});
+    CHECK(!env.browserLayouts.back().landing); // Choosing a channel returns to the page.
+    env.hosts.at(host).browserResult({.token=env.browserCommands.back().token,.success=true});
+    request(view,"guide3","guide",{{"open",true}});
     request(view,"close","close"); runtime().Update();
     CHECK(reply("close")["kind"] == "reply" && !service.FullscreenActive());
+    CHECK(!env.browserLayouts.back().landing); // Leaving the browser closes the guide.
+    request(view,"guide-idle","guide",{{"open",true}});
+    CHECK(reply("guide-idle")["payload"]["code"] == "browser-not-interactive");
     CHECK(env.navigations.size() == navigationCount);
     request(view,"clear","clearData");
     env.hosts.at(host).browserResult({.token=env.browserCommands.back().token,.success=true,.restartRequired=true});

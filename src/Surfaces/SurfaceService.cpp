@@ -25,7 +25,7 @@ namespace OSFUI
     {
         m_bridge = &bridge; m_developerMode = developer; m_language = std::move(language);
         m_resetPage = std::move(resetPage); m_browserAllowed = std::move(browserAllowed);
-        for (const auto* action : {"navigate","back","forward","reload","stop","home","mute","clearData","close","getState"})
+        for (const auto* action : {"navigate","back","forward","reload","stop","home","mute","clearData","close","getState","guide"})
             bridge.RegisterRequest(std::string("browser.") + action,
                 [this, action](const nlohmann::json& payload, MessageBridge& b) { BrowserRequest(action, payload, b); });
     }
@@ -35,8 +35,11 @@ namespace OSFUI
         state.erase("type"); state.erase("view");
         state["enabled"] = e.browserEnabled; state["fullscreen"] = e.browserFullscreen;
         const auto url = Json::Get(state,"url","");
-        state["landing"] = !e.browserEnabled || url.empty() || url == "about:blank" || !e.browserError.empty();
+        // The guide is chrome's full-frame page over a page that keeps playing.
+        state["guide"] = e.browserGuide;
+        state["landing"] = !e.browserEnabled || url.empty() || url == "about:blank" || !e.browserError.empty() || e.browserGuide;
         state["error"] = e.browserError;
+        { std::scoped_lock lock(m_mutex); state["screens"] = e.demand; }
         return state;
     }
     void SurfaceService::BrowserLayout(Entry& e)
@@ -68,6 +71,13 @@ namespace OSFUI
             return;
         }
         if (!e.browserEnabled) { b.Reject("browsing-disabled","Web browsing is disabled"); return; }
+        if (action == "guide") {
+            const auto open = payload.find("open");
+            if (open == payload.end() || !open->is_boolean()) { b.Reject("invalid-payload","open must be a boolean"); return; }
+            if (open->get<bool>() && !e.browserFullscreen) { b.Reject("browser-not-interactive","The guide opens only while browsing"); return; }
+            e.browserGuide = open->get<bool>(); BrowserLayout(e);
+            b.Respond(nlohmann::json::object()); return;
+        }
         osfui::browser::msg::BrowserCommand command{.view=std::string(osfui::browser::kBrowserContent), .action=std::string(action)};
         if (action == "navigate" || action == "home") {
             const auto input = Json::Get(payload,"input","");
@@ -78,6 +88,7 @@ namespace OSFUI
                 command.url = *destination;
             }
             command.action = "navigate"; e.browserError.clear();
+            if (std::exchange(e.browserGuide, false)) BrowserLayout(e);
         } else if (action == "mute") {
             const auto muted = payload.find("muted");
             if (muted == payload.end() || !muted->is_boolean()) { b.Reject("invalid-payload","muted must be a boolean"); return; }
@@ -158,7 +169,7 @@ namespace OSFUI
         entry.host->CreateOrNavigateView(entry.manifest);
         entry.host->SetViewHidden(entry.manifest.id, false);
         if (!entry.manifest.browserChrome.empty()) {
-            entry.browserFullscreen = false;
+            entry.browserFullscreen = false; entry.browserGuide = false;
             entry.browserError.clear();
             entry.browserState = osfui::browser::msg::ToJson(osfui::browser::msg::BrowserState{
                 .view=std::string(osfui::browser::kBrowserContent),.url="about:blank"});
@@ -334,7 +345,7 @@ namespace OSFUI
         m_interactionToken=0; m_neutral=0;
         if (auto request=std::exchange(m_interaction, {})) {
             for (const auto& e : m_entries) if (e->manifest.id == request->view && e->browserFullscreen) {
-                e->browserFullscreen=false; BrowserLayout(*e);
+                e->browserFullscreen=false; e->browserGuide=false; BrowserLayout(*e);
             }
             if (m_bridge && request->started)
                 m_bridge->Emit(request->view,"ui.interaction",nlohmann::json{{"active",false},{"reason",reason}});
@@ -350,7 +361,8 @@ namespace OSFUI
     {
         if (m_backRequested.exchange(false) && m_interaction && m_interaction->started) {
             const auto e=Find(m_interaction->lease);
-            if (e && !e->manifest.browserChrome.empty()) e->host->RequestBack(e->manifest.id);
+            if (e && e->browserGuide) { e->browserGuide=false; BrowserLayout(*e); } // Back leaves the guide first.
+            else if (e && !e->manifest.browserChrome.empty()) e->host->RequestBack(e->manifest.id);
             else CancelInteraction();
         }
         // Cancellation applies only to requests that existed at that event.

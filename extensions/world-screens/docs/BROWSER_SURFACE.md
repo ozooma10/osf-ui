@@ -294,13 +294,14 @@ These go through a fixed `browser.*` set, which core validates:
 | `browser.mute { muted }` | WebView2 `put_IsMuted`, CEF `SetAudioMuted`. Neither has a volume API. |
 | `browser.clearData` | Clears the profile (see above). |
 | `browser.close` | Ends the interaction with reason `closed`. |
+| `browser.guide { open }` | While browsing fullscreen, shows chrome's full-frame guide over the page (content hidden, page keeps loaded and playing). Back, any navigation and the end of the interaction close it. Rejected with `browser-not-interactive` outside fullscreen. |
 | `browser.getState` | Returns the current native state, including enabled/landing/fullscreen flags and any site-load error. |
 
 Only the reserved chrome view may invoke these requests. Remote page messages are
 dropped at both host and core boundaries. Navigations accept an optional
 `searchEngine` key (`duckduckgo`, `google`, `bing`); arbitrary search URL templates
-are rejected. `browser.home { input, searchEngine }` uses chrome's stored home;
-an empty input opens the local landing page via content's `about:blank`.
+are rejected. `browser.home` with an empty input turns the channel off: content goes to
+`about:blank` and every screen shows the local guide.
 Native commands complete deferred requests by token; failure/retirement rejects
 outstanding requests and late results are ignored.
 
@@ -312,7 +313,9 @@ outstanding requests and late results are ignored.
 never from the content page. The address bar shows the real origin with a lock or warning
 state. That's the only anti-phishing measure, which is why it must not be spoofable.
 
-The event also carries `audibleKnown`, `enabled`, `fullscreen`, `landing` and `error`.
+The event also carries `audibleKnown`, `enabled`, `fullscreen`, `landing`, `guide`,
+`screens` (bound screens sharing this browser) and `error`. `landing` is true whenever
+chrome has the full frame: no page, a site error, browsing disabled, or the guide open.
 The pinned CEF API supplies mute state but no audibility observation without installing
 an audio-capture handler (which changes playback ownership). CEF reports
 `audibleKnown: false`; chrome omits the playing-audio indicator for that edition.

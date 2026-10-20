@@ -57,7 +57,7 @@ namespace OSFUI
             BrowserHostRecovery recovery;
             std::size_t demand{};
             bool loaded{}, failed{};
-            bool browserEnabled{}, browserFullscreen{};
+            bool browserEnabled{}, browserFullscreen{}, browserGuide{};
             nlohmann::json browserState = nlohmann::json::object();
             std::string browserError;
             std::unordered_set<MessageBridge::DeferToken> browserRequests;
