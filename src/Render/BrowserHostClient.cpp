@@ -438,7 +438,9 @@ namespace OSFUI
 			RemoveLegacyMirrors(localRoot);
 			const auto legacyCache = localRoot / "legacy-views-cache";
 			const auto modernCache = localRoot / ViewCache::kCacheDirectory;
-			const auto devMirror = localRoot / (config.instanceName.empty() ? "views-dev" : "views-dev-" + config.instanceName);
+			// Legacy cleanup owns top-level views-dev-*; active instances live outside that namespace.
+			const auto devMirror = config.instanceName.empty() ? localRoot / "views-dev" :
+				localRoot / "view-instances" / config.instanceName / "views-dev";
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) {
 				// Real installs serve views in place; copies from earlier MO2 sessions are unused.
 				for (const auto& copy : { legacyCache, modernCache, devMirror }) RemoveUnusedCopy(copy);
