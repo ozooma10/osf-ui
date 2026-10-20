@@ -229,7 +229,7 @@ namespace OSFUI
 		std::string          language;  // Resolved before Start; immutable while the worker runs.
 		std::filesystem::path viewsRoot, mappedViewsRoot, legacyViewsRoot, mappedLegacyViewsRoot, userData;
         // Guards writes to the real-path mirror.
-        std::mutex            viewsMirrorMutex;
+        inline static std::mutex viewsMirrorMutex; // Shared cache preparation across surface hosts.
 		bool                  usesDevViewsMirror{ false };  // mutable views-dev tree
 		std::shared_future<bool> viewFilesPreparation;  // Started by Runtime; consumed by the transport worker.
 		std::filesystem::path browserHostExeSource, browserHostExeMirror;
@@ -438,7 +438,7 @@ namespace OSFUI
 			RemoveLegacyMirrors(localRoot);
 			const auto legacyCache = localRoot / "legacy-views-cache";
 			const auto modernCache = localRoot / ViewCache::kCacheDirectory;
-			const auto devMirror = localRoot / "views-dev";
+			const auto devMirror = localRoot / (config.instanceName.empty() ? "views-dev" : "views-dev-" + config.instanceName);
 			if (!::GetModuleHandleW(L"usvfs_x64.dll")) {
 				// Real installs serve views in place; copies from earlier MO2 sessions are unused.
 				for (const auto& copy : { legacyCache, modernCache, devMirror }) RemoveUnusedCopy(copy);
@@ -1038,6 +1038,11 @@ namespace OSFUI
         m_impl->legacyViewsRoot = a_config.dataDir.parent_path().parent_path() / "OSFUI" / "views";
         m_impl->userData = LocalOsfuiDir() / layout.profile;
         m_impl->browserHostLog = SFSE::log::log_directory().value_or(LocalOsfuiDir()) / layout.log;
+        if (!a_config.instanceName.empty()) {
+            if (a_config.instanceName.size() > 256 || a_config.instanceName.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-~!") != std::string::npos) return false;
+            m_impl->userData /= a_config.instanceName;
+            m_impl->browserHostLog = m_impl->browserHostLog.parent_path() / (a_config.instanceName + ".log");
+        }
         m_impl->browserHostExeSource = layout.executable;
 		m_impl->width = (std::max)(1u, a_config.width);
 		m_impl->height = (std::max)(1u, a_config.height);

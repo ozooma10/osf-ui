@@ -20,6 +20,7 @@ namespace OSFUI
 		osfui::browser::Backend backend{ osfui::browser::Backend::WebView2 };
 		std::function<std::optional<std::string>()> resolveLanguage;
 		std::filesystem::path dataDir;
+		std::string instanceName; // Separate profile/log for an independently rendered surface.
 	};
 
 	// Backend-neutral transport and browser lifetime. Both helpers implement the same private protocol.
