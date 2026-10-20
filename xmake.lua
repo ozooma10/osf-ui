@@ -148,6 +148,45 @@ target("OSF UI")
         add_deps("osfui-webview2-host")
     end
 
+-- Optional extension; the ordinary core build and package do not install it.
+target("OSF UI - World Screens")
+    set_default(false)
+    set_basename("OSFUIWorldScreens")
+    set_version("0.1.0")
+    add_rules("commonlibsf.plugin", {name="OSF UI - World Screens", author="ozooma10", description="Optional material-backed world displays for OSF UI"})
+    add_files("extensions/world-screens/src/**.cpp", "src/Composite/EngineD3D12.cpp", "src/Core/Json.cpp", "src/Core/Log.cpp")
+    add_includedirs("extensions/world-screens/src", "src", "sdk", "tools/browser_shared")
+    add_packages("nlohmann_json")
+    add_syslinks("d3d12", "bcrypt", "ole32", "user32", "version")
+    set_pcxxheader("src/pch.h")
+    before_build(function(target)
+        if os.getenv("XSE_SF_MODS_PATH") or os.getenv("XSE_SF_GAME_PATH") then
+            import("world_screens_payload", {rootdir=path.join(os.projectdir(),"tools","xmake")})
+            world_screens_payload.build_papyrus()
+        end
+    end)
+    after_build(function(target)
+        if os.getenv("XSE_SF_MODS_PATH") or os.getenv("XSE_SF_GAME_PATH") then
+            import("world_screens_payload", {rootdir=path.join(os.projectdir(),"tools","xmake")})
+            world_screens_payload.install(target)
+        end
+    end)
+    before_install(function(target)
+        import("world_screens_payload", {rootdir=path.join(os.projectdir(),"tools","xmake")})
+        world_screens_payload.build_papyrus()
+    end)
+    after_install(function(target)
+        import("world_screens_payload", {rootdir=path.join(os.projectdir(),"tools","xmake")})
+        world_screens_payload.install(target)
+    end)
+
+target("osfui-screen-binding-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("extensions/world-screens/tests/screen_binding_tests.cpp")
+    add_includedirs("extensions/world-screens/tests/stubs", "extensions/world-screens/src")
+
 target("osfui-game-consumer")
     set_default(false)
     set_basename("OSFUIBackendTest")

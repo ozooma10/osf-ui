@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$Compiler = $env:PAPYRUS_COMPILER,
-    [string]$Imports = $env:PAPYRUS_IMPORTS
+    [string]$Imports = $env:PAPYRUS_IMPORTS,
+    [switch]$WorldScreens
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,6 +12,11 @@ if (-not $Compiler) {
 }
 if (-not $Imports) { $Imports = 'C:\Modding\Starfield\PapyrusSource' }
 $source = Join-Path $repoRoot 'data\Scripts\Source'
+$scriptName = 'OSFUI'
+if ($WorldScreens) {
+    $source = Join-Path $repoRoot 'extensions\world-screens\data\Scripts\Source'
+    $scriptName = 'OSFUIWorldScreens'
+}
 $output = Join-Path $repoRoot 'build\papyrus'
 $flags = Join-Path $Imports 'Starfield_Papyrus_Flags.flg'
 if (-not (Test-Path -LiteralPath $Compiler -PathType Leaf) -or
@@ -20,9 +26,9 @@ if (-not (Test-Path -LiteralPath $Compiler -PathType Leaf) -or
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 Push-Location $source
 try {
-    & $Compiler 'OSFUI.psc' "-i=$source;$Imports" "-o=$output" "-f=$flags"
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $output 'OSFUI.pex'))) {
-        throw 'OSFUI Papyrus compilation failed.'
+    & $Compiler "$scriptName.psc" "-i=$source;$Imports" "-o=$output" "-f=$flags"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $output "$scriptName.pex"))) {
+        throw "$scriptName Papyrus compilation failed."
     }
 } finally {
     Pop-Location

@@ -3,6 +3,7 @@
 #include <RE/Starfield.h>
 #include <SFSE/SFSE.h>
 #include <OSFUI.h>
+#include <OSFUI_WorldScreens.h>
 #include <vendor/OSFSettings.h>
 #include <vendor/OSFSettings_Providers.h>
 #include <RE/E/Events.h>
@@ -24,6 +25,8 @@ namespace {
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 OSFUI::API::Client api;
+OSFUI::API::WorldScreens::Client screens;
+std::vector<std::uint32_t> screenBindings;
 OSFSettings::API::Client settings;
 OSFSettings::API::Providers::Client providers;
 OSFUI::Compat::V1::IOSFUIBridge* legacy{};
@@ -136,6 +139,14 @@ void Run() {
                 // Never replay a timed-out mutation from an earlier scenario.
                 if (command.value("deadline", 0ull) >= GetTickCount64()) {
                     if (action == "menu") accepted = api.RequestMenu(view.c_str(), command.value("open", false));
+                    if (action == "screen-bind") {
+                        const auto token = screens.Bind(command.at("reference").get<std::uint32_t>(), view.c_str());
+                        accepted = token != 0;
+                        if (token) screenBindings.push_back(token);
+                        std::scoped_lock lock(mutex);
+                        observations["lastBinding"] = {{"command", id}, {"token", token}, {"view", view}};
+                    }
+                    if (action == "screen-unbind") accepted = screens.Unbind(command.at("token").get<std::uint32_t>());
                     if (action == "state") accepted = api.SetState("osfui-backend-test", "value", command.at("value").dump().c_str());
                     if (action == "event") accepted = api.EmitEvent(view.c_str(), command.at("name").get<std::string>().c_str(), command.at("value").dump().c_str());
                     if (action == "graphics") {
@@ -204,6 +215,9 @@ void Run() {
             { std::scoped_lock lock(mutex); snapshot = observations; }
             snapshot["session"] = session; snapshot["pid"] = GetCurrentProcessId();
             snapshot["tickMs"] = GetTickCount64(); snapshot["ready"] = api.IsReady();
+            snapshot["screensReady"] = screens.IsReady();
+            snapshot["bindings"] = json::object();
+            for (auto token : screenBindings) snapshot["bindings"][std::to_string(token)] = screens.IsBound(token);
             Write(directory / "consumer.json", snapshot);
         } catch (const std::exception& error) {
             std::scoped_lock lock(mutex); observations["error"] = error.what();
@@ -244,6 +258,7 @@ void OnMessage(SFSE::MessagingInterface::Message* message) {
         directory = fs::path(std::u8string(path.begin(), path.end())); session = config.at("session");
         fs::create_directories(directory);
         const bool initialized = api.Init();
+        observations["screensInitialized"] = screens.Init();
         observations["settingsInitialized"] = settings.Init();
         observations["settingsVersion"] = settings.Version();
         bool registered = initialized && api.RegisterSend("osfui-backend-test.report", Report, nullptr)
