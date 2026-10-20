@@ -188,6 +188,10 @@ output-device changes, suspend/resume, DRM, or arbitrary iframe players. Failure
 injection calls the real manager's `Fail` path; it does not terminate a renderer.
 The Chromium allowlist switch still needs verification after runtime updates.
 
+Subsequent [in-game validation](../webview2-game-audio/VALIDATION.md) covers the
+composition-controller host, measured scene behavior, remote media playback,
+actual collector-renderer crashes and game lifecycle on the revised payload.
+
 References:
 [WebView2 extension installation](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2profile7),
 [Chrome tab capture](https://developer.chrome.com/docs/extensions/reference/api/tabCapture),

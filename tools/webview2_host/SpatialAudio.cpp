@@ -4,6 +4,7 @@
 #include <wrl.h>
 #include <wrl/client.h>
 #include <fstream>
+#include <format>
 #include <iterator>
 #include <stdexcept>
 
@@ -68,6 +69,12 @@ namespace osfui::webview2
             // tabCapture stream otherwise restores ordinary browser output.
             if (collector) collector->ExecuteScript(L"window.osfAudio?.stop()", nullptr);
         }
+        HRESULT FailResult(std::string_view operation, HRESULT result)
+        {
+            Fail(std::format("Audio collector {} failed (HRESULT 0x{:08X})",
+                operation, static_cast<std::uint32_t>(result)));
+            return result;
+        }
         void Close()
         {
             if (closed) return;
@@ -110,16 +117,18 @@ namespace osfui::webview2
         {
             controller = value;
             HRESULT hr = controller->get_CoreWebView2(&collector);
-            if (FAILED(hr) || !collector) return E_NOINTERFACE;
-            controller->put_Bounds(RECT{0,0,1,1});
-            controller->put_IsVisible(FALSE);
+            if (FAILED(hr)) return FailResult("get_CoreWebView2", hr);
+            if (!collector) return FailResult("get_CoreWebView2 returned null", E_POINTER);
+            if (FAILED(hr = controller->put_Bounds(RECT{0,0,1,1}))) return FailResult("put_Bounds", hr);
+            if (FAILED(hr = controller->put_IsVisible(FALSE))) return FailResult("put_IsVisible", hr);
             ComPtr<ICoreWebView2Settings> settings;
-            if (FAILED(hr = collector->get_Settings(&settings))) return hr;
-            if (FAILED(hr = settings->put_AreHostObjectsAllowed(FALSE))) return hr;
-            if (FAILED(hr = settings->put_IsWebMessageEnabled(TRUE))) return hr;
-            settings->put_AreDevToolsEnabled(FALSE);
-            settings->put_AreDefaultContextMenusEnabled(FALSE);
-            settings->put_AreDefaultScriptDialogsEnabled(FALSE);
+            if (FAILED(hr = collector->get_Settings(&settings))) return FailResult("get_Settings", hr);
+            if (!settings) return FailResult("get_Settings returned null", E_POINTER);
+            if (FAILED(hr = settings->put_AreHostObjectsAllowed(FALSE))) return FailResult("put_AreHostObjectsAllowed", hr);
+            if (FAILED(hr = settings->put_IsWebMessageEnabled(TRUE))) return FailResult("put_IsWebMessageEnabled", hr);
+            if (FAILED(hr = settings->put_AreDevToolsEnabled(FALSE))) return FailResult("put_AreDevToolsEnabled", hr);
+            if (FAILED(hr = settings->put_AreDefaultContextMenusEnabled(FALSE))) return FailResult("put_AreDefaultContextMenusEnabled", hr);
+            if (FAILED(hr = settings->put_AreDefaultScriptDialogsEnabled(FALSE))) return FailResult("put_AreDefaultScriptDialogsEnabled", hr);
             const auto weak = weak_from_this();
             EventRegistrationToken token{};
             hr = collector->add_NavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>(
@@ -131,29 +140,29 @@ namespace osfui::webview2
                     if (!allowed) { args->put_Cancel(TRUE); if (auto self=weak.lock()) self->Fail("Audio collector navigation rejected"); }
                     return S_OK;
                 }).Get(), &token);
-            if (FAILED(hr)) return hr;
+            if (FAILED(hr)) return FailResult("add_NavigationStarting", hr);
             hr = collector->add_FrameNavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>(
                 [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT { return args->put_Cancel(TRUE); }).Get(), &token);
-            if (FAILED(hr)) return hr;
+            if (FAILED(hr)) return FailResult("add_FrameNavigationStarting", hr);
             hr = collector->add_PermissionRequested(Callback<ICoreWebView2PermissionRequestedEventHandler>(
                 [](ICoreWebView2*, ICoreWebView2PermissionRequestedEventArgs* args) -> HRESULT {
                     return args->put_State(COREWEBVIEW2_PERMISSION_STATE_DENY);
                 }).Get(), &token);
-            if (FAILED(hr)) return hr;
+            if (FAILED(hr)) return FailResult("add_PermissionRequested", hr);
             hr = collector->add_NewWindowRequested(Callback<ICoreWebView2NewWindowRequestedEventHandler>(
                 [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT { return args->put_Handled(TRUE); }).Get(), &token);
-            if (FAILED(hr)) return hr;
+            if (FAILED(hr)) return FailResult("add_NewWindowRequested", hr);
             ComPtr<ICoreWebView2_4> web4;
-            if (FAILED(hr = collector.As(&web4))) return hr;
+            if (FAILED(hr = collector.As(&web4))) return FailResult("query ICoreWebView2_4", hr);
             hr = web4->add_DownloadStarting(Callback<ICoreWebView2DownloadStartingEventHandler>(
                 [](ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs* args) -> HRESULT { return args->put_Cancel(TRUE); }).Get(), &token);
-            if (FAILED(hr)) return hr;
+            if (FAILED(hr)) return FailResult("add_DownloadStarting", hr);
             hr = collector->add_ProcessFailed(Callback<ICoreWebView2ProcessFailedEventHandler>(
                 [weak](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs*) -> HRESULT {
                     if (auto self = weak.lock()) self->Fail("Audio collector process failed");
                     return S_OK;
                 }).Get(), &token);
-            if (FAILED(hr)) return hr;
+            if (FAILED(hr)) return FailResult("add_ProcessFailed", hr);
             hr = collector->add_WebMessageReceived(Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                 [weak](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                     const auto self = weak.lock();
@@ -179,8 +188,9 @@ namespace osfui::webview2
                     else if (state == "silent") self->phase = "silent";
                     return S_OK;
                 }).Get(), &token);
-            if (FAILED(hr)) return hr;
-            return collector->Navigate(kCollectorUrl.c_str());
+            if (FAILED(hr)) return FailResult("add_WebMessageReceived", hr);
+            hr = collector->Navigate(kCollectorUrl.c_str());
+            return FAILED(hr) ? FailResult("Navigate extension collector", hr) : hr;
         }
         void Tick()
         {
@@ -222,23 +232,49 @@ namespace osfui::webview2
     }
     SpatialAudio::~SpatialAudio() { state->Close(); }
     bool SpatialAudio::Guarded() const { return state->guarded; }
-    void SpatialAudio::Start(ICoreWebView2Environment* environment, HWND parent)
+    void SpatialAudio::Start(ICoreWebView2Environment* environment, HWND parent, bool composition)
     {
         if (state->requested || state->failed || state->closed) return;
+        if (!environment) { state->FailResult("Start environment is null", E_POINTER); return; }
+        if (!::IsWindow(parent)) { state->FailResult("Start parent HWND is invalid", E_INVALIDARG); return; }
         state->requested = true;
         state->phase = "starting";
         state->startupDeadline = audio::ClockMs() + 15000;
         const std::weak_ptr<State> weak = state;
-        const auto hr = environment->CreateCoreWebView2Controller(parent,
-            Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                [weak](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
-                    const auto self = weak.lock();
-                    if (!self || self->closed || self->failed) { if (controller) controller->Close(); return S_OK; }
-                    if (FAILED(result) || !controller || FAILED(self->SetupCollector(controller)))
-                        self->Fail("Could not initialize audio collector");
-                    return S_OK;
-                }).Get());
-        if (FAILED(hr)) state->Fail("Could not create audio collector");
+        const auto completed = [weak, composition](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+            const auto self = weak.lock();
+            if (!self || self->closed || self->failed) { if (controller) controller->Close(); return S_OK; }
+            if (FAILED(result)) self->FailResult(composition ?
+                "CreateCoreWebView2CompositionController completion" : "CreateCoreWebView2Controller completion", result);
+            else if (!controller) self->FailResult("controller creation returned null", E_POINTER);
+            else self->SetupCollector(controller);
+            return S_OK;
+        };
+        HRESULT hr{};
+        if (composition) {
+            // Match the source controllers' hosting mode in this environment.
+            // The hidden collector needs no root visual or input forwarding.
+            ComPtr<ICoreWebView2Environment3> environment3;
+            hr = environment->QueryInterface(IID_PPV_ARGS(&environment3));
+            if (FAILED(hr)) { state->FailResult("query ICoreWebView2Environment3", hr); return; }
+            hr = environment3->CreateCoreWebView2CompositionController(parent,
+                Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
+                    [weak, completed](HRESULT result, ICoreWebView2CompositionController* value) -> HRESULT {
+                        if (FAILED(result) || !value) return completed(result, nullptr);
+                        ComPtr<ICoreWebView2Controller> controller;
+                        const auto queryHr = value->QueryInterface(IID_PPV_ARGS(&controller));
+                        if (FAILED(queryHr)) {
+                            if (const auto self = weak.lock()) self->FailResult("query collector ICoreWebView2Controller", queryHr);
+                            return S_OK;
+                        }
+                        return completed(result, controller.Get());
+                    }).Get());
+        } else {
+            hr = environment->CreateCoreWebView2Controller(parent,
+                Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(completed).Get());
+        }
+        if (FAILED(hr)) state->FailResult(composition ?
+            "CreateCoreWebView2CompositionController dispatch" : "CreateCoreWebView2Controller dispatch", hr);
     }
     void SpatialAudio::Update(const json& scene, std::uint64_t expires)
     {
@@ -252,9 +288,29 @@ namespace osfui::webview2
     void SpatialAudio::SetMuted(bool muted) { state->muted = muted; state->sceneDirty = true; state->PushScene(); }
     void SpatialAudio::SetLoading(bool loading) { state->loading = loading; }
     bool SpatialAudio::Muted() const { return state->muted; }
-    json SpatialAudio::Status() const
+    json SpatialAudio::Status(bool includeSpatial) const
     {
-        return {{"route","webview2-tab-capture"},{"state",state->phase},{"error",state->error},
-            {"fresh",audio::Fresh(state->expires,audio::ClockMs())},{"muted",state->muted}};
+        const bool fresh = audio::Fresh(state->expires,audio::ClockMs());
+        json status{{"route","webview2-tab-capture"},{"state",state->phase},{"error",state->error},
+            {"fresh",fresh},{"muted",state->muted}};
+        if (!includeSpatial) return status;
+        // Report the validated native scene supplied to the collector. This is
+        // pose/routing evidence, not a measurement of the browser's audio output.
+        const auto decoded = audio::Decode(state->scene);
+        const auto scene = decoded.value_or(OSFUI::API::Surfaces::AudioScene{});
+        auto emitters = json::array();
+        for (unsigned i = 0; i < scene.count; ++i) {
+            const auto& emitter = scene.emitters[i];
+            emitters.push_back({{"id",emitter.id},
+                {"distance",std::sqrt(audio::DistanceSquared(scene.position,emitter.position))},
+                {"position",audio::Vector(emitter.position)}});
+        }
+        status["spatial"] = {{"fresh",fresh},
+            {"enabled",fresh && state->capturing && !state->failed && !state->closed &&
+                scene.count > 0 && !state->muted && scene.gain > 0},
+            {"muted",state->muted},{"gain",scene.gain},
+            {"listener",audio::Vector(scene.position)},{"front",audio::Vector(scene.front)},
+            {"up",audio::Vector(scene.up)},{"emitters",std::move(emitters)},{"emitterCount",scene.count}};
+        return status;
     }
 }

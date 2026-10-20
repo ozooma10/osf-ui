@@ -15,12 +15,15 @@
 					if (!view.audio->Guarded()) { ReportSecurityFailure(view, E_FAIL, "browser audio mute guard failed during recovery"); return; }
 					view.audio->Update(audioScene, audioSceneExpires);
 					view.audio->SetMuted(browserAudioMuted);
-					view.audio->Start(environment.Get(), bootstrapWindow);
+					view.audio->Start(environment.Get(), bootstrapWindow, true);
 				}
-				const auto status = view.audio->Status();
+				const auto status = view.audio->Status(devMode);
 				if (status != view.lastAudioState) {
 					view.lastAudioState = status;
-					PublishBrowserState(view);
+					if (view.remoteContent) PublishBrowserState(view);
+					else if (devMode) {
+						if (auto* content = FindView(kBrowserContent)) PublishBrowserState(*content);
+					}
 				}
 			}
 			void FailAudioExtension(const std::string& reason)
@@ -32,7 +35,7 @@
 			void StartAudioCollectors()
 			{
 				if (!audioExtensionReady || quit.load()) return;
-				for (auto& view : views) if (view->audio) view->audio->Start(environment.Get(), bootstrapWindow);
+				for (auto& view : views) if (view->audio) view->audio->Start(environment.Get(), bootstrapWindow, true);
 			}
 			void InitializeAudio(View& view)
 			{

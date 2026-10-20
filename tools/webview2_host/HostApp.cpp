@@ -2,6 +2,7 @@
 #include "EmbeddedScripts.h"
 #include "FormControls.h"
 #include "SpatialAudio.h"
+#include "MediaNavigation.h"
 
 #include "Core/Ids.h"
 #include "Core/Json.h"
@@ -55,6 +56,8 @@
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 using nlohmann::json;
+
+static_assert(osfui::webview2::MediaNavigation::kConnectionAborted == COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED);
 
 namespace osfui::webview2
 {
@@ -198,6 +201,8 @@ namespace osfui::webview2
 				bool legacy{};
 				bool remoteContent{}; // Set before controller creation; immutable.
 				bool browserLoading{}, browserLoadSucceeded{};
+				MediaNavigation mediaNavigation;
+				bool mediaQueryInFlight{}; // At most one outstanding metadata query per controller.
 				std::string lastBrowserState;
 				json lastAudioState;
 				int mouseX{}, mouseY{};
@@ -470,6 +475,7 @@ namespace osfui::webview2
 					osfui::browser::audio::ClockMs() >= audioExtensionDeadline)
 					FailAudioExtension("Browser audio extension installation timed out");
 				for (auto& view : views) {
+					TickMediaNavigation(*view, now);
 					if (view->audio) TickAudio(*view);
 					if (view->cdpInput) view->cdpInput->CheckTimeout();
 					if (view->revealPending && now >= view->revealDeadline) {
@@ -480,6 +486,7 @@ namespace osfui::webview2
 
 			void DestroyOneView(View& a_view)
 			{
+				a_view.mediaNavigation.Start(0);
 				a_view.audio.reset(); // Mute source before closing the collector or source controller.
 				if (pointerTarget == &a_view) { pointerTarget=nullptr; browserPointer.Reset(); }
 				if (captureOpening.view == a_view.id) {
@@ -655,6 +662,9 @@ namespace osfui::webview2
 				const bool allowed = IsAllowedContentDocument(a_view.remoteContent, uri, a_view.modId, a_view.viewName, a_frame);
 				if (allowed) {
 					if (!a_frame) {
+						UINT64 navigationId{};
+						a_args->get_NavigationId(&navigationId);
+						a_view.mediaNavigation.Start(navigationId);
 						if (a_view.audio) a_view.audio->SetLoading(true);
 						a_view.audioRestartAttempts = 0;
 						a_view.browserLoading=true; a_view.browserLoadSucceeded=false;
@@ -679,6 +689,8 @@ namespace osfui::webview2
 				}
 				return S_OK;
 			}
+
+#include "MediaNavigation.inl"
 
 			HRESULT InstallOriginGuards(View& a_view)
 			{
@@ -1083,32 +1095,48 @@ namespace osfui::webview2
 							COREWEBVIEW2_WEB_ERROR_STATUS status{};
 							a_args->get_IsSuccess(&success);
 							a_args->get_WebErrorStatus(&status);
+							UINT64 navigationId{};
+							a_args->get_NavigationId(&navigationId);
+							int httpStatus = -1;
+							ComPtr<ICoreWebView2NavigationCompletedEventArgs2> args2;
+							if (SUCCEEDED(a_args->QueryInterface(IID_PPV_ARGS(&args2))))
+								args2->get_HttpStatusCode(&httpStatus);
+							// HTTP success alone does not imply completed navigation: a response
+							// may be followed by a connection abort. Keep both results in evidence.
+							log.Info(std::format(
+								"view '{}': navigation {} completed (success={}, webErrorStatus={}, httpStatus={})",
+								view->id, navigationId, success == TRUE, static_cast<int>(status), httpStatus));
 							// Canceled or replaced navigations must not count as recovery failures.
 							if (status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) return S_OK;
-							view->browserLoading = false;
-							view->browserLoadSucceeded = success == TRUE;
-							if (view->audio) view->audio->SetLoading(success != TRUE);
-							PublishBrowserState(*view);
+							if (navigationId && navigationId != view->mediaNavigation.navigationId) return S_OK;
 							LPWSTR raw = nullptr;
 							std::string source;
 							if (SUCCEEDED(a_sender->get_Source(&raw)) && raw) source = ToUtf8(raw);
 							::CoTaskMemFree(raw);
-							Send(msg::ToJson(msg::LoadEvent{
-								.view = view->id,
-								.failed = success != TRUE,
-								.url = std::move(source),
-								.description = success ? "" : "WebView2 navigation failed",
-								.code = static_cast<std::int32_t>(status) }));
+							const auto now = ::GetTickCount64();
+							if (view->mediaNavigation.Begin(view->remoteContent, success == TRUE,
+								static_cast<int>(status), httpStatus, navigationId, source, now)) {
+								// Direct media can finish its DOM after the document request aborts.
+								// Keep source output guarded while verifying the committed document.
+								TickMediaNavigation(*view, now);
+								return S_OK;
+							}
+							CompleteNavigation(*view, success == TRUE, static_cast<int>(status), std::move(source));
 							return S_OK;
 						}).Get(), &token);
 				ComPtr<ICoreWebView2_2> webView2;
 				if (SUCCEEDED(a_view.webView.As(&webView2))) {
 					webView2->add_DOMContentLoaded(
 						Callback<ICoreWebView2DOMContentLoadedEventHandler>(
-							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs*) -> HRESULT {
+							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs* args) -> HRESULT {
+								UINT64 navigationId{};
+								args->get_NavigationId(&navigationId);
+								if (navigationId && navigationId != view->mediaNavigation.navigationId) return S_OK;
+								view->mediaNavigation.DomReady(navigationId);
 								view->domSeen = true;
 								InitializeCdpInput(*view);
 								DrainQueuedViewWork(*view);
+								TickMediaNavigation(*view, ::GetTickCount64());
 								return S_OK;
 							}).Get(), &token);
 				}
@@ -1127,6 +1155,7 @@ namespace osfui::webview2
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED:
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE:
 								view->domSeen = false;
+								view->mediaNavigation.Start(0);
 								SuspendCdpInput(*view);
 								Send(msg::ToJson(msg::LoadEvent{
 									.view = view->id,

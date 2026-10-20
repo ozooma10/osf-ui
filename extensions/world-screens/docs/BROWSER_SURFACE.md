@@ -19,8 +19,12 @@ CEF spatial audio is implemented, tested and deployed in the ordinary host
 (Surfaces ABI 1.2 / private browser protocol 8). Build/native verification and
 fresh game acceptance are recorded below; the earlier compile-time prototype is
 historical. WebView2 spatial audio is also implemented in the ordinary host using
-an embedded tab-capture extension and Web Audio. Its standalone feasibility checks
-pass on runtime 155.0.4283.62; production-host and in-game acceptance remain pending.
+an embedded tab-capture extension and Web Audio. Its current game-host run on
+runtime 155.0.4283.62 records 211 passing checks, zero failures and two conditional
+geometry skips, including spatial tones and public video playback. Final-payload
+collector recovery, save/load and cell retirement passed; cleanup and matching
+normal-mod deployment are verified. Remaining limits and exact evidence are in
+the [WebView2 validation record](../../../tools/profiling/webview2-game-audio/VALIDATION.md).
 
 ## Goal
 
@@ -791,6 +795,11 @@ The output-device behavior follows
   its source tab and routes the stream through Web Audio. User mute changes the
   collector graph. Startup, invalid/stale scenes and capture failure remain silent;
   ending capture cannot restore ordinary, non-positional browser output.
+- Hidden collectors match their source environment's controller mode. The
+  production host uses composition controllers; the original standalone probe
+  used ordinary controllers. Mixing those modes caused `ERROR_INVALID_STATE`
+  during collector creation in the first game runs. Hidden composition collectors
+  have no game presentation or input target.
 - The graph downmixes to mono and creates one HRTF panner per supplied TV. It uses
   the main world camera's position and full forward/up basis, the game's master
   volume, and the same maximum of 32 nearest loaded emitters. Linear attenuation is
@@ -802,15 +811,24 @@ The output-device behavior follows
   gain to zero on the audio timeline. Updates are coalesced behind one in-flight
   script call, with a two-second unresponsive-collector timeout. An idle landing
   page does not consume the capture-start timeout. Capture waits for successful
-  navigation; failed capture can recreate its collector with at most two retries
-  per navigation. Source and collector destruction use weak native callbacks and
-  silence before closing controllers.
+  navigation or browser-confirmed direct media; failed capture can recreate its
+  collector with at most two retries per navigation. Source and collector
+  destruction use weak native callbacks and silence before closing controllers.
+- Direct audio/video navigation can commit a playable media document while its
+  original HTTP 200 navigation reports `CONNECTION_ABORTED`. That precise case
+  requires `DOMContentLoaded` for the same navigation and matching browser-owned
+  top-level media metadata before capture may start. The check validates current
+  controller, navigation, source, frame/loader identity and URL, rejects error
+  pages and stale replies, and expires after two seconds. It does not inject
+  script into remote pages or accept arbitrary navigation errors.
 - This depends on Chromium's `--allowlisted-extension-id` switch for the one fixed
   extension ID. WebView2 exposes extension installation but does not document this
   capture-permission bypass as a compatibility contract. A runtime update may break
   the route; unsupported API, permission or capture failures leave browser audio
   silent. Developer-mode `browser.getState().audio` exposes route, state, error,
-  freshness and logical mute for diagnosis.
+  freshness and logical mute for diagnosis, plus the trusted chrome route and
+  camera/emitter snapshots. These describe routing inputs and lifecycle; they are
+  not captured-output measurements.
 
 ### WebView2 audio evidence and remaining acceptance
 
@@ -836,13 +854,43 @@ retaining capture, injected failure silence, teardown and recreation. Failure is
 injected through the production route's failure method; this is not a renderer
 crash-injection test.
 
-The releasedbg WebView2 edition builds and is deployed to the configured OSF UI
-MO2 mod folder. Core DLL and host executable hashes match their build outputs;
-see `build/webview2-spatial-deployment.json`. This does not establish full-host or
-fresh in-game acceptance, which remains pending for camera orientation, multiple
-TVs, Watch/close continuity, master volume, mute, range/unload silence, navigation
-and capture recovery, save/load, device changes, latency and audio/video sync.
-Historical CEF acceptance above does not cover the WebView2 output graph.
+The current game-host run
+`build/webview2-spatial-game/runs/20261020-202412-627-webview2-spatial/`
+records **211 passing checks, zero failures, zero missing phases and two
+conditional geometry skips**. It measures camera-relative panning, master gain,
+distance attenuation, mute/range/empty-scene silence, camera independence,
+multiple TVs and source continuity through Watch/close. The two skipped checks
+compare Watch/close tone amplitude at fixed camera geometry; that geometry was
+not stable enough to isolate a presentation effect. Audibility and source
+continuity passed separately.
+
+Unmodified public WebM and MP4 URLs also reached a fresh content capture route.
+The WebM endpoint windows include Watch/close transitions, so they establish
+audio through the observed transitions rather than strictly isolated fullscreen
+and world-only intervals. Separate MP4 observations verify logical mute and
+recovery. These measurements do not establish gap-free playback, arbitrary-site
+or DRM compatibility, or physical Esc/controller behavior. Exact payload/source
+hashes and numeric results are in the
+[WebView2 validation record](../../../tools/profiling/webview2-game-audio/VALIDATION.md).
+
+The final payload also passed actual collector-crash recovery with both active
+MP4 and trusted tone (**1.2705 s**) and with an inactive blank content source
+(**0.8806 s** for the trusted tone). Host/browser/source-renderer identities were
+preserved. A private save/load produced a new document and two new binding IDs
+in **3.839 s**, followed by measured tone output. Cell transfer retired the pinned
+TV host by **6.923 s**. These are separate lifecycle observations, not additional
+checks in the 211 count; before/after endpoint measurements do not prove a
+gap-free crash interval. The first blank-source crash helper false failure and
+earlier production failures remain in the validation record.
+
+The game exited normally, the original browser profile was restored with its
+file hashes verified, and MO2 returned to Default. The tested host was deployed
+to the normal OSF UI mod; its copied hash and the unchanged core match the tested
+payload, with zero drift across 42 host-source hashes. The final run's
+`deployment.json` supersedes the older `build/webview2-spatial-deployment.json`
+for this revision. Endpoint changes, suspend/resume, subjective quality,
+latency/audio-video synchronization and broader hardware/input coverage remain
+open. Historical CEF acceptance above does not cover the WebView2 output graph.
 
 ## Open decisions
 

@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.25)
+project(osfui_audio_endpoint_meter LANGUAGES CXX)
+add_executable(osfui_audio_endpoint_meter main.cpp ../webview2-tab-audio/AudioMeter.cpp)
+target_compile_features(osfui_audio_endpoint_meter PRIVATE cxx_std_20)
+target_compile_definitions(osfui_audio_endpoint_meter PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
+target_compile_options(osfui_audio_endpoint_meter PRIVATE /W4 /EHsc /utf-8)
+target_include_directories(osfui_audio_endpoint_meter PRIVATE "${JSON_INCLUDE}" ../webview2-tab-audio)
+target_link_libraries(osfui_audio_endpoint_meter PRIVATE ole32 mmdevapi)

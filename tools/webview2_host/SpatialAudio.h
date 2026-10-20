@@ -26,14 +26,14 @@ namespace osfui::webview2
         SpatialAudio(const SpatialAudio&) = delete;
         SpatialAudio& operator=(const SpatialAudio&) = delete;
         bool Guarded() const;
-        void Start(ICoreWebView2Environment* environment, HWND parent);
+        void Start(ICoreWebView2Environment* environment, HWND parent, bool composition = false);
         void Update(const nlohmann::json& scene, std::uint64_t expires);
         void Tick();
         void Fail(const std::string& reason);
         void SetMuted(bool muted);
         void SetLoading(bool loading);
         bool Muted() const;
-        nlohmann::json Status() const;
+        nlohmann::json Status(bool includeSpatial = false) const;
 
     private:
         struct State;

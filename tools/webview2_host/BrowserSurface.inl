@@ -62,7 +62,11 @@
 				} else state.audibleKnown=false;
 				if (view.audio) {
 					state.muted = view.audio->Muted();
-					if (devMode) state.audio = view.audio->Status();
+					if (devMode) {
+						state.audio = view.audio->Status(true);
+						if (const auto* chrome = FindView(kBrowserView); chrome && chrome->audio)
+							state.audio["chrome"] = chrome->audio->Status(true);
+					}
 				}
 				const auto encoded=Json::Dump(msg::ToJson(state));
 				if (encoded != view.lastBrowserState) { view.lastBrowserState=encoded; Send(msg::ToJson(state)); }
