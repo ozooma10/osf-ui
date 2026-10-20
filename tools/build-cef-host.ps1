@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$JsonInclude, [string]$Generator = 'Visual Studio 18 2026', [switch]$AudioProbe)
+param([string]$JsonInclude, [string]$Generator = 'Visual Studio 18 2026')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = Split-Path $PSScriptRoot -Parent
@@ -17,8 +17,8 @@ if (-not $JsonInclude) {
     if (-not $match) { throw 'Pass -JsonInclude with the nlohmann_json 3.11.3 include directory.' }
     $JsonInclude = Split-Path (Split-Path $match.FullName -Parent) -Parent
 }
-$build = Join-Path $repo $(if($AudioProbe){'build\cef-audio-host'}else{'build\cef-host'})
-& cmake -S (Join-Path $PSScriptRoot 'cef_host') -B $build -G $Generator -A x64 "-DCEF_ROOT=$sdk" "-DJSON_INCLUDE=$JsonInclude" "-DOSFUI_CEF_AUDIO_PROBE=$(if($AudioProbe){'ON'}else{'OFF'})"
+$build = Join-Path $repo 'build\cef-host'
+& cmake -S (Join-Path $PSScriptRoot 'cef_host') -B $build -G $Generator -A x64 "-DCEF_ROOT=$sdk" "-DJSON_INCLUDE=$JsonInclude"
 if ($LASTEXITCODE -ne 0) { throw 'CEF CMake configure failed.' }
 & cmake --build $build --config Release --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'CEF host build failed.' }

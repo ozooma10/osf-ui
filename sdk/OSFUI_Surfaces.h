@@ -1,13 +1,14 @@
 // Optional extension services supplied by OSFUI.dll. No STL or ownership transfer across the ABI.
 #pragma once
 #include "OSFUI.h"
+#include "OSFUI_SurfaceAudio.h"
 
 struct ID3D12CommandQueue;
 struct ID3D12Resource;
 
 namespace OSFUI::API::Surfaces
 {
-    inline constexpr std::uint32_t kVersion = 0x00010001;
+    inline constexpr std::uint32_t kVersion = 0x00010002;
     using Handle = std::uint64_t;
     using Interaction = std::uint64_t;
     struct View { const char* id; const char* texture; std::uint32_t width, height; };
@@ -54,6 +55,10 @@ namespace OSFUI::API::Surfaces
         virtual bool EndInteraction(Interaction) noexcept = 0;
         // 1.1. BeginInteraction with options; BeginInteraction equals InWorld presentation.
         virtual Interaction BeginInteractionWith(Handle, const InteractionOptions&, InteractionCallback, void*) noexcept = 0;
+        // 1.2. Thread-safe snapshot from the extension's verified engine drain.
+        // Reserved browser view only. Refresh at least every second; missing or
+        // invalid scenes fail silent. An empty scene immediately removes all TVs.
+        virtual bool PublishAudioScene(const char* view, const AudioScene&) noexcept = 0;
     protected:
         ~IService() = default;
     };

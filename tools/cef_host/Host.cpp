@@ -36,10 +36,8 @@
 #include "BrowserPipe.h"
 #include "Win32Util.h"
 #include "LanguageTag.h"
-#ifdef OSFUI_CEF_AUDIO_PROBE
 #include "include/cef_audio_handler.h"
-#include "../profiling/cef-audio/AudioProbe.h"
-#endif
+#include "SpatialAudio.h"
 
 namespace osfui::cefhost
 {
@@ -176,9 +174,7 @@ namespace osfui::cefhost
         public CefLoadHandler, public CefRequestHandler, public CefResourceRequestHandler,
         public CefDisplayHandler, public CefContextMenuHandler, public CefJSDialogHandler,
         public CefDialogHandler, public CefDownloadHandler, public CefPermissionHandler
-#ifdef OSFUI_CEF_AUDIO_PROBE
-        , public CefAudioHandler
-#endif
+, public CefAudioHandler
     {
     public:
         View(Host& owner, const msg::Navigate& nav, std::filesystem::path root);
@@ -214,8 +210,7 @@ namespace osfui::cefhost
         void ReleaseInput();
         void Reveal();
         void Deliver(std::string payload);
-#ifdef OSFUI_CEF_AUDIO_PROBE
-        std::unique_ptr<probe::Audio> audio;
+        std::unique_ptr<SpatialAudio> audio;
         CefRefPtr<CefAudioHandler> GetAudioHandler() override { return audio ? this : nullptr; }
         bool GetAudioParameters(CefRefPtr<CefBrowser>, CefAudioParameters& p) override {
             p.channel_layout = CEF_CHANNEL_LAYOUT_STEREO; p.sample_rate = 48000; p.frames_per_buffer = 480;
@@ -227,7 +222,6 @@ namespace osfui::cefhost
         void OnAudioStreamPacket(CefRefPtr<CefBrowser>, const float** data, int frames, int64_t) override { audio->Packet(data, frames); }
         void OnAudioStreamStopped(CefRefPtr<CefBrowser>) override { audio->Stop(); }
         void OnAudioStreamError(CefRefPtr<CefBrowser>, const CefString& error) override { audio->Error(error.ToString()); }
-#endif
         CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
         CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
         CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
@@ -314,9 +308,7 @@ namespace osfui::cefhost
         std::string inputTarget;
         std::string pointerTarget;
         std::optional<msg::BrowserLayout> browserLayout;
-#ifdef OSFUI_CEF_AUDIO_PROBE
-        std::shared_ptr<probe::Scene> audioScene = std::make_shared<probe::Scene>();
-#endif
+        std::shared_ptr<AudioSceneState> audioScene = std::make_shared<AudioSceneState>();
         browser::BrowserPointerRouter browserPointer;
         UINT width{ 1 }, height{ 1 }, viewportWidth{ 1 }, viewportHeight{ 1 };
         HWND gameWindow{};
@@ -417,6 +409,7 @@ namespace osfui::cefhost
         {
             if (stopping) return;
             stopping = true;
+            { std::lock_guard lock(audioScene->mutex); audioScene->expires=0; }
             output.Stop();
             closeDeadline = GetTickCount64() + 5000;
             for (auto& [id, view] : views) {
@@ -618,6 +611,10 @@ namespace osfui::cefhost
             const auto type = Json::Get(raw, "type", "");
             if (type == msg::Init::kType) return; // consumed before CefInitialize
             if (type == msg::Navigate::kType) { Navigate(msg::FromJson<msg::Navigate>(raw)); return; }
+            if (type == msg::BrowserAudio::kType) {
+                if (init.remoteMode) { const auto state=msg::FromJson<msg::BrowserAudio>(raw); audioScene->Update(state.scene,state.expiresMs); }
+                return;
+            }
             if (type == msg::BrowserLayout::kType) { BrowserLayout(msg::FromJson<msg::BrowserLayout>(raw)); return; }
             if (type == msg::BrowserCommand::kType) { BrowserCommand(msg::FromJson<msg::BrowserCommand>(raw)); return; }
             if (type == msg::Back::kType && BrowserBack(msg::FromJson<msg::Back>(raw))) return;
@@ -781,6 +778,7 @@ namespace osfui::cefhost
             if (WaitForSingleObject(game, 0) != WAIT_TIMEOUT) Stop();
             if (!stopping) {
                 Send(msg::ToJson(msg::Heartbeat{}));
+                for (const auto& [_,view]:views) if (view->remoteContent) view->PublishBrowserState();
                 Post([this] { Maintenance(); }, browser::kHeartbeatIntervalMs);
             }
         }
@@ -789,11 +787,9 @@ namespace osfui::cefhost
     View::View(Host& host, const msg::Navigate& nav, std::filesystem::path assets) :
         owner(host), id(nav.id), root(std::move(assets)), legacy(nav.legacy), remoteContent(nav.remoteContent),
         logicalHeight((std::max)(1u, nav.logicalHeight)) {
-#ifdef OSFUI_CEF_AUDIO_PROBE
         if (host.init.remoteMode && (id == browser::kBrowserContent || id == browser::kBrowserView))
-            audio = std::make_unique<probe::Audio>(host.audioScene,
-                std::filesystem::path(ToWide(host.init.userDataDir)) / ("audio-probe-" + std::string(ViewName(id)) + ".json"));
-#endif
+            audio = std::make_unique<SpatialAudio>(host.audioScene);
+
     }
     double View::Scale() const { return static_cast<double>(owner.viewportHeight) / logicalHeight; }
     bool View::Trusted(const CefString& url) const
@@ -814,6 +810,7 @@ namespace osfui::cefhost
     }
     void View::OnBeforeClose(CefRefPtr<CefBrowser>)
     {
+        if (audio) audio->Stop();
         browser = nullptr; surface.Clear(); popup.Clear();
         owner.Post([host = &owner] { host->CheckShutdown(); });
     }
@@ -901,23 +898,7 @@ namespace osfui::cefhost
     void View::Deliver(std::string payload)
     {
         if (remoteContent) return;
-#ifdef OSFUI_CEF_AUDIO_PROBE
-        // Test-only native->host event. Remote pages have no bridge and cannot
-        // reach this path. The shipping host does not recognize this event.
-        if (id == browser::kBrowserView) {
-            const auto event = Json::Parse(payload);
-            if (event && event->value("kind","") == "event" && event->value("name","") == "osfui.browser.cef-audio-pose") {
-                const auto& value = event->at("payload");
-                owner.audioScene->Update(value.is_object() ? value.value("args",json::array()) : value);
-                return;
-            }
-            if (event && event->value("kind","") == "event" && event->value("name","") == "cef-audio-output") {
-                std::lock_guard lock(owner.audioScene->mutex);
-                owner.audioScene->enabled = event->at("payload").value("enabled",false);
-                return;
-            }
-        }
-#endif
+
         if (!loaded || !browser) {
             if (!pendingWeb.Push(std::move(payload)) && !std::exchange(pendingOverflowWarned, true))
                 owner.Log("view '" + id + "': pending web messages exceeded the 64-message/8-MiB cap; dropping oldest");
@@ -1108,9 +1089,14 @@ namespace osfui::cefhost
     {
         if (!remoteContent || !browser || closing) return;
         const auto url=browser->GetMainFrame()->GetURL().ToString();
-        const msg::BrowserState state{.view=id,.url=url,.title=title,
+        msg::BrowserState state{.view=id,.url=url,.title=title,
             .canGoBack=browser->CanGoBack(),.canGoForward=browser->CanGoForward(),.loading=browser->IsLoading(),
             .secure=loaded && url.starts_with("https://"),.muted=browser->GetHost()->IsAudioMuted(),.audibleKnown=false};
+        if (audio && owner.init.devMode) {
+            state.audio=audio->Status();
+            if (const auto chrome=owner.views.find(std::string(browser::kBrowserView)); chrome!=owner.views.end() && chrome->second->audio)
+                state.audio["chrome"]=chrome->second->audio->Status();
+        }
         const auto encoded=Json::Dump(msg::ToJson(state));
         if (encoded != lastBrowserState) { lastBrowserState=encoded; owner.Send(msg::ToJson(state)); }
     }

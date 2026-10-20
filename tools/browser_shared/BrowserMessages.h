@@ -45,7 +45,10 @@ namespace osfui::browser::msg
 						}
 					}
 				}
-			} else {
+            } else if constexpr (std::is_same_v<T, nlohmann::json>) {
+                const auto it=a_msg.find(a_key);
+                if (it!=a_msg.end()) a_out=*it;
+            } else {
 				a_out = OSFUI::Json::Get(a_msg, a_key, a_out);
 			}
 		}
@@ -150,6 +153,13 @@ namespace osfui::browser::msg
 			F("landing", &BrowserLayout::landing), F("presentationEpoch", &BrowserLayout::presentationEpoch)
 		};
 	};
+    struct BrowserAudio
+    {
+        static constexpr std::string_view kType = "browserAudio";
+        nlohmann::json scene;
+        std::uint64_t expiresMs{};
+        static constexpr auto kFields = std::tuple{F("scene",&BrowserAudio::scene),F("expiresMs",&BrowserAudio::expiresMs)};
+    };
 	struct BrowserCommand
 	{
 		static constexpr std::string_view kType = "browserCommand";
@@ -176,11 +186,12 @@ namespace osfui::browser::msg
 		std::string view, url, title;
 		bool canGoBack{}, canGoForward{}, loading{}, secure{}, audible{}, muted{};
 		bool audibleKnown{true};
+        nlohmann::json audio; // CEF diagnostics, populated only in developer mode.
 		static constexpr auto kFields = std::tuple{ F("view", &BrowserState::view), F("url", &BrowserState::url),
 			F("title", &BrowserState::title), F("canGoBack", &BrowserState::canGoBack),
 			F("canGoForward", &BrowserState::canGoForward), F("loading", &BrowserState::loading),
 			F("secure", &BrowserState::secure), F("audible", &BrowserState::audible), F("muted", &BrowserState::muted),
-			F("audibleKnown", &BrowserState::audibleKnown) };
+			F("audibleKnown", &BrowserState::audibleKnown), F("audio", &BrowserState::audio) };
 	};
 
 	struct Viewport

@@ -14,6 +14,10 @@ Watch opens its browser and playback continues after Esc on WebView2; crafting,
 save/load and the remaining lifecycle cases still need in-game acceptance.
 Applies to the unreleased Surfaces ABI and World Screens 0.1.0.
 
+CEF spatial audio is now implemented in the ordinary host (Surfaces ABI 1.2 /
+private browser protocol 8). Build/native verification and fresh game acceptance
+are recorded below; the earlier compile-time prototype is historical.
+
 ## Goal
 
 Make a world screen act as a TV with a real web browser. A player activates the screen,
@@ -677,6 +681,46 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
 - Results and reproduction:
   [CEF prototype record](../../../tools/profiling/cef-audio/README.md);
   `build/cef-audio-game/runs/20261020-155921-244-cef-audio/audio-results.json`.
+
+### Production CEF spatial audio — 2026-10-20
+
+- `SpatialAudio` is part of the ordinary CEF build. The two reserved browser views
+  receive raw PCM and suppress Chromium's direct output. Other views and WebView2
+  retain their existing audio behavior. No page script supplies positions.
+- World Screens captures the **main world scene camera**, including its full
+  forward/up basis, and loaded TV scene transforms on the verified
+  `NativeMainThreadQueue` drain. Both use render coordinates so floating-origin
+  rebasing cancels. `PlayerCamera.cameraRoot` is a viewmodel camera and is not used.
+  The scene-camera accessor has a 1.16.244.0 version/instruction gate; it does not
+  call CommonLib's currently unbound `Main::WorldRoot` ID.
+- Surfaces ABI **1.2** appends `PublishAudioScene` under a distinct virtual name;
+  1.0 and 1.1 requesters still work. It copies bounded POD snapshots, forwards them
+  only to a consent-enabled browser host, and retains the original sample deadline
+  across IPC. Invalid snapshots, missing camera, loading/main menus and stalled
+  updates fail silent. Empty scenes remove audio without waiting for GPU retirement.
+- All TVs still mirror one browser page. Up to 32 nearest, bound, attached TVs
+  within 20 m act as emitters. Disabled/unloaded references, deleted or remapped
+  bindings, save replacement and unbinding remove their emitters. No engine
+  reference or scene pointer is retained by the core or browser.
+- Identical mono PCM uses the sum of the emitters' X3DAudio matrices, equivalent
+  to synchronized copies of the same source. Normalization prevents a cluster
+  from multiplying volume without limit. Rolloff is full through 1 m and zero at
+  20 m. Motion is smoothed; mute, disappearance and stale snapshots silence
+  immediately. Browser mute and the game's master-volume setting apply.
+- The CEF callback copies into four fixed 10 ms blocks; four submitted buffers
+  bound output latency. Overflow drops the oldest pending packet. Stream changes
+  destroy the previous voice before reusing buffers. XAudio2's default virtual
+  device follows endpoint changes, with a one-second rebuild retry after critical
+  errors. Callback/storage destruction is ordered. Host shutdown silences first.
+- Developer-mode `browser.getState().audio` exposes capture counters, errors and
+  spatial snapshots for direct-command acceptance. Production writes no periodic
+  audio evidence files and recognizes no prototype pose/output event.
+- This is positional playback through XAudio2, with no Wwise room acoustics,
+  occlusion or Doppler. It does not create independent browsing sessions per TV.
+  Fresh in-game camera, multiple-TV and lifecycle acceptance is pending.
+
+The output-device behavior follows
+[XAudio2 critical-error recovery](https://learn.microsoft.com/en-us/windows/win32/api/xaudio2/nf-xaudio2-ixaudio2enginecallback-oncriticalerror).
 
 ## Open decisions
 

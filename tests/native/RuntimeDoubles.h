@@ -66,6 +66,7 @@ namespace RuntimeTest
         std::map<std::string,bool> remoteMode;
         std::vector<osfui::browser::msg::BrowserLayout> browserLayouts;
         std::vector<osfui::browser::msg::BrowserCommand> browserCommands;
+        std::vector<osfui::browser::msg::BrowserAudio> browserAudio;
         OSFUI::BrowserHostClient::LoadHandler load;
         OSFUI::BrowserHostClient::FailureHandler failure;
         OSFUI::BrowserHostClient::WebMessageHandler message;

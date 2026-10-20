@@ -46,6 +46,7 @@ namespace OSFUI
         API::Surfaces::Interaction BeginInteraction(API::Surfaces::Handle, API::Surfaces::InteractionCallback, void*) noexcept override;
         bool EndInteraction(API::Surfaces::Interaction) noexcept override;
         API::Surfaces::Interaction BeginInteractionWith(API::Surfaces::Handle, const API::Surfaces::InteractionOptions&, API::Surfaces::InteractionCallback, void*) noexcept override;
+        bool PublishAudioScene(const char*, const API::Surfaces::AudioScene&) noexcept override;
     private:
         struct Entry
         {
@@ -60,6 +61,9 @@ namespace OSFUI
             nlohmann::json browserState = nlohmann::json::object();
             std::string browserError;
             std::unordered_set<MessageBridge::DeferToken> browserRequests;
+            API::Surfaces::AudioScene audioScene;
+            std::chrono::steady_clock::time_point audioAt{};
+            std::uint64_t audioRevision{}, audioSent{};
         };
         struct Request
         {

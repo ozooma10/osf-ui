@@ -1,7 +1,10 @@
 # CEF raw PCM and positional TV prototype
 
-Private feasibility experiment, compiled only with `OSFUI_CEF_AUDIO_PROBE=ON`.
-The ordinary CEF target defaults to OFF; WebView2 is unchanged.
+Historical feasibility record for commit `4d2e2358`. Its compile-time switch,
+Papyrus pose fixture and audio implementation have been replaced by the ordinary
+CEF `SpatialAudio` path. The build/reproduction commands below apply to that
+historical revision. Current behavior and acceptance are documented in the
+[browser surface design](../../../extensions/world-screens/docs/BROWSER_SURFACE.md#production-cef-spatial-audio--2026-10-20).
 
 ## What it does
 

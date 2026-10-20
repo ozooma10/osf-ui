@@ -47,6 +47,12 @@ namespace OSFUI::Extension
                         static bool dataInitialized{};
                         if (!dataInitialized) { ScreenBindingRuntime::OnDataLoaded(); dataInitialized=true; }
                         ScreenBindings::Tick();
+                        static auto audioAt=std::chrono::steady_clock::time_point{};
+                        const auto now=std::chrono::steady_clock::now();
+                        if (now-audioAt>=std::chrono::milliseconds(50)) {
+                            core->PublishAudioScene("osfui.browser/tv",ScreenBindings::CaptureAudioScene());
+                            audioAt=now;
+                        }
                     },
                         "world-screen material refresh",[]{refreshPending=false;});
                     if (result==NativeMainThreadQueue::PostResult::Unavailable) refreshPending=false;
@@ -110,7 +116,7 @@ namespace OSFUI::Extension
     bool Connect()
     {
         core=API::Surfaces::RequestInterface();
-        if (!core) { REX::ERROR("World Screens requires OSF UI with surface service ABI 1.1; extension disabled"); return false; }
+        if (!core) { REX::ERROR("World Screens requires OSF UI with surface service ABI 1.2; extension disabled"); return false; }
         std::vector<WorldTexture::SurfaceDesc> discovered;
         core->VisitViews([](const API::Surfaces::View& view,void* context) noexcept {
             static_cast<std::vector<WorldTexture::SurfaceDesc>*>(context)->push_back({view.id,view.texture,view.width,view.height});

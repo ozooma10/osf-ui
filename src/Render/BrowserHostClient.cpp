@@ -1166,6 +1166,13 @@ namespace OSFUI
 		return true;
 	}
 	void BrowserHostClient::SetBrowserStateHandler(BrowserStateHandler handler) { m_impl->onBrowserState = std::move(handler); }
+    bool BrowserHostClient::SendBrowserAudio(const msg::BrowserAudio& state)
+    {
+        std::scoped_lock lock(m_impl->stateMutex);
+        if (m_impl->config.backend!=osfui::browser::Backend::Cef) return true;
+        if (!m_impl->config.remoteMode || !m_impl->IsRunning()) return false;
+        m_impl->Send(ToJson(state)); return true;
+    }
 	void BrowserHostClient::SetBrowserResultHandler(BrowserResultHandler handler) { m_impl->onBrowserResult = std::move(handler); }
 
     bool BrowserHostClient::RefreshModFiles(std::string_view a_mod)

@@ -15,9 +15,7 @@
             }
             browserPointer.Reset(); pointerTarget.clear();
             browserLayout=layout; epoch=layout.presentationEpoch;
-#ifdef OSFUI_CEF_AUDIO_PROBE
-            { std::lock_guard lock(audioScene->mutex); audioScene->fullscreen = layout.fullscreen; }
-#endif
+
             for (auto& [id, view] : views) {
                 view->hidden = id == layout.chrome ? !(layout.fullscreen || layout.landing) : layout.landing;
                 view->browser->GetHost()->WasHidden(view->hidden);
@@ -64,10 +62,8 @@
             else if (command.action == "stop") web->StopLoad();
             else if (command.action == "mute") {
                 web->GetHost()->SetAudioMuted(command.value);
-#ifdef OSFUI_CEF_AUDIO_PROBE
                 std::lock_guard lock(audioScene->mutex);
                 audioScene->muted = command.value;
-#endif
             }
             else if (command.action == "clearData") {
                 // CEF cannot clear all storage APIs reliably while the context is open.

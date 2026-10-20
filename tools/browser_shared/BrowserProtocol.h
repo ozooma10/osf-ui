@@ -8,7 +8,7 @@
 
 namespace osfui::browser
 {
-	inline constexpr std::uint32_t kBrowserHostProtocolVersion = 7;
+	inline constexpr std::uint32_t kBrowserHostProtocolVersion = 8;
 
 	// Mandatory wire behavior shared by both implementations.
     inline constexpr std::uint32_t kSharedTextureRing = 1u << 0;

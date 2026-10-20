@@ -4,6 +4,7 @@
 #include "Core/Ids.h"
 #include "Render/BrowserBuild.h"
 #include "BrowserSurface.h"
+#include "BrowserAudio.h"
 #define NOGDI
 #include "BrowserMessages.h"
 
@@ -101,6 +102,18 @@ namespace OSFUI
         if (!tick || (m_tick && (m_tick != tick || m_tickContext != context))) return false;
         m_tick = tick; m_tickContext = context; return true;
     }
+    bool SurfaceService::PublishAudioScene(const char* view, const API::Surfaces::AudioScene& scene) noexcept
+    {
+        if (!view || std::string_view(view)!=osfui::browser::kBrowserView) return false;
+        const bool valid=osfui::browser::audio::Valid(scene);
+        std::scoped_lock lock(m_mutex);
+        for (const auto& e:m_entries) if (e->manifest.id==view && !e->manifest.browserChrome.empty()) {
+            e->audioScene=valid ? scene : API::Surfaces::AudioScene{};
+            e->audioAt=std::chrono::steady_clock::now(); ++e->audioRevision;
+            return valid;
+        }
+        return false;
+    }
     std::shared_ptr<SurfaceService::Entry> SurfaceService::Find(API::Surfaces::Handle handle) const
     {
         std::scoped_lock lock(m_mutex);
@@ -137,6 +150,7 @@ namespace OSFUI
     }
     void SurfaceService::Navigate(Entry& entry)
     {
+        entry.audioSent=0;
         entry.loaded = false;
         if (m_resetPage) m_resetPage(entry.manifest.id);
         m_bridge->OnViewCreated(entry.manifest.id);
@@ -250,6 +264,18 @@ namespace OSFUI
             e->recovery.ObserveHealth(Now());
             if (e->recovery.BeginDueAttempt(Now())) {
                 e->failed=false; e->host->RestartAfterFailure(); Navigate(*e);
+            }
+            if (e->browserEnabled) {
+                API::Surfaces::AudioScene scene;
+                std::uint64_t revision{};
+                std::chrono::steady_clock::time_point at;
+                { std::scoped_lock lock(m_mutex); revision=e->audioRevision; scene=e->audioScene; at=e->audioAt; }
+                if (revision && revision!=e->audioSent) {
+                    if (e->host->SendBrowserAudio({.scene=osfui::browser::audio::Encode(scene),
+                        .expiresMs=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(at.time_since_epoch()).count())+
+                            osfui::browser::audio::kSceneTimeoutMs}))
+                        e->audioSent=revision;
+                }
             }
             e->host->Update();
         }

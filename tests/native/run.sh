@@ -61,6 +61,7 @@ SUITES=(
 "local_view_uri_tests local_view_uri_tests.cpp"
 "remote_uri_tests remote_uri_tests.cpp"
 "browser_surface_tests browser_surface_tests.cpp"
+"browser_audio_tests browser_audio_tests.cpp"
 "cef_assets_tests cef_assets_tests.cpp"
 "cef_frame_pacer_tests cef_frame_pacer_tests.cpp"
 "cef_paint_damage_tests cef_paint_damage_tests.cpp"

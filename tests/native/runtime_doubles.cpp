@@ -89,6 +89,7 @@ namespace OSFUI
         return true;
     }
     void BrowserHostClient::SetBrowserLayout(osfui::browser::msg::BrowserLayout layout) { env.browserLayouts.push_back(std::move(layout)); }
+    bool BrowserHostClient::SendBrowserAudio(const osfui::browser::msg::BrowserAudio& audio) { env.browserAudio.push_back(audio); return true; }
     bool BrowserHostClient::SendBrowserCommand(const osfui::browser::msg::BrowserCommand& command)
     { env.browserCommands.push_back(command); return true; }
     void BrowserHostClient::SetBrowserStateHandler(BrowserStateHandler handler) { env.hosts[m_impl->name].browserState=std::move(handler); }

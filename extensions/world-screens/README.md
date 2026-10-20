@@ -5,7 +5,7 @@ Optional extension for material-backed web displays in Starfield. Development ve
 
 Install one OSF UI backend edition, then this extension and a content mod that provides
 screens. **Use OSF UI from this same source revision**: the previously released 2.1.0
-DLL does not export the new `OSFUI_RequestSurfaces` ABI 1.0. The extension checks that
+DLL does not export the required `OSFUI_RequestSurfaces` ABI 1.2. The extension checks that
 interface at startup and disables itself when it is missing or incompatible.
 
 This extension has one backend-independent DLL, `SFSE/Plugins/OSFUIWorldScreens.dll`.
@@ -23,6 +23,11 @@ launch. Websites store cookies and sign-ins in the OSF UI profile folder.
 wall TV; build it with `pwsh tools/build-browser-tv.ps1 -Deploy`. The new TV and
 browser in-game acceptance remain pending. Status:
 [Browser surface design](docs/BROWSER_SURFACE.md).
+
+CEF plays browser audio from loaded TVs, using the world camera as the listener.
+TVs showing the same page share playback and each contributes a positional emitter.
+Sound fades out at 20 m, follows the game's master volume and browser mute, and
+stops when the TV unloads. WebView2 currently uses ordinary browser audio.
 
 ## Ownership and supported screens
 

@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "OSFUI_SurfaceAudio.h"
 
 namespace RE { class NiAVObject; class TESObjectREFR; }
 namespace OSFUI::ScreenBindings
@@ -31,6 +32,9 @@ namespace OSFUI::ScreenBindings
     std::optional<Selection> Resolve(std::uint32_t a_token);
     bool HasBindings(std::string_view a_view);
     void Tick();
+    // Only inside NativeMainThreadQueue's verified drain; returns copied render
+    // coordinates, with no retained engine pointers.
+    API::Surfaces::AudioScene CaptureAudioScene();
     // Borrowed solely inside original material setup. a_cachedSource is
     // supplied by the scoped model-load call; null on a queued appearance update.
     void OnSetup(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root, RE::NiAVObject* a_cachedSource);

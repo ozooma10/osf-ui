@@ -17,7 +17,7 @@ if(NOT EXISTS "${JSON_INCLUDE}/nlohmann/json.hpp")
 endif()
 
 # CEF 138+ supplies the sandbox in bootstrap.exe. Our entry point lives in a DLL.
-add_library(osfui_cef_host SHARED Host.cpp Graphics.cpp
+add_library(osfui_cef_host SHARED Host.cpp Graphics.cpp SpatialAudio.cpp
   "${REPO}/tools/browser_shared/BrowserPipe.cpp")
 SET_LIBRARY_TARGET_PROPERTIES(osfui_cef_host)
 target_compile_features(osfui_cef_host PRIVATE cxx_std_23)
@@ -27,12 +27,8 @@ target_include_directories(osfui_cef_host PRIVATE "${CEF_ROOT}" "${JSON_INCLUDE}
   "${REPO}/src" "${REPO}/tools/browser_shared" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(osfui_cef_host PRIVATE libcef_dll_wrapper "${CEF_ROOT}/Release/libcef.lib"
   ${CEF_STANDARD_LIBS} d3d11 dxgi d3dcompiler user32 shell32 ole32 oleaut32 uuid advapi32 taskschd comsuppw)
-option(OSFUI_CEF_AUDIO_PROBE "Private raw PCM / X3DAudio experiment; not for packaging" OFF)
-if(OSFUI_CEF_AUDIO_PROBE)
-  target_sources(osfui_cef_host PRIVATE "${REPO}/tools/profiling/cef-audio/AudioProbe.cpp")
-  target_compile_definitions(osfui_cef_host PRIVATE OSFUI_CEF_AUDIO_PROBE=1)
-  target_link_libraries(osfui_cef_host PRIVATE xaudio2)
-endif()
+target_link_libraries(osfui_cef_host PRIVATE xaudio2)
+
 
 # Embed the scripts so the helper and bridge are always one matched payload.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/bridge.js" BRIDGE_SCRIPT)

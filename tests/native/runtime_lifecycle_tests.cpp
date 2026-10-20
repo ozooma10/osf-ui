@@ -404,6 +404,8 @@ void SurfaceLifecycle()
     std::uint32_t actual=99;
     CHECK(OSFUI_RequestSurfaces(0x00020000,&actual) == nullptr && actual == 0);
     CHECK(OSFUI_RequestSurfaces(API::Surfaces::kVersion,&actual) == &service && actual == API::Surfaces::kVersion);
+    CHECK(OSFUI_RequestSurfaces(0x00010000,&actual) == &service);
+    CHECK(OSFUI_RequestSurfaces(0x00010001,&actual) == &service);
     const auto first=service.Acquire("acme/screen"), second=service.Acquire("ACME/SCREEN");
     CHECK(first && second && first!=second);
     service.Update(true);
@@ -631,6 +633,22 @@ void BrowserSurfaceLifecycle(bool enabled)
     CHECK(env.viewHosts.contains(content) == enabled);
     CHECK(env.browserLayouts.back().landing && !env.browserLayouts.back().fullscreen);
     CHECK(env.browserLayouts.back().content == (enabled ? content : ""));
+    API::Surfaces::AudioScene scene;
+    scene.count=2; scene.emitters[0]={11,{0,2,0}}; scene.emitters[1]={12,{2,0,0}};
+    CHECK(!service.PublishAudioScene("acme/menu",scene));
+    CHECK(service.PublishAudioScene(view,scene));
+    runtime().Update();
+    CHECK(env.browserAudio.size()==(enabled ? 1u : 0u));
+    if (enabled) {
+        CHECK(env.browserAudio.back().scene["emitters"].size()==2);
+        runtime().Update(); CHECK(env.browserAudio.size()==1); // Do not refresh stale producer data.
+        scene.count=1; CHECK(service.PublishAudioScene(view,scene));
+        runtime().Update(); CHECK(env.browserAudio.back().scene["emitters"].size()==1);
+        scene.count=99; CHECK(!service.PublishAudioScene(view,scene));
+        runtime().Update(); CHECK(env.browserAudio.back().scene["emitters"].empty()); // Invalid fails silent.
+        scene.count=0; CHECK(service.PublishAudioScene(view,scene));
+        runtime().Update(); CHECK(env.browserAudio.back().scene["emitters"].empty());
+    }
     const auto request=[&](std::string_view source,std::string id,std::string action,nlohmann::json payload=nlohmann::json::object()) {
         bridge.HandleWebMessage(source,nlohmann::json{{"kind","request"},{"id",id},{"name","browser."+action},{"payload",payload}}.dump());
     };

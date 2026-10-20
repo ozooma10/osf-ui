@@ -7,7 +7,7 @@
 #include "Views/ViewManifest.h"
 #include "BrowserBackend.h"
 
-namespace osfui::browser::msg { struct Keyboard; struct TextInput; struct BrowserLayout; struct BrowserCommand; struct BrowserState; struct BrowserResult; }
+namespace osfui::browser::msg { struct Keyboard; struct TextInput; struct BrowserLayout; struct BrowserCommand; struct BrowserState; struct BrowserResult; struct BrowserAudio; }
 
 namespace OSFUI
 {
@@ -66,6 +66,7 @@ namespace OSFUI
 		bool CreateOrNavigateRemoteView(std::string_view a_id, std::string_view a_url, std::uint32_t a_logicalHeight);
 		void SetBrowserLayout(osfui::browser::msg::BrowserLayout);
 		bool SendBrowserCommand(const osfui::browser::msg::BrowserCommand&);
+        bool SendBrowserAudio(const osfui::browser::msg::BrowserAudio&);
 		void SetBrowserStateHandler(BrowserStateHandler);
 		void SetBrowserResultHandler(BrowserResultHandler);
 		bool RefreshModFiles(std::string_view a_mod);
