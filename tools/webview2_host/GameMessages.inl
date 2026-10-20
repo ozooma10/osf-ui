@@ -215,6 +215,7 @@
 				static constexpr std::pair<std::string_view, Handler> handlers[]{
 					{ msg::BrowserLayout::kType, &App::HandleBrowserLayout },
 					{ msg::BrowserCommand::kType, &App::HandleBrowserCommand },
+					{ msg::BrowserAudio::kType, &App::HandleBrowserAudio },
 					{ msg::Init::kType, &App::HandleInit },
 					{ msg::Navigate::kType, &App::HandleNavigate },
 					{ msg::Resize::kType, &App::HandleResize },

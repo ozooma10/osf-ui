@@ -186,7 +186,7 @@ namespace osfui::browser::msg
 		std::string view, url, title;
 		bool canGoBack{}, canGoForward{}, loading{}, secure{}, audible{}, muted{};
 		bool audibleKnown{true};
-        nlohmann::json audio; // CEF diagnostics, populated only in developer mode.
+        nlohmann::json audio; // Backend audio diagnostics, populated only in developer mode.
 		static constexpr auto kFields = std::tuple{ F("view", &BrowserState::view), F("url", &BrowserState::url),
 			F("title", &BrowserState::title), F("canGoBack", &BrowserState::canGoBack),
 			F("canGoForward", &BrowserState::canGoForward), F("loading", &BrowserState::loading),

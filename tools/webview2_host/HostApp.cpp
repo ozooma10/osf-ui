@@ -1,6 +1,7 @@
 #include "HostApp.h"
 #include "EmbeddedScripts.h"
 #include "FormControls.h"
+#include "SpatialAudio.h"
 
 #include "Core/Ids.h"
 #include "Core/Json.h"
@@ -178,6 +179,9 @@ namespace osfui::webview2
 				ComPtr<ICoreWebView2Controller>            controller;
 				ComPtr<ICoreWebView2CompositionController> compositionController;
 				ComPtr<ICoreWebView2>                      webView;
+				std::unique_ptr<SpatialAudio> audio;
+				unsigned audioRestartAttempts{};
+				std::uint64_t nextAudioRestart{};
 				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> consoleReceiver;
 				ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> exceptionReceiver;
 				bool controllerRequested{ false };
@@ -195,6 +199,7 @@ namespace osfui::webview2
 				bool remoteContent{}; // Set before controller creation; immutable.
 				bool browserLoading{}, browserLoadSucceeded{};
 				std::string lastBrowserState;
+				json lastAudioState;
 				int mouseX{}, mouseY{};
 				bool          revealPending{ false };
 				std::uint64_t revealDeadline{ 0 };
@@ -274,6 +279,10 @@ namespace osfui::webview2
 			} captureOpening;
 
 			ComPtr<ICoreWebView2Environment> environment;
+			std::filesystem::path audioExtensionPath;
+			bool audioExtensionRequested{}, audioExtensionReady{}, audioExtensionFailed{}, browserAudioMuted{};
+			std::uint64_t audioExtensionDeadline{}, audioSceneExpires{};
+			json audioScene;
 			bool environmentRequested{ false };
 
 			bool Send(const json& a_msg)
@@ -457,7 +466,11 @@ namespace osfui::webview2
 			void TickReveals()
 			{
 				const auto now = ::GetTickCount64();
+				if (audioExtensionRequested && !audioExtensionReady && !audioExtensionFailed &&
+					osfui::browser::audio::ClockMs() >= audioExtensionDeadline)
+					FailAudioExtension("Browser audio extension installation timed out");
 				for (auto& view : views) {
+					if (view->audio) TickAudio(*view);
 					if (view->cdpInput) view->cdpInput->CheckTimeout();
 					if (view->revealPending && now >= view->revealDeadline) {
 						CompleteReveal(*view, /*a_timedOut=*/true);
@@ -467,6 +480,7 @@ namespace osfui::webview2
 
 			void DestroyOneView(View& a_view)
 			{
+				a_view.audio.reset(); // Mute source before closing the collector or source controller.
 				if (pointerTarget == &a_view) { pointerTarget=nullptr; browserPointer.Reset(); }
 				if (captureOpening.view == a_view.id) {
 					captureOpening = {};
@@ -539,7 +553,19 @@ namespace osfui::webview2
 					environmentRequested = false;
 					return false;
 				}
-				const auto browserArguments = WebViewBrowserArguments(remoteMode);
+				auto browserArguments = WebViewBrowserArguments(remoteMode);
+				if (remoteMode) {
+					ComPtr<ICoreWebView2EnvironmentOptions6> extensions;
+					if (FAILED(environmentOptions.As(&extensions)) ||
+						FAILED(extensions->put_AreBrowserExtensionsEnabled(TRUE))) {
+						FailAudioExtension("WebView2 browser extensions are unavailable");
+					} else {
+						try { audioExtensionPath = PrepareAudioExtension(userData); }
+						catch (const std::exception& error) { FailAudioExtension(error.what()); }
+						browserArguments += std::wstring(L" --allowlisted-extension-id=") + kAudioExtensionId +
+							L" --disable-background-timer-throttling";
+					}
+				}
 				const auto optionsHr = environmentOptions->put_AdditionalBrowserArguments(
 					browserArguments.c_str());
 				if (FAILED(optionsHr)) {
@@ -629,6 +655,8 @@ namespace osfui::webview2
 				const bool allowed = IsAllowedContentDocument(a_view.remoteContent, uri, a_view.modId, a_view.viewName, a_frame);
 				if (allowed) {
 					if (!a_frame) {
+						if (a_view.audio) a_view.audio->SetLoading(true);
+						a_view.audioRestartAttempts = 0;
 						a_view.browserLoading=true; a_view.browserLoadSucceeded=false;
 						PublishBrowserState(a_view);
 						RecoverPressedMouseButtons(a_view, "main-frame navigation");
@@ -671,6 +699,7 @@ namespace osfui::webview2
 			}
 
 #include "RemoteContent.inl"
+#include "AudioRouting.inl"
 #include "BrowserSurface.inl"
 
 			HRESULT OnController(View& a_view, HRESULT a_hr,
@@ -692,6 +721,17 @@ namespace osfui::webview2
 					ReportControllerFailure(a_view, E_NOINTERFACE,
 						"composition controller created but CoreWebView2 was unavailable");
 					return S_OK;
+				}
+				if (remoteMode && (a_view.id == kBrowserView || a_view.id == kBrowserContent)) {
+					a_view.audio = std::make_unique<SpatialAudio>(a_view.webView.Get(),
+						[this, id = a_view.id](const std::string& error) { log.Warn(std::format("view '{}': {}", id, error)); });
+					if (!a_view.audio->Guarded()) {
+						ReportSecurityFailure(a_view, E_FAIL, "browser audio mute guard could not be installed");
+						return S_OK;
+					}
+					a_view.audio->Update(audioScene, audioSceneExpires);
+					a_view.audio->SetMuted(browserAudioMuted);
+					a_view.audio->SetLoading(true);
 				}
 				ComPtr<ICoreWebView2Settings> settings;
 				if (SUCCEEDED(a_view.webView->get_Settings(&settings)) && settings) {
@@ -774,6 +814,7 @@ namespace osfui::webview2
 				if (quit.load() || a_view.securityReady || !a_view.webView) return;
 				a_view.securityReady = true;
 				InstallEvents(a_view);
+				InitializeAudio(a_view);
 				if (!captureStarted) {
 					if (!StartCapture()) return;
 					captureStarted = true;
@@ -1046,6 +1087,7 @@ namespace osfui::webview2
 							if (status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) return S_OK;
 							view->browserLoading = false;
 							view->browserLoadSucceeded = success == TRUE;
+							if (view->audio) view->audio->SetLoading(success != TRUE);
 							PublishBrowserState(*view);
 							LPWSTR raw = nullptr;
 							std::string source;
@@ -1077,6 +1119,7 @@ namespace osfui::webview2
 							a_args->get_ProcessFailedKind(&kind);
 							log.Error(std::format("view '{}': browser process failed (kind {})",
 								view->id, static_cast<int>(kind)));
+							if (view->audio) view->audio->Fail("Source browser process failed");
 							switch (kind) {
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED:
 								RequestQuit("browser-process-exited");
@@ -1578,7 +1621,7 @@ namespace osfui::webview2
 					};
 					while (!quit.load()) {
 						if (!SendHeartbeatIfDue()) break;
-						DWORD waitMs = AnyRevealPending() ? 50 : 1000;
+						DWORD waitMs = (AnyRevealPending() || remoteMode) ? 50 : 1000;
 						const auto now = ::GetTickCount64();
 						if (captureOpening.settleUntil > now) {
 							waitMs = static_cast<DWORD>((std::min)(std::uint64_t{ waitMs }, captureOpening.settleUntil - now));

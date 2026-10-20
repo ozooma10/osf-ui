@@ -48,6 +48,9 @@ target("osfui-webview2-host")
     add_rules("utils.bin2c")
     add_files("tools/webview2_host/**.cpp", "tools/browser_shared/BrowserPipe.cpp")
     add_files("tools/webview2_host/scripts/**.js", { rule = "utils.bin2c" })
+    add_files("tools/webview2_host/audio-extension/manifest.json",
+        "tools/webview2_host/audio-extension/collector.html",
+        "tools/webview2_host/audio-extension/collector.js", { rule = "utils.bin2c" })
     add_files("src/Compat/V1/web-transport.js", { rule = "utils.bin2c" })
     add_headerfiles("tools/webview2_host/**.h", "tools/browser_shared/**.h")
     add_includedirs("src", "tools/browser_shared")

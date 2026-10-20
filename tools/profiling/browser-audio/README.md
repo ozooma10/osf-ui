@@ -108,5 +108,11 @@ CEF's native PCM callback remains a separate candidate for a follow-up prototype
 No backend switch, device installation, virtual cable, or audio-service injection
 was performed here.
 
+The later [WebView2 extension capture prototype](../webview2-tab-audio/README.md)
+successfully captured a tab and suppressed its original output inside Chromium,
+then spatialized the stream with Web Audio. That separate route requires an
+exact-extension allowlist flag on the tested runtime; it does not change this
+probe's negative result for Windows session mute plus process loopback.
+
 API references: [Microsoft process-loopback sample](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/),
 [audio sessions](https://learn.microsoft.com/en-us/windows/win32/coreaudio/audio-sessions).

@@ -24,10 +24,16 @@ wall TV; build it with `pwsh tools/build-browser-tv.ps1 -Deploy`. Watch/playback
 and CEF positional audio/lifecycle checks pass; broader acceptance remains in:
 [Browser surface design](docs/BROWSER_SURFACE.md).
 
-CEF plays browser audio from loaded TVs, using the world camera as the listener.
+Both editions implement browser audio from loaded TVs, using the world camera as the listener.
 TVs showing the same page share playback and each contributes a positional emitter.
 Sound fades out at 20 m, follows the game's master volume and browser mute, and
-stops when the TV unloads. WebView2 currently uses ordinary browser audio.
+stops when the TV unloads. CEF uses native PCM capture and XAudio2. WebView2 uses
+an embedded, private tab-capture extension and Web Audio HRTF panning; the source
+browser stays muted so startup or capture failure cannot fall back to ordinary output.
+The WebView2 route depends on a Chromium extension allowlist switch verified with
+runtime 155.0.4283.62. Its standalone capture checks pass; production-host and
+in-game positional-audio acceptance remain pending. See the
+[audio implementation and evidence](docs/BROWSER_SURFACE.md#production-webview2-spatial-audio--2026-10-20).
 
 ## Ownership and supported screens
 

@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "OSF UI isolated tab audio probe",
+  "description": "Private WebView2 tab-capture feasibility probe. No page injection.",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QN7nLFwR4mC8MwwwAaqvf0z9PZZtPtoE/A2rfcrx3YCGA71ejrxi6P/IdGdEvD9KF+rvlzX3uEGn0LnbX0AY+8UqC5zh2Ie1PiKZ5Vs6EU5nnY4IRl0OmFblt2OmVGAZGmUF1UCUVzUXelx6WWMpw65gtZkT0Ak7BSX/vrDOcoubvFGeDWRVisbdhZnz2Gt/jxr0fL7smuvOY+ywJ+dvQpiHY/j5CuHd0GanMrz+QjuTB+bJwWdcApbwPY8f95aTkUDBAAvYdOIuwDVysBLoDt2XKhdV+NhEG8ltJAeGl9iYlWy8aKBSszPt/VGLb1A95pbuMAZpRkNTbkRqlqSFQIDAQAB",
+  "permissions": ["tabCapture", "tabs", "activeTab"],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "commands": {
+    "start-source-capture": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y"
+      },
+      "description": "Capture the isolated OSF UI source fixture"
+    }
+  }
+}

@@ -18,7 +18,9 @@ Applies to the unreleased Surfaces ABI and World Screens 0.1.0.
 CEF spatial audio is implemented, tested and deployed in the ordinary host
 (Surfaces ABI 1.2 / private browser protocol 8). Build/native verification and
 fresh game acceptance are recorded below; the earlier compile-time prototype is
-historical. The normal MO2 installation now uses the CEF edition.
+historical. WebView2 spatial audio is also implemented in the ordinary host using
+an embedded tab-capture extension and Web Audio. Its standalone feasibility checks
+pass on runtime 155.0.4283.62; production-host and in-game acceptance remain pending.
 
 ## Goal
 
@@ -687,8 +689,9 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
 ### Production CEF spatial audio — 2026-10-20
 
 - `SpatialAudio` is part of the ordinary CEF build. The two reserved browser views
-  receive raw PCM and suppress Chromium's direct output. Other views and WebView2
-  retain their existing audio behavior. No page script supplies positions.
+  receive raw PCM and suppress Chromium's direct output. Other views retain their
+  existing audio behavior. The later WebView2 implementation is described below.
+  No page script supplies positions.
 - World Screens captures the **main world scene camera**, including its full
   forward/up basis, and loaded TV scene transforms on the verified
   `NativeMainThreadQueue` drain. Both use render coordinates so floating-origin
@@ -770,6 +773,76 @@ The output-device behavior follows
   `build/cef-spatial-{core-build,native,deploy}.log`. Browsing consent was changed
   only in private test values, and no test DLL or tone fixture was installed into
   the normal mod folders.
+
+### Production WebView2 spatial audio — 2026-10-20
+
+- The ordinary WebView2 host forwards the same Surfaces ABI 1.2 camera/emitter
+  snapshots used by CEF. This route is limited to the two reserved browser TV views
+  in the consent-enabled remote host. Ordinary local overlay and surface views keep
+  their existing audio behavior. No website script supplies positions or requires
+  modification.
+- The host embeds a private extension containing only a manifest and collector
+  page/script. It extracts exact bytes into a content-addressed directory beneath
+  that host's user-data folder, verifies existing files before installation, and
+  checks the installed extension's fixed ID. This survives host-executable mirroring
+  without loose extension files in the installed mod.
+- Each source browser is native-muted before its first navigation and remains
+  muted through capture, retries and teardown. Each hidden collector captures only
+  its source tab and routes the stream through Web Audio. User mute changes the
+  collector graph. Startup, invalid/stale scenes and capture failure remain silent;
+  ending capture cannot restore ordinary, non-positional browser output.
+- The graph downmixes to mono and creates one HRTF panner per supplied TV. It uses
+  the main world camera's position and full forward/up basis, the game's master
+  volume, and the same maximum of 32 nearest loaded emitters. Linear attenuation is
+  full through 1 m and zero at 20 m; normalization limits the combined level from
+  TVs mirroring the same page. There is no Wwise room acoustics, occlusion or Doppler,
+  and TVs do not gain independent browsing sessions.
+- Native scene updates retain their original QPC freshness deadline. The collector
+  receives an absolute wall-clock deadline for the remaining lifetime and schedules
+  gain to zero on the audio timeline. Updates are coalesced behind one in-flight
+  script call, with a two-second unresponsive-collector timeout. An idle landing
+  page does not consume the capture-start timeout. Capture waits for successful
+  navigation; failed capture can recreate its collector with at most two retries
+  per navigation. Source and collector destruction use weak native callbacks and
+  silence before closing controllers.
+- This depends on Chromium's `--allowlisted-extension-id` switch for the one fixed
+  extension ID. WebView2 exposes extension installation but does not document this
+  capture-permission bypass as a compatibility contract. A runtime update may break
+  the route; unsupported API, permission or capture failures leave browser audio
+  silent. Developer-mode `browser.getState().audio` exposes route, state, error,
+  freshness and logical mute for diagnosis.
+
+### WebView2 audio evidence and remaining acceptance
+
+The isolated [tab-audio probe](../../../tools/profiling/webview2-tab-audio/README.md)
+on WebView2 **155.0.4283.62** establishes capture and spatial-output feasibility:
+normal extension invocation is rejected, while the exact-ID allowlist enables tab
+capture. Its final controlled-tone run has **49 passing checks**. Captured audio
+remains available while direct source output is suppressed; stereo bias,
+distance attenuation and restoration are measured at the Windows endpoint.
+The public-MP4 run has **47 passing checks and two explicit skips**. That video
+plays inside a controlled HTTPS fixture; it does not establish compatibility with
+an arbitrary, unmodified remote website. The two skipped level comparisons require
+stationary content and are not meaningful for changing video audio.
+
+The subsequent production-route probe compiles the actual host `SpatialAudio.cpp`
+and embedded extension assets. Its final run
+`build/webview2-tab-audio-probe/runs/20261020-193522-318-allowlist-production/`
+passes **99 checks, zero failures or skips**, with compiled source hashes in
+`provenance.json`. It verifies native source mute throughout, more than 16 seconds
+idle on `about:blank` before capture, HRTF channel direction, linear distance fade,
+logical mute, empty/expired scene silence, fresh-scene recovery, navigation while
+retaining capture, injected failure silence, teardown and recreation. Failure is
+injected through the production route's failure method; this is not a renderer
+crash-injection test.
+
+The releasedbg WebView2 edition builds and is deployed to the configured OSF UI
+MO2 mod folder. Core DLL and host executable hashes match their build outputs;
+see `build/webview2-spatial-deployment.json`. This does not establish full-host or
+fresh in-game acceptance, which remains pending for camera orientation, multiple
+TVs, Watch/close continuity, master volume, mute, range/unload silence, navigation
+and capture recovery, save/load, device changes, latency and audio/video sync.
+Historical CEF acceptance above does not cover the WebView2 output graph.
 
 ## Open decisions
 

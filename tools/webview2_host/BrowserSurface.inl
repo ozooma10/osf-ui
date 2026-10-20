@@ -60,6 +60,10 @@
 					if (SUCCEEDED(audio->get_IsDocumentPlayingAudio(&flag))) state.audible=flag;
 					if (SUCCEEDED(audio->get_IsMuted(&flag))) state.muted=flag;
 				} else state.audibleKnown=false;
+				if (view.audio) {
+					state.muted = view.audio->Muted();
+					if (devMode) state.audio = view.audio->Status();
+				}
 				const auto encoded=Json::Dump(msg::ToJson(state));
 				if (encoded != view.lastBrowserState) { view.lastBrowserState=encoded; Send(msg::ToJson(state)); }
 			}
@@ -102,8 +106,15 @@
 				else if (command.action == "reload") hr=web->Reload();
 				else if (command.action == "stop") hr=web->Stop();
 				else if (command.action == "mute") {
-					ComPtr<ICoreWebView2_8> audio;
-					if (SUCCEEDED(hr=web.As(&audio))) hr=audio->put_IsMuted(command.value);
+					if (view->audio) {
+						browserAudioMuted = command.value;
+						for (auto& source : views) if (source->audio) source->audio->SetMuted(command.value);
+						hr=S_OK;
+					}
+					else {
+						ComPtr<ICoreWebView2_8> audio;
+						if (SUCCEEDED(hr=web.As(&audio))) hr=audio->put_IsMuted(command.value);
+					}
 				} else if (command.action == "clearData") {
 					ComPtr<ICoreWebView2_13> web13;
 					ComPtr<ICoreWebView2Profile> profile;
