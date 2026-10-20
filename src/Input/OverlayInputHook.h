@@ -19,6 +19,7 @@ namespace OSFUI
 		// Main::window, or null before Main exists. Any thread. Recreated on window-mode change; don't cache.
 		[[nodiscard]] HWND__* GameWindow();
 		[[nodiscard]] bool IsGameWindowActive();
+        [[nodiscard]] bool KeysNeutral();
 		// Install once from the runtime tick; never un-subclass another overlay's chain.
 		bool Install();
 		void RequestStateRefresh();

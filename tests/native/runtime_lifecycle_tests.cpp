@@ -7,6 +7,8 @@
 
 using namespace OSFUI;
 using namespace RuntimeTest;
+namespace RuntimeTest { extern std::atomic_bool surfaceGpuIdle, surfaceGpuReady; }
+extern "C" void* OSFUI_RequestSurfaces(std::uint32_t, std::uint32_t*) noexcept;
 
 namespace
 {
@@ -391,6 +393,109 @@ namespace
     }
 }
 
+void SurfaceLifecycle()
+{
+    FixtureFiles::Write("acme/screen", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/test.dds","width":1280,"height":720})");
+    PluginLoad(); PostLoad();
+    auto& service = SurfaceService::Get();
+    const auto initial = env.rendererInitializations;
+    CHECK(!service.IsInstantiated("acme/screen"));
+    CHECK(service.Acquire("acme/menu") == 0);
+    std::uint32_t actual=99;
+    CHECK(OSFUI_RequestSurfaces(0x00020000,&actual) == nullptr && actual == 0);
+    CHECK(OSFUI_RequestSurfaces(API::Surfaces::kVersion,&actual) == &service && actual == API::Surfaces::kVersion);
+    const auto first=service.Acquire("acme/screen"), second=service.Acquire("ACME/SCREEN");
+    CHECK(first && second && first!=second);
+    service.Update(true);
+    CHECK(env.rendererInitializations == initial+1);
+    CHECK(service.IsInstantiated("acme/screen"));
+    QueueLoad("acme/screen"); service.Update(true);
+    std::vector<API::Surfaces::Phase> phases;
+    const auto callback=+[](std::uint64_t,API::Surfaces::Phase phase,const char*,void* context) noexcept {
+        static_cast<std::vector<API::Surfaces::Phase>*>(context)->push_back(phase);
+    };
+    auto token=service.BeginInteraction(first,callback,&phases);
+    CHECK(token);
+    surfaceGpuReady=false;
+    service.UpdateInteraction(true,true,[]{return false;});
+    CHECK(phases.empty() && !service.InputRenderer());
+    surfaceGpuReady=true;
+    service.UpdateInteraction(true,false,[]{return false;});
+    service.UpdateInteraction(true,true,[]{return false;});
+    CHECK(phases.empty());
+    service.UpdateInteraction(true,true,[]{return false;});
+    CHECK((phases == std::vector{API::Surfaces::Phase::Rejected}));
+    phases.clear();
+    token=service.BeginInteraction(first,callback,&phases);
+    auto admit=[] { env.settings.blocks.insert(777); return true; };
+    service.UpdateInteraction(true,true,admit); service.UpdateInteraction(true,true,admit);
+    CHECK((phases == std::vector{API::Surfaces::Phase::Started}));
+    CHECK(service.InputView() == "acme/screen");
+    service.Release(first); service.UpdateInteraction(true,true,admit);
+    CHECK((phases == std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    CHECK(!service.InputRenderer());
+    service.Update(true);
+    CHECK(service.IsInstantiated("acme/screen")); // second lease keeps its browser
+    CHECK(env.rendererInitializations == initial+1);
+    phases.clear();
+    token=service.BeginInteraction(second,callback,&phases);
+    CHECK(service.EndInteraction(token));
+    service.UpdateInteraction(true,true,admit);
+    CHECK((phases == std::vector{API::Surfaces::Phase::Rejected}));
+    phases.clear();
+    CHECK(service.BeginInteraction(second,callback,&phases));
+    service.CancelInteraction(); // cancels the queued request, including before its drain
+    CHECK(service.BeginInteraction(second,callback,&phases)); // later requests survive
+    service.UpdateInteraction(true,true,admit); service.UpdateInteraction(true,true,admit);
+    CHECK((phases == std::vector{API::Surfaces::Phase::Rejected,API::Surfaces::Phase::Started}));
+    service.CancelInteraction(); service.UpdateInteraction(true,true,admit);
+    CHECK(phases.back() == API::Surfaces::Phase::Ended);
+    surfaceGpuIdle=false; service.Release(second); service.Update(true);
+    CHECK(service.IsInstantiated("acme/screen")); // GPU reads retain the host
+    surfaceGpuIdle=true; service.Update(true);
+    CHECK(!service.IsInstantiated("acme/screen"));
+    service.Release(second); // stale releases are harmless
+}
+
+void SurfaceInputLifecycle()
+{
+    FixtureFiles::Write("acme/screen", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/test.dds"})");
+    PluginLoad(); PostLoad(); DataReady(); LoadHud();
+    auto& service = SurfaceService::Get();
+    const auto lease=service.Acquire("acme/screen");
+    runtime().Update(); QueueLoad("acme/screen"); QueueHello("acme/screen"); runtime().Update();
+    CHECK(service.HasAvailableViews() && service.LoadState("acme/screen") == std::string_view("loaded"));
+    std::vector<API::Surfaces::Phase> phases;
+    const auto callback=+[](std::uint64_t,API::Surfaces::Phase phase,const char*,void* context) noexcept {
+        static_cast<std::vector<API::Surfaces::Phase>*>(context)->push_back(phase);
+    };
+    const auto begin=[&] {
+        CHECK(service.BeginInteraction(lease,callback,&phases));
+        env.keysNeutral=false; runtime().Update(); runtime().Update();
+        CHECK(!runtime().IsInputCaptured());
+        env.keysNeutral=true; runtime().Update(); runtime().Update();
+        CHECK(runtime().IsInputCaptured() && env.controlsBlocked && !env.paused && !env.cursorFree);
+        env.engineFocus=true; runtime().Update();
+        CHECK(env.browserFocus && env.inputTarget=="acme/screen");
+    };
+    // Loading or focus changes before activation cannot poison its first try.
+    service.CancelInteraction();
+    runtime().Update();
+    begin();
+    CHECK(runtime().OnGameWindowKeyboard({.vk=0x1B,.down=true}));
+    runtime().Update(); CheckReleased();
+    CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    phases.clear(); begin();
+    env.message("acme/screen",R"({"kind":"send","name":"osfui.gamepadMode","payload":{"mode":"raw"}})");
+    env.gamepad.buttons=XInputButton::kBack;
+    runtime().Update(); runtime().Update(); CheckReleased();
+    CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    phases.clear(); env.gamepad={}; begin();
+    env.gameWindowActive=false; runtime().Update(); CheckReleased();
+    CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    service.Release(lease); runtime().Update();
+}
+
 int main(int argc, char** argv)
 {
     // One scenario per process: Runtime and BridgeApi deliberately have process lifetimes.
@@ -405,6 +510,8 @@ int main(int argc, char** argv)
             : R"({"schemaVersion":1,"backend":"cef"})");
         NormalLifecycle();
     }
+    else if (scenario == "surface-input") SurfaceInputLifecycle();
+    else if (scenario == "surfaces") SurfaceLifecycle();
     else if (scenario == "normal") {
         env.settings.values["cefPrototype"] = true; // Obsolete setting cannot override the installed edition.
         NormalLifecycle();

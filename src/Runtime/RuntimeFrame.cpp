@@ -28,6 +28,7 @@ namespace OSFUI
 		// Save state even before a view exists; replay it when the page connects.
 		if (a_papyrus.sessionReset) {
 			m_retainedState.ClearSessionScoped();
+			SurfaceService::Get().FinishInteraction("game-load");
 		}
 		for (const auto& state : a_papyrus.states) {
 			m_retainedState.Set(state.mod, state.key, state.value, true);
@@ -73,9 +74,11 @@ namespace OSFUI
 	{
 		// Open/Close only queue UI messages, so one menuArray scan holds for this whole pass.
 		const bool focusMenuInEngine = FocusMenu::IsOpenInEngine();
-		m_inputCapture.ReconcileFocusMenu(m_presentation.DesiredCapture(), focusMenuInEngine, m_nowSeconds);
-		m_inputCapture.ReconcileBrowserFocus(m_renderer.get(), m_visible.load(), m_presentation.ActiveMenu().has_value(), focusMenuInEngine);
-		m_inputCapture.ReconcileControlLayer(m_presentation.DesiredCapture(), IsInputCaptured());
+		const bool surface = static_cast<bool>(SurfaceService::Get().InputRenderer());
+		const bool capture = m_presentation.DesiredCapture() || surface;
+		m_inputCapture.ReconcileFocusMenu(capture, focusMenuInEngine, m_nowSeconds);
+		m_inputCapture.ReconcileBrowserFocus(InputRenderer().get(), m_visible.load() || surface, m_presentation.ActiveMenu().has_value() || surface, focusMenuInEngine);
+		m_inputCapture.ReconcileControlLayer(capture, IsInputCaptured());
 		SimPause::Apply(m_presentation.DesiredPause());
 		FreeCursor::Apply(m_presentation.DesiredCapture());
 	}
@@ -101,6 +104,7 @@ namespace OSFUI
 		// Install pending native endpoints before incoming pages can call them.
 		API::BridgeApi::Get().PumpRuntimeCallbacks();
 		if (m_renderer) m_renderer->DrainNotifications();
+		SurfaceService::Get().Update(m_dataLoaded);
 	}
 
 	void Runtime::ProcessRendererFrame()
@@ -144,9 +148,13 @@ namespace OSFUI
 			DriveBrowserHostRecovery();
 			DriveRecovery();
 		}
+		UpdateSurfaceInteraction();
 		CommitPresentation();
 		RouteGamepadInput();
 		ProcessRendererFrame();
+        const bool overlayAvailable = m_browserHostRecovery.IsAvailable() && std::ranges::any_of(m_views.All(),
+            [this](const auto& view) { return m_presentation.IsInstantiated(view.id); });
+        API::BridgeApi::Get().SetBridgeAvailability(overlayAvailable || SurfaceService::Get().HasAvailableViews());
 		// Process queued replies before checking timeouts.
 		if (m_bridge) m_bridge->Tick(now);
 		m_relativePointer.Drain();

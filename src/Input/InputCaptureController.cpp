@@ -83,6 +83,7 @@ namespace OSFUI
 		if (!a_renderer) {
 			return;
 		}
+		if (m_browserFocusRenderer != a_renderer) { m_browserFocusRenderer=a_renderer; m_browserFocusGranted=false; }
 		const bool wantsCapture = a_visible && CaptureRequested() && a_hasActiveMenu;
 		// Grant only once the engine admits FocusMenu. In forwarded mode this doesn't move OS focus.
 		const bool want = wantsCapture && a_focusMenuInEngine;

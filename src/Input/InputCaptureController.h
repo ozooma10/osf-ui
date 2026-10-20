@@ -38,6 +38,7 @@ namespace OSFUI
 		bool m_focusMenuOpen{ false };
 		double m_focusMenuMismatchSince{ -1.0 };
 		bool m_browserFocusGranted{ false };
+		BrowserHostClient* m_browserFocusRenderer{}; // Compared only; never dereferenced.
 		std::atomic_bool m_captureRequested{ false };  // runtime -> WndProc
 	};
 }

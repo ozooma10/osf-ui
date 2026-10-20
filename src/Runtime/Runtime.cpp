@@ -49,6 +49,7 @@ namespace OSFUI
 		}
 
 		API::BridgeApi::Get().SetViewCatalog(discoveredViewIds);
+		SurfaceService::Get().Configure(m_views.All());
 	}
 
 	bool Runtime::InitializeRenderer()
@@ -102,6 +103,7 @@ namespace OSFUI
 	{
 		if (m_bridge) return;
 		auto bridge = std::make_unique<MessageBridge>([this](std::string_view a_viewId, std::string_view a_json) {
+			if (SurfaceService::Get().Send(a_viewId, a_json)) return;
 			if (m_renderer) {
 				m_renderer->SendMessageToWeb(a_viewId, a_json);
 			}
@@ -168,6 +170,7 @@ namespace OSFUI
 			m_osfSettings.ReportFailure("startup.renderer", "webview.renderer-init", "OSF UI browser renderer failed to initialize; check the installed edition and its complete browser payload");
 			return false;
 		}
+		SurfaceService::Get().Initialize(*m_bridge, m_developerMode, [this] { return m_osfSettings.Language(); });
 		WireRendererLifecycleCallbacks();
 		InitializeCompositor();
 		m_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {
@@ -197,6 +200,7 @@ namespace OSFUI
 		REX::DEBUG("Runtime: consuming kPostPostDataLoad work on the post-menu-advance runtime tick");
 		if (m_renderer) m_renderer->PrepareViewFiles();
 		API::Papyrus::Install();
+		m_dataLoaded = true;
 		if (!m_inputCapture.Initialize()) {
 			m_osfSettings.ReportFailure("startup.input", "input.unavailable", "Game UI input integration failed");
 		}
@@ -312,6 +316,8 @@ namespace OSFUI
 			return false;
 		}
 		a_id = manifest->id;
+		if (manifest->kind == ViewKind::Surface) return false;
+		SurfaceService::Get().FinishInteraction("overlay-opened");
 		if (a_requestId && (manifest->kind != ViewKind::Menu || m_presentation.Suspended())) return false;
 		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return false;
 		if (!m_compositor) {
@@ -497,6 +503,7 @@ namespace OSFUI
 
 		// Block OSF hotkeys before publishing browser visibility or input capture.
 		ReconcileInputSuppression();
+		m_inputCapture.PublishCapture(m_presentation.DesiredCapture() || static_cast<bool>(SurfaceService::Get().InputRenderer()));
 		if (!m_presentation.TakeChanged()) {
 			ReconcileFrameState();
 			return;
@@ -534,7 +541,7 @@ namespace OSFUI
 
 		const bool desiredCapture = m_presentation.DesiredCapture();
 		m_relativePointer.ReconcileOwner(desiredCapture && active ? *active : std::string_view{});
-		m_inputCapture.PublishCapture(desiredCapture);
+		m_inputCapture.PublishCapture(desiredCapture || static_cast<bool>(SurfaceService::Get().InputRenderer()));
 
 		const bool visible = m_presentation.DesiredVisible();
 		const bool wasVisible = m_visible.exchange(visible);

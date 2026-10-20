@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "Surfaces/SurfaceService.h"
 #include "API/BridgeApi.h"
 #include "API/PapyrusApi.h"
 #include "Bridge/MessageBridge.h"
@@ -72,6 +73,9 @@ namespace OSFUI
 	private:
 		Runtime() = default;
 
+		std::shared_ptr<BrowserHostClient> InputRenderer() const;
+		void UpdateSurfaceInteraction();
+		bool m_dataLoaded{false};
 		void LoadStartupContent();
 		void InitializeEngineIntegration();
 		bool InitializeWebRuntime();
@@ -145,7 +149,7 @@ namespace OSFUI
 		// m_developerMode and m_renderer are stable after startup; renderer callbacks run on the tick.
 
 		ViewManager m_views;
-		std::unique_ptr<BrowserHostClient> m_renderer;
+		std::shared_ptr<BrowserHostClient> m_renderer;
 		std::unique_ptr<D3D12Compositor> m_compositor;
 		std::unique_ptr<MessageBridge> m_bridge;
 		OSFSettingsClient m_osfSettings;

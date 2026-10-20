@@ -2,6 +2,7 @@
 
 #include "API/PapyrusApi.h"
 #include "Render/BrowserHostClient.h"
+#include "Input/XInputPoller.h"
 #include "SettingsServices.h"
 
 #include <deque>
@@ -30,6 +31,8 @@ namespace RuntimeTest
         bool engineFocus = false;
         bool browserFocus = false;
         bool gameWindowActive = true;
+        bool keysNeutral = true;
+        OSFUI::XInputPoller::State gamepad;
         bool rendererWindowActive = true;
         bool controlsBlocked = false;
         bool cursorFree = false;

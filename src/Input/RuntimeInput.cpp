@@ -1,6 +1,8 @@
 #include "Runtime/Runtime.h"
 
 #include "BrowserMessages.h"
+#include "Input/MenuEventSink.h"
+#include "Input/OverlayInputHook.h"
 
 namespace OSFUI
 {
@@ -12,7 +14,7 @@ namespace OSFUI
 
 	bool Runtime::IsInputCaptured() const
 	{
-		return m_inputCapture.CaptureRequested() && m_visible.load();
+		return m_inputCapture.CaptureRequested() && (m_visible.load() || SurfaceService::Get().InputRenderer());
 	}
 
 	bool Runtime::OnGameWindowKeyboard(const osfui::browser::msg::Keyboard& a_key)
@@ -22,24 +24,28 @@ namespace OSFUI
 			return true;
 		}
 		if (IsInputCaptured() && a_key.vk == kVkEscape) {
-			if (a_key.down && !a_key.repeat) EnqueuePresentationRequest(ViewPresentationRequest::Back);
+			if (a_key.down && !a_key.repeat) {
+                if (SurfaceService::Get().InputRenderer()) SurfaceService::Get().CancelInteraction();
+                else EnqueuePresentationRequest(ViewPresentationRequest::Back);
+            }
 			return true;
 		}
 		if (!IsInputCaptured()) return false;
-		if (m_renderer) m_renderer->InjectKeyboard(a_key);
+		if (auto renderer=InputRenderer()) renderer->InjectKeyboard(a_key);
 		return true;
 	}
 
 	void Runtime::OnGameWindowText(const osfui::browser::msg::TextInput& a_text)
 	{
 		if (!IsInputCaptured()) return;
-		if (m_renderer) m_renderer->InjectText(a_text);
+		if (auto renderer=InputRenderer()) renderer->InjectText(a_text);
 	}
 
 	void Runtime::OnGameWindowActivation(bool a_active)
 	{
 		if (m_renderer) m_renderer->SetWindowActive(a_active);
-		if (!a_active) m_relativePointer.RequestCancel();
+		if (auto renderer=SurfaceService::Get().InputRenderer()) renderer->SetWindowActive(a_active);
+		if (!a_active) { m_relativePointer.RequestCancel(); SurfaceService::Get().CancelInteraction(); }
 	}
 
 	void Runtime::OnGameWindowRecreated()
@@ -49,7 +55,7 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
 	{
-		if (!IsInputCaptured() || !m_renderer) return;
+		if (SurfaceService::Get().InputRenderer() || !IsInputCaptured() || !m_renderer) return;
 		m_pointerInput.UpdateAbsolute(a_clientX, a_clientY, a_clientW, a_clientH);
 	}
 
@@ -60,7 +66,7 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseButton(int a_button, bool a_down)
 	{
-		if (!IsInputCaptured() || !m_renderer) return;
+		if (SurfaceService::Get().InputRenderer() || !IsInputCaptured() || !m_renderer) return;
 		// Always forward releases, including while geometry is suspended.
 		if (!a_down || m_pointerInput.CanSendPointer()) {
 			const auto cursor = m_pointerInput.CursorPosition();
@@ -71,7 +77,7 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseWheel(int a_wheelDelta)
 	{
-		if (!IsInputCaptured() || !m_renderer) return;
+		if (SurfaceService::Get().InputRenderer() || !IsInputCaptured() || !m_renderer) return;
 		if (m_relativePointer.AccumulateWheel(a_wheelDelta)) return;
 		if (!m_pointerInput.CanSendPointer()) return;
 		const auto cursor = m_pointerInput.CursorPosition();
@@ -80,7 +86,8 @@ namespace OSFUI
 
 	void Runtime::ReconcileInputSuppression()
 	{
-		if (m_inputCapture.ReconcileSuppression(m_presentation.DesiredCapture(), m_osfSettings)) return;
+		if (m_inputCapture.ReconcileSuppression(m_presentation.DesiredCapture() || static_cast<bool>(SurfaceService::Get().InputRenderer()), m_osfSettings)) return;
+		SurfaceService::Get().FinishInteraction("input-unavailable");
 		FailPendingOpen("Input capture is unavailable.");
 		m_presentation.CloseActiveMenu();
 	}
@@ -97,7 +104,8 @@ namespace OSFUI
 			endSession();
 			return;
 		}
-		const auto active = m_presentation.ActiveMenu();
+		auto active = SurfaceService::Get().InputView();
+		if (!active) active = m_presentation.ActiveMenu();
 		if (!active) {
 			endSession();
 			return;
@@ -115,18 +123,22 @@ namespace OSFUI
 			case GamepadSession::Action::kRight:    key = 0x27; break;  // VK_RIGHT
 			case GamepadSession::Action::kActivate: key = 0x0D; break;  // VK_RETURN
 			case GamepadSession::Action::kBack:
-				EnqueuePresentationRequest(ViewPresentationRequest::Back);
+				if (SurfaceService::Get().InputRenderer()) SurfaceService::Get().CancelInteraction();
+                else EnqueuePresentationRequest(ViewPresentationRequest::Back);
 				return;
 			case GamepadSession::Action::kNone:
 				return;
 			}
 			// Discrete down+up tap: a missed release cannot leave a stuck key.
-			m_renderer->InjectKeyEvent(key, true);
-			m_renderer->InjectKeyEvent(key, false);
+			if (auto renderer=InputRenderer()) { renderer->InjectKeyEvent(key, true); renderer->InjectKeyEvent(key, false); }
 		};
 
 		for (std::size_t i = 0; i < frame.buttonEdgeCount; ++i) {
 			const auto& edge = frame.buttonEdges[i];
+            if (edge.down && edge.idCode == XInputButton::kBack && SurfaceService::Get().InputRenderer()) {
+                SurfaceService::Get().CancelInteraction();
+                continue;
+            }
 			if (m_bridge) {
 				m_bridge->Emit(*active, "ui.gamepad", nlohmann::json{ { "kind", "button" }, { "button", { { "id", edge.idCode }, { "down", edge.down } } } });
 			}
@@ -138,10 +150,33 @@ namespace OSFUI
 		}
 
 		applyAction(frame.navigationAction);
-		if (frame.wheelDelta != 0) {
+		if (frame.wheelDelta != 0 && !SurfaceService::Get().InputRenderer()) {
 			const auto cursor = m_pointerInput.CursorPosition();
 			m_renderer->InjectMouseWheel(cursor.x, cursor.y, frame.wheelDelta);
 		}
 	}
 
+}
+
+namespace OSFUI
+{
+    std::shared_ptr<BrowserHostClient> Runtime::InputRenderer() const
+    {
+        auto surface=SurfaceService::Get().InputRenderer(); return surface ? surface : m_renderer;
+    }
+    void Runtime::UpdateSurfaceInteraction()
+    {
+        if (!SurfaceService::Get().WantsInteraction()) return;
+        bool neutral=OverlayInputHook::KeysNeutral();
+        const auto pad=m_gamepadSource.Poll(m_nowSeconds);
+        neutral = neutral && !pad.buttons && std::abs(pad.lx)<0.15f && std::abs(pad.ly)<0.15f && std::abs(pad.rx)<0.15f && std::abs(pad.ry)<0.15f;
+        const bool allowed=m_inputCapture.IntegrationAvailable() && !MenuEventSink::SurfaceBlocked() &&
+            !m_presentation.ActiveMenu() && !m_viewOpens.PendingMenu() && OverlayInputHook::IsGameWindowActive();
+        const auto before=SurfaceService::Get().InputRenderer();
+        SurfaceService::Get().UpdateInteraction(allowed,neutral,[this]{return m_osfSettings.AcquireInputSuppression();});
+        if (before != SurfaceService::Get().InputRenderer()) {
+            (void)m_gamepadSession.End(); m_gamepadSource.Reset(); m_inputCapture.ResetBrowserFocus();
+            OverlayInputHook::RequestStateRefresh();
+        }
+    }
 }

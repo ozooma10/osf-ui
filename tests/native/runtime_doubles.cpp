@@ -134,6 +134,8 @@ namespace OSFUI
     bool D3D12Compositor::PreparedFrameReady(std::uint32_t, std::uint32_t) const { return env.preparedFrameReady; }
 
     bool MenuEventSink::Install() { ++env.menuEventInstalls; return env.menuEventsInstall; }
+    bool OverlayInputHook::KeysNeutral() { return env.keysNeutral; }
+    bool MenuEventSink::SurfaceBlocked() { return env.transition; }
     bool MenuEventSink::ChargenOpen() { return false; }
     bool MenuEventSink::TransitionOpen() { return env.transition; }
     bool FocusMenu::Register() { ++env.focusRegistrations; return env.focusMenuRegisters; }
@@ -153,7 +155,7 @@ namespace OSFUI
         std::optional<ClientSize> GameWindowClientSize() { return std::nullopt; }
     }
     namespace HardwareCursor { void SetSystemCursorId(std::uint32_t) {} }
-    XInputPoller::State XInputPoller::Poll(double) { return {}; }
+    XInputPoller::State XInputPoller::Poll(double) { return env.gamepad; }
     void XInputPoller::Reset() {}
 
     EngineD3D12 LocateEngineD3D12()

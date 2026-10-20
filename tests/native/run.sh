@@ -52,7 +52,7 @@ SUITES=(
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"
 "browser_backend_tests browser_backend_tests.cpp"
 "shared_frame_state_tests shared_frame_state_tests.cpp"
-"runtime_lifecycle_tests runtime_lifecycle_tests.cpp runtime_doubles.cpp ../../src/Views/ViewLoadTracker.cpp ../../src/Views/ViewRecoveryTracker.cpp ../../src/Runtime/Runtime.cpp ../../src/Runtime/RuntimeFrame.cpp ../../src/Views/RuntimeViews.cpp ../../src/Bridge/RuntimeBridge.cpp ../../src/Input/RuntimeInput.cpp ../../src/Input/InputCaptureController.cpp ../../src/Input/PointerInputState.cpp ../../src/Input/RelativePointerSession.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Views/ViewPresentationController.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewRevealGate.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/Core/Json.cpp"
+"runtime_lifecycle_tests runtime_lifecycle_tests.cpp runtime_doubles.cpp surface_frames_double.cpp ../../src/Surfaces/SurfaceService.cpp ../../src/Views/ViewLoadTracker.cpp ../../src/Views/ViewRecoveryTracker.cpp ../../src/Runtime/Runtime.cpp ../../src/Runtime/RuntimeFrame.cpp ../../src/Views/RuntimeViews.cpp ../../src/Bridge/RuntimeBridge.cpp ../../src/Input/RuntimeInput.cpp ../../src/Input/InputCaptureController.cpp ../../src/Input/PointerInputState.cpp ../../src/Input/RelativePointerSession.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Views/ViewPresentationController.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewRevealGate.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/Core/Json.cpp"
 "view_reveal_gate_tests view_reveal_gate_tests.cpp ../../src/Views/ViewRevealGate.cpp"
 "wv2_bounded_queue_tests wv2_bounded_queue_tests.cpp"
 "wv2_messages_tests wv2_messages_tests.cpp ../../src/Core/Json.cpp"
@@ -146,7 +146,7 @@ for suite in "${SUITES[@]}"; do
     bin="$BUILD/$name"
     [[ -f "$bin" ]] || bin="$bin.exe"
     if [[ "$name" == runtime_lifecycle_tests ]]; then
-        for scenario in normal stale-selection missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure; do
+        for scenario in normal stale-selection missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure surfaces surface-input; do
             "$bin" "$scenario" || failures=$((failures + $?))
         done
     else

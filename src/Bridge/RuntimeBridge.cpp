@@ -108,7 +108,7 @@ namespace OSFUI
 	{
 		std::unordered_set<std::string> targets;
 		for (const auto& manifest : m_views.All()) {
-			if (!m_presentation.IsInstantiated(manifest.id)) {
+			if (!m_presentation.IsInstantiated(manifest.id) && !SurfaceService::Get().IsInstantiated(manifest.id)) {
 				continue;
 			}
 			if (Ids::EqualsCaseInsensitiveAscii(Ids::ModOf(manifest.id), a_mod)) {
@@ -147,7 +147,7 @@ namespace OSFUI
 			return;
 		}
 		for (const auto& manifest : m_views.All()) {
-			if (m_presentation.IsInstantiated(manifest.id)) {
+			if (m_presentation.IsInstantiated(manifest.id) || SurfaceService::Get().IsInstantiated(manifest.id)) {
 				deliver(manifest.id);
 			}
 		}

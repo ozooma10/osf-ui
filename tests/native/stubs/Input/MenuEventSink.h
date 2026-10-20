@@ -8,5 +8,6 @@ namespace OSFUI
         static bool Install();
         static bool ChargenOpen();
         static bool TransitionOpen();
+        static bool SurfaceBlocked();
     };
 }

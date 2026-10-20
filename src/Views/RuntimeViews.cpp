@@ -218,11 +218,11 @@ namespace OSFUI
 				{ "title", m.title },
 				{ "description", m.description },
 				{ "mod", m.mod },
-				{ "kind", m.kind == ViewKind::Hud ? "hud" : "menu" },
+				{ "kind", m.kind == ViewKind::Surface ? "world" : (m.kind == ViewKind::Hud ? "hud" : "menu") },
 				{ "interactive", m.kind == ViewKind::Menu },
 				{ "open", m_presentation.IsOpen(m.id) },
 				{ "focused", active.has_value() && *active == m.id },
-				{ "loadState", loadState },
+				{ "loadState", m.kind == ViewKind::Surface ? SurfaceService::Get().LoadState(m.id) : loadState },
 				{ "openOnStart", m.openOnStart },
 				{ "debugOnly", m.debugOnly },
 			});

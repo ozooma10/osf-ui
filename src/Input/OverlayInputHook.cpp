@@ -185,7 +185,7 @@ namespace OSFUI::OverlayInputHook
 			auto& runtime = Runtime::Get();
 
 			// Apply capture changes on the window thread.
-			const bool wantHwCursor = runtime.IsInputCaptured() && ::GetForegroundWindow() == a_hwnd;
+			const bool wantHwCursor = runtime.IsInputCaptured() && !SurfaceService::Get().InputRenderer() && ::GetForegroundWindow() == a_hwnd;
 			const bool keyboardCaptured = runtime.IsInputCaptured();
 			if (keyboardCaptured != g_keyboardCaptured) {
 				g_keyboardCaptured = keyboardCaptured;
@@ -383,6 +383,12 @@ namespace OSFUI::OverlayInputHook
 		const auto* main = RE::Main::GetSingleton();
 		return main && main->window ? reinterpret_cast<HWND>(main->window->hwnd) : nullptr;
 	}
+
+    bool KeysNeutral()
+    {
+        for (int key=1; key<256; ++key) if (::GetAsyncKeyState(key) & 0x8000) return false;
+        return true;
+    }
 
 	bool IsGameWindowActive()
 	{

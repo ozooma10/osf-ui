@@ -2,6 +2,7 @@
 
 #include "API/PapyrusApi.h"
 #include "Core/Log.h"
+#include "Surfaces/SurfaceService.h"
 #include "RE/C/ChargenMenu.h"
 
 namespace OSFUI
@@ -33,6 +34,7 @@ namespace OSFUI
 		RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
 	{
 		const std::string_view name = a_event.menuName;
+		if (a_event.opening && name != "OSFUI_FocusMenu" && name != "HUDMenu") SurfaceService::Get().CancelInteraction();
 		if (name == "Console") {
 			REX::INFO("MenuEventSink: console {}", a_event.opening ? "opened" : "closed");
 		}
@@ -64,4 +66,16 @@ namespace OSFUI
 	{
 		return s_chargenOpen.load(std::memory_order_acquire);
 	}
+}
+
+namespace OSFUI
+{
+    bool MenuEventSink::SurfaceBlocked()
+    {
+        auto* ui=RE::UI::GetSingleton();
+        if (!ui || TransitionOpen() || ChargenOpen()) return true;
+        for (const char* name : {"Console", "PauseMenu", "DataMenu", "InventoryMenu", "ContainerMenu", "DialogueMenu", "MessageBoxMenu", "WorkshopMenu", "ShipEditorMenu"})
+            if (ui->IsMenuOpen(RE::BSFixedString(name))) return true;
+        return false;
+    }
 }

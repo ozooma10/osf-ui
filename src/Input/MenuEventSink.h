@@ -20,6 +20,7 @@ namespace OSFUI
 		// Any thread.
 		[[nodiscard]] static bool ChargenOpen();
 		[[nodiscard]] static bool TransitionOpen();
+		static bool SurfaceBlocked();
 
 	private:
 		MenuEventSink() = default;
