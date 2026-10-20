@@ -4,11 +4,13 @@ Status: 2026-10-20. Steps 1–3 (ABI 1.1, fullscreen presentation, pointer routi
 implemented and covered by native tests. The WebView2 fullscreen draw, letterbox,
 clicks/cursors and audio continuing after Esc passed an in-game check on 2026-10-20;
 CEF and the remaining acceptance cases below are still pending.
-Steps 4–6 are implemented for WebView2 and CEF; browser-runtime acceptance is pending.
+Steps 4–6 are implemented for WebView2 and CEF. WebView2 public video playback and
+Watch/close passed a basic in-game check; broader browser-runtime acceptance is pending.
 Steps 4–5 are committed as `c06f8f14`; step 6 as `cddb291a`. Browsing defaults off.
 Remote mode can launch only when the OSF Settings consent toggle was enabled at game
 startup. Step 7 is implemented as the separate Papyrus-only OSF Browser TV content mod;
-its crafting, lifecycle and browser behavior still need in-game acceptance.
+Watch opens its browser and playback continues after Esc on WebView2; crafting,
+save/load and the remaining lifecycle cases still need in-game acceptance.
 Applies to the unreleased Surfaces ABI and World Screens 0.1.0.
 
 ## Goal
@@ -344,8 +346,11 @@ is required to stop existing web playback and enforce a newly disabled value.
   channels would need extra reserved ids (`tv2`, `tv3`) with separate profiles; not v1.
 - **Audio is not spatial or distance-attenuated.** Sound comes from the browser's own audio
   session. v1 has a mute button. Distance-based muting from the extension tick is a v2 option.
-  True volume control needs per-process audio-session research (WebView2 audio plays from
-  the Edge utility process, not the host).
+  The 2026-10-20 WebView2 prototype captured PCM from the Edge audio-service process,
+  but muting its Windows session also silenced the captured PCM. This combination
+  cannot feed a positional player while suppressing the original output. See
+  [capture/suppression results](../../../tools/profiling/browser-audio/README.md).
+  CEF's PCM callback and a different WebView2 capture/output path remain candidates.
 - **Codecs and DRM.**
   - **Codecs:** YouTube and most streams serve VP9/AV1 + Opus, which both editions play.
     H.264-only sites may fail on CEF builds without proprietary codecs.
@@ -425,7 +430,8 @@ with no DLL, implemented under `extensions/browser-tv`.
    `BrowserHostConfig.remoteMode` and `CreateOrNavigateRemoteView` are internal plumbing.
    Step 6's startup consent is the only production path enabling the reserved browser.
 5. **Two-view browser surface** (implemented; browser-runtime acceptance pending).
-   World Screens ships `osfui.browser/tv`, its trusted chrome files and named placeholder.
+   World Screens ships `osfui.browser/tv`, its trusted chrome files, named placeholder,
+   materials for both `display-screen5` and `full-uv`, and their support textures.
    The core creates a separate `osfui.browser/content` view only when the internal
    consent callback permits it; step 6 connects the production caller to Settings.
    Without effective consent the local disabled page is the only view. Both hosts implement per-view
@@ -492,7 +498,7 @@ mode, and can ship before any remote content exists.
 - **Still open:** same-document/timer comparison on reopen, direct visual
   confirmation of the continuing animation on the bound world screen, black-bar
   click rejection, pad Back, save/load and unload acceptance, and CEF in-game
-  verification. Remote browsing/YouTube is not available yet.
+  verification. Remote browsing had not been implemented at this checkpoint.
 
 The URI gate deliberately rejects ambiguous inputs instead of reproducing the
 browser's repair rules. Its numeric-host cases follow the
@@ -590,7 +596,48 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
 - **Still unverified in game:** new TV discovery in both workshop menus, resource
   consumption, wall placement/movement/removal, Watch activation, save/load,
   mirroring and playback after closing. The remaining browser acceptance above
-  also applies. No game or browser harness was launched for this step.
+  also applies. No game or browser harness was launched for this build step;
+  the following runtime record supersedes its Watch/playback gap.
+
+### Browser TV runtime verification — 2026-10-20
+
+- Enabled OSF Browser TV, World Screens and `OSFBrowserTV.esm` in MO2's Default
+  profile. Runtime checks used a disposable profile/save, with startup browsing
+  consent enabled only in private Settings values.
+- Found and fixed a packaging omission: the reserved view had its feed DDS but
+  lacked its generated screen materials and support textures. Binding failed
+  before browser startup. World Screens now owns both material profiles and all
+  referenced textures; its explicit install deploys them.
+- The extension built and installed successfully. Five screen asset/world view
+  tests passed, as did the staged World Screens package check. No framework C++
+  changed in this repair.
+- A private Papyrus setup command spawned the actual TV ACTI, then invoked
+  `Activate(Game.GetPlayer())`. The production TV script handled activation.
+  Native readback confirmed fullscreen interaction, `OSFUI_FocusMenu` and pause.
+  The public Sintel trailer played on the bound TV; a game capture showed the
+  **WATCH** activation prompt.
+- Esc released the focus menu and pause while native audio remained active and
+  the trusted chrome document survived. The user confirmed continued playback.
+  A longer automated follow-up was interrupted by another activation, so it is
+  not a passing five-second uninterrupted-close assertion.
+- Evidence: `build/browser-tv-game/runs/20261020-142219-680-browser-tv/`.
+  Workshop crafting/placement, save/load, multiple-TV behavior, page fullscreen,
+  broader security acceptance and CEF runtime checks remain open.
+
+### WebView2 audio capture/suppression prototype — 2026-10-20
+
+- Built the standalone native probe in `tools/profiling/browser-audio` and ran it
+  against a real Browser TV in a fresh disposable Starfield session through direct
+  commands. No computer use, foreground transfer or injected input was used.
+- Actual WebView2 audio-service capture delivered 48 kHz stereo PCM. A controlled
+  997 Hz tone and an unmodified remote video both became silent in the capture
+  when the owned browser's Windows audio session was muted. Output and capture
+  recovered after restoration. The original session volume was unchanged.
+- This is a **negative feasibility result** for process-loopback plus session mute,
+  not a spatial-audio implementation. The prototype is outside shipping targets.
+  It does not mute the whole device, install a virtual device or inject into Edge.
+- Evidence, limits and reproduction are in the
+  [prototype record](../../../tools/profiling/browser-audio/README.md).
 
 ## Open decisions
 
