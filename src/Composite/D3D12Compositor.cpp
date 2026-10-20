@@ -143,8 +143,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 				D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
 				srvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-				// Overlay ring slots, then the fullscreen surface's ring slots.
-				srvDesc.NumDescriptors = SharedRingDesc::kMaxSlots * 2;
+				srvDesc.NumDescriptors = SharedRingDesc::kMaxSlots;
 				srvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 				if (FAILED(a_device->CreateDescriptorHeap(&srvDesc, __uuidof(ID3D12DescriptorHeap),
 						reinterpret_cast<void**>(&srvHeap)))) {
@@ -274,17 +273,48 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		bool overlayDrawLogged{ false };  // guarded by sharedRing.drawMutex
 
-		// Fullscreen surface. The source is guarded by sharedRing.drawMutex; readers whose GPU
-		// reads may be outstanding are guarded by timelineMutex.
-		std::shared_ptr<SurfaceFrames> fullscreen;
-		std::atomic_bool fullscreenRequested{ false };
-		struct SurfaceSrv
+		// Each source owns its descriptors: another source can start while commands that
+		// reference the previous source's heap are still recorded or executing.
+		struct SurfaceDrawResources
 		{
-			ID3D12Resource* texture{ nullptr };
-			std::uint64_t generation{ 0 };
+			struct Srv
+			{
+				ID3D12Resource* texture{ nullptr };
+				std::uint64_t generation{ 0 };
+			};
+			explicit SurfaceDrawResources(std::shared_ptr<SurfaceFrames> a_frames) :
+				frames(std::move(a_frames)) {}
+			~SurfaceDrawResources()
+			{
+				// A failed completion signal must pin descriptors as well as frame resources.
+				if (!retainedForReads) SafeRelease(heap);
+			}
+			bool EnsureHeap(ID3D12Device* a_device)
+			{
+				if (heap) return true;
+				if (failed) return false;
+				D3D12_DESCRIPTOR_HEAP_DESC desc{};
+				desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+				desc.NumDescriptors = SharedRingDesc::kMaxSlots;
+				desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+				if (FAILED(a_device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap)))) {
+					failed = true;
+					REX::ERROR("D3D12Compositor: fullscreen SRV heap creation failed");
+					return false;
+				}
+				return true;
+			}
+			std::shared_ptr<SurfaceFrames> frames;
+			ID3D12DescriptorHeap* heap{ nullptr };
+			std::array<Srv, SharedRingDesc::kMaxSlots> srvs{};
+			bool failed{ false };
+			bool retainedForReads{ false }; // timelineMutex; still true at unsafe teardown
 		};
-		std::array<SurfaceSrv, SharedRingDesc::kMaxSlots> surfaceSrvs{};
-		std::vector<std::shared_ptr<SurfaceFrames>> surfaceReaders;
+		// Active source/descriptors are guarded by sharedRing.drawMutex. The reader list
+		// retains both until their GPU reads finish and is guarded by timelineMutex.
+		std::shared_ptr<SurfaceDrawResources> fullscreen;
+		std::atomic_bool fullscreenRequested{ false };
+		std::vector<std::shared_ptr<SurfaceDrawResources>> surfaceReaders;
 		std::atomic_bool hasSurfaceReaders{ false };
 		bool fullscreenDrawLogged{ false }; // guarded by sharedRing.drawMutex
 
@@ -318,11 +348,15 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				const auto completed = timeline.fence->GetCompletedValue();
 				frames->Completed(reinterpret_cast<std::uintptr_t>(timeline.queue), completed);
 				for (const auto& reader : surfaceReaders) {
-					reader->Consumer()->Completed(reinterpret_cast<std::uintptr_t>(timeline.queue), completed);
+					reader->frames->Consumer()->Completed(reinterpret_cast<std::uintptr_t>(timeline.queue), completed);
 				}
 			}
 			// A reader stays until its reads finish; drawing re-adds the active source.
-			std::erase_if(surfaceReaders, [](const auto& a_reader) { return !a_reader->Consumer()->HasReads(); });
+			std::erase_if(surfaceReaders, [](const auto& a_reader) {
+				if (a_reader->frames->Consumer()->HasReads()) return false;
+				a_reader->retainedForReads = false;
+				return true;
+			});
 			hasSurfaceReaders.store(!surfaceReaders.empty(), std::memory_order_release);
 		}
 
@@ -347,7 +381,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const bool overlayRead = frames->HasRecorded(lists);
 			std::vector<SharedFrameConsumer*> surfaceReads;
 			for (const auto& reader : surfaceReaders) {
-				if (reader->Consumer()->HasRecorded(lists)) surfaceReads.push_back(reader->Consumer().get());
+				if (reader->frames->Consumer()->HasRecorded(lists)) surfaceReads.push_back(reader->frames->Consumer().get());
 			}
 			if (!overlayRead && surfaceReads.empty()) return;
 			auto timeline = std::ranges::find_if(timelines, [a_queue](const QueueTimeline& a_value) { return a_value.queue == a_queue; });
@@ -541,10 +575,13 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const auto rtvFormat = UiTargetFormat::ResolveRtv(a_desc.Format);
 			auto* pso = draw.EnsurePipeline(engine.device, rtvFormat);
 			if (!pso) return false;
-			const auto frame = fullscreen->RecordDraw(a_list, engine.device);
+			// Allocate before reserving a frame so failure leaves no unsubmitted read behind.
+			const auto frame = fullscreen->EnsureHeap(engine.device) ?
+				fullscreen->frames->RecordDraw(a_list, engine.device) : std::nullopt;
 			if (frame) {
 				std::scoped_lock lock(timelineMutex);
 				if (std::ranges::find(surfaceReaders, fullscreen) == surfaceReaders.end()) surfaceReaders.push_back(fullscreen);
+				fullscreen->retainedForReads = true;
 				hasSurfaceReaders.store(true, std::memory_order_release);
 			}
 
@@ -557,8 +594,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			a_list->ClearRenderTargetView(rtv, kBlack, 0, nullptr);
 			if (!frame) return true;
 
-			const auto index = SharedRingDesc::kMaxSlots + frame->slot;
-			auto& cached = surfaceSrvs[frame->slot];
+			const auto index = frame->slot;
+			auto& cached = fullscreen->srvs[index];
 			if (cached.texture != frame->texture || cached.generation != frame->generation) {
 				// A new ring generation is adopted only after every read of the old one completed.
 				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -567,17 +604,17 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 				srv.Texture2D.MipLevels = 1;
 				const D3D12_CPU_DESCRIPTOR_HANDLE handle{
-					draw.srvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(index) * draw.srvStride
+					fullscreen->heap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(index) * draw.srvStride
 				};
 				engine.device->CreateShaderResourceView(frame->texture, &srv, handle);
 				cached = { frame->texture, frame->generation };
 			}
 
-			ID3D12DescriptorHeap* heaps[]{ draw.srvHeap };
+			ID3D12DescriptorHeap* heaps[]{ fullscreen->heap };
 			a_list->SetDescriptorHeaps(1, heaps);
 			a_list->SetGraphicsRootSignature(draw.rootSignature);
 			const D3D12_GPU_DESCRIPTOR_HANDLE srv{
-				draw.srvHeap->GetGPUDescriptorHandleForHeapStart().ptr + static_cast<UINT64>(index) * draw.srvStride
+				fullscreen->heap->GetGPUDescriptorHandleForHeapStart().ptr + static_cast<UINT64>(index) * draw.srvStride
 			};
 			a_list->SetGraphicsRootDescriptorTable(0, srv);
 
@@ -618,9 +655,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	void D3D12Compositor::SetFullscreenSource(std::shared_ptr<SurfaceFrames> a_source)
 	{
 		std::scoped_lock ring(m_impl->sharedRing.drawMutex);
-		if (m_impl->fullscreen == a_source) return;
+		if ((!m_impl->fullscreen && !a_source) || (m_impl->fullscreen && m_impl->fullscreen->frames == a_source)) return;
 		m_impl->fullscreenRequested.store(a_source != nullptr);
-		m_impl->fullscreen = std::move(a_source);
+		if (a_source) {
+			// Reopening a source whose previous draw is still in flight can reuse its heap.
+			std::scoped_lock lock(m_impl->timelineMutex);
+			const auto existing = std::ranges::find_if(m_impl->surfaceReaders,
+				[&](const auto& reader) { return reader->frames == a_source; });
+			m_impl->fullscreen = existing != m_impl->surfaceReaders.end() ? *existing :
+				std::make_shared<Impl::SurfaceDrawResources>(std::move(a_source));
+		} else {
+			m_impl->fullscreen.reset();
+		}
 		REX::INFO("D3D12Compositor: fullscreen surface {}", m_impl->fullscreen ? "attached" : "detached");
 	}
 
