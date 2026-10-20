@@ -35,6 +35,8 @@ namespace OSFUI::WorldTexture
 		constexpr auto           kFenceFailure = (std::numeric_limits<std::uint64_t>::max)();
 		std::atomic<CreateSrvFn> g_createSrv{ nullptr };
 		std::atomic<ExecuteFn>   g_execute{ nullptr };
+		// Set lock-free when an output loses its last engine owner; it then needs a retirement fence.
+		std::atomic<bool>        g_ownerReleased{ false };
 
 		struct MemoryAccounting
 		{
@@ -89,6 +91,8 @@ namespace OSFUI::WorldTexture
 				const auto remaining = --references;
 				if (!remaining) {
 					const auto owners = output->engineOwners.fetch_sub(1) - 1;
+					if (!owners)
+						g_ownerReleased.store(true);
 					REX::INFO("WorldTexture: asset {:08X}:{:08X}:{:08X} engine resource retired (output {}, owners {})",
 						asset.file, asset.extension, asset.directory, output->generation, owners);
 					delete this;
@@ -150,6 +154,8 @@ namespace OSFUI::WorldTexture
 			bool                                         hooksAttempted{ false };
 			std::atomic<bool>                            enabled{ false };
 			std::atomic<bool>                            installed{ false };
+			// ExecuteThunk skips both locks while false. See RefreshWork.
+			std::atomic<bool>                            hasWork{ false };
 			bool                                         gpuFailed{ false };
 		};
 
@@ -159,6 +165,17 @@ namespace OSFUI::WorldTexture
 			// these resources at DLL static destruction would invalidate them.
 			static auto* state = new State;
 			return *state;
+		}
+
+		// Run with mutex held. Work = pending initialization, a copy to feed, or an output whose
+		// engine owners are gone (retirement fence and eviction). Owners dropping to zero later is
+		// signalled through g_ownerReleased, which the lock-free check also reads.
+		void RefreshWork(State& state)
+		{
+			state.hasWork = !state.gpuFailed && (!state.initializations.empty() ||
+				std::ranges::any_of(state.surfaces, [](const Surface& surface) {
+					return surface.output && (!surface.output->engineOwners.load() || (surface.feed && surface.demanded));
+				}));
 		}
 
 		bool PlainTexture(const D3D12_RESOURCE_DESC& a_desc)
@@ -236,6 +253,7 @@ namespace OSFUI::WorldTexture
 				surface.lastUse = ++state.clock;
 				original(device, lease->output->texture, &replacement, handle);
 				++surface.stats.boundDescriptors;
+				RefreshWork(state);
 				REX::INFO("WorldTexture: '{}' asset '{}' bound to output {} (engine owners {})",
 					surface.stats.id, surface.stats.texture, lease->output->generation, lease->output->engineOwners.load());
 				lease->Release();
@@ -262,6 +280,7 @@ namespace OSFUI::WorldTexture
 				REX::ERROR("WorldTexture: {} failed (0x{:08X}); GPU copies disabled, resources retained", a_operation, static_cast<std::uint32_t>(a_hr));
 			}
 			a_state.gpuFailed = true;
+			a_state.hasWork = false;
 		}
 
 		// Run only with queueMutex and mutex held. After the final engine owner
@@ -323,6 +342,8 @@ namespace OSFUI::WorldTexture
         {
             std::scoped_lock lock(state.mutex);
             if (!state.installed || state.gpuFailed || !state.service) return;
+            // Clear before QueueRetirements reads the owner counts, so a concurrent final release is never lost.
+            g_ownerReleased.store(false);
             if (!QueueRetirements(state) || !RetireCopies(state)) return;
             for (auto& surface : state.surfaces) {
                 if (!surface.feed || !surface.demanded || !surface.output) continue;
@@ -332,6 +353,7 @@ namespace OSFUI::WorldTexture
                 surface.stats.lastCompletedFrame=frame.ready ? frame.completed : 0;
                 surface.stats.gpuFailed=frame.failed;
             }
+            RefreshWork(state);
         }
         thread_local bool insideSubmit{};
 
@@ -341,7 +363,8 @@ namespace OSFUI::WorldTexture
 			if (!original)
 				return;
 			auto& state = GetState();
-			if (insideSubmit || a_queue != state.engine.directQueue) {
+			// The engine submits many lists per frame; most need nothing from us.
+			if (insideSubmit || a_queue != state.engine.directQueue || !(state.hasWork.load() || g_ownerReleased.load())) {
 				original(a_queue, a_count, a_lists);
 				return;
 			}
@@ -594,6 +617,7 @@ namespace OSFUI::WorldTexture
                 surface.stats.lastCompletedFrame=0;
             }
         }
+        RefreshWork(state);
     }
     API::Surfaces::Handle Feed(std::size_t index)
     {

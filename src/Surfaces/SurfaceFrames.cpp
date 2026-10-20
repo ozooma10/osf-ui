@@ -26,7 +26,7 @@ namespace OSFUI
         std::array<Copy, 3> copies;
         API::Surfaces::FrameStatus status;
 
-        void Poll()
+        std::optional<FrameBufferView> Poll()
         {
             status.idle = true;
             const auto completed = fence ? fence->GetCompletedValue() : 0;
@@ -41,8 +41,9 @@ namespace OSFUI
                     copy.completion = 0;
                 } else status.idle = false;
             }
-            const auto latest = frames->Latest();
+            auto latest = frames->Latest();
             if (!latest || latest->ringGeneration != generation) status.ready = false;
+            return latest;
         }
         bool Setup(ID3D12CommandQueue* value)
         {
@@ -83,7 +84,11 @@ namespace OSFUI
         }
         API::Surfaces::FrameStatus CopyTo(ID3D12Resource* output, std::uint64_t tag, ID3D12CommandQueue* onQueue)
         {
-            Poll();
+            const auto current = Poll();
+            // Callers may poll on every queue submission; an already-copied frame skips the checks below.
+            // A newly announced ring publishes under a new generation, so it never matches here.
+            if (current && current->ringGeneration == lastGeneration && current->frameIndex == lastFrame &&
+                destination == output && destinationTag == tag && queue.Get() == onQueue) return status;
             if (destination != output || destinationTag != tag) status.ready = false;
             if (status.failed || !output || !tag || !Setup(onQueue) || !Adopt()) return status;
             const auto produced = producer->GetCompletedValue();
