@@ -38,6 +38,8 @@ namespace RuntimeTest
         bool cursorFree = false;
         bool paused = false;
         bool compositorVisible = false;
+        bool compositorFullscreen = false;
+        bool pointerInput = false;
         bool preparedFrameReady = false;
         bool gameDeviceHealthy = true;
         int rendererInitializations = 0;
@@ -56,6 +58,8 @@ namespace RuntimeTest
         std::vector<std::string> navigations;
         std::map<std::string, bool> hidden;
         std::vector<std::uint32_t> keys;
+        struct MouseEvent { int x, y, button; bool down; };
+        std::vector<MouseEvent> mouse;
         std::vector<bool> backWindowActive;
         std::vector<SentMessage> sent;
         OSFUI::BrowserHostClient::LoadHandler load;

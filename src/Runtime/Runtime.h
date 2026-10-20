@@ -75,6 +75,7 @@ namespace OSFUI
 
 		std::shared_ptr<BrowserHostClient> InputRenderer() const;
 		void UpdateSurfaceInteraction();
+		void DrainSurfacePointer();
 		bool m_dataLoaded{false};
 		void LoadStartupContent();
 		void InitializeEngineIntegration();
@@ -174,6 +175,7 @@ namespace OSFUI
 		// Each input component synchronizes its shared state.
 		InputCaptureController m_inputCapture;
 		PointerInputState m_pointerInput;
+		PointerInputState m_surfacePointer; // fullscreen surface, in surface pixels
 		RelativePointerSession m_relativePointer;
 		ViewInputGrants m_viewInputGrants;
 		XInputPoller m_gamepadSource;

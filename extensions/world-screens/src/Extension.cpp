@@ -20,6 +20,7 @@ namespace OSFUI::Extension
             std::string view;
             API::WorldScreens::Callback callback{};
             void* context{};
+            API::Surfaces::InteractionOptions options;
             std::chrono::steady_clock::time_point requested;
             bool cancelled{};
         };
@@ -67,7 +68,7 @@ namespace OSFUI::Extension
                     if (view==views.end()) continue;
                     const auto feed=WorldTexture::Feed(static_cast<std::size_t>(view-views.begin()));
                     if (!feed) continue;
-                    entry->coreToken=core->BeginInteraction(feed,OnInteraction,entry.get());
+                    entry->coreToken=core->BeginInteractionWith(feed,entry->options,OnInteraction,entry.get());
                     if (!entry->coreToken) OnInteraction(0,API::Surfaces::Phase::Rejected,"core-unavailable",entry.get());
                 }
             } catch (const std::exception& error) { REX::ERROR("World Screens tick failed: {}",error.what()); }
@@ -79,15 +80,17 @@ namespace OSFUI::Extension
             bool Unbind(std::uint32_t token) noexcept override { return ScreenBindings::Unbind(token); }
             bool IsBound(std::uint32_t token) noexcept override { return ScreenBindings::Resolve(token).has_value(); }
             std::uint64_t BeginInteraction(std::uint32_t binding,API::WorldScreens::Callback callback,void* context) noexcept override
+            { return BeginInteractionWith(binding,{},callback,context); }
+            std::uint64_t BeginInteractionWith(std::uint32_t binding,const API::WorldScreens::InteractionOptions& options,API::WorldScreens::Callback callback,void* context) noexcept override
             {
                 const auto selection=ScreenBindings::Resolve(binding);
-                if (!IsReady() || !callback || !selection) return 0;
+                if (!IsReady() || !callback || !selection || options.size<sizeof(API::WorldScreens::InteractionOptions)) return 0;
                 std::scoped_lock lock(interactionMutex);
                 if (interactions.size()>=64 || nextInteraction==UINT64_MAX) return 0;
                 const auto token=nextInteraction++;
                 auto entry=std::make_shared<Interaction>();
                 entry->token=token; entry->binding=binding; entry->view=selection->view;
-                entry->callback=callback; entry->context=context; entry->requested=std::chrono::steady_clock::now();
+                entry->callback=callback; entry->context=context; entry->options={.presentation=options.presentation}; entry->requested=std::chrono::steady_clock::now();
                 interactions.emplace(token,std::move(entry)); return token;
             }
             bool EndInteraction(std::uint64_t token) noexcept override
@@ -107,7 +110,7 @@ namespace OSFUI::Extension
     bool Connect()
     {
         core=API::Surfaces::RequestInterface();
-        if (!core) { REX::ERROR("World Screens requires OSF UI with surface service ABI 1.0; extension disabled"); return false; }
+        if (!core) { REX::ERROR("World Screens requires OSF UI with surface service ABI 1.1; extension disabled"); return false; }
         core->VisitViews([](const API::Surfaces::View& view,void*) noexcept { views.push_back({view.id,view.texture,view.width,view.height}); },nullptr);
         WorldTexture::SetService(core);
         if (views.empty() || !WorldTexture::Configure(views)) {

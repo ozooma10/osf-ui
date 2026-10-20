@@ -7,7 +7,7 @@ struct ID3D12Resource;
 
 namespace OSFUI::API::Surfaces
 {
-    inline constexpr std::uint32_t kVersion = 0x00010000;
+    inline constexpr std::uint32_t kVersion = 0x00010001;
     using Handle = std::uint64_t;
     using Interaction = std::uint64_t;
     struct View { const char* id; const char* texture; std::uint32_t width, height; };
@@ -16,6 +16,16 @@ namespace OSFUI::API::Surfaces
     using Tick = void (*)(void*, bool dataLoaded) noexcept;
     enum class Phase : std::uint32_t { Started, Ended, Rejected };
     using InteractionCallback = void (*)(Interaction, Phase, const char* reason, void*) noexcept;
+    // 1.1. InWorld: exclusive keyboard/controller, no pointer, pause, or overlay.
+    // Fullscreen: menu mode (pause + cursor), the surface drawn letterboxed over the game,
+    // mouse routed to it. Only views whose manifest sets "fullscreen": true are admitted;
+    // others end Rejected with reason "fullscreen-unsupported".
+    enum class Presentation : std::uint32_t { InWorld, Fullscreen };
+    struct InteractionOptions
+    {
+        std::uint32_t size{ sizeof(InteractionOptions) };
+        Presentation presentation{ Presentation::InWorld };
+    };
     struct FrameStatus
     {
         std::uint64_t submitted{}, completed{};
@@ -38,10 +48,12 @@ namespace OSFUI::API::Surfaces
         // its ExecuteCommandLists hook must bypass its own recursively submitted copies.
         virtual FrameStatus CopyFrame(Handle, ID3D12Resource*, std::uint64_t destinationGeneration, ID3D12CommandQueue*) noexcept = 0;
         virtual bool IsIdle(Handle) noexcept = 0;
-        // Queued, exclusive, keyboard/controller only; no pointer, pause, or overlay.
-        // Callback: Started then Ended, or Rejected. Context lives until the terminal callback.
+        // Queued and exclusive (see Presentation). Callback: Started then Ended, or Rejected.
+        // Context lives until the terminal callback.
         virtual Interaction BeginInteraction(Handle, InteractionCallback, void*) noexcept = 0;
         virtual bool EndInteraction(Interaction) noexcept = 0;
+        // 1.1. BeginInteraction with options; BeginInteraction equals InWorld presentation.
+        virtual Interaction BeginInteractionWith(Handle, const InteractionOptions&, InteractionCallback, void*) noexcept = 0;
     protected:
         ~IService() = default;
     };

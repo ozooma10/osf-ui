@@ -305,7 +305,7 @@ for _, backend in ipairs({"webview2", "cef"}) do
         add_defines("OSFUI_BROWSER_CEF=" .. (backend == "cef" and "1" or "0"))
         for _, scenario in ipairs({"normal", "stale-selection", "missing-settings", "renderer-init-failure",
             "input-hook-failure", "focus-menu-failure", "menu-events-failure", "suppression-failure",
-            "recovery", "game-device-failure", "surfaces", "surface-input"}) do
+            "recovery", "game-device-failure", "surfaces", "surface-input", "surface-fullscreen"}) do
             add_tests(scenario, {runargs = {scenario, backend}})
         end
         add_files("tests/native/runtime_lifecycle_tests.cpp", "tests/native/runtime_doubles.cpp",

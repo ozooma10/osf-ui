@@ -75,12 +75,15 @@ namespace OSFUI
 		// Open/Close only queue UI messages, so one menuArray scan holds for this whole pass.
 		const bool focusMenuInEngine = FocusMenu::IsOpenInEngine();
 		const bool surface = static_cast<bool>(SurfaceService::Get().InputRenderer());
+		const bool fullscreen = SurfaceService::Get().FullscreenActive();
 		const bool capture = m_presentation.DesiredCapture() || surface;
 		m_inputCapture.ReconcileFocusMenu(capture, focusMenuInEngine, m_nowSeconds);
 		m_inputCapture.ReconcileBrowserFocus(InputRenderer().get(), m_visible.load() || surface, m_presentation.ActiveMenu().has_value() || surface, focusMenuInEngine);
 		m_inputCapture.ReconcileControlLayer(capture, IsInputCaptured());
-		SimPause::Apply(m_presentation.DesiredPause());
-		FreeCursor::Apply(m_presentation.DesiredCapture());
+		// A fullscreen surface behaves like a pausing menu.
+		SimPause::Apply(m_presentation.DesiredPause() || fullscreen);
+		FreeCursor::Apply(m_presentation.DesiredCapture() || fullscreen);
+		if (m_compositor) m_compositor->SetFullscreenSource(SurfaceService::Get().FullscreenFrames());
 	}
 
 	void Runtime::CommitPresentation()
@@ -151,6 +154,7 @@ namespace OSFUI
 		UpdateSurfaceInteraction();
 		CommitPresentation();
 		RouteGamepadInput();
+		DrainSurfacePointer();
 		ProcessRendererFrame();
         const bool overlayAvailable = m_browserHostRecovery.IsAvailable() && std::ranges::any_of(m_views.All(),
             [this](const auto& view) { return m_presentation.IsInstantiated(view.id); });

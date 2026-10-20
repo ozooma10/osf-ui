@@ -55,7 +55,12 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseAbsolute(int a_clientX, int a_clientY, int a_clientW, int a_clientH)
 	{
-		if (SurfaceService::Get().InputRenderer() || !IsInputCaptured() || !m_renderer) return;
+		if (!IsInputCaptured()) return;
+		if (SurfaceService::Get().FullscreenActive()) {
+			m_surfacePointer.UpdateAbsolute(a_clientX, a_clientY, a_clientW, a_clientH);
+			return;
+		}
+		if (SurfaceService::Get().InputRenderer() || !m_renderer) return;
 		m_pointerInput.UpdateAbsolute(a_clientX, a_clientY, a_clientW, a_clientH);
 	}
 
@@ -66,7 +71,17 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseButton(int a_button, bool a_down)
 	{
-		if (SurfaceService::Get().InputRenderer() || !IsInputCaptured() || !m_renderer) return;
+		if (!IsInputCaptured()) return;
+		if (SurfaceService::Get().FullscreenActive()) {
+			// Letterbox bars swallow presses; releases always reach the page.
+			auto surface = SurfaceService::Get().InputRenderer();
+			if (surface && (!a_down || m_surfacePointer.CanSendPointer())) {
+				const auto cursor = m_surfacePointer.CursorPosition();
+				surface->InjectMouseButton(cursor.x, cursor.y, a_button, a_down);
+			}
+			return;
+		}
+		if (SurfaceService::Get().InputRenderer() || !m_renderer) return;
 		// Always forward releases, including while geometry is suspended.
 		if (!a_down || m_pointerInput.CanSendPointer()) {
 			const auto cursor = m_pointerInput.CursorPosition();
@@ -77,7 +92,16 @@ namespace OSFUI
 
 	void Runtime::OnGameWindowMouseWheel(int a_wheelDelta)
 	{
-		if (SurfaceService::Get().InputRenderer() || !IsInputCaptured() || !m_renderer) return;
+		if (!IsInputCaptured()) return;
+		if (SurfaceService::Get().FullscreenActive()) {
+			auto surface = SurfaceService::Get().InputRenderer();
+			if (surface && m_surfacePointer.CanSendPointer()) {
+				const auto cursor = m_surfacePointer.CursorPosition();
+				surface->InjectPhysicalMouseWheel(cursor.x, cursor.y, a_wheelDelta);
+			}
+			return;
+		}
+		if (SurfaceService::Get().InputRenderer() || !m_renderer) return;
 		if (m_relativePointer.AccumulateWheel(a_wheelDelta)) return;
 		if (!m_pointerInput.CanSendPointer()) return;
 		const auto cursor = m_pointerInput.CursorPosition();
@@ -150,7 +174,12 @@ namespace OSFUI
 		}
 
 		applyAction(frame.navigationAction);
-		if (frame.wheelDelta != 0 && !SurfaceService::Get().InputRenderer()) {
+		if (frame.wheelDelta != 0 && SurfaceService::Get().FullscreenActive()) {
+			if (auto surface = SurfaceService::Get().InputRenderer()) {
+				const auto cursor = m_surfacePointer.CursorPosition();
+				surface->InjectMouseWheel(cursor.x, cursor.y, frame.wheelDelta);
+			}
+		} else if (frame.wheelDelta != 0 && !SurfaceService::Get().InputRenderer()) {
 			const auto cursor = m_pointerInput.CursorPosition();
 			m_renderer->InjectMouseWheel(cursor.x, cursor.y, frame.wheelDelta);
 		}
@@ -173,10 +202,20 @@ namespace OSFUI
         const bool allowed=m_inputCapture.IntegrationAvailable() && !MenuEventSink::SurfaceBlocked() &&
             !m_presentation.ActiveMenu() && !m_viewOpens.PendingMenu() && OverlayInputHook::IsGameWindowActive();
         const auto before=SurfaceService::Get().InputRenderer();
-        SurfaceService::Get().UpdateInteraction(allowed,neutral,[this]{return m_osfSettings.AcquireInputSuppression();});
+        SurfaceService::Get().UpdateInteraction(allowed,neutral,static_cast<bool>(m_compositor),[this]{return m_osfSettings.AcquireInputSuppression();});
         if (before != SurfaceService::Get().InputRenderer()) {
             (void)m_gamepadSession.End(); m_gamepadSource.Reset(); m_inputCapture.ResetBrowserFocus();
+            if (const auto size=SurfaceService::Get().FullscreenSize()) {
+                const ViewSize surface{size->first,size->second};
+                m_surfacePointer.PublishGeometry(surface,surface);
+            }
             OverlayInputHook::RequestStateRefresh();
         }
+    }
+    void Runtime::DrainSurfacePointer()
+    {
+        if (!SurfaceService::Get().FullscreenActive()) { m_surfacePointer.DiscardMouseMove(); return; }
+        const auto move=m_surfacePointer.TakeMouseMove();
+        if (auto surface=SurfaceService::Get().InputRenderer(); move && surface) surface->InjectMouseMove(move->x,move->y);
     }
 }

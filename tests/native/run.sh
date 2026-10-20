@@ -146,7 +146,7 @@ for suite in "${SUITES[@]}"; do
     bin="$BUILD/$name"
     [[ -f "$bin" ]] || bin="$bin.exe"
     if [[ "$name" == runtime_lifecycle_tests ]]; then
-        for scenario in normal stale-selection missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure surfaces surface-input; do
+        for scenario in normal stale-selection missing-settings renderer-init-failure input-hook-failure focus-menu-failure menu-events-failure suppression-failure recovery game-device-failure surfaces surface-input surface-fullscreen; do
             "$bin" "$scenario" || failures=$((failures + $?))
         done
     else

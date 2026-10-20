@@ -82,6 +82,8 @@ while Starfield is running. Enable the extension in the mod manager only when wa
    String handle = OSFUIWorldScreens.BindScreen(screenRef, "mymod/display")
    ; Empty means unavailable or unsupported. Rebind after load/3D initialization.
    Bool removed = OSFUIWorldScreens.UnbindScreen(handle)
+   ; Views with "fullscreen": true can also open over the game, e.g. from OnActivate:
+   Bool queued = OSFUIWorldScreens.OpenFullscreen(handle)
    ```
 
 For native consumers include `sdk/OSFUI_WorldScreens.h` (plus `OSFUI_Surfaces.h` and
@@ -96,8 +98,17 @@ core input integration. The callback reports `Started` then `Ended`, or `Rejecte
 Keep its context alive until the terminal callback; callbacks run on the core runtime tick.
 The page receives `ui.interaction` with `active`, and the ordinary `ui.gamepad` events.
 Use `osfui.gamepadMode` for raw controller input. Escape, controller Back, menu opening,
-focus loss, invalidation, and browser failure end capture. World interaction does not
+focus loss, invalidation, and browser failure end capture. In-world interaction does not
 pause gameplay or provide mouse pointing. Content owns proximity/combat/activation policy.
+
+ABI 1.1 adds `BeginInteractionWith(binding, options, callback, context)` (the `Client`
+overload taking `InteractionOptions`). `Presentation::Fullscreen` behaves like a pausing
+menu: the cursor is shown, the screen's page is drawn letterboxed over the game at its
+manifest resolution, and the mouse is routed to it. The page keeps running on the world
+screen when the interaction ends. Only views whose manifest sets `"fullscreen": true` are
+admitted; others end `Rejected` with reason `fullscreen-unsupported`. Papyrus uses
+`OSFUIWorldScreens.OpenFullscreen(handle)`. Choose a manifest resolution that stays legible
+fullscreen; it is never resized.
 
 ## Migrate prototype consumers
 
@@ -123,7 +134,9 @@ identities and NIF/catalog paths keep their existing names.
 ## Validation scope
 
 Native lifecycle tests cover optional startup, shared demand, API version rejection,
-input admission/cancellation, and GPU-busy retirement using engine/GPU doubles.
+input admission/cancellation, fullscreen admission, pause, letterboxed pointer mapping,
+and GPU-busy retirement using engine/GPU doubles. The fullscreen draw itself is GPU work
+and is only verified in game.
 Binding tests cover private geometry, replacement, invalidation, and save/load tokens.
 Node tests cover generated texture identities and material profiles. Build and package
 checks are separate from actual GPU, input, and save/load acceptance in Starfield.

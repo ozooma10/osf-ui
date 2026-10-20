@@ -417,21 +417,21 @@ void SurfaceLifecycle()
     auto token=service.BeginInteraction(first,callback,&phases);
     CHECK(token);
     surfaceGpuReady=false;
-    service.UpdateInteraction(true,true,[]{return false;});
+    service.UpdateInteraction(true,true,true,[]{return false;});
     CHECK(phases.empty() && !service.InputRenderer());
     surfaceGpuReady=true;
-    service.UpdateInteraction(true,false,[]{return false;});
-    service.UpdateInteraction(true,true,[]{return false;});
+    service.UpdateInteraction(true,false,true,[]{return false;});
+    service.UpdateInteraction(true,true,true,[]{return false;});
     CHECK(phases.empty());
-    service.UpdateInteraction(true,true,[]{return false;});
+    service.UpdateInteraction(true,true,true,[]{return false;});
     CHECK((phases == std::vector{API::Surfaces::Phase::Rejected}));
     phases.clear();
     token=service.BeginInteraction(first,callback,&phases);
     auto admit=[] { env.settings.blocks.insert(777); return true; };
-    service.UpdateInteraction(true,true,admit); service.UpdateInteraction(true,true,admit);
+    service.UpdateInteraction(true,true,true,admit); service.UpdateInteraction(true,true,true,admit);
     CHECK((phases == std::vector{API::Surfaces::Phase::Started}));
     CHECK(service.InputView() == "acme/screen");
-    service.Release(first); service.UpdateInteraction(true,true,admit);
+    service.Release(first); service.UpdateInteraction(true,true,true,admit);
     CHECK((phases == std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
     CHECK(!service.InputRenderer());
     service.Update(true);
@@ -440,24 +440,24 @@ void SurfaceLifecycle()
     phases.clear();
     token=service.BeginInteraction(second,callback,&phases);
     CHECK(service.EndInteraction(token));
-    service.UpdateInteraction(true,true,admit);
+    service.UpdateInteraction(true,true,true,admit);
     CHECK((phases == std::vector{API::Surfaces::Phase::Rejected}));
     phases.clear();
     CHECK(service.BeginInteraction(second,callback,&phases));
     service.CancelInteraction(); // cancels the queued request, including before its drain
     CHECK(service.BeginInteraction(second,callback,&phases)); // later requests survive
-    service.UpdateInteraction(true,true,admit); service.UpdateInteraction(true,true,admit);
+    service.UpdateInteraction(true,true,true,admit); service.UpdateInteraction(true,true,true,admit);
     CHECK((phases == std::vector{API::Surfaces::Phase::Rejected,API::Surfaces::Phase::Started}));
-    service.CancelInteraction(); service.UpdateInteraction(true,true,admit);
+    service.CancelInteraction(); service.UpdateInteraction(true,true,true,admit);
     CHECK(phases.back() == API::Surfaces::Phase::Ended);
     phases.clear();
     token=service.BeginInteraction(second,callback,&phases);
-    service.UpdateInteraction(true,true,admit); service.UpdateInteraction(true,true,admit);
+    service.UpdateInteraction(true,true,true,admit); service.UpdateInteraction(true,true,true,admit);
     CHECK(service.BeginInteraction(second,callback,&phases)); // queued behind the active one
     CHECK(service.EndInteraction(token));
-    service.UpdateInteraction(true,true,admit); service.UpdateInteraction(true,true,admit);
+    service.UpdateInteraction(true,true,true,admit); service.UpdateInteraction(true,true,true,admit);
     CHECK((phases == std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended,API::Surfaces::Phase::Started})); // ending one keeps the queue
-    service.CancelInteraction(); service.UpdateInteraction(true,true,admit);
+    service.CancelInteraction(); service.UpdateInteraction(true,true,true,admit);
     CHECK(phases.back() == API::Surfaces::Phase::Ended);
     surfaceGpuIdle=false; service.Release(second); service.Update(true);
     CHECK(service.IsInstantiated("acme/screen")); // GPU reads retain the host
@@ -505,6 +505,67 @@ void SurfaceInputLifecycle()
     service.Release(lease); runtime().Update();
 }
 
+void SurfaceFullscreenLifecycle()
+{
+    FixtureFiles::Write("acme/tv", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/tv.dds","width":1280,"height":720,"fullscreen":true})");
+    FixtureFiles::Write("acme/screen", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/test.dds"})");
+    PluginLoad(); PostLoad(); DataReady(); LoadHud();
+    auto& service = SurfaceService::Get();
+    // The doubles route loads to the newest host, so only one surface is instantiated at a time.
+    const auto screen=service.Acquire("acme/screen");
+    runtime().Update();
+    struct Seen { std::vector<API::Surfaces::Phase> phases; std::string reason; } seen;
+    const auto callback=+[](std::uint64_t,API::Surfaces::Phase phase,const char* reason,void* context) noexcept {
+        auto& s=*static_cast<Seen*>(context); s.phases.push_back(phase); s.reason=reason ? reason : "";
+    };
+    const API::Surfaces::InteractionOptions fullscreen{.presentation=API::Surfaces::Presentation::Fullscreen};
+    CHECK(!service.BeginInteractionWith(screen,{.size=4,.presentation=API::Surfaces::Presentation::Fullscreen},callback,&seen));
+
+    // Views must opt in to fullscreen.
+    CHECK(service.BeginInteractionWith(screen,fullscreen,callback,&seen));
+    runtime().Update();
+    CHECK((seen.phases==std::vector{API::Surfaces::Phase::Rejected}) && seen.reason=="fullscreen-unsupported");
+    seen={};
+    service.Release(screen); runtime().Update();
+    CHECK(!service.IsInstantiated("acme/screen"));
+
+    const auto tv=service.Acquire("acme/tv");
+    runtime().Update(); QueueLoad("acme/tv"); QueueHello("acme/tv"); runtime().Update();
+    CHECK(service.LoadState("acme/tv") == std::string_view("loaded"));
+
+    CHECK(service.BeginInteractionWith(tv,fullscreen,callback,&seen));
+    runtime().Update(); runtime().Update(); env.engineFocus=true; runtime().Update();
+    CHECK((seen.phases==std::vector{API::Surfaces::Phase::Started}));
+    CHECK(runtime().IsInputCaptured() && service.FullscreenActive() && env.inputTarget=="acme/tv");
+    CHECK(env.paused && env.cursorFree && env.pointerInput && env.compositorFullscreen);
+
+    // A 16:9 surface on a 16:10 client: 80 px bars above and below at 2560x1600.
+    runtime().OnGameWindowMouseAbsolute(1280,800,2560,1600);
+    runtime().OnGameWindowMouseButton(0,true); runtime().OnGameWindowMouseButton(0,false);
+    CHECK(env.mouse.size()==2 && env.mouse[0].x==640 && env.mouse[0].y==360 && env.mouse[0].down && !env.mouse[1].down);
+    env.mouse.clear();
+    runtime().OnGameWindowMouseAbsolute(1280,40,2560,1600); // top bar
+    runtime().OnGameWindowMouseButton(0,true); runtime().OnGameWindowMouseButton(0,false);
+    CHECK(env.mouse.size()==1 && !env.mouse[0].down); // bars swallow presses, never releases
+
+    CHECK(runtime().OnGameWindowKeyboard({.vk=0x1B,.down=true}));
+    runtime().Update(); CheckReleased();
+    CHECK((seen.phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    CHECK(!service.FullscreenActive() && !env.pointerInput && !env.compositorFullscreen);
+    env.mouse.clear();
+    runtime().OnGameWindowMouseButton(0,true);
+    CHECK(env.mouse.empty());
+
+    // In-world interactions on the same view stay pointerless and unpaused.
+    seen={};
+    CHECK(service.BeginInteraction(tv,callback,&seen));
+    runtime().Update(); runtime().Update();
+    CHECK((seen.phases==std::vector{API::Surfaces::Phase::Started}));
+    CHECK(!service.FullscreenActive() && !env.paused && !env.cursorFree && !env.pointerInput && !env.compositorFullscreen);
+    service.CancelInteraction(); runtime().Update(); CheckReleased();
+    service.Release(tv); runtime().Update();
+}
+
 int main(int argc, char** argv)
 {
     // One scenario per process: Runtime and BridgeApi deliberately have process lifetimes.
@@ -520,6 +581,7 @@ int main(int argc, char** argv)
         NormalLifecycle();
     }
     else if (scenario == "surface-input") SurfaceInputLifecycle();
+    else if (scenario == "surface-fullscreen") SurfaceFullscreenLifecycle();
     else if (scenario == "surfaces") SurfaceLifecycle();
     else if (scenario == "normal") {
         env.settings.values["cefPrototype"] = true; // Obsolete setting cannot override the installed edition.

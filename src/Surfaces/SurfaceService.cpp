@@ -97,6 +97,9 @@ namespace OSFUI
                 else { e->recovery.OnResponse(Now()); }
             }
         });
+        entry->host->SetCursorChangeHandler([this, weak=std::weak_ptr(entry->host)](std::uint32_t id) {
+            if (FullscreenActive() && m_cursor && weak.lock() == m_input.load()) m_cursor(id);
+        });
         entry->host->SetFailureHandler([this, weak=std::weak_ptr(entry)](const BrowserHostClient::FailureEvent& event) {
             if (const auto e=weak.lock()) {
                 e->loaded=false; e->failed=true;
@@ -155,10 +158,15 @@ namespace OSFUI
     bool SurfaceService::Send(std::string_view id, std::string_view json)
     { for (const auto& e : m_entries) if (e->host && e->manifest.id == id) { e->host->SendMessageToWeb(id,json); return true; } return false; }
     API::Surfaces::Interaction SurfaceService::BeginInteraction(API::Surfaces::Handle lease, API::Surfaces::InteractionCallback callback, void* context) noexcept
+    { return BeginInteractionWith(lease, {}, callback, context); }
+    API::Surfaces::Interaction SurfaceService::BeginInteractionWith(API::Surfaces::Handle lease, const API::Surfaces::InteractionOptions& options, API::Surfaces::InteractionCallback callback, void* context) noexcept
     {
         std::scoped_lock lock(m_mutex);
-        if (!callback || !m_leases.contains(lease) || m_requests.size() >= 64 || m_next == UINT64_MAX) return 0;
-        const auto token=m_next++; m_requests.push_back({token,lease,callback,context,std::chrono::steady_clock::now(), false, m_leases.at(lease)->manifest.id,m_cancelGeneration.load()}); return token;
+        if (!callback || options.size < sizeof(API::Surfaces::InteractionOptions) || !m_leases.contains(lease) || m_requests.size() >= 64 || m_next == UINT64_MAX) return 0;
+        if (options.presentation != API::Surfaces::Presentation::InWorld && options.presentation != API::Surfaces::Presentation::Fullscreen) return 0;
+        const auto token=m_next++;
+        m_requests.push_back({token,lease,callback,context,std::chrono::steady_clock::now(), false, m_leases.at(lease)->manifest.id,m_cancelGeneration.load(),options.presentation});
+        return token;
     }
     bool SurfaceService::EndInteraction(API::Surfaces::Interaction token) noexcept
     {
@@ -174,10 +182,20 @@ namespace OSFUI
         if (!m_interaction || !m_interaction->started) return std::nullopt;
         return m_interaction->view;
     }
+    std::optional<std::pair<std::uint32_t, std::uint32_t>> SurfaceService::FullscreenSize() const
+    {
+        const auto packed=m_fullscreenSize.load();
+        if (!packed) return std::nullopt;
+        return std::pair{static_cast<std::uint32_t>(packed >> 32), static_cast<std::uint32_t>(packed)};
+    }
+    std::shared_ptr<SurfaceFrames> SurfaceService::FullscreenFrames() const
+    { std::scoped_lock lock(m_mutex); return m_fullscreenFrames; }
     void SurfaceService::FinishInteraction(const char* reason)
     {
         auto previous=m_input.exchange(nullptr);
         if (previous) previous->SetInputFocus(false);
+        if (m_fullscreenSize.exchange(0) && previous) previous->SetPointerInputEnabled(false);
+        { std::scoped_lock lock(m_mutex); m_fullscreenFrames.reset(); }
         m_interactionToken=0; m_neutral=0;
         if (auto request=std::exchange(m_interaction, {})) {
             if (m_bridge && request->started)
@@ -190,7 +208,7 @@ namespace OSFUI
         if (m_interactionToken.load()) return true;
         std::scoped_lock lock(m_mutex); return !m_requests.empty();
     }
-    void SurfaceService::UpdateInteraction(bool allowed, bool neutral, const std::function<bool()>& admit)
+    void SurfaceService::UpdateInteraction(bool allowed, bool neutral, bool fullscreenAvailable, const std::function<bool()>& admit)
     {
         // Cancellation applies only to requests that existed at that event.
         // Loading/focus changes while idle cannot poison a later activation.
@@ -200,7 +218,11 @@ namespace OSFUI
         std::deque<Request> requests;
         { std::scoped_lock lock(m_mutex); requests.swap(m_requests); }
         for (const auto& r : requests) {
-            if (cancelled(r) || !allowed || m_interaction || !r.lease) r.callback(r.token,API::Surfaces::Phase::Rejected,"unavailable",r.context);
+            const auto e=Find(r.lease);
+            const bool fullscreen=r.presentation == API::Surfaces::Presentation::Fullscreen;
+            if (cancelled(r) || !allowed || m_interaction || !r.lease || !e) r.callback(r.token,API::Surfaces::Phase::Rejected,"unavailable",r.context);
+            else if (fullscreen && !e->manifest.fullscreen) r.callback(r.token,API::Surfaces::Phase::Rejected,"fullscreen-unsupported",r.context);
+            else if (fullscreen && !fullscreenAvailable) r.callback(r.token,API::Surfaces::Phase::Rejected,"fullscreen-unavailable",r.context);
             else { m_interaction=r; m_interactionToken=r.token; m_neutral=0; }
         }
         if (!m_interaction) return;
@@ -217,6 +239,11 @@ namespace OSFUI
         if (++m_neutral < 2) return;
         if (!admit()) { FinishInteraction("input-unavailable"); return; }
         e->host->SetInputTargetView(e->manifest.id);
+        if (m_interaction->presentation == API::Surfaces::Presentation::Fullscreen) {
+            e->host->SetPointerInputEnabled(true);
+            { std::scoped_lock lock(m_mutex); m_fullscreenFrames=e->gpu; }
+            m_fullscreenSize=(static_cast<std::uint64_t>(e->manifest.width) << 32) | e->manifest.height;
+        }
         m_input.store(e->host);
         m_interaction->started=true;
         m_bridge->Emit(e->manifest.id,"ui.interaction",nlohmann::json{{"active",true}});

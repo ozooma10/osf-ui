@@ -34,6 +34,7 @@ namespace OSFUI
 		std::uint32_t         height{ kDefaultViewHeight };
 
 		std::string texture; // Optional extension-owned material binding metadata.
+		bool fullscreen{ false }; // World-only: admits Fullscreen surface interactions.
 		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud"
 
 		// Menu-only; forced false for HUDs.

@@ -34,6 +34,7 @@
     "transparent": { "type": "boolean", "default": true },
     "kind": { "type": "string", "enum": ["menu", "hud", "world"], "default": "menu" },
     "texture": { "type": "string", "minLength": 1, "description": "World view only: generated named placeholder texture from the World Screens extension tools." },
+    "fullscreen": { "type": "boolean", "default": false, "description": "World view only: allows Fullscreen interactions (cursor + pause, the page drawn letterboxed over the game, mouse input)." },
     "capturesInput": {
       "type": "boolean",
       "default": true,
@@ -63,6 +64,9 @@
   "allOf": [{
     "if": { "required": ["launcher"], "properties": { "launcher": { "anyOf": [{ "const": true }, { "type": "object" }] } } },
     "then": { "properties": { "kind": { "const": "menu" } } }
+  }, {
+    "if": { "required": ["fullscreen"], "properties": { "fullscreen": { "const": true } } },
+    "then": { "required": ["kind"], "properties": { "kind": { "const": "world" } } }
   }, {
     "if": { "required": ["kind"], "properties": { "kind": { "const": "world" } } },
     "then": {

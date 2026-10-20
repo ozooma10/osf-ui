@@ -85,7 +85,7 @@ namespace OSFUI
     void BrowserHostClient::Resize(std::uint32_t, std::uint32_t) {}
     void BrowserHostClient::SetViewport(std::uint32_t, std::uint32_t) {}
     void BrowserHostClient::ResetPresentation() { env.preparedFrameReady = false; }
-    void BrowserHostClient::SetPointerInputEnabled(bool) {}
+    void BrowserHostClient::SetPointerInputEnabled(bool enabled) { env.pointerInput = enabled; }
     void BrowserHostClient::DrainNotifications()
     {
         auto pending = std::exchange(env.notifications, {});
@@ -115,7 +115,7 @@ namespace OSFUI
     void BrowserHostClient::SetWindowActive(bool active) { env.rendererWindowActive = active; }
     void BrowserHostClient::GameWindowChanged() {}
     void BrowserHostClient::InjectMouseMove(int, int) {}
-    void BrowserHostClient::InjectMouseButton(int, int, int, bool) {}
+    void BrowserHostClient::InjectMouseButton(int x, int y, int button, bool down) { env.mouse.push_back({x, y, button, down}); }
     void BrowserHostClient::InjectMouseWheel(int, int, int) {}
     void BrowserHostClient::InjectPhysicalMouseWheel(int, int, int) {}
     void BrowserHostClient::OpenDevTools(std::string_view) {}
@@ -131,6 +131,7 @@ namespace OSFUI
     D3D12Compositor::~D3D12Compositor() = default;
     void D3D12Compositor::Update() {}
     void D3D12Compositor::SetVisible(bool visible) { env.compositorVisible = visible; }
+    void D3D12Compositor::SetFullscreenSource(std::shared_ptr<SurfaceFrames> source) { env.compositorFullscreen = source != nullptr; }
     bool D3D12Compositor::PreparedFrameReady(std::uint32_t, std::uint32_t) const { return env.preparedFrameReady; }
 
     bool MenuEventSink::Install() { ++env.menuEventInstalls; return env.menuEventsInstall; }

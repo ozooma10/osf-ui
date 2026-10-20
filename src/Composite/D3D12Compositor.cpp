@@ -3,7 +3,9 @@
 #include "Composite/EngineD3D12.h"
 #include "Composite/UiTargetFormat.h"
 #include "Core/Log.h"
+#include "Input/AbsoluteMouseMapping.h"
 #include "Render/SharedFrameConsumer.h"
+#include "Surfaces/SurfaceFrames.h"
 #include "REL/Utility.h"
 
 #include "Composite/D3D12Prologue.h" 
@@ -141,7 +143,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 				D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
 				srvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-				srvDesc.NumDescriptors = SharedRingDesc::kMaxSlots;
+				// Overlay ring slots, then the fullscreen surface's ring slots.
+				srvDesc.NumDescriptors = SharedRingDesc::kMaxSlots * 2;
 				srvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 				if (FAILED(a_device->CreateDescriptorHeap(&srvDesc, __uuidof(ID3D12DescriptorHeap),
 						reinterpret_cast<void**>(&srvHeap)))) {
@@ -271,11 +274,25 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 
 		bool overlayDrawLogged{ false };  // guarded by sharedRing.drawMutex
 
+		// Fullscreen surface. The source is guarded by sharedRing.drawMutex; readers whose GPU
+		// reads may be outstanding are guarded by timelineMutex.
+		std::shared_ptr<SurfaceFrames> fullscreen;
+		std::atomic_bool fullscreenRequested{ false };
+		struct SurfaceSrv
+		{
+			ID3D12Resource* texture{ nullptr };
+			std::uint64_t generation{ 0 };
+		};
+		std::array<SurfaceSrv, SharedRingDesc::kMaxSlots> surfaceSrvs{};
+		std::vector<std::shared_ptr<SurfaceFrames>> surfaceReaders;
+		std::atomic_bool hasSurfaceReaders{ false };
+		bool fullscreenDrawLogged{ false }; // guarded by sharedRing.drawMutex
+
 		~Impl()
 		{
 			g_overlay.store(nullptr, std::memory_order_release);
 			PollCompletions();
-			if (frames->HasReads()) {
+			if (frames->HasReads() || !surfaceReaders.empty()) {
 				REX::ERROR("D3D12Compositor: retaining GPU resources because overlay reads have not completed");
 				return;
 			}
@@ -298,13 +315,21 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 		void PollCompletionsLocked()
 		{
 			for (auto& timeline : timelines) {
-				frames->Completed(reinterpret_cast<std::uintptr_t>(timeline.queue), timeline.fence->GetCompletedValue());
+				const auto completed = timeline.fence->GetCompletedValue();
+				frames->Completed(reinterpret_cast<std::uintptr_t>(timeline.queue), completed);
+				for (const auto& reader : surfaceReaders) {
+					reader->Consumer()->Completed(reinterpret_cast<std::uintptr_t>(timeline.queue), completed);
+				}
 			}
+			// A reader stays until its reads finish; drawing re-adds the active source.
+			std::erase_if(surfaceReaders, [](const auto& a_reader) { return !a_reader->Consumer()->HasReads(); });
+			hasSurfaceReaders.store(!surfaceReaders.empty(), std::memory_order_release);
 		}
 
 		void OnExecuted(ID3D12CommandQueue* a_queue, UINT a_count, ID3D12CommandList* const* a_lists)
 		{
-			if (!a_queue || !a_lists || !a_count || !frames->HasRecorded()) return;
+			if (!a_queue || !a_lists || !a_count) return;
+			if (!frames->HasRecorded() && !hasSurfaceReaders.load(std::memory_order_acquire)) return;
 			// Convert once so lookup and submit each take the consumer lock once per batch.
 			constexpr UINT kInlineLists = 32;
 			std::array<std::uintptr_t, kInlineLists> inlineLists;
@@ -319,7 +344,12 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			std::scoped_lock lock(timelineMutex);
 			// Also retire completed reads while the tick thread is stalled.
 			PollCompletionsLocked();
-			if (!frames->HasRecorded(lists)) return;
+			const bool overlayRead = frames->HasRecorded(lists);
+			std::vector<SharedFrameConsumer*> surfaceReads;
+			for (const auto& reader : surfaceReaders) {
+				if (reader->Consumer()->HasRecorded(lists)) surfaceReads.push_back(reader->Consumer().get());
+			}
+			if (!overlayRead && surfaceReads.empty()) return;
 			auto timeline = std::ranges::find_if(timelines, [a_queue](const QueueTimeline& a_value) { return a_value.queue == a_queue; });
 			HRESULT hr = S_OK;
 			if (timeline == timelines.end()) {
@@ -340,7 +370,9 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 				completionFailureLogged = true;
 				REX::ERROR("D3D12Compositor: GPU completion signal failed (hr=0x{:08X}); affected slots remain reserved", static_cast<std::uint32_t>(hr));
 			}
-			frames->Submitted(lists, SUCCEEDED(hr) ? reinterpret_cast<std::uintptr_t>(a_queue) : 0, value);
+			const auto queueId = SUCCEEDED(hr) ? reinterpret_cast<std::uintptr_t>(a_queue) : 0;
+			if (overlayRead) frames->Submitted(lists, queueId, value);
+			for (auto* consumer : surfaceReads) consumer->Submitted(lists, queueId, value);
 		}
 
 		static void STDMETHODCALLTYPE ExecuteCommandListsThunk(ID3D12CommandQueue* a_queue, const UINT a_count, ID3D12CommandList* const* a_lists) noexcept
@@ -458,6 +490,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			const auto desc = a_buffer->GetDesc();
 
 			std::scoped_lock ring(sharedRing.drawMutex);
+			if (fullscreen) return RecordFullscreen(a_list, a_buffer, desc);
 			if (!sharedRing.produceFence) return false;
 			const auto produced = sharedRing.produceFence->GetCompletedValue();
 			if (produced == UINT64_MAX) return false;
@@ -500,6 +533,71 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 			}
 			return true;
 		}
+
+		// sharedRing.drawMutex held. Covers the UI target with black, then draws the surface's latest
+		// frame letterboxed. Black alone until the surface has a frame, so the world never shows through.
+		[[nodiscard]] bool RecordFullscreen(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer, const D3D12_RESOURCE_DESC& a_desc)
+		{
+			const auto rtvFormat = UiTargetFormat::ResolveRtv(a_desc.Format);
+			auto* pso = draw.EnsurePipeline(engine.device, rtvFormat);
+			if (!pso) return false;
+			const auto frame = fullscreen->RecordDraw(a_list, engine.device);
+			if (frame) {
+				std::scoped_lock lock(timelineMutex);
+				if (std::ranges::find(surfaceReaders, fullscreen) == surfaceReaders.end()) surfaceReaders.push_back(fullscreen);
+				hasSurfaceReaders.store(true, std::memory_order_release);
+			}
+
+			const D3D12_CPU_DESCRIPTOR_HANDLE rtv = draw.rtvHeap->GetCPUDescriptorHandleForHeapStart();
+			D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
+			rtvDesc.Format = rtvFormat;
+			rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+			engine.device->CreateRenderTargetView(a_buffer, &rtvDesc, rtv);
+			constexpr float kBlack[4]{ 0.0f, 0.0f, 0.0f, 1.0f };
+			a_list->ClearRenderTargetView(rtv, kBlack, 0, nullptr);
+			if (!frame) return true;
+
+			const auto index = SharedRingDesc::kMaxSlots + frame->slot;
+			auto& cached = surfaceSrvs[frame->slot];
+			if (cached.texture != frame->texture || cached.generation != frame->generation) {
+				// A new ring generation is adopted only after every read of the old one completed.
+				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+				srv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+				srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+				srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				srv.Texture2D.MipLevels = 1;
+				const D3D12_CPU_DESCRIPTOR_HANDLE handle{
+					draw.srvHeap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(index) * draw.srvStride
+				};
+				engine.device->CreateShaderResourceView(frame->texture, &srv, handle);
+				cached = { frame->texture, frame->generation };
+			}
+
+			ID3D12DescriptorHeap* heaps[]{ draw.srvHeap };
+			a_list->SetDescriptorHeaps(1, heaps);
+			a_list->SetGraphicsRootSignature(draw.rootSignature);
+			const D3D12_GPU_DESCRIPTOR_HANDLE srv{
+				draw.srvHeap->GetGPUDescriptorHandleForHeapStart().ptr + static_cast<UINT64>(index) * draw.srvStride
+			};
+			a_list->SetGraphicsRootDescriptorTable(0, srv);
+
+			const auto fit = FitCentered(static_cast<float>(a_desc.Width), static_cast<float>(a_desc.Height), frame->width, frame->height);
+			const D3D12_VIEWPORT vp{ fit.x, fit.y, frame->width * fit.scale, frame->height * fit.scale, 0.0f, 1.0f };
+			const D3D12_RECT scissor{ 0, 0, static_cast<LONG>(a_desc.Width), static_cast<LONG>(a_desc.Height) };
+			a_list->RSSetViewports(1, &vp);
+			a_list->RSSetScissorRects(1, &scissor);
+			a_list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+			a_list->SetPipelineState(pso);
+			a_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			a_list->DrawInstanced(3, 1, 0, 0);
+
+			if (!fullscreenDrawLogged) {
+				fullscreenDrawLogged = true;
+				REX::INFO("D3D12Compositor: first fullscreen surface draw ({}x{} -> {}x{} {}, scale {:.3f})",
+					frame->width, frame->height, static_cast<std::uint64_t>(a_desc.Width), a_desc.Height, UiTargetFormat::Name(rtvFormat), fit.scale);
+			}
+			return true;
+		}
 	};
 
 	D3D12Compositor::D3D12Compositor(std::shared_ptr<SharedFrameConsumer> a_frames) :
@@ -512,9 +610,18 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
 	void D3D12Compositor::Update()
 	{
 		m_impl->PollCompletions();
-		if (!m_impl->frames->HasPendingRing()) return;
+		if (!m_impl->frames->HasPendingRing() && !m_impl->fullscreenRequested.load()) return;
 		m_impl->EnsureSetup();
 		if (m_impl->setupOk) m_impl->EnsureSharedRing();
+	}
+
+	void D3D12Compositor::SetFullscreenSource(std::shared_ptr<SurfaceFrames> a_source)
+	{
+		std::scoped_lock ring(m_impl->sharedRing.drawMutex);
+		if (m_impl->fullscreen == a_source) return;
+		m_impl->fullscreenRequested.store(a_source != nullptr);
+		m_impl->fullscreen = std::move(a_source);
+		REX::INFO("D3D12Compositor: fullscreen surface {}", m_impl->fullscreen ? "attached" : "detached");
 	}
 
 	bool RecordOverlayIntoRenderTarget(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_buffer)

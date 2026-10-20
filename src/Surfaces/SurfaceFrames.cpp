@@ -34,7 +34,7 @@ namespace OSFUI
             for (auto& copy : copies) {
                 if (!copy.completion) continue;
                 if (completed != UINT64_MAX && copy.completion != UINT64_MAX && copy.completion <= completed) {
-                    frames->Completed(reinterpret_cast<std::uintptr_t>(queue.Get()), copy.completion);
+                    frames->Completed(reinterpret_cast<std::uintptr_t>(fence.Get()), copy.completion);
                     ++status.completed;
                     if (copy.generation == generation && copy.output.Get() == destination && copy.destinationTag == destinationTag && !status.failed) status.ready = true;
                     copy.output.Reset();
@@ -49,8 +49,10 @@ namespace OSFUI
         {
             if (queue) return queue.Get() == value;
             if (!value || value->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT) return false;
-            if (FAILED(value->GetDevice(IID_PPV_ARGS(&device))) ||
-                FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))) return false;
+            ComPtr<ID3D12Device> queueDevice;
+            if (FAILED(value->GetDevice(IID_PPV_ARGS(&queueDevice))) || (device && device != queueDevice)) return false;
+            device = queueDevice;
+            if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))) return false;
             for (auto& copy : copies) {
                 if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&copy.allocator))) ||
                     FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, copy.allocator.Get(), nullptr, IID_PPV_ARGS(&copy.list))) ||
@@ -138,7 +140,7 @@ namespace OSFUI
                 frames->Submitted(ids, 0, 0); status.failed = true; status.ready = false;
             } else {
                 copy.completion = value;
-                frames->Submitted(ids, reinterpret_cast<std::uintptr_t>(queue.Get()), value);
+                frames->Submitted(ids, reinterpret_cast<std::uintptr_t>(fence.Get()), value);
             }
             lastFrame = frame->frameIndex; lastGeneration = generation;
             ++status.submitted;
@@ -146,9 +148,23 @@ namespace OSFUI
             return status;
         }
     };
+    std::optional<SurfaceFrames::DrawFrame> SurfaceFrames::RecordDraw(ID3D12GraphicsCommandList* list, ID3D12Device* onDevice)
+    {
+        std::scoped_lock lock(m_impl->mutex);
+        auto& impl = *m_impl;
+        if (!list || !onDevice || impl.status.failed || (impl.device && impl.device.Get() != onDevice)) return std::nullopt;
+        if (!impl.device) impl.device = onDevice;
+        if (!impl.Adopt()) return std::nullopt;
+        const auto produced = impl.producer->GetCompletedValue();
+        if (produced == UINT64_MAX) return std::nullopt;
+        const auto frame = impl.frames->Record(reinterpret_cast<std::uintptr_t>(list), impl.generation, produced);
+        if (!frame || frame->sharedSlot >= impl.ring.size() || !impl.ring[frame->sharedSlot]) return std::nullopt;
+        return DrawFrame{ impl.ring[frame->sharedSlot].Get(), impl.generation, frame->sharedSlot, frame->width, frame->height };
+    }
+    const std::shared_ptr<SharedFrameConsumer>& SurfaceFrames::Consumer() const { return m_impl->frames; }
     SurfaceFrames::SurfaceFrames(std::shared_ptr<SharedFrameConsumer> frames) : m_impl(std::make_unique<Impl>()) { m_impl->frames = std::move(frames); }
     SurfaceFrames::~SurfaceFrames() { if (!Idle()) (void)m_impl.release(); } // uncertain GPU completion pins resources until process exit
     API::Surfaces::FrameStatus SurfaceFrames::Copy(ID3D12Resource* output, std::uint64_t tag, ID3D12CommandQueue* queue) { std::scoped_lock lock(m_impl->mutex); return m_impl->CopyTo(output, tag, queue); }
-    bool SurfaceFrames::Idle() { std::scoped_lock lock(m_impl->mutex); m_impl->Poll(); return m_impl->status.idle; }
+    bool SurfaceFrames::Idle() { std::scoped_lock lock(m_impl->mutex); m_impl->Poll(); return m_impl->status.idle && !m_impl->frames->HasReads(); }
     bool SurfaceFrames::Ready() { std::scoped_lock lock(m_impl->mutex); m_impl->Poll(); return m_impl->status.ready; }
 }

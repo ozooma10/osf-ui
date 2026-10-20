@@ -40,7 +40,7 @@ namespace OSFUI
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry", "launcher",
-					"width", "height", "transparent", "kind", "texture",
+					"width", "height", "transparent", "kind", "texture", "fullscreen",
 					"capturesInput", "pausesGame", "openOnStart", "order" },
 				"ViewManifest: [content] " + Utf8Path(a_path), /*a_warn=*/false);
 		}
@@ -72,6 +72,11 @@ namespace OSFUI
             REX::ERROR("ViewManifest: '{}' world views require a texture and dimensions at most 4096", manifest.id);
             return std::nullopt;
         }
+		manifest.fullscreen = Json::Get(*json, "fullscreen", false);
+		if (manifest.fullscreen && manifest.kind != ViewKind::Surface) {
+			REX::ERROR("ViewManifest: [content] {} fullscreen applies only to world views", Utf8Path(a_path));
+			return std::nullopt;
+		}
 		manifest.capturesInput = Json::Get(*json, "capturesInput", manifest.capturesInput);
 		manifest.pausesGame = Json::Get(*json, "pausesGame", manifest.pausesGame);
 		manifest.openOnStart = Json::Get(*json, "openOnStart", manifest.openOnStart);

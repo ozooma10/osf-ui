@@ -4,11 +4,13 @@
 
 namespace OSFUI::API::WorldScreens
 {
-    inline constexpr std::uint32_t kVersion = 0x00010000;
+    inline constexpr std::uint32_t kVersion = 0x00010001;
     using Binding = std::uint32_t;
     using Interaction = Surfaces::Interaction;
     using Phase = Surfaces::Phase;
     using Callback = Surfaces::InteractionCallback;
+    using Presentation = Surfaces::Presentation;
+    using InteractionOptions = Surfaces::InteractionOptions;
     struct IScreens
     {
         virtual bool IsReady() noexcept = 0;
@@ -21,6 +23,8 @@ namespace OSFUI::API::WorldScreens
         // The content mod owns activation distance/combat policy and gameplay state.
         virtual Interaction BeginInteraction(Binding, Callback, void*) noexcept = 0;
         virtual bool EndInteraction(Interaction) noexcept = 0;
+        // 1.1. Fullscreen also requires the view's manifest to set "fullscreen": true.
+        virtual Interaction BeginInteractionWith(Binding, const InteractionOptions&, Callback, void*) noexcept = 0;
     protected:
         ~IScreens() = default;
     };
@@ -41,6 +45,7 @@ namespace OSFUI::API::WorldScreens
         bool Unbind(Binding token) const noexcept { return api && api->Unbind(token); }
         bool IsBound(Binding token) const noexcept { return api && api->IsBound(token); }
         Interaction BeginInteraction(Binding token,Callback fn,void* context) const noexcept { return api ? api->BeginInteraction(token,fn,context) : 0; }
+        Interaction BeginInteraction(Binding token,const InteractionOptions& options,Callback fn,void* context) const noexcept { return api ? api->BeginInteractionWith(token,options,fn,context) : 0; }
         bool EndInteraction(Interaction token) const noexcept { return api && api->EndInteraction(token); }
     private:
         IScreens* api{};

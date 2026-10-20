@@ -23,6 +23,14 @@ namespace
 
 int main()
 {
+	const auto pillarbox = OSFUI::FitCentered(3440.0f, 1440.0f, 1920, 1080);
+	Check(Near(pillarbox.scale, 1440.0f / 1080.0f) && Near(pillarbox.x, 440.0f) && Near(pillarbox.y, 0.0f),
+		"a 16:9 surface fills the height of an ultrawide output, centered");
+	const auto letterbox = OSFUI::FitCentered(1920.0f, 1200.0f, 1920, 1080);
+	Check(Near(letterbox.scale, 1.0f) && Near(letterbox.x, 0.0f) && Near(letterbox.y, 60.0f),
+		"a 16:9 surface on 16:10 gets equal bars above and below");
+	Check(OSFUI::FitCentered(0.0f, 1080.0f, 1920, 1080).scale == 0.0f, "an empty output has no placement");
+
 	auto mapped = OSFUI::MapAbsoluteMouseToView(440, 720, 3440, 1440, 2560, 1440);
 	Check(mapped.inside && Near(mapped.x, 0.0f) && Near(mapped.y, 720.0f),
 		"the left edge of a centered 16:9 target maps to view x=0");

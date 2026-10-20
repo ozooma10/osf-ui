@@ -44,7 +44,10 @@ int main()
 	const auto path = root / "demo.mod" / "terminal" / "manifest.json";
 
 	auto world = OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"},{"texture","textures/osfui/feeds/test.dds"}});
-    CHECK(world && world->kind == OSFUI::ViewKind::Surface && !world->capturesInput && !world->pausesGame);
+    CHECK(world && world->kind == OSFUI::ViewKind::Surface && !world->capturesInput && !world->pausesGame && !world->fullscreen);
+    auto fullscreen = OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"},{"texture","x"},{"fullscreen",true}});
+    CHECK(fullscreen && fullscreen->fullscreen);
+    CHECK(!OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"fullscreen",true}}));
     CHECK(!OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"}}));
     CHECK(!OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"},{"texture","x"},{"width",4097}}));
     CHECK(!OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"},{"texture","x"},{"launcher",true}}));

@@ -171,6 +171,7 @@ namespace OSFUI
 			return false;
 		}
 		SurfaceService::Get().Initialize(*m_bridge, m_developerMode, [this] { return m_osfSettings.Language(); });
+		SurfaceService::Get().SetCursorHandler([](std::uint32_t a_id) { HardwareCursor::SetSystemCursorId(a_id); });
 		WireRendererLifecycleCallbacks();
 		InitializeCompositor();
 		m_renderer->SetWebMessageHandler([this](std::string_view a_viewId, std::string_view a_json) {

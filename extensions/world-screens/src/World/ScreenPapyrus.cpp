@@ -1,6 +1,8 @@
 #include "World/ScreenPapyrus.h"
 #include "World/ScreenBindings.h"
 #include "World/ScreenBindingRuntime.h"
+#include "Extension.h"
+#include "OSFUI_WorldScreens.h"
 #include "Core/StringUtil.h"
 #include "RE/B/BSScriptUtil.h"
 #include "Composite/D3D12Prologue.h"
@@ -29,14 +31,28 @@ namespace OSFUI::ScreenPapyrus
 			const auto token=ScreenBindings::Bind(reference->GetFormID(),view.c_str());
 			return token ? RE::BSFixedString((ScreenEpoch()+std::to_string(token)).c_str()) : RE::BSFixedString{};
 		}
-		bool UnbindScreen(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString handle)
+		std::uint32_t ParseHandle(const RE::BSFixedString& handle)
 		{
 			const auto text=ToLowerAscii(handle.c_str());
-			if (ScreenEpoch().empty() || !text.starts_with(ScreenEpoch())) return false;
+			if (ScreenEpoch().empty() || !text.starts_with(ScreenEpoch())) return 0;
 			std::uint32_t token{};
 			const auto first=text.data()+ScreenEpoch().size(), last=text.data()+text.size();
 			const auto parsed=std::from_chars(first,last,token);
-			return parsed.ec==std::errc{} && parsed.ptr==last && ScreenBindings::Unbind(token);
+			return parsed.ec==std::errc{} && parsed.ptr==last ? token : 0;
+		}
+		bool UnbindScreen(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString handle)
+		{
+			const auto token=ParseHandle(handle);
+			return token && ScreenBindings::Unbind(token);
+		}
+		void OnFullscreenInteraction(std::uint64_t, API::Surfaces::Phase phase, const char* reason, void*) noexcept
+		{
+			if (phase==API::Surfaces::Phase::Rejected) REX::INFO("World Screens: fullscreen request rejected ({})", reason ? reason : "");
+		}
+		bool OpenFullscreen(PapVM&, std::uint32_t, std::monostate, RE::BSFixedString handle)
+		{
+			const auto token=ParseHandle(handle);
+			return token && Extension::Screens().BeginInteractionWith(token,{.presentation=API::Surfaces::Presentation::Fullscreen},OnFullscreenInteraction,nullptr)!=0;
 		}
 
     }
@@ -44,5 +60,6 @@ namespace OSFUI::ScreenPapyrus
     {
         vm.BindNativeMethod("OSFUIWorldScreens", "BindScreen", &BindScreen, true, false);
         vm.BindNativeMethod("OSFUIWorldScreens", "UnbindScreen", &UnbindScreen, true, false);
+        vm.BindNativeMethod("OSFUIWorldScreens", "OpenFullscreen", &OpenFullscreen, true, false);
     }
 }
