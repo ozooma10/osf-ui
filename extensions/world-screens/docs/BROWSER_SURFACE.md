@@ -10,13 +10,15 @@ Watch/close passed a basic in-game check; broader browser-runtime acceptance is 
 Steps 4–5 are committed as `c06f8f14`; step 6 as `cddb291a`. Browsing defaults off.
 Remote mode can launch only when the OSF Settings consent toggle was enabled at game
 startup. Step 7 is implemented as the separate Papyrus-only OSF Browser TV content mod;
-Watch opens its browser and playback continues after Esc on WebView2; crafting,
-save/load and the remaining lifecycle cases still need in-game acceptance.
+Watch opens its browser and playback continues after Esc on WebView2. CEF camera
+audio, multiple TVs, save/load rebinding and cell-unload retirement have passed
+direct-command acceptance; crafting and the other browser cases remain pending.
 Applies to the unreleased Surfaces ABI and World Screens 0.1.0.
 
-CEF spatial audio is now implemented in the ordinary host (Surfaces ABI 1.2 /
-private browser protocol 8). Build/native verification and fresh game acceptance
-are recorded below; the earlier compile-time prototype is historical.
+CEF spatial audio is implemented, tested and deployed in the ordinary host
+(Surfaces ABI 1.2 / private browser protocol 8). Build/native verification and
+fresh game acceptance are recorded below; the earlier compile-time prototype is
+historical. The normal MO2 installation now uses the CEF edition.
 
 ## Goal
 
@@ -709,7 +711,8 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
   immediately. Browser mute and the game's master-volume setting apply.
 - The CEF callback copies into four fixed 10 ms blocks; four submitted buffers
   bound output latency. Overflow drops the oldest pending packet. Stream changes
-  destroy the previous voice before reusing buffers. XAudio2's default virtual
+  destroy the previous voice before reusing buffers. Audio devices initialize
+  when the reserved views are created, before the first PCM packet. XAudio2's default virtual
   device follows endpoint changes, with a one-second rebuild retry after critical
   errors. Callback/storage destruction is ordered. Host shutdown silences first.
 - Developer-mode `browser.getState().audio` exposes capture counters, errors and
@@ -717,10 +720,56 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
   audio evidence files and recognizes no prototype pose/output event.
 - This is positional playback through XAudio2, with no Wwise room acoustics,
   occlusion or Doppler. It does not create independent browsing sessions per TV.
-  Fresh in-game camera, multiple-TV and lifecycle acceptance is pending.
+  Hardware endpoint removal/switching recovery is implemented but has not been
+  exercised in game. The acceptance below covers the installed eight-channel
+  endpoint and its Windows stereo downmix.
 
 The output-device behavior follows
 [XAudio2 critical-error recovery](https://learn.microsoft.com/en-us/windows/win32/api/xaudio2/nf-xaudio2-ixaudio2enginecallback-oncriticalerror).
+
+### CEF production audio acceptance — 2026-10-20
+
+- Implementation commits: `e495ce2e` (camera, binding lifecycle and multiple TVs)
+  and `43ac0790` (prepare audio devices before first playback). CEF core/host,
+  World Screens and WebView2 host builds pass. All **34 native suites** pass,
+  including 47 audio validation/mixing/deadline checks and 82 enabled / 40 disabled
+  browser lifecycle checks. The existing symlink-permission skip remains.
+- The full direct-command run records **34 passing runtime checks** in
+  `build/cef-spatial-game/runs/20261020-163213-597-cef-spatial/audio-results.json`.
+  Free camera retained the listener position while the player moved 10 m.
+  Panning followed the camera's actual orientation, including its orientation
+  differing from the player's after leaving free camera.
+- Two real TV references contributed separate positions to one browser stream.
+  Moving a TV updated its emitter. Disabling one left the other playing; disabling
+  both silenced output while raw PCM continued. Re-enabling before cache retirement
+  restored both without restarting that stream. Out-of-range and browser-mute
+  measurements were also silent, with no leaked original Chromium output.
+- The measured distance attenuation was **16.89 dB** in the tested near/far
+  positions. With free camera holding the listening geometry fixed, changing the
+  private session's master volume from 0.7 to 0.35 produced **0.500017×** RMS;
+  restoring 0.7 restored output. No steady-playback packet drops were observed.
+- An unmodified public WebM video remained audible through Watch and at least
+  five seconds after close, preserving stream generation and trusted document.
+  Native camera updates stayed fresh while fullscreen paused the game. Commands
+  used `browser.close`; no physical Esc key, computer use, focus transfer or input
+  injection was used.
+- Save/load renewed both bindings and positional audio worked after restarting
+  the fixture tone in the recreated browser. The first test incorrectly expected
+  that fixture tone to survive browser recreation; its failed observation is
+  retained, followed by `save-load-audio-confirmed.json`. Cell detachment retired
+  the old browser/audio host in **6.658 seconds**.
+- The first run exposed 15–16 dropped packets during device activation.
+  `43ac0790` prepares the devices before playback. A fresh run of that final build,
+  `build/cef-spatial-game/runs/20261020-164854-106-cef-spatial/`, records **10 passing
+  final checks**, zero dropped packets for both the first tone and remote content,
+  and two-TV Watch/close continuity. Its native WGC capture shows both TVs mirroring
+  the video; both owned games exited normally and MO2 was restored to Default.
+- The normal MO2 core, extension, CEF host and chrome hashes match the tested
+  staged payload. All **240 CEF runtime files** match the runtime manifest.
+  Evidence: `build/cef-spatial-deployment.json`, the final run's `deployment.json`,
+  `build/cef-spatial-{core-build,native,deploy}.log`. Browsing consent was changed
+  only in private test values, and no test DLL or tone fixture was installed into
+  the normal mod folders.
 
 ## Open decisions
 

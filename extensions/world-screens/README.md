@@ -20,8 +20,8 @@ Browsing defaults off: enable **Allow web browsing on World Screens** in
 **Mods → OSF UI**, then restart Starfield. Turning it off also takes effect on the next
 launch. Websites store cookies and sign-ins in the OSF UI profile folder.
 [OSF Browser TV](../browser-tv/README.md) supplies a separate Papyrus-only craftable
-wall TV; build it with `pwsh tools/build-browser-tv.ps1 -Deploy`. The new TV and
-browser in-game acceptance remain pending. Status:
+wall TV; build it with `pwsh tools/build-browser-tv.ps1 -Deploy`. Watch/playback
+and CEF positional audio/lifecycle checks pass; broader acceptance remains in:
 [Browser surface design](docs/BROWSER_SURFACE.md).
 
 CEF plays browser audio from loaded TVs, using the world camera as the listener.
