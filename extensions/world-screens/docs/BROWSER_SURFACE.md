@@ -5,9 +5,10 @@ implemented and covered by native tests. The WebView2 fullscreen draw, letterbox
 clicks/cursors and audio continuing after Esc passed an in-game check on 2026-10-20;
 CEF and the remaining acceptance cases below are still pending.
 Steps 4–6 are implemented for WebView2 and CEF; browser-runtime acceptance is pending.
-Steps 4–5 are committed as `c06f8f14`; step 6 is included in the consent commit. Browsing defaults off.
+Steps 4–5 are committed as `c06f8f14`; step 6 as `cddb291a`. Browsing defaults off.
 Remote mode can launch only when the OSF Settings consent toggle was enabled at game
-startup. Step 7 (the TV content mod) is not implemented.
+startup. Step 7 is implemented as the separate Papyrus-only OSF Browser TV content mod;
+its crafting, lifecycle and browser behavior still need in-game acceptance.
 Applies to the unreleased Surfaces ABI and World Screens 0.1.0.
 
 ## Goal
@@ -355,31 +356,32 @@ is required to stop existing web playback and enforce a newly disabled value.
 
 ## TV mod (landmark consumer)
 
-A Papyrus-and-content mod with no DLL:
+[OSF Browser TV](../../browser-tv/README.md) is a separate Papyrus-and-content mod
+with no DLL, implemented under `extensions/browser-tv`.
 
-- **Assets.** A craftable TV ACTI using DisplayScreen5. Reuse Starcade's craftable-TV
-  pipeline and `tools/world_content.py`. Optionally, a few placed TVs in the Lodge and player homes.
-- **Catalog.** `SFSE/Plugins/OSF/WorldScreens/screens/<mod>.json` registers the ACTI base.
-- **Script** on the ACTI:
-
-  ```papyrus
-  String handle
-  Event OnLoad()
-      handle = OSFUIWorldScreens.BindScreen(Self, "osfui.browser/tv")
-  EndEvent
-  Event OnUnload()
-      OSFUIWorldScreens.UnbindScreen(handle)
-      handle = ""
-  EndEvent
-  Event OnActivate(ObjectReference akActionRef)
-      If akActionRef == Game.GetPlayer() && handle != ""
-          OSFUIWorldScreens.OpenFullscreen(handle)
-      EndIf
-  EndEvent
-  ```
-
-  Rebind after a game load and after workshop moves (both are covered by `OnLoad` and the existing
-  load-rebind guidance). Activation text: "Watch".
+- **Plugin.** `OSFBrowserTV.esm` is a full ESM with only `Starfield.esm` as a master.
+  Local `800` is the DisplayScreen5 ACTI, `801` its Decorations recipe, and `802`
+  the "Watch" activation text message. It adds no placed references or vanilla overrides.
+- **Assets and crafting.** The builder uses `tools/world_content.py` and the same
+  vanilla ACTI, wall mounting data and recipe sources as Starcade's craftable TV.
+  It creates **Browser TV** under Decorations, costing 4 Aluminum, 2 Zero Wire and
+  2 Beryllium. Vanilla models are referenced, not copied into the package.
+- **Catalog.** `SFSE/Plugins/OSF/WorldScreens/screens/osf.browser-tv.json` registers
+  local ACTI `800` with profile `display-screen5`.
+- **Script.** `OSFBrowserTV.psc` binds `osfui.browser/tv` on initialization, load/cell
+  attach, player save load and workshop placement/movement. It retries initialization
+  for up to ten seconds; activation can retry after that. Repeated binding is
+  idempotent and does not retire an existing browser. Handles are reacquired after
+  load, never trusted because a saved string is nonempty. Unload, cell detach and
+  workshop removal cancel timers, unregister the player event and release the handle.
+  Guards serialize binding changes and prevent overlapping activation requests.
+- **Activation.** Player activation requests `OSFUIWorldScreens.OpenFullscreen`.
+  An immediate failure displays a short "try again" notification; it does not
+  schedule a later automatic open. The extension still owns asynchronous admission.
+- **Build.** `pwsh tools/build-browser-tv.ps1` compiles Papyrus and generates the
+  plugin/catalog in a fresh `build/browser-tv` staging directory. It validates the
+  actual payload against the vanilla inputs. `-Deploy` copies its seven owned files
+  into `XSE_SF_MODS_PATH/OSF Browser TV` and verifies hashes, without changing profiles.
 - **Idle state.** Before the player has browsed, the content view stays on
   `about:blank` and the chrome view expands to full bounds as a "channel guide" landing page. The
   content view never loads `osfui.example`, so the landing page belongs to the chrome view. A
@@ -436,7 +438,9 @@ A Papyrus-and-content mod with no DLL:
    Default-off `allowWebBrowsing`, explicitly requiring restart, is read through
    `OSFSettingsClient` and wired into reserved browser host creation. Disabled chrome
    points to Mods → OSF UI and explains the restart. A failed read stays offline.
-7. **TV mod.**
+7. **TV mod** (implemented; in-game acceptance pending). Separate OSF Browser TV
+   full ESM, Papyrus script, catalog and build/deploy helper. No new DLL, framework
+   copies or placed-reference overrides. See the consumer and verification sections.
 
 Steps 1–3 also give plain surfaces (e.g. Starcade) an optional mouse-driven fullscreen
 mode, and can ship before any remote content exists.
@@ -545,8 +549,8 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
   editions, Ctrl+L/F6, page-fullscreen Esc, content DevTools, actual website playback
   across close/reopen, preference/profile clearing and persistence. The step 4
   network/file-picker/print limitations above remain open. CEF audibility is
-  explicitly unknown; native mute is implemented. Step 6 remains the gate before
-  any production remote host can launch.
+  explicitly unknown; native mute is implemented. Step 6's startup consent gates
+  production remote host creation.
 
 ### Step 6 build/native verification — 2026-10-20
 
@@ -565,6 +569,28 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
 - Evidence: `build/browser-consent-{core-build,extension-build,native}.log` and
   `build/browser-consent-deployment.json`. Settings UI/in-game acceptance remains
   pending; no game or browser harness was launched for this step.
+
+### Step 7 build/native verification — 2026-10-20
+
+- `OSFBrowserTV.psc` compiles with the CK Papyrus compiler. Five content checks
+  pass against the generated full ESM and installed vanilla inputs: record/master
+  scope, model/bounds/mounting, VMAD property resolution to the Watch message,
+  recipe cost/category/result, and catalog/payload ownership.
+- All **33 native suites** pass, including browser consent and fullscreen lifecycle
+  coverage. The existing CEF symlink-escape case remains skipped because Windows
+  denied symlink creation.
+- Core and World Screens build successfully and are deployed through XMake,
+  including the explicit extension install. The deployed edition remains WebView2.
+- The TV's seven payload files are deployed into `MO2/mods/OSF Browser TV`.
+  Their SHA-256 hashes and the three framework binary hashes match the build
+  outputs. Mod/profile enablement was not changed.
+- Evidence: `build/browser-tv-{build,core-build,extension-build,native}.log`;
+  `build/browser-tv/latest-build.json` points to the content build and payload hashes;
+  `build/browser-tv-framework-deployment.json` records the framework binary hashes.
+- **Still unverified in game:** new TV discovery in both workshop menus, resource
+  consumption, wall placement/movement/removal, Watch activation, save/load,
+  mirroring and playback after closing. The remaining browser acceptance above
+  also applies. No game or browser harness was launched for this step.
 
 ## Open decisions
 

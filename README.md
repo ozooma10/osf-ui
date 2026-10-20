@@ -32,6 +32,10 @@ in-world displays in a separate DLL and package. It shares this repository and u
 core's browser and input services. The extension is an unpublished development build;
 it requires the matching core source revision. Ordinary core installs do not include it.
 
+[OSF Browser TV](extensions/browser-tv/README.md) is its Papyrus-only craftable
+browser TV consumer. It builds separately with `pwsh tools/build-browser-tv.ps1`;
+web browsing requires the default-off consent setting and a game restart.
+
 ## Build and test
 
 Use XMake, an MSVC compiler with C++23 support. 
