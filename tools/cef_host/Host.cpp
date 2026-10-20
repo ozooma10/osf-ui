@@ -36,6 +36,10 @@
 #include "BrowserPipe.h"
 #include "Win32Util.h"
 #include "LanguageTag.h"
+#ifdef OSFUI_CEF_AUDIO_PROBE
+#include "include/cef_audio_handler.h"
+#include "../profiling/cef-audio/AudioProbe.h"
+#endif
 
 namespace osfui::cefhost
 {
@@ -172,6 +176,9 @@ namespace osfui::cefhost
         public CefLoadHandler, public CefRequestHandler, public CefResourceRequestHandler,
         public CefDisplayHandler, public CefContextMenuHandler, public CefJSDialogHandler,
         public CefDialogHandler, public CefDownloadHandler, public CefPermissionHandler
+#ifdef OSFUI_CEF_AUDIO_PROBE
+        , public CefAudioHandler
+#endif
     {
     public:
         View(Host& owner, const msg::Navigate& nav, std::filesystem::path root);
@@ -207,6 +214,20 @@ namespace osfui::cefhost
         void ReleaseInput();
         void Reveal();
         void Deliver(std::string payload);
+#ifdef OSFUI_CEF_AUDIO_PROBE
+        std::unique_ptr<probe::Audio> audio;
+        CefRefPtr<CefAudioHandler> GetAudioHandler() override { return audio ? this : nullptr; }
+        bool GetAudioParameters(CefRefPtr<CefBrowser>, CefAudioParameters& p) override {
+            p.channel_layout = CEF_CHANNEL_LAYOUT_STEREO; p.sample_rate = 48000; p.frames_per_buffer = 480;
+            return audio != nullptr;
+        }
+        void OnAudioStreamStarted(CefRefPtr<CefBrowser>, const CefAudioParameters& p, int channels) override {
+            audio->Start(p.sample_rate, channels);
+        }
+        void OnAudioStreamPacket(CefRefPtr<CefBrowser>, const float** data, int frames, int64_t) override { audio->Packet(data, frames); }
+        void OnAudioStreamStopped(CefRefPtr<CefBrowser>) override { audio->Stop(); }
+        void OnAudioStreamError(CefRefPtr<CefBrowser>, const CefString& error) override { audio->Error(error.ToString()); }
+#endif
         CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
         CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
         CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
@@ -293,6 +314,9 @@ namespace osfui::cefhost
         std::string inputTarget;
         std::string pointerTarget;
         std::optional<msg::BrowserLayout> browserLayout;
+#ifdef OSFUI_CEF_AUDIO_PROBE
+        std::shared_ptr<probe::Scene> audioScene = std::make_shared<probe::Scene>();
+#endif
         browser::BrowserPointerRouter browserPointer;
         UINT width{ 1 }, height{ 1 }, viewportWidth{ 1 }, viewportHeight{ 1 };
         HWND gameWindow{};
@@ -423,6 +447,24 @@ namespace osfui::cefhost
             disconnected.store(true);
             QueueMessages();
         }
+        void StartBrowser()
+        {
+            if (stopping) return;
+            const auto start = [this] {
+                Post([this] { if (!stopping) reader = std::thread([this] { Reader(); }); });
+            };
+            if (!init.remoteMode) { start(); return; }
+            CefRequestContextSettings settings;
+            CefString(&settings.cache_path) =
+                (std::filesystem::path(ToWide(init.userDataDir)) / "Content").wstring();
+            // CreateContext is asynchronous. Keep the ordered pipe messages
+            // queued until the isolated context and its preferences are ready.
+            remoteContext = CefRequestContext::CreateContext(settings, new RemoteContext(
+                [this](std::string error) { Post([this, error = std::move(error)] {
+                    Fatal("cef-content-policy", E_ACCESSDENIED, error);
+                }); }, start));
+            if (!remoteContext) Fatal("cef-content-policy", E_FAIL, "Cannot create remote request context");
+        }
         void Navigate(const msg::Navigate& nav)
         {
             if (!OSFUI::Ids::IsValidQualifiedViewId(nav.id)) { Fatal("cef-navigation", E_INVALIDARG, "Invalid view ID"); return; }
@@ -459,20 +501,11 @@ namespace osfui::cefhost
             auto extra = CefDictionaryValue::Create();
             extra->SetString("view", nav.id); extra->SetBool("legacy", nav.legacy);
             extra->SetBool("remoteContent", nav.remoteContent);
-            if (nav.remoteContent && !remoteContext) {
-                CefRequestContextSettings contextSettings;
-                CefString(&contextSettings.cache_path) =
-                    (std::filesystem::path(ToWide(init.userDataDir)) / "Content").wstring();
-                remoteContext = CefRequestContext::CreateContext(contextSettings, new RemoteContext(
-                    [this](std::string error) { Post([this, error = std::move(error)] {
-                        Fatal("cef-content-policy", E_ACCESSDENIED, error);
-                    }); }));
-                if (!remoteContext) { Fatal("cef-content-policy", E_FAIL, "Cannot create remote request context"); return; }
-            }
+            if (nav.remoteContent && !remoteContext) { Fatal("cef-content-policy", E_FAIL, "Remote context is unavailable"); return; }
             views.emplace(nav.id, view);
             auto browser = CefBrowserHost::CreateBrowserSync(window, view, url, settings, extra,
                 nav.remoteContent ? remoteContext : nullptr);
-            if (!browser) { views.erase(nav.id); Fatal("cef-browser", E_FAIL, "CEF browser creation failed"); return; }
+            if (!browser) { views.erase(nav.id); Fatal("cef-browser", E_FAIL, "CEF browser creation failed: " + nav.id); return; }
             // Hidden documents may load and receive bridge messages without
             // allocating/copying full-size paint surfaces until they are shown.
             browser->GetHost()->WasHidden(true);
@@ -755,7 +788,13 @@ namespace osfui::cefhost
 
     View::View(Host& host, const msg::Navigate& nav, std::filesystem::path assets) :
         owner(host), id(nav.id), root(std::move(assets)), legacy(nav.legacy), remoteContent(nav.remoteContent),
-        logicalHeight((std::max)(1u, nav.logicalHeight)) {}
+        logicalHeight((std::max)(1u, nav.logicalHeight)) {
+#ifdef OSFUI_CEF_AUDIO_PROBE
+        if (host.init.remoteMode && (id == browser::kBrowserContent || id == browser::kBrowserView))
+            audio = std::make_unique<probe::Audio>(host.audioScene,
+                std::filesystem::path(ToWide(host.init.userDataDir)) / ("audio-probe-" + std::string(ViewName(id)) + ".json"));
+#endif
+    }
     double View::Scale() const { return static_cast<double>(owner.viewportHeight) / logicalHeight; }
     bool View::Trusted(const CefString& url) const
     { return !remoteContent && browser::IsTrustedViewDocumentUri(url.ToWString(), browser::kViewHost,
@@ -862,6 +901,23 @@ namespace osfui::cefhost
     void View::Deliver(std::string payload)
     {
         if (remoteContent) return;
+#ifdef OSFUI_CEF_AUDIO_PROBE
+        // Test-only native->host event. Remote pages have no bridge and cannot
+        // reach this path. The shipping host does not recognize this event.
+        if (id == browser::kBrowserView) {
+            const auto event = Json::Parse(payload);
+            if (event && event->value("kind","") == "event" && event->value("name","") == "osfui.browser.cef-audio-pose") {
+                const auto& value = event->at("payload");
+                owner.audioScene->Update(value.is_object() ? value.value("args",json::array()) : value);
+                return;
+            }
+            if (event && event->value("kind","") == "event" && event->value("name","") == "cef-audio-output") {
+                std::lock_guard lock(owner.audioScene->mutex);
+                owner.audioScene->enabled = event->at("payload").value("enabled",false);
+                return;
+            }
+        }
+#endif
         if (!loaded || !browser) {
             if (!pendingWeb.Push(std::move(payload)) && !std::exchange(pendingOverflowWarned, true))
                 owner.Log("view '" + id + "': pending web messages exceeded the 64-message/8-MiB cap; dropping oldest");
@@ -1065,7 +1121,9 @@ namespace osfui::cefhost
                 { "args", json::array({ json{ { "type", "string" }, { "value", message.ToString() } } }) } }) }));
         return true;
     }
-    void Application::OnContextInitialized() { if (host) host->Post([value = host] { value->Maintenance(); }); }
+    void Application::OnContextInitialized() {
+        if (host) host->Post([value = host] { value->Maintenance(); value->StartBrowser(); });
+    }
 
     int Run(HINSTANCE instance, void* sandbox)
     {
@@ -1135,7 +1193,6 @@ namespace osfui::cefhost
         catch (const std::exception& error) { host.Fatal("cef-timer", E_FAIL, error.what()); }
         host.Log("CEF " CEF_VERSION "; accelerated off-screen rendering; sandbox enabled; shared host protocol " +
             std::to_string(browser::kBrowserHostProtocolVersion) + "; event-driven messages; coalesced 60 Hz output");
-        host.reader = std::thread([&host] { host.Reader(); });
         CefRunMessageLoop();
         host.tasksAlive->store(false);
         host.frameTimer.Stop();

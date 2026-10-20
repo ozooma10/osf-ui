@@ -90,6 +90,12 @@ Exit 0 means capture survived suppression (plus tone isolation when requested);
 exit 2 means the measurement completed and rejected that hypothesis; exit 1 is an
 infrastructure/argument error. See `restored` and `finalSessions` in the report.
 
+The separate `--cef-meter` mode is read-only and accepts an owned
+`osfui_cef_host.exe`. It measures left/right RMS and endpoint output without
+enumerating or muting audio sessions. Exit 0 in this mode means measurement
+completed, not that a feasibility assertion passed. See the
+[CEF positional prototype](../cef-audio/README.md).
+
 ## Implication
 
 Do not wire this mute-and-loopback path into production spatial audio: it would

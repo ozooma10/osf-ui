@@ -27,6 +27,12 @@ target_include_directories(osfui_cef_host PRIVATE "${CEF_ROOT}" "${JSON_INCLUDE}
   "${REPO}/src" "${REPO}/tools/browser_shared" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(osfui_cef_host PRIVATE libcef_dll_wrapper "${CEF_ROOT}/Release/libcef.lib"
   ${CEF_STANDARD_LIBS} d3d11 dxgi d3dcompiler user32 shell32 ole32 oleaut32 uuid advapi32 taskschd comsuppw)
+option(OSFUI_CEF_AUDIO_PROBE "Private raw PCM / X3DAudio experiment; not for packaging" OFF)
+if(OSFUI_CEF_AUDIO_PROBE)
+  target_sources(osfui_cef_host PRIVATE "${REPO}/tools/profiling/cef-audio/AudioProbe.cpp")
+  target_compile_definitions(osfui_cef_host PRIVATE OSFUI_CEF_AUDIO_PROBE=1)
+  target_link_libraries(osfui_cef_host PRIVATE xaudio2)
+endif()
 
 # Embed the scripts so the helper and bridge are always one matched payload.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/bridge.js" BRIDGE_SCRIPT)

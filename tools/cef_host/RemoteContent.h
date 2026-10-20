@@ -36,7 +36,8 @@ namespace osfui::cefhost
     class RemoteContext final : public CefRequestContextHandler
     {
     public:
-        explicit RemoteContext(std::function<void(std::string)> fail) : fail_(std::move(fail)) {}
+        RemoteContext(std::function<void(std::string)> fail, std::function<void()> ready) :
+            fail_(std::move(fail)), initialized_(std::move(ready)) {}
         void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override
         {
             auto disabled = CefValue::Create();
@@ -50,6 +51,7 @@ namespace osfui::cefhost
                 }
             }
             ready_->store(true);
+            initialized_();
         }
         CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
             CefRefPtr<CefRequest> request, bool, bool, const CefString&, bool& disableDefault) override
@@ -59,6 +61,7 @@ namespace osfui::cefhost
         }
     private:
         const std::function<void(std::string)> fail_;
+        const std::function<void()> initialized_;
         const std::shared_ptr<std::atomic_bool> ready_ = std::make_shared<std::atomic_bool>(false);
         IMPLEMENT_REFCOUNTING(RemoteContext);
     };

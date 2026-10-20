@@ -3,7 +3,8 @@
 Status: 2026-10-20. Steps 1–3 (ABI 1.1, fullscreen presentation, pointer routing) are
 implemented and covered by native tests. The WebView2 fullscreen draw, letterbox,
 clicks/cursors and audio continuing after Esc passed an in-game check on 2026-10-20;
-CEF and the remaining acceptance cases below are still pending.
+CEF Watch/close and WebM playback also passed the private audio-prototype run below;
+the remaining acceptance cases are still pending.
 Steps 4–6 are implemented for WebView2 and CEF. WebView2 public video playback and
 Watch/close passed a basic in-game check; broader browser-runtime acceptance is pending.
 Steps 4–5 are committed as `c06f8f14`; step 6 as `cddb291a`. Browsing defaults off.
@@ -350,7 +351,10 @@ is required to stop existing web playback and enforce a newly disabled value.
   but muting its Windows session also silenced the captured PCM. This combination
   cannot feed a positional player while suppressing the original output. See
   [capture/suppression results](../../../tools/profiling/browser-audio/README.md).
-  CEF's PCM callback and a different WebView2 capture/output path remain candidates.
+  The private CEF PCM/XAudio2 prototype now proves positional playback and output
+  replacement without duplicate browser sound; it is not enabled in shipping
+  targets. See the [CEF prototype](../../../tools/profiling/cef-audio/README.md).
+  WebView2 still needs a different capture/output path.
 - **Codecs and DRM.**
   - **Codecs:** YouTube and most streams serve VP9/AV1 + Opus, which both editions play.
     H.264-only sites may fail on CEF builds without proprietary codecs.
@@ -638,6 +642,41 @@ and [Chromium password preferences](https://github.com/chromium/chromium/blob/ma
   It does not mute the whole device, install a virtual device or inject into Edge.
 - Evidence, limits and reproduction are in the
   [prototype record](../../../tools/profiling/browser-audio/README.md).
+
+### CEF raw audio / positional TV prototype — 2026-10-20
+
+- Added a compile-time-only `CefAudioHandler` experiment for the reserved browser
+  pair. It receives 48 kHz stereo PCM, downmixes to a bounded mono queue, and uses
+  XAudio2/X3DAudio to play from the actual TV position relative to the player.
+  The normal build remains unchanged in audio behavior; `-AudioProbe` stages a
+  separate private runtime.
+- Direct native game commands verified panning, player turning, distance falloff,
+  recovery on returning, and capture while replacement output is disabled. The
+  near/far tone difference was **16.9 dB** at about 2.5 m / 17.5 m. With replacement
+  output disabled, raw PCM remained unchanged and no original browser tone leaked.
+- An unmodified public WebM video played through the content callback, during
+  fullscreen Watch, and at least five seconds after closing. The same content
+  stream and trusted document survived. No computer use, focus transfer or input
+  injection was used: `browser.close` exercised interaction teardown; this run did
+  not inject a physical Esc key.
+- The prototype retains its last pose while fullscreen pauses Papyrus and resumes
+  live updates on close. The final run recorded no dropped callback packets.
+  Disabling/re-enabling the real TV restarted its host; disabling it again retired
+  the host in **10.625 seconds**, including the existing ten-second feed grace.
+- Fixed a prerequisite CEF startup race: pipe processing/browser creation now waits
+  for global context initialization and, for remote hosts, isolated-context policy
+  readiness. Both ordinary and prototype CEF hosts build; all **33 native suites**
+  pass (the existing symlink-permission skip remains).
+- The private CEF core/runtime hashes match their staged files. The normal deployed
+  WebView2 core, host and World Screens DLL hashes remain unchanged. The owned game
+  exits normally and MO2 is restored to Default.
+- This establishes feasibility, not shipping spatial audio. The prototype uses
+  player head/yaw instead of the rendered camera, one selected TV, a simple rolloff,
+  and an independent audio engine. Game sound settings, occlusion/room acoustics,
+  device changes, multiple TVs and production pose/lifecycle integration remain.
+- Results and reproduction:
+  [CEF prototype record](../../../tools/profiling/cef-audio/README.md);
+  `build/cef-audio-game/runs/20261020-155921-244-cef-audio/audio-results.json`.
 
 ## Open decisions
 

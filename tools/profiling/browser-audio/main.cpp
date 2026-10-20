@@ -72,15 +72,15 @@ public:
     Handle handle;
     DWORD pid;
     std::uint64_t start;
-    Owner(DWORD id, std::uint64_t expected) :
+    Owner(DWORD id, std::uint64_t expected, bool cef = false) :
         handle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, id)),
         pid(id), start(expected)
     {
         if (!handle.value || Started(handle.value) != expected)
             throw std::runtime_error("Host PID/creation time mismatch");
         if (_wcsicmp(fs::path(Image(handle.value)).filename().c_str(),
-                L"osfui_webview2_host.exe") != 0)
-            throw std::runtime_error("Target must be the OSF UI WebView2 host");
+                cef ? L"osfui_cef_host.exe" : L"osfui_webview2_host.exe") != 0)
+            throw std::runtime_error("Target must match the selected OSF UI browser host");
         Alive();
     }
     void Alive() const
@@ -149,6 +149,7 @@ struct Stats {
     std::uint64_t frames{}, silentFrames{}, packets{}, discontinuities{};
     std::uint64_t firstQpc{}, lastQpc{};
     double squares{}, peak{}, toneSquares{}, re{}, im{};
+    double channelSquares[2]{};
     unsigned blockFrames{}, toneBlocks{};
     void Add(const std::int16_t* data, UINT32 count, DWORD flags, UINT64 qpc, double hz)
     {
@@ -162,6 +163,7 @@ struct Stats {
             for (unsigned c = 0; c < kChannels; ++c) {
                 const double sample = silent ? 0.0 : data[f * kChannels + c] / 32768.0;
                 squares += sample * sample;
+                channelSquares[c] += sample * sample;
                 peak = std::max(peak, std::abs(sample));
                 mono += sample / kChannels;
             }
@@ -185,7 +187,9 @@ struct Stats {
             {"discontinuities", discontinuities}, {"firstQpc100ns", firstQpc},
             {"lastQpc100ns", lastQpc}, {"seconds", double(frames) / kRate},
             {"rms", frames ? std::sqrt(squares / (frames * kChannels)) : 0},
-            {"peak", peak}, {"toneRms", toneBlocks ? std::sqrt(toneSquares / toneBlocks) : 0}};
+            {"peak", peak}, {"toneRms", toneBlocks ? std::sqrt(toneSquares / toneBlocks) : 0},
+            {"leftRms",frames ? std::sqrt(channelSquares[0] / frames) : 0},
+            {"rightRms",frames ? std::sqrt(channelSquares[1] / frames) : 0}};
     }
 };
 
@@ -416,10 +420,12 @@ int wmain(int argc, wchar_t** argv)
         double hz = 997;
         bool wav = false;
         bool captureRoot = false;
+        bool cefMeter = false;
         for (int i = 1; i < argc; ++i) {
             const std::wstring arg = argv[i];
             if (arg == L"--wav") { wav = true; continue; }
             if (arg == L"--capture-root") { captureRoot = true; continue; }
+            if (arg == L"--cef-meter") { cefMeter = true; continue; }
             if (i + 1 == argc) throw std::runtime_error("Missing option value");
             const std::wstring value = argv[++i];
             if (arg == L"--pid") pid = std::stoul(value);
@@ -438,7 +444,7 @@ int wmain(int argc, wchar_t** argv)
         Check(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "Initialize COM");
         com = true;
         SetConsoleCtrlHandler(OnControl, TRUE);
-        Owner owner(pid, start);
+        Owner owner(pid, start, cefMeter);
         report["hostPid"] = pid;
         report["hostStartFileTime"] = std::to_string(start);
         report["toneHz"] = hz;
@@ -452,6 +458,23 @@ int wmain(int argc, wchar_t** argv)
         Check(device->GetId(&deviceId), "Endpoint ID");
         report["endpointId"] = fs::path(deviceId).string();
         CoTaskMemFree(deviceId);
+        if (cefMeter) {
+            // Read-only meter: never acquires session volume or calls SetMute.
+            Capture process, endpoint;
+            process.saveSamples = wav;
+            process.Process(pid); endpoint.Endpoint(device.Get());
+            const auto until = GetTickCount64() + phaseMs;
+            while (GetTickCount64() < until) {
+                owner.Alive();
+                process.Drain(hz); endpoint.Drain(hz); Sleep(5);
+            }
+            report["process"] = process.stats.Report();
+            report["endpoint"] = endpoint.stats.Report();
+            report["mode"] = "cef-meter-read-only";
+            report["outcome"] = "passed";
+            if (wav) SaveWav(output / "output.wav", process.samples);
+            code = 0;
+        } else {
         Suppression suppression(device.Get(), owner, report);
         std::set<DWORD> audioPids;
         for (const auto& session : suppression.sessions) audioPids.insert(session.pid);
@@ -516,6 +539,7 @@ int wmain(int argc, wchar_t** argv)
             (hz == 0 || (report["processTonePreserved"].get<bool>() && report["outputToneSuppressed"].get<bool>()));
         report["outcome"] = passed ? "passed" : "failed";
         code = passed ? 0 : 2;
+        }
     } catch (const std::exception& e) {
         report["error"] = e.what();
     }
