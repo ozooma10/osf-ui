@@ -25,6 +25,13 @@ Both editions require SFSE, Address Library, and OSF Settings 1.1.2 or a compati
 | **WebView2 - recommended default** | Choose this for most installations: smaller download and lower measured browser CPU and memory overhead. | Microsoft WebView2 Evergreen Runtime |
 | **CEF - bundled-runtime alternative** | Choose this when you want the browser runtime included with OSF UI. It has a larger download and higher measured CPU and memory overhead. | Bundled Chromium |
 
+## Optional World Screens extension
+
+[OSF UI - World Screens](extensions/world-screens/README.md) adds material-backed
+in-world displays in a separate DLL and package. It shares this repository and uses
+core's browser and input services. The extension is an unpublished development build;
+it requires the matching core source revision. Ordinary core installs do not include it.
+
 ## Build and test
 
 Use XMake, an MSVC compiler with C++23 support. 

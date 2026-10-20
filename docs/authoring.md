@@ -484,3 +484,9 @@ path, not in your archive.
 | State is missing after loading a save | Papyrus state is session-scoped. Publish it again from `OnPlayerLoadGame`. |
 | Images or fonts don't load | They must be local files. Remote URLs are blocked. Check `OSF UI.webview2-host.log` for "blocked network egress". |
 | Escape closes the menu while you need it | Send `osfui.handleBack { handle: true }` once the page loads. |
+
+## World displays
+
+For `kind: "world"` views, screen catalogs, generated materials, and binding APIs, see
+[the optional World Screens extension](../extensions/world-screens/README.md). Menu and
+HUD mods require only OSF UI; world-screen content additionally requires the extension.
