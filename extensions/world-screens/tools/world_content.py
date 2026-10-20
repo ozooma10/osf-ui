@@ -367,10 +367,12 @@ def build_screen_models(data_dir, output, owner, models):
         mesh_paths[name] = geometry_path(Nif(nifs[prefix + quad_source]), quad_node)
     meshes = archive_files(data_dir, archives, mesh_paths.values())
     evidence = []
+    # Escape underscores before dots so distinct owner IDs cannot share a mesh
+    # directory. The escape marker itself is encoded: a.b, a_b and a_2eb differ.
+    mesh_owner = owner.replace('_', '_5f').replace('.', '_2e')
     for name, source, node, template in models:
         # External mesh stems must not contain dots before the .mesh suffix.
-        # Keep qualified mod IDs in NIF/catalog paths, but use a safe mesh folder.
-        mesh_owner = owner.replace('.', '_')
+        # Keep qualified mod IDs in NIF/catalog paths.
         mesh_path = f"geometries/osfui/screens/{mesh_owner}/{name}.mesh"
         nif_path = f"meshes/osfui/screens/{owner}/{name}.nif"
         content = screen_mesh(meshes[mesh_paths[name]])

@@ -128,10 +128,14 @@ used by the migrated Starcade and SSSE builders. It preserves placement hierarch
 and collision blocks while authoring the selected display quad. Decorative screen
 overlays are detached from their parent nodes; their hidden flag alone is insufficient
 to prevent them from covering the web image in Starfield.
-The helper replaces dots with underscores in external `.mesh` directory names:
-`x2357.ssse` becomes `geometries/osfui/screens/x2357_ssse/`. The original dotted
-mesh path failed to draw in the verified game run. Qualified view IDs, texture
-identities and NIF/catalog paths keep their existing names.
+The helper escapes dots as `_2e` and underscores as `_5f` in external `.mesh`
+directory names: `x2357.ssse` becomes `geometries/osfui/screens/x2357_2essse/`.
+This keeps distinct owner IDs such as `example.mod` and `example_mod` from
+overwriting each other's meshes. The original dotted mesh path failed to draw
+in the verified game run. Qualified view IDs, texture identities and NIF/catalog
+paths keep their existing names. Regenerate and repackage content built with
+the earlier dot-to-underscore mapping: both its generated NIFs and external
+meshes must use the new paths together.
 
 ## Validation scope
 

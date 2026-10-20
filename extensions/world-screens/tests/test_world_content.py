@@ -32,17 +32,38 @@ def model():
     return n.encode()
 
 
+def quad(position=0):
+    return (struct.pack('<II6HfII', 2, 6, 0, 1, 2, 0, 2, 3, 1, 0, 4) +
+            struct.pack('<h', position) + bytes(22) + struct.pack('<I8e', 4, 0, 0, 1, 0, 1, 1, 0, 1))
+
+
 class ScreenAuthoring(unittest.TestCase):
     def test_qualified_mod_id_does_not_put_dots_in_external_mesh_stem(self):
-        quad = (struct.pack('<II6HfII', 2, 6, 0, 1, 2, 0, 2, 3, 1, 0, 4) +
-                bytes(24) + struct.pack('<I8e', 4, 0, 0, 1, 0, 1, 1, 0, 1))
         with tempfile.TemporaryDirectory() as folder, patch('world_content.archive_files', side_effect=[
                 {'meshes/setdressing/displayscreens/original.nif': model()},
-                {'geometries/original.mesh': quad}]):
+                {'geometries/original.mesh': quad()}]):
             result = build_screen_models('.', folder, 'x2357.ssse', [('monitor', 'original.nif', 'ScreenMain', None)])
-            self.assertEqual(result[0]['mesh'], 'geometries/osfui/screens/x2357_ssse/monitor.mesh')
+            self.assertEqual(result[0]['mesh'], 'geometries/osfui/screens/x2357_2essse/monitor.mesh')
             self.assertEqual(result[0]['path'], 'meshes/osfui/screens/x2357.ssse/monitor.nif')
             self.assertTrue((Path(folder) / result[0]['mesh']).is_file())
+
+    def test_dotted_underscored_and_escape_like_owners_keep_independent_meshes(self):
+        owners = ('example.mod', 'example_mod', 'example_2emod')
+        with tempfile.TemporaryDirectory() as folder:
+            generated = []
+            for position, owner in enumerate(owners):
+                with patch('world_content.archive_files', side_effect=[
+                        {'meshes/setdressing/displayscreens/original.nif': model()},
+                        {'geometries/original.mesh': quad(position)}]):
+                    generated.extend(build_screen_models('.', folder, owner,
+                        [('monitor', 'original.nif', 'ScreenMain', None)]))
+            self.assertEqual(len({entry['mesh'] for entry in generated}), len(owners))
+            for position, entry in enumerate(generated):
+                nif = Nif((Path(folder) / entry['path']).read_bytes())
+                self.assertEqual(geometry_path(nif, 'OSFUIScreen'), entry['mesh'])
+                self.assertNotIn('.', Path(entry['mesh']).parent.name)
+                # The later package did not overwrite this owner's geometry.
+                self.assertEqual(struct.unpack_from('<h', (Path(folder) / entry['mesh']).read_bytes(), 32)[0], position)
 
     def test_overlay_detached_and_physics_preserved(self):
         before = Nif(model())
