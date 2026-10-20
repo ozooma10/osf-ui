@@ -32,7 +32,8 @@
     "width": { "type": "integer", "minimum": 1, "maximum": 16384, "default": 1600 },
     "height": { "type": "integer", "minimum": 1, "maximum": 16384, "default": 900 },
     "transparent": { "type": "boolean", "default": true },
-    "kind": { "type": "string", "enum": ["menu", "hud"], "default": "menu" },
+    "kind": { "type": "string", "enum": ["menu", "hud", "world"], "default": "menu" },
+    "texture": { "type": "string", "minLength": 1, "description": "World view only: generated named placeholder texture from the World Screens extension tools." },
     "capturesInput": {
       "type": "boolean",
       "default": true,
@@ -62,5 +63,14 @@
   "allOf": [{
     "if": { "required": ["launcher"], "properties": { "launcher": { "anyOf": [{ "const": true }, { "type": "object" }] } } },
     "then": { "properties": { "kind": { "const": "menu" } } }
+  }, {
+    "if": { "required": ["kind"], "properties": { "kind": { "const": "world" } } },
+    "then": {
+      "required": ["texture"],
+      "properties": {
+        "width": { "maximum": 4096 }, "height": { "maximum": 4096 },
+        "capturesInput": { "const": false }, "pausesGame": { "const": false }
+      }
+    }
   }]
 }

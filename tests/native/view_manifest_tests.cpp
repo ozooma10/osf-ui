@@ -43,7 +43,13 @@ int main()
 	const auto root = MakeRoot();
 	const auto path = root / "demo.mod" / "terminal" / "manifest.json";
 
-	// No "id" field: identity comes from the folder path alone.
+	auto world = OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"},{"texture","textures/osfui/feeds/test.dds"}});
+    CHECK(world && world->kind == OSFUI::ViewKind::Surface && !world->capturesInput && !world->pausesGame);
+    CHECK(!OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"}}));
+    CHECK(!OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"},{"texture","x"},{"width",4097}}));
+    CHECK(!OSFUI::ViewManifest::Parse(path, {{"manifestVersion",1},{"kind","world"},{"texture","x"},{"launcher",true}}));
+
+    // No "id" field: identity comes from the folder path alone.
 	Write(path, R"({
 		"manifestVersion": 1,
 		"title": "Cargo terminal"

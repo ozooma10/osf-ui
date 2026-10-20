@@ -14,6 +14,7 @@ namespace OSFUI
 	{
 		Menu,
 		Hud,
+		Surface,
 	};
 
 	// Mirrors OSF/UI/views/<modId>/<viewName>/manifest.json.
@@ -32,6 +33,7 @@ namespace OSFUI
 		std::uint32_t         width{ kDefaultViewWidth };
 		std::uint32_t         height{ kDefaultViewHeight };
 
+		std::string texture; // Optional extension-owned material binding metadata.
 		ViewKind kind{ ViewKind::Menu };  // "menu" | "hud"
 
 		// Menu-only; forced false for HUDs.

@@ -120,7 +120,9 @@ export interface ViewManifestV1 {
   width?: number;
   height?: number;
   transparent?: boolean;
-  kind?: "menu" | "hud";
+  kind?: "menu" | "hud" | "world";
+  /** World Screens generated texture identity; required for kind world. */
+  texture?: string;
   capturesInput?: boolean;
   pausesGame?: boolean;
   openOnStart?: boolean;

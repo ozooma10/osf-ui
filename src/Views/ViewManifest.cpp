@@ -40,7 +40,7 @@ namespace OSFUI
 		if (Log::DebugEnabled()) {
 			Json::ReportUnknownKeys(*json,
 				{ "manifestVersion", "mod", "title", "description", "debugOnly", "entry", "launcher",
-					"width", "height", "transparent", "kind",
+					"width", "height", "transparent", "kind", "texture",
 					"capturesInput", "pausesGame", "openOnStart", "order" },
 				"ViewManifest: [content] " + Utf8Path(a_path), /*a_warn=*/false);
 		}
@@ -62,11 +62,16 @@ namespace OSFUI
 			Json::Get(*json, "height", manifest.height), 1, 16384));
 
 		const auto kindStr = Json::Get(*json, "kind", "menu");
-		if (kindStr != "menu" && kindStr != "hud") {
-			REX::ERROR("ViewManifest: [content] {} kind '{}' must be 'menu' or 'hud'", Utf8Path(a_path), kindStr);
+		if (kindStr != "menu" && kindStr != "hud" && kindStr != "world") {
+			REX::ERROR("ViewManifest: [content] {} kind '{}' must be 'menu', 'hud', or 'world'", Utf8Path(a_path), kindStr);
 			return std::nullopt;
 		}
-		manifest.kind = (kindStr == "hud") ? ViewKind::Hud : ViewKind::Menu;
+		manifest.kind = kindStr == "world" ? ViewKind::Surface : (kindStr == "hud" ? ViewKind::Hud : ViewKind::Menu);
+		manifest.texture = Json::Get(*json, "texture", "");
+		if (manifest.kind == ViewKind::Surface && (manifest.texture.empty() || manifest.width > 4096 || manifest.height > 4096)) {
+            REX::ERROR("ViewManifest: '{}' world views require a texture and dimensions at most 4096", manifest.id);
+            return std::nullopt;
+        }
 		manifest.capturesInput = Json::Get(*json, "capturesInput", manifest.capturesInput);
 		manifest.pausesGame = Json::Get(*json, "pausesGame", manifest.pausesGame);
 		manifest.openOnStart = Json::Get(*json, "openOnStart", manifest.openOnStart);
@@ -94,10 +99,10 @@ namespace OSFUI
 			return std::nullopt;
 		}
 
-		// HUDs must never capture input or pause the game.
-		if (manifest.kind == ViewKind::Hud) {
+		// HUDs and world views must never capture input or pause the game.
+		if (manifest.kind != ViewKind::Menu) {
 			if (manifest.capturesInput || manifest.pausesGame) {
-				REX::WARN("ViewManifest: [content] HUD '{}' cannot capture input or pause; forcing both off", manifest.id);
+				REX::WARN("ViewManifest: [content] Non-menu view '{}' cannot capture input or pause; forcing both off", manifest.id);
 			}
 			manifest.capturesInput = false;
 			manifest.pausesGame = false;
