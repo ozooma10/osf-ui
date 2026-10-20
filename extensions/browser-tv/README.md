@@ -19,15 +19,15 @@ does not include the required browser surface APIs.
    Browser TV**. The recipe uses 4 Aluminum, 2 Zero Wire and 2 Beryllium, matching
    the existing craftable Starcade TV.
 4. Place it on a wall, leave build mode, and activate **Watch**. Use the address
-   bar for a site or a search. Close or press Esc to return to the game; Esc first
-   leaves a site's own fullscreen mode when active.
+   bar or the channel guide for a site or a search. **Return to world** or Esc goes
+   back to the game; Esc first leaves a site's own fullscreen mode or the guide.
 
-All Browser TVs mirror the same browser and share its home page, search engine,
-last address, cookies and mute state. Closing fullscreen keeps playback running.
+All Browser TVs mirror the same browser and share its pinned channels, recent
+pages, search engine, last address, cookies and mute state. Closing fullscreen keeps playback running.
 Leaving the area or removing the last loaded TV retires the browser; the next
 loaded TV restores the last address, not the playback position. Audio is not
 spatial. DRM services are unsupported, and codec support varies by browser edition.
-The trusted browser controls provide **Clear data**.
+**Channel settings** in the guide can turn the channel off or clear cookies and sign-ins.
 
 The TV uses the vanilla DisplayScreen5 model and the existing wall placement
 data. It adds no placed objects or edits to vanilla records. Watch activation,

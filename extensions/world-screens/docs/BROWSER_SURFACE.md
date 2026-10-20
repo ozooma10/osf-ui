@@ -144,7 +144,7 @@ A surface manifest gains one field. Only the reserved browser view may set it:
   "kind": "world",
   "width": 1920, "height": 1080,
   "texture": "...",
-  "browser": { "chrome": "chrome.html", "chromeHeight": 56 }
+  "browser": { "chrome": "chrome.html", "chromeHeight": 64 }
 }
 ```
 
@@ -323,12 +323,11 @@ an audio-capture handler (which changes playback ownership). CEF reports
 
 ### Persistence
 
-The chrome page owns the home page, last URL and search-engine choice in its own
-`localStorage` (local origin, so the content view can't reach it). On load it asks core to
-navigate to the last URL, so the TV resumes where it left off after the browser retires.
-The agreed defaults are the local landing page and DuckDuckGo. Chrome can save the
-current page as Home and cycle through the three search engines. Clear data resets
-these preferences. WebView2 clears browsing data through `ClearBrowsingDataAll`;
+The chrome page owns the last URL, pinned channels, recent pages (12) and search-engine
+choice in its own `localStorage` (local origin, so the content view can't reach it). On
+load it asks core to navigate to the last URL, so the TV resumes where it left off after
+the browser retires; turning the channel off clears it. The local guide is the home page;
+the default engine is DuckDuckGo. Clear data resets all of these. WebView2 clears browsing data through `ClearBrowsingDataAll`;
 CEF writes a marker and removes this surface's `Default` and `Content` caches before
 the next `CefInitialize`, reporting `restartRequired: true` to chrome.
 

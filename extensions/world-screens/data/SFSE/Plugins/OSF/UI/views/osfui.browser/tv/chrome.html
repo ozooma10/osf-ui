@@ -4,35 +4,90 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>World Screens browser</title>
+  <link rel="stylesheet" href="/shared/osfui.css">
   <link rel="stylesheet" href="chrome.css">
   <script defer src="/shared/osfui.js"></script>
   <script defer src="chrome.js"></script>
 </head>
-<body>
+<body class="landing">
   <nav id="toolbar" aria-label="Browser controls">
-    <span class="brand" aria-hidden="true">WORLD SCREENS</span>
-    <button id="back" title="Back" aria-label="Back">←</button>
-    <button id="forward" title="Forward" aria-label="Forward">→</button>
-    <button id="reload" title="Reload" aria-label="Reload">↻</button>
-    <button id="home" title="Home">Home</button>
-    <form id="navigation">
-      <span id="security" title="Local page">LOCAL</span>
-      <input id="address" aria-label="Address or search" placeholder="Search or enter a public web address" autocomplete="off" spellcheck="false" maxlength="8192">
-      <button type="submit" id="go">Go</button>
-    </form>
-    <button id="engine" title="Change search engine">DuckDuckGo</button>
-    <button id="set-home" title="Use the current page as home">Set home</button>
-    <button id="mute" aria-pressed="false">Mute</button>
-    <button id="clear" title="Clear cookies, sign-ins and browser preferences">Clear data</button>
-    <button id="close" title="Close browser controls; playback continues">Close <kbd>Esc</kbd></button>
+    <div class="brand" aria-hidden="true"><span class="stripe"><i></i><i></i><i></i><i></i></span>BROWSER TV</div>
+    <div class="group">
+      <button id="back" class="square" aria-label="Back" title="Back">
+        <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M11 3 5 9l6 6"/></svg>
+      </button>
+      <button id="forward" class="square" aria-label="Forward" title="Forward">
+        <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7 3 6 6-6 6"/></svg>
+      </button>
+      <button id="reload" class="square" aria-label="Reload" title="Reload">
+        <svg class="when-idle" viewBox="0 0 18 18" aria-hidden="true"><path d="M15 9a6 6 0 1 1-1.8-4.3"/><path d="M15 2.5v4h-4"/></svg>
+        <svg class="when-loading" viewBox="0 0 18 18" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+      </button>
+      <button id="open-guide" class="square" aria-label="Channel guide" title="Channel guide">
+        <svg class="fill" viewBox="0 0 18 18" aria-hidden="true"><rect x="2" y="2" width="6" height="6"/><rect x="10" y="2" width="6" height="6"/><rect x="2" y="10" width="6" height="6"/><rect x="10" y="10" width="6" height="6"/></svg>
+      </button>
+    </div>
+    <div id="location">
+      <button id="readout" type="button" aria-label="Edit address" title="Edit address (Ctrl+L)">
+        <span class="origin-line">
+          <svg id="secure-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
+          <svg id="insecure-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2 15 14H1z"/><path d="M8 6.5v3.5M8 11.5v.5"/></svg>
+          <span id="origin"></span>
+          <span id="insecure" class="tag">Not secure</span>
+        </span>
+        <span id="page-title"></span>
+      </button>
+      <form id="navigation" autocomplete="off">
+        <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="m12 12 4.5 4.5"/></svg>
+        <input id="address" aria-label="Address or search" placeholder="Search or enter a public web address" spellcheck="false" maxlength="8192">
+        <span id="address-hint" aria-hidden="true"></span>
+      </form>
+      <div id="notice" role="status" aria-live="polite"></div>
+    </div>
+    <div class="group end">
+      <span id="screens" class="indicator">
+        <svg viewBox="0 0 18 16" aria-hidden="true"><rect x="1" y="2" width="10" height="7"/><rect x="7" y="7" width="10" height="7"/></svg>
+        <span id="screens-label"></span>
+      </span>
+      <button id="mute" class="labelled" aria-pressed="false">
+        <svg class="when-sound" viewBox="0 0 20 18" aria-hidden="true"><path d="M2 6h4l5-4v14l-5-4H2z"/><path d="M14 5.5a5 5 0 0 1 0 7M16.5 3a8.5 8.5 0 0 1 0 12"/></svg>
+        <svg class="when-muted" viewBox="0 0 20 18" aria-hidden="true"><path d="M2 6h4l5-4v14l-5-4H2z"/><path d="m14 6 5 6M19 6l-5 6"/></svg>
+        <span id="mute-label">Sound on</span>
+      </button>
+      <button id="open-settings" class="square" aria-label="Channel settings" title="Channel settings">
+        <svg class="fill" viewBox="0 0 18 18" aria-hidden="true"><circle cx="3.5" cy="9" r="1.8"/><circle cx="9" cy="9" r="1.8"/><circle cx="14.5" cy="9" r="1.8"/></svg>
+      </button>
+      <button id="close" class="prompt" title="Close the controls; playback continues"><kbd>Esc</kbd>Return to world</button>
+    </div>
+    <div class="rule" aria-hidden="true"><i id="progress"></i></div>
   </nav>
-  <main id="landing">
-    <div class="eyebrow">WORLD SCREENS / BROWSER</div>
-    <h1 id="heading">Your screen. Your channel.</h1>
-    <p id="description">Search, open a website, or start a video. Close the controls and keep watching in the world.</p>
-    <p id="hint">Activate this screen to browse.</p>
-    <p class="footnote">TVs showing this page share playback. Use Mute to silence them.</p>
+
+  <main id="guide">
+    <aside id="sidebar">
+      <div class="title">BROWSER TV</div>
+      <div class="stripe-rule" aria-hidden="true"><span class="stripe"><i></i><i></i><i></i><i></i></span></div>
+      <div id="sections" role="tablist" aria-label="Guide sections">
+        <button class="nav" role="tab" data-section="channels">Channels<span class="count" id="count-channels"></span></button>
+        <button class="nav" role="tab" data-section="recent">Recent<span class="count" id="count-recent"></span></button>
+        <button class="nav" role="tab" data-section="settings">Channel settings</button>
+      </div>
+      <div class="status">
+        <div class="heading">STATUS</div>
+        <div><i id="status-browsing-dot"></i><span id="status-browsing"></span></div>
+        <div id="status-screens-row"><i class="on"></i><span id="status-screens"></span></div>
+      </div>
+    </aside>
+    <section id="page">
+      <h1 id="section-title"></h1>
+      <div id="section-meta"></div>
+      <div class="instrument" aria-hidden="true"><i class="reticle"></i></div>
+      <div id="list"></div>
+      <div id="detail"></div>
+      <footer>
+        <div id="footer-status"></div>
+        <div id="prompts"></div>
+      </footer>
+    </section>
   </main>
-  <div id="notice" role="status" aria-live="polite"></div>
 </body>
 </html>
