@@ -162,7 +162,9 @@ namespace OSFUI
     }
     bool SurfaceService::EndInteraction(API::Surfaces::Interaction token) noexcept
     {
-        if (token && m_interactionToken.load() == token) { CancelInteraction(); return true; }
+        if (!token) return false;
+        // Ends only this interaction; CancelInteraction would also reject everyone else's queued requests.
+        if (m_interactionToken.load() == token) { m_endRequested=token; return true; }
         std::scoped_lock lock(m_mutex);
         for (auto& r : m_requests) if (r.token == token) { r.lease=0; return true; }
         return false;
@@ -193,6 +195,7 @@ namespace OSFUI
         // Cancellation applies only to requests that existed at that event.
         // Loading/focus changes while idle cannot poison a later activation.
         const auto cancelled=[this](const Request& r) { return r.cancelGeneration != m_cancelGeneration.load(); };
+        if (const auto ended=m_endRequested.exchange(0); ended && m_interaction && m_interaction->token == ended) FinishInteraction("ended");
         if (!allowed || (m_interaction && cancelled(*m_interaction))) FinishInteraction("focus-or-menu");
         std::deque<Request> requests;
         { std::scoped_lock lock(m_mutex); requests.swap(m_requests); }

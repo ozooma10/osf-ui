@@ -450,6 +450,15 @@ void SurfaceLifecycle()
     CHECK((phases == std::vector{API::Surfaces::Phase::Rejected,API::Surfaces::Phase::Started}));
     service.CancelInteraction(); service.UpdateInteraction(true,true,admit);
     CHECK(phases.back() == API::Surfaces::Phase::Ended);
+    phases.clear();
+    token=service.BeginInteraction(second,callback,&phases);
+    service.UpdateInteraction(true,true,admit); service.UpdateInteraction(true,true,admit);
+    CHECK(service.BeginInteraction(second,callback,&phases)); // queued behind the active one
+    CHECK(service.EndInteraction(token));
+    service.UpdateInteraction(true,true,admit); service.UpdateInteraction(true,true,admit);
+    CHECK((phases == std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended,API::Surfaces::Phase::Started})); // ending one keeps the queue
+    service.CancelInteraction(); service.UpdateInteraction(true,true,admit);
+    CHECK(phases.back() == API::Surfaces::Phase::Ended);
     surfaceGpuIdle=false; service.Release(second); service.Update(true);
     CHECK(service.IsInstantiated("acme/screen")); // GPU reads retain the host
     surfaceGpuIdle=true; service.Update(true);

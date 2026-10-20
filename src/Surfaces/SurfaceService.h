@@ -70,6 +70,7 @@ namespace OSFUI
         std::deque<Request> m_requests;
         std::optional<Request> m_interaction;
         std::atomic<std::uint64_t> m_interactionToken{};
+        std::atomic<std::uint64_t> m_endRequested{}; // EndInteraction of the current token, applied on the tick
         std::atomic<std::shared_ptr<BrowserHostClient>> m_input;
         std::atomic<std::uint64_t> m_cancelGeneration{};
         unsigned m_neutral{};
