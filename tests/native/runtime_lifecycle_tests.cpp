@@ -470,6 +470,7 @@ void SurfaceInputLifecycle()
 {
     FixtureFiles::Write("acme/screen", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/test.dds"})");
     PluginLoad(); PostLoad(); DataReady(); LoadHud();
+    const auto overlayFailure=env.failure;
     auto& service = SurfaceService::Get();
     const auto lease=service.Acquire("acme/screen");
     runtime().Update(); QueueLoad("acme/screen"); QueueHello("acme/screen"); runtime().Update();
@@ -491,6 +492,20 @@ void SurfaceInputLifecycle()
     service.CancelInteraction();
     runtime().Update();
     begin();
+    // Idempotent HUD opens, newly shown HUDs, and refused launcher requests do not own input.
+    runtime().EnqueueOpenView("acme/hud"); runtime().Update();
+    CHECK(runtime().IsInputCaptured() && phases.size()==1);
+    runtime().EnqueueCloseView("acme/hud"); runtime().Update();
+    runtime().EnqueueOpenView("acme/hud"); runtime().Update();
+    CHECK(runtime().IsInputCaptured() && phases.size()==1 && !env.hidden.at("acme/hud"));
+    api().ViewRequests().EnqueueLauncherOpen("acme/hud",1); runtime().Update();
+    CHECK(runtime().IsInputCaptured() && phases.size()==1);
+    // An admitted overlay menu still relinquishes surface input while its page loads.
+    runtime().EnqueueOpenView("acme/menu"); runtime().Update();
+    CheckReleased();
+    CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    runtime().EnqueueCloseView("acme/menu"); runtime().Update();
+    phases.clear(); begin();
     CHECK(runtime().OnGameWindowKeyboard({.vk=0x1B,.down=true}));
     runtime().Update(); CheckReleased();
     CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
@@ -500,6 +515,10 @@ void SurfaceInputLifecycle()
     runtime().Update(); runtime().Update(); CheckReleased();
     CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
     phases.clear(); env.gamepad={}; begin();
+    // An unavailable overlay rejects its menu open without canceling the healthy surface.
+    overlayFailure({.stage="test-permanent",.description="EXPECTED TEST: overlay unavailable"});
+    runtime().EnqueueOpenView("acme/menu"); runtime().Update();
+    CHECK(runtime().IsInputCaptured() && phases.size()==1);
     env.gameWindowActive=false; runtime().Update(); CheckReleased();
     CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
     service.Release(lease); runtime().Update();

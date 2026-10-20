@@ -318,7 +318,6 @@ namespace OSFUI
 		}
 		a_id = manifest->id;
 		if (manifest->kind == ViewKind::Surface) return false;
-		SurfaceService::Get().FinishInteraction("overlay-opened");
 		if (a_requestId && (manifest->kind != ViewKind::Menu || m_presentation.Suspended())) return false;
 		if (manifest->kind == ViewKind::Menu && MenuEventSink::TransitionOpen()) return false;
 		if (!m_compositor) {
@@ -372,6 +371,8 @@ namespace OSFUI
 			m_viewOpens.QueueHud(a_id);
 			return true;
 		}
+		// HUD updates and refused opens leave the surface's input owner intact.
+		SurfaceService::Get().FinishInteraction("overlay-opened");
 		FailPendingOpen("Another interface was opened.");
 		m_viewOpens.QueueMenu(a_id, m_nowSeconds + 30.0, a_requestId);
 		REX::INFO("Runtime: menu open requested view='{}' request={}", a_id, a_requestId);
