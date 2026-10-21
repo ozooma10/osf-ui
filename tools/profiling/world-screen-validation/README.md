@@ -25,7 +25,9 @@ Run `Cases.ps1 -RunPath <run> -Case <case> -Name <unique-name>` sequentially:
 - `StalledRecovery`: suspend only that helper using an identity-checked handle;
   normal production heartbeat recovery must retire it and replace the document.
   The handle is resumed and closed in `finally` if recovery fails. Native drain
-  samples measure responsiveness, not rendered frames.
+  samples measure responsiveness, not rendered frames. Fault trials wait for
+  65 healthy seconds after a preceding successful recovery so the production
+  retry budget has reset.
 - `Navigation`: stop an observed pending load, then observe a missing-domain
   failure. This does not establish postcommit transport-error coverage.
 - `Video`: exercise the remote media route and mute/unmute. Endpoint broadband
@@ -53,6 +55,10 @@ application-frame timing. Repeat each workload three times after warmup. CPU
 100% means one logical core. Game CPU includes the whole game, and private memory
 does not measure VRAM. The sampler verifies loaded DLL/helper hashes, rejects
 foreign helpers, and records process identities and trusted-page observations.
+Native samples require a fresh, unpaused game with stable focus, cell and position;
+comparisons reject mismatches between revisions. Use `-NoPresentMon` for CPU and
+memory measurements when ETW privileges are unavailable; this supplies no FPS
+or rendered-frame-pacing evidence.
 
 For a recovery capture, add `-CaptureKind recovery -DurationSeconds 45`. Start
 the sampler in a separate process, wait until its manifest says `recording`,

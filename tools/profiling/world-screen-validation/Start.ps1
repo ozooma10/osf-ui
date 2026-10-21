@@ -27,6 +27,10 @@ try {
     if(Get-GameProcess){throw 'Starfield is already running.'}
     if(@(Get-Process osfui_webview2_host,osfui_cef_host -ErrorAction SilentlyContinue).Count){throw 'A browser host is still running; finish its profile lease before another test.'}
     foreach($file in @((Join-Path $core 'SFSE/Plugins/OSFUI.dll'),(Join-Path $extension 'SFSE/Plugins/OSFUIWorldScreens.dll'))){if(-not (Test-Path -LiteralPath $file)){throw "Missing candidate payload: $file"}}
+    # Lease the backend selected by the actual DLL, not merely a caller label.
+    # A wrong label could otherwise expose the other edition's real profile.
+    & python (Join-Path $repo 'tests/package/verify_binary.py') $core --expected-backend $Backend
+    if($LASTEXITCODE){throw 'Candidate backend or compiled API contract does not match the requested fixture.'}
     $moProcesses=@(Get-Process ModOrganizer -ErrorAction SilentlyContinue)
     foreach($mo in $moProcesses){if($mo.Path -ne (Join-Path $script:Config.MO2 'ModOrganizer.exe')){throw 'Unexpected MO2 process.'}}
     foreach($mo in $moProcesses){
