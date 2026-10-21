@@ -197,3 +197,22 @@ launches during comparison/restoration; no foreign game was stopped.
 The new navigation fix is committed and validated in private payloads. Original
 production binaries were restored as requested, so this additional fix is not
 installed over the original setup. No push, tag, or publication was performed.
+
+## Subsequent normal WebView2 deployment
+
+At the user's subsequent request, the validated `ccee7b6e` WebView2 core and its
+matching PDB were deployed to the normal `MO2/mods/OSF UI` installation on
+2026-10-21 at 16:16 America/New_York. The other previously deployed review files
+already matched the validated payload and were preserved. The deployed core hash
+is `35E143A2A327AA085DB2DCDA9F035CE9035B465A196058D4864F04A0BE6157D8`.
+
+The game and browser hosts were closed, and deployment held the shared runner
+lock. All eight tracked deployment files were hash-verified; 23 protected
+settings/profile/metadata files retained their hashes. Existing mod enablement
+was preserved: OSF UI is enabled in Default, while World Screens and Browser TV
+remain disabled. No game was launched for this deployment.
+
+Receipt: `normal-webview2-deployment.json`. The previous DLL/PDB and a receipt are
+backed up in `build/validated-webview2-deployment-20261021-161624/` from the repository
+root. This deployment supersedes the earlier note that the navigation fix was
+only installed in private validation payloads.
