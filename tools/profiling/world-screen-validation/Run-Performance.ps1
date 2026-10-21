@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory)][string]$Experiment,
     [ValidateRange(1,97)][int]$FirstRepeat=1,
     [switch]$ToneFirst,
+    [switch]$Background,
     [switch]$ValidateControls
 )
 $ErrorActionPreference='Stop'
@@ -17,7 +18,7 @@ $payload=[IO.Path]::GetFullPath($PayloadData)
 $context=Get-Content -LiteralPath (Join-Path $repo 'build/world-screen-validation/active.json') -Raw|ConvertFrom-Json
 $run=$context.run.path
 @{experiment=$Experiment;backend=$Backend;variant=$Variant;payload=$payload;
-  firstRepeat=$FirstRepeat;toneFirst=$ToneFirst.IsPresent;warmupSeconds=120;
+  firstRepeat=$FirstRepeat;toneFirst=$ToneFirst.IsPresent;background=$Background.IsPresent;warmupSeconds=120;
   sourceCommit=(& git -C $repo rev-parse HEAD);startedUtc=[DateTime]::UtcNow.ToString('o')
 }|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $run 'experiment.json') -Encoding utf8NoBOM
 function Case([string]$Action,[string]$Name,[string]$Value='',[int]$Duration=3000){
@@ -27,7 +28,7 @@ function Case([string]$Action,[string]$Name,[string]$Value='',[int]$Duration=300
 try {
     Case Setup setup
     Case SpawnTwo spawntwo
-    & (Join-Path $PSScriptRoot 'Focus.ps1') -RunPath $run -AllowForeground
+    if(-not $Background){& (Join-Path $PSScriptRoot 'Focus.ps1') -RunPath $run -AllowForeground}
     if(-not $ToneFirst){Case Tone stop-before-warmup stop}
     foreach($step in 1..4){Start-Sleep -Seconds 30;Write-Output "Warmup $($step*30)/120 seconds: $Experiment $Backend $Variant"}
     $workloads=if($ToneFirst){@('two-tv-tone','home-idle-tone-off')}else{@('home-idle-tone-off','two-tv-tone')}
@@ -36,7 +37,7 @@ try {
         Case Tone ('tone-for-'+$workload) $tone
         Start-Sleep -Seconds 10
         foreach($repeat in $FirstRepeat..($FirstRepeat+2)){
-            & (Join-Path $PSScriptRoot 'Focus.ps1') -RunPath $run -AllowForeground
+            if(-not $Background){& (Join-Path $PSScriptRoot 'Focus.ps1') -RunPath $run -AllowForeground}
             & (Join-Path $PSScriptRoot 'Measure.ps1') -RunPath $run -Workload $workload -Variant $Variant -Repeat $repeat -DurationSeconds 30 -NoPresentMon -Notes $Experiment
         }
     }

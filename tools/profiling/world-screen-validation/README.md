@@ -90,6 +90,9 @@ values for independent launches and reverse variant order on the second pair;
 `-ToneFirst` also permits matching the earlier tone-before-idle workload order.
 Use `-ValidateControls` on a candidate session to include screen count, save/load,
 navigation, video/mute and sustained audio checks after performance measurement.
+`-Background` omits foreground requests throughout the session. Compare only
+captures with the same observed focus state; foreground and background timings
+are separate experiments.
 
 The private observer counts browser-state events and DOM mutation records without
 retaining DOM nodes. These counters distinguish repeated chrome updates from
