@@ -16,7 +16,9 @@ namespace osfui::browser
 		std::string_view a_kind = {}, std::string_view a_identity = {})
 	{
 		if (a_type == "mouse" && a_kind == "move") return "mouse.move";
-		if (a_type == "resize" || a_type == "focus") return std::string(a_type);
+		// Audio scenes carry an absolute expiry. Replacing the complete queued
+		// message preserves that deadline; intervening commands remain barriers.
+		if (a_type == "resize" || a_type == "focus" || a_type == "browserAudio") return std::string(a_type);
 		if ((a_type == "setHidden" || a_type == "setOrder") &&
 			!a_identity.empty()) {
 			return std::string(a_type) + ":" + std::string(a_identity);

@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,6 +23,7 @@ int main()
 	CHECK(GameMessageCoalesceKey("mouse", "button").empty());
 	CHECK(GameMessageCoalesceKey("resize") == "resize");
 	CHECK(GameMessageCoalesceKey("focus") == "focus");
+	CHECK(GameMessageCoalesceKey("browserAudio") == "browserAudio");
 	CHECK(GameMessageCoalesceKey("setHidden", {}, "view-a") == "setHidden:view-a");
 	CHECK(GameMessageCoalesceKey("frameAck").empty());
 	CHECK(GameMessageCoalesceKey("postWeb").empty());
@@ -71,6 +73,24 @@ int main()
 	queue.Reset();
 	CHECK(queue.Push(9) == Result::Queued);
 	CHECK(queue.TryPop(item) && item.value == 9);
+
+	// Delayed audio updates retain only the latest consecutive pose, including
+	// its original absolute expiry. Commands (mute/navigation/stop) are barriers.
+	struct AudioUpdate { int pose; std::uint64_t expiresMs; };
+	using AudioQueue = BoundedQueue<AudioUpdate>;
+	using AudioResult = AudioQueue::PushResult;
+	AudioQueue audio(3);
+	const auto audioKey = GameMessageCoalesceKey("browserAudio");
+	CHECK(audio.Push({1, 1000}, audioKey) == AudioResult::Queued);
+	CHECK(audio.Push({2, 1050}, audioKey) == AudioResult::Coalesced);
+	CHECK(audio.Push({0, 0}, GameMessageCoalesceKey("browserCommand")) == AudioResult::Queued);
+	CHECK(audio.Push({3, 1100}, audioKey) == AudioResult::Queued);
+	CHECK(audio.Push({4, 1150}, audioKey) == AudioResult::Coalesced);
+	CHECK(audio.Size() == 3);
+	AudioQueue::Item audioItem;
+	CHECK(audio.TryPop(audioItem) && audioItem.value.pose == 2 && audioItem.value.expiresMs == 1050);
+	CHECK(audio.TryPop(audioItem) && audioItem.value.pose == 0);
+	CHECK(audio.TryPop(audioItem) && audioItem.value.pose == 4 && audioItem.value.expiresMs == 1150);
 
 	std::fprintf(stderr, "wv2_bounded_queue_tests: %d checks, %d failure(s)\n",
 		g_checks, g_failures);
