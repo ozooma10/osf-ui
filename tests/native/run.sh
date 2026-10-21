@@ -62,6 +62,8 @@ SUITES=(
 "remote_uri_tests remote_uri_tests.cpp"
 "browser_surface_tests browser_surface_tests.cpp"
 "browser_audio_tests browser_audio_tests.cpp"
+"wv2_media_navigation_tests wv2_media_navigation_tests.cpp ../../src/Core/Json.cpp"
+"cef_navigation_tests cef_navigation_tests.cpp"
 "cef_assets_tests cef_assets_tests.cpp"
 "cef_frame_pacer_tests cef_frame_pacer_tests.cpp"
 "cef_paint_damage_tests cef_paint_damage_tests.cpp"

@@ -23,6 +23,7 @@
 #include "Graphics.h"
 #include "FrameSchedule.h"
 #include "RevealState.h"
+#include "LoadState.h"
 #include "FramePacer.h"
 #include "FrameTimer.h"
 #include "LocalAssets.h"
@@ -189,6 +190,7 @@ namespace osfui::cefhost
         CefRect popupRect;
         bool hidden{ true }, loaded{}, closing{}, popupShown{};
         RevealState reveal;
+        LoadState loadState;
         std::uint64_t paintSerial{}, publishedPaintSerial{};
         FramePacer::Clock::time_point lastPaint{};
         int order{};
@@ -207,6 +209,7 @@ namespace osfui::cefhost
         double Scale() const;
         bool Trusted(const CefString& url) const;
         bool AllowedDocument(const CefString& url, bool child = false) const;
+        bool CurrentMainFrame(CefRefPtr<CefFrame> frame) const;
         void ReleaseInput();
         void Reveal();
         void Deliver(std::string payload);
@@ -908,14 +911,27 @@ namespace osfui::cefhost
         message->GetArgumentList()->SetString(0, payload);
         browser->GetMainFrame()->SendProcessMessage(PID_RENDERER, message);
     }
+    bool View::CurrentMainFrame(CefRefPtr<CefFrame> frame) const
+    {
+        return !closing && browser && frame && frame->IsMain() && frame->IsValid() &&
+            browser->GetMainFrame()->GetIdentifier() == frame->GetIdentifier();
+    }
     void View::OnLoadStart(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, TransitionType)
-    { if (frame->IsMain()) { ReleaseInput(); loaded = false; reveal.Reset(); popupShown = false; owner.MarkDirty(); PublishBrowserState(); } }
+    {
+        if (!CurrentMainFrame(frame)) return;
+        loadState.Start(frame->GetIdentifier().ToString());
+        ReleaseInput(); loaded = false; reveal.Reset(); popupShown = false; owner.MarkDirty(); PublishBrowserState();
+    }
     void View::OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, int status)
     {
-        if (!frame->IsMain() || closing) return;
+        if (!CurrentMainFrame(frame)) return;
         // HTTP error pages are still browsable documents, as is the idle blank page.
-        loaded = remoteContent ? AllowedDocument(frame->GetURL()) :
-            status >= 200 && status < 400 && Trusted(frame->GetURL());
+        const auto completed = loadState.End(frame->GetIdentifier().ToString(), remoteContent ? AllowedDocument(frame->GetURL()) :
+            status >= 200 && status < 400 && Trusted(frame->GetURL()));
+        // A post-commit transport failure has already published its real error.
+        // OnLoadEnd must not replace it with success or a generic HTTP result.
+        if (!completed) return;
+        loaded = *completed;
         PublishBrowserState();
         owner.Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = !loaded, .url = frame->GetURL().ToString(),
             .description = loaded ? "" : "CEF document load failed", .code = status }));
@@ -927,7 +943,10 @@ namespace osfui::cefhost
     }
     void View::OnLoadError(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, ErrorCode code, const CefString& text, const CefString& url)
     {
+        // Pre-commit failures may refer to a provisional frame; only committed
+        // start/end callbacks can require the browser's current frame identity.
         if (!frame->IsMain() || code == ERR_ABORTED || closing) return;
+        loadState.Fail(frame->GetIdentifier().ToString());
         ReleaseInput(); loaded = false; reveal.Reset();
         PublishBrowserState();
         owner.MarkDirty();
