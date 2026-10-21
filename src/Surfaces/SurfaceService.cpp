@@ -39,17 +39,18 @@ namespace OSFUI
         state["guide"] = e.browserGuide;
         state["landing"] = !e.browserEnabled || url.empty() || url == "about:blank" || !e.browserError.empty() || e.browserGuide;
         state["error"] = e.browserError;
-        { std::scoped_lock lock(m_mutex); state["screens"] = e.demand; }
+        { std::scoped_lock lock(m_mutex); state["screens"] = e.screenCount; }
         return state;
     }
     void SurfaceService::BrowserLayout(Entry& e)
     {
         if (e.manifest.browserChrome.empty() || !e.host) return;
+        const auto state = BrowserState(e);
         e.host->SetBrowserLayout({.chrome=e.manifest.id,
             .content=e.browserEnabled ? std::string(osfui::browser::kBrowserContent) : "",
             .chromeHeight=e.manifest.browserChromeHeight, .fullscreen=e.browserFullscreen,
-            .landing=BrowserState(e)["landing"].get<bool>()});
-        m_bridge->Emit(e.manifest.id,"browser.state",BrowserState(e));
+            .landing=state["landing"].get<bool>()});
+        m_bridge->Emit(e.manifest.id,"browser.state",state);
     }
     void SurfaceService::RejectBrowserRequests(Entry& e)
     {
@@ -122,6 +123,16 @@ namespace OSFUI
             e->audioScene=valid ? scene : API::Surfaces::AudioScene{};
             e->audioAt=std::chrono::steady_clock::now(); ++e->audioRevision;
             return valid;
+        }
+        return false;
+    }
+    bool SurfaceService::PublishScreenCount(const char* view, std::uint32_t count) noexcept
+    {
+        if (!view || count > 4096) return false;
+        std::scoped_lock lock(m_mutex);
+        for (const auto& e : m_entries) if (e->manifest.id == view) {
+            if (e->screenCount != count) { e->screenCount = count; e->screenCountChanged = true; }
+            return true;
         }
         return false;
     }
@@ -271,6 +282,9 @@ namespace OSFUI
             if (demand && !e->host && !e->failed) Start(e);
             if (!e->host) continue;
             e->host->DrainNotifications();
+            bool countChanged;
+            { std::scoped_lock lock(m_mutex); countChanged = std::exchange(e->screenCountChanged, false); }
+            if (countChanged) BrowserLayout(*e);
             (void)e->recovery.ExpireResponseWait(Now());
             e->recovery.ObserveHealth(Now());
             if (e->recovery.BeginDueAttempt(Now())) {

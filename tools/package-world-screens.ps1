@@ -46,7 +46,7 @@ try {
             }
         } finally { $zip.Dispose() }
         $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
-        [ordered]@{version='0.1.0-dev'; coreRequirement='matching source revision; surfaces ABI 1.0'; sourceCommit=(& git rev-parse HEAD); sourceDirty=[bool](& git status --porcelain --ignore-submodules=all); archiveSha256=$hash; files=$files} |
+        [ordered]@{version='0.1.0-dev'; coreRequirement='matching source revision; surfaces ABI 1.3'; sourceCommit=(& git rev-parse HEAD); sourceDirty=[bool](& git status --porcelain --ignore-submodules=all); archiveSha256=$hash; files=$files} |
             ConvertTo-Json -Depth 5 | Set-Content -LiteralPath ($archive + '.manifest.json') -Encoding utf8NoBOM
         "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath ($archive + '.sha256') -Encoding utf8NoBOM
         Write-Host "Verified local archive: $archive"

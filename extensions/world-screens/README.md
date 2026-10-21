@@ -5,7 +5,7 @@ Optional extension for material-backed web displays in Starfield. Development ve
 
 Install one OSF UI backend edition, then this extension and a content mod that provides
 screens. **Use OSF UI from this same source revision**: the previously released 2.1.0
-DLL does not export the required `OSFUI_RequestSurfaces` ABI 1.2. The extension checks that
+DLL does not export the required `OSFUI_RequestSurfaces` ABI 1.3. The extension checks that
 interface at startup and disables itself when it is missing or incompatible.
 
 This extension has one backend-independent DLL, `SFSE/Plugins/OSFUIWorldScreens.dll`.
@@ -57,6 +57,9 @@ copy nothing. Browsers start on demand and retire once outstanding GPU reads fin
 the final binding is released, or 10 seconds after the last loaded screen unloads.
 The 256 MiB output-texture budget excludes browser/helper memory and shared capture
 rings. Live engine resource owners prevent eviction; budget pressure defers new outputs.
+
+The browser's bound-screen count includes logical bindings whose references are temporarily
+unloaded. It is independent of the one shared feed lease and of the distance-limited audio emitters.
 
 ## Build and local package
 

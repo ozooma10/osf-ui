@@ -47,6 +47,7 @@ namespace OSFUI
         bool EndInteraction(API::Surfaces::Interaction) noexcept override;
         API::Surfaces::Interaction BeginInteractionWith(API::Surfaces::Handle, const API::Surfaces::InteractionOptions&, API::Surfaces::InteractionCallback, void*) noexcept override;
         bool PublishAudioScene(const char*, const API::Surfaces::AudioScene&) noexcept override;
+        bool PublishScreenCount(const char*, std::uint32_t) noexcept override;
     private:
         struct Entry
         {
@@ -56,6 +57,8 @@ namespace OSFUI
             std::future<void> retirement;
             BrowserHostRecovery recovery;
             std::size_t demand{};
+            std::uint32_t screenCount{}; // m_mutex; logical bindings, not feed leases
+            bool screenCountChanged{}; // m_mutex; publish on the runtime tick
             bool loaded{}, failed{};
             bool browserEnabled{}, browserFullscreen{}, browserGuide{};
             nlohmann::json browserState = nlohmann::json::object();

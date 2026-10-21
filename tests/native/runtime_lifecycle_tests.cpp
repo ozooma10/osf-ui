@@ -406,6 +406,7 @@ void SurfaceLifecycle()
     CHECK(OSFUI_RequestSurfaces(API::Surfaces::kVersion,&actual) == &service && actual == API::Surfaces::kVersion);
     CHECK(OSFUI_RequestSurfaces(0x00010000,&actual) == &service);
     CHECK(OSFUI_RequestSurfaces(0x00010001,&actual) == &service);
+    CHECK(OSFUI_RequestSurfaces(0x00010002,&actual) == &service);
     const auto first=service.Acquire("acme/screen"), second=service.Acquire("ACME/SCREEN");
     CHECK(first && second && first!=second);
     service.Update(true);
@@ -628,6 +629,10 @@ void BrowserSurfaceLifecycle(bool enabled)
     if (enabled) service.Initialize(bridge,false,{}, {},[]{ return true; });
     else service.Initialize(bridge,false,{}, {}); // Production remains default-off without step 6.
     const auto lease=service.Acquire(view);
+    CHECK(!service.PublishScreenCount("acme/menu",2));
+    CHECK(!service.PublishScreenCount(nullptr,2));
+    CHECK(!service.PublishScreenCount(view,4097));
+    CHECK(service.PublishScreenCount(view,2)); // Two bindings share this single feed lease.
     runtime().Update(); QueueLoad(view); QueueHello(view); runtime().Update();
     CHECK(env.remoteMode.at(host) == enabled);
     CHECK(env.viewHosts.contains(content) == enabled);
@@ -659,6 +664,17 @@ void BrowserSurfaceLifecycle(bool enabled)
     };
     request(view,"state","getState");
     CHECK(reply("state")["payload"]["enabled"] == enabled);
+    CHECK(reply("state")["payload"]["screens"] == 2);
+    const auto beforeCountChange=env.sent.size();
+    CHECK(service.PublishScreenCount(view,3));
+    runtime().Update();
+    CHECK(std::ranges::any_of(env.sent.begin()+beforeCountChange,env.sent.end(),[](const auto& message) {
+        return message.body.value("name","") == "browser.state" && message.body["payload"]["screens"] == 3;
+    }));
+    const auto afterCountChange=env.sent.size();
+    CHECK(service.PublishScreenCount(view,3)); runtime().Update();
+    CHECK(env.sent.size() == afterCountChange); // Unchanged counts do not flood chrome.
+    CHECK(service.PublishScreenCount(view,1)); runtime().Update();
     request("acme/menu","forbidden","navigate",{{"input","example.com"}});
     CHECK(reply("forbidden")["payload"]["code"] == "browser-forbidden");
     request(view,"nav","navigate",{{"input","space music"}});

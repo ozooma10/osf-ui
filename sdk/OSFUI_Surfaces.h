@@ -8,7 +8,7 @@ struct ID3D12Resource;
 
 namespace OSFUI::API::Surfaces
 {
-    inline constexpr std::uint32_t kVersion = 0x00010002;
+    inline constexpr std::uint32_t kVersion = 0x00010003;
     using Handle = std::uint64_t;
     using Interaction = std::uint64_t;
     struct View { const char* id; const char* texture; std::uint32_t width, height; };
@@ -59,6 +59,9 @@ namespace OSFUI::API::Surfaces
         // Reserved browser view only. Refresh at least every second; missing or
         // invalid scenes fail silent. An empty scene immediately removes all TVs.
         virtual bool PublishAudioScene(const char* view, const AudioScene&) noexcept = 0;
+        // 1.3. Number of logical screen bindings, including temporarily unloaded references.
+        // Independent of shared feed leases and distance-filtered audio emitters. Thread-safe.
+        virtual bool PublishScreenCount(const char* view, std::uint32_t count) noexcept = 0;
     protected:
         ~IService() = default;
     };

@@ -35,7 +35,7 @@
   const host = url => { try { return new URL(url).host.replace(/^www\./i, ""); } catch { return ""; } };
   const label = item => item.title || host(item.url) || item.url;
   const screens = () => Math.max(0, Number(state.screens) || 0);
-  const screensText = n => n + (n === 1 ? " screen" : " screens");
+  const screensText = n => n + (n === 1 ? " bound screen" : " bound screens");
   const pinned = url => pins.some(p => p.url === url);
   function monogram(url) {
     const parts = host(url).split(".").filter(Boolean);
