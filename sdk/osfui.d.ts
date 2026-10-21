@@ -123,6 +123,15 @@ export interface ViewManifestV1 {
   kind?: "menu" | "hud" | "world";
   /** World Screens generated texture identity; required for kind world. */
   texture?: string;
+  /** World only: permits fullscreen interactions with cursor input and game pause. Defaults to false. */
+  fullscreen?: boolean;
+  /** Reserved for the osfui.browser/tv world view. Implies fullscreen and uses chrome as the local entry. */
+  browser?: {
+    /** Relative local HTML path; traversal, URL delimiters and percent escapes are rejected. */
+    chrome: string;
+    /** Integer output pixels, 32-256 and less than the view height. Defaults to 56. */
+    chromeHeight?: number;
+  };
   capturesInput?: boolean;
   pausesGame?: boolean;
   openOnStart?: boolean;
