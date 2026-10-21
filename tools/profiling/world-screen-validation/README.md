@@ -1,9 +1,9 @@
 # World-screen game validation
 
-These background-only checks use the sibling OSF Test Harness, a private MO2
+These checks use the sibling OSF Test Harness, a private MO2
 profile, a copied save fixture, private Settings values, and a leased TV browser
-profile. They never focus the game or inject keyboard/controller input. Read the
-harness instructions before running them. Only one runner may own the game.
+profile. They default to background operation and never inject keyboard/controller
+input. Read the harness instructions before running them. Only one runner may own the game.
 
 `Start.ps1` requires `-Backend webview2|cef`, `-CoreData`, and `-ExtensionData`.
 Use matching core and extension builds, including the reserved TV view in the
@@ -49,14 +49,22 @@ camera, display settings, frame cap, focus state, and TV layout for both revisio
 Keep unrelated source changes identical. Use separate complete payloads and
 retain their source revisions and hashes.
 
+With explicit user authorization, `Focus.ps1 -RunPath <run> -AllowForeground`
+focuses only the identity-verified owned game and records the observed result.
+It sends no keyboard or mouse input. Otherwise the runner remains background-only.
+Foreground matters here: a background game can enter the vanity camera orbit.
+
 `Measure.ps1 -RunPath <run> -Variant current|baseline -Workload <name> -Repeat 1
 -DurationSeconds 30` samples owned game/browser CPU and memory plus PresentMon
 application-frame timing. Repeat each workload three times after warmup. CPU
 100% means one logical core. Game CPU includes the whole game, and private memory
 does not measure VRAM. The sampler verifies loaded DLL/helper hashes, rejects
 foreign helpers, and records process identities and trusted-page observations.
-Native samples require a fresh, unpaused game with stable focus, cell and position;
-comparisons reject mismatches between revisions. Use `-NoPresentMon` for CPU and
+Native samples require a fresh, unpaused game with stable focus, cell, position,
+and camera pose (from the spatial listener). Private quality/display preferences
+and actual captured window dimensions must match; stored preferred window sizes
+are not treated as the actual rendering dimensions.
+Comparisons reject mismatches between revisions. Use `-NoPresentMon` for CPU and
 memory measurements when ETW privileges are unavailable; this supplies no FPS
 or rendered-frame-pacing evidence.
 

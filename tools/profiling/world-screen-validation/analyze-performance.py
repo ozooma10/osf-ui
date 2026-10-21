@@ -7,11 +7,14 @@ generated frames, and the main swap chain is selected by application-frame count
 from __future__ import annotations
 
 import argparse
+import configparser
 import csv
 import hashlib
 import json
 import math
+import re
 import statistics
+import struct
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -58,6 +61,33 @@ def summarize(path):
     observations = read_json(path / "observations.json")
     kind = manifest.get("captureKind", "steady")
     warnings, invalid = [], []
+    run_root = path.parent.parent
+    context = read_json(run_root / "context.json")
+    preferences = list((run_root / "mo2-cleanup" / "profiles").rglob("StarfieldPrefs.ini"))
+    if not preferences:
+        preferences = [Path(context["profile"]) / "StarfieldPrefs.ini"]
+    rendering = None
+    screenshot = run_root / "setup-one-tv.png"
+    if len(preferences) == 1 and preferences[0].is_file() and screenshot.is_file():
+        ini = configparser.ConfigParser(strict=False)
+        ini.read(preferences[0], encoding="utf-8-sig")
+        png = screenshot.read_bytes()[:24]
+        if png[:8] != b"\x89PNG\r\n\x1a\n":
+            raise ValueError(f"Invalid fixture capture: {screenshot}")
+        rendering = {"capturedWindowPixels": list(struct.unpack(">II", png[16:24])),
+                     "display": {key: value for key, value in ini.items("Display")
+                                 if key not in ("ilocation x", "ilocation y", "udisplayhash", "isize w", "isize h")},
+                     "quality": dict(ini.items("Quality"))}
+        geometry_log = run_root / "logs" / "OSF UI.log"
+        if geometry_log.is_file():
+            geometries = sorted(set(re.findall(r"geometry mode -> (.*)", geometry_log.read_text(encoding="utf-8-sig"))))
+            rendering["runtimeGeometry"] = geometries
+            if len(geometries) != 1:
+                invalid.append("runtime capture/viewport geometry missing or changed")
+        else:
+            invalid.append("runtime geometry log unavailable")
+    else:
+        invalid.append("fixture screenshot or private rendering preferences unavailable")
     if kind == "recovery":
         warnings.append("Transient recovery capture: CPU and memory are descriptive only; compare game-frame gaps with the separately timed recovery evidence.")
     if manifest["status"] != "complete":
@@ -84,8 +114,15 @@ def summarize(path):
     game_signature["position"] = sorted({json.dumps(
         {axis: round(value, 2) or 0.0 for axis, value in (n.get("position") or {}).items()},
         sort_keys=True) for n in native})
+    # The listener follows the camera; stationary player coordinates alone do
+    # not detect the automatic vanity orbit. Ignore sub-centimeter idle sway.
+    for key in ("listener", "front", "up"):
+        game_signature["camera_" + key] = sorted({json.dumps([
+            round(value, 2) or 0.0 for value in
+            (at(o, "page", "browserState", "audio", "chrome", "spatial", key) or [])
+        ]) for o in observations})
     if kind == "steady" and any(len(values) > 1 for values in game_signature.values()):
-        invalid.append("game focus, cell or position changed during measurement")
+        invalid.append("game focus, cell, position or camera changed during measurement")
     if observations and at(observations[-1], "page", "frames") == at(observations[0], "page", "frames"):
         warnings.append("trusted page animation counter did not advance")
 
@@ -174,6 +211,7 @@ def summarize(path):
                 processChurn=churn, stalePageObservations=stale,
                 roles=roles, presentMon=present, audio=audio, stateSignature=signature,
                 gameSignature=game_signature,
+                renderConfiguration=rendering,
                 durationSeconds=manifest["durationSeconds"], intervalMs=manifest["intervalMs"],
                 machine=manifest.get("machine"), hashes=manifest["hashes"],
                 manifestSha256=hashlib.sha256((path / "manifest.json").read_bytes()).hexdigest())
@@ -199,7 +237,7 @@ def compare(runs):
             if not baseline["valid"] or not current["valid"]:
                 excluded.append(dict(repeat=repeat, reason="capture invalid", baseline=baseline["invalid"], current=current["invalid"]))
                 continue
-            matched_fields = ["durationSeconds", "intervalMs", "machine", "captureKind"]
+            matched_fields = ["durationSeconds", "intervalMs", "machine", "captureKind", "renderConfiguration"]
             if baseline["captureKind"] == "steady":
                 matched_fields.extend(("stateSignature", "gameSignature"))
             for key in matched_fields:

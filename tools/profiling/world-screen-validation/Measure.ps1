@@ -51,6 +51,8 @@ function Hash-File([string]$Path) {
 }
 function Inventory([bool]$AllowMissingHost=$false) {
     $null=Assert-OwnedGame
+    $compilers=@(Get-Process cl,link,MSBuild,xmake,cmake,ninja -ErrorAction SilentlyContinue)
+    if($compilers.Count){throw ('Build activity would contaminate this capture: '+(($compilers|ForEach-Object {"$($_.ProcessName):$($_.Id)"}) -join ', '))}
     $all=@(Get-CimInstance Win32_Process -Filter "Name='Starfield.exe' OR Name='osfui_webview2_host.exe' OR Name='msedgewebview2.exe' OR Name='osfui_cef_host.exe'")
     $roles=@{};$roles[$gameId]='Game'
     foreach($p in $all){
