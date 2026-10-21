@@ -50,6 +50,11 @@ function Read-Page {
 function Hash-File([string]$Path) {
     @{path=$Path;sha256=(Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash}
 }
+function Assert-Gameplay($State) {
+    if(-not $State.loaded -or $State.snapshotStale -or $State.pauseRequestCount -ne 0 -or $State.menus.Count){
+        throw 'Performance capture requires fresh, unpaused gameplay without an open menu.'
+    }
+}
 function Inventory([bool]$AllowMissingHost=$false) {
     $null=Assert-OwnedGame
     $compilers=@(Get-Process cl,link,xmake,cmake,ninja -ErrorAction SilentlyContinue)
@@ -93,6 +98,7 @@ function Inventory([bool]$AllowMissingHost=$false) {
 }
 
 $game=Assert-OwnedGame
+$null=Assert-Gameplay (Get-GameState)
 $initial=@(Inventory)
 $hashes=[Collections.Generic.List[object]]::new()
 foreach($name in @('OSFUI.dll','OSFUIWorldScreens.dll')){
@@ -160,6 +166,7 @@ try {
         }
         $page=Read-Page
         $native=Get-GameState
+        if($CaptureKind -eq 'steady'){Assert-Gameplay $native}
         $observations.Add(@{atSeconds=$at;atUtc=$time;systemTickMs=[Environment]::TickCount64;processKeys=@($inventory|ForEach-Object {"$($_.process.ProcessId)|$($_.process.CreationDate.ToUniversalTime().ToString('o'))"});page=$page;native=$native})
         $delay=[math]::Min($IntervalMs-($timer.Elapsed.TotalSeconds-$at)*1000,($DurationSeconds-$timer.Elapsed.TotalSeconds)*1000)
         if($delay -gt 0){Start-Sleep -Milliseconds ([int]$delay)}

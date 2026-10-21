@@ -10,7 +10,7 @@ try {
     $null=Get-GameState
     $null=Invoke-Input 'focus'
     $state=Wait-Observed 'Owned test game has foreground' {Get-GameState} {
-        param($s) $s.foreground -and -not $s.snapshotStale -and $s.loaded
+        param($s) $s.foreground -and -not $s.snapshotStale -and $s.loaded -and $s.pauseRequestCount -eq 0 -and $s.menus.Count -eq 0
     } 10
     Write-JsonFile (Join-Path $script:Run.path 'foreground-authorization.json') @{
         scope='User-authorized focus only. No keyboard or mouse input.';atUtc=[DateTime]::UtcNow.ToString('o');state=$state
