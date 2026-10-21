@@ -28,7 +28,7 @@
   let engine = Object.hasOwn(engines, read("engine")) ? read("engine") : "duckduckgo";
   let pins = readList("pins"), recent = readList("recent");
   let section = "channels", selectedKey = "", confirmClear = false, clearing = false, editing = false;
-  let noticeText = "", noticeTimer, renderedKey = "", models = new Map();
+  let noticeText = "", noticeTimer, appliedKey = "", renderedKey = "", models = new Map();
 
   const blank = url => !url || url === "about:blank";
   const page = () => !blank(state.url);
@@ -95,6 +95,14 @@
   // ── Toolbar ────────────────────────────────────────────────────
   function apply(next) {
     state = next || state;
+    // Audio diagnostics include changing poses/counters, but no chrome controls
+    // render them. Preserve the latest state without rewriting identical DOM or
+    // browser history on every diagnostic update.
+    const presentation = { ...state };
+    delete presentation.audio;
+    const key = JSON.stringify(presentation);
+    if (key === appliedKey) return;
+    appliedKey = key;
     const hasPage = page();
     body.classList.toggle("landing", !!state.landing);
     body.classList.toggle("interactive", !!state.fullscreen);
