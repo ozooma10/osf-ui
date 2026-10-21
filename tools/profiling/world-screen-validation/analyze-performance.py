@@ -126,13 +126,25 @@ def summarize(path):
     if observations and at(observations[-1], "page", "frames") == at(observations[0], "page", "frames"):
         warnings.append("trusted page animation counter did not advance")
 
+    process_categories = {}
+    for process in manifest.get("processes", []):
+        command = process.get("commandLine") or ""
+        match = re.search(r"--type=([^\s]+)", command)
+        kind_name = match.group(1) if match else "browser"
+        category = {"gpu-process": "Gpu", "renderer": "Renderer", "browser": "BrowserMain"}.get(kind_name, "OtherBrowser")
+        if "--utility-sub-type=audio.mojom.AudioService" in command:
+            category = "AudioService"
+        process_categories[str(process["pid"]), process["createdAtUtc"]] = category
     groups = defaultdict(list)
     for row in rows:
         groups[row["role"], row["sample"]].append(row)
         if row["role"] != "Game":
             groups["AllBrowser", row["sample"]].append(row)
+        if row["role"] == "Browser":
+            category = process_categories.get((row["pid"], row["createdAtUtc"]), "OtherBrowser")
+            groups[category, row["sample"]].append(row)
     roles = {}
-    for role in ("Game", "Host", "Browser", "AllBrowser"):
+    for role in ("Game", "Host", "Browser", "AllBrowser", "Gpu", "Renderer", "BrowserMain", "AudioService", "OtherBrowser"):
         samples = []
         for (key_role, _), items in groups.items():
             if key_role != role:
@@ -182,6 +194,18 @@ def summarize(path):
     metrics = {f"{role}.cpuOneCore": value["cpuTimeWeightedMeanOneCore"] for role, value in roles.items()}
     for role, value in roles.items():
         metrics[f"{role}.privateMiB"] = value["privateMiB"]["mean"]
+    if observations:
+        first, last = observations[0].get("page") or {}, observations[-1].get("page") or {}
+        elapsed = ((number(last.get("at")) or 0) - (number(first.get("at")) or 0)) / 1000
+        if elapsed > 0 and first.get("documentId") == last.get("documentId"):
+            for key in ("stateEvents", "audioOnlyEvents", "domMutations"):
+                before, after = number(at(first, "diagnostics", key)), number(at(last, "diagnostics", key))
+                if before is not None and after is not None and after >= before:
+                    metrics[f"Chrome.{key}PerSecond"] = (after - before) / elapsed
+        heap = [number(at(o, "page", "diagnostics", "jsHeapUsed")) for o in observations]
+        heap = [value / 2**20 for value in heap if value is not None]
+        if heap:
+            metrics["Chrome.jsHeapUsedMiB"] = statistics.mean(heap)
     if present:
         for key in ("FrameTime", "CPUBusy", "GPUBusy"):
             if present["metricsMs"].get(key):
@@ -295,7 +319,10 @@ def main():
     text = ["# World-screen in-game performance", "", "Costs use 100% CPU = one logical core. Values are medians across matched repeats; ranges show observed run-to-run variation.", "",
             "| Backend / workload | Paired repeats | Metric | Baseline median [min, max] | Current median [min, max] | Change |", "| --- | ---: | --- | ---: | ---: | ---: |"]
     for item in comparison:
-        for metric in ("Game.cpuOneCore", "Host.cpuOneCore", "Browser.cpuOneCore", "AllBrowser.cpuOneCore", "FrameTime.p99Ms", "FrameTime.maxMs"):
+        for metric in ("Game.cpuOneCore", "Host.cpuOneCore", "Browser.cpuOneCore", "AllBrowser.cpuOneCore",
+                       "AllBrowser.privateMiB", "Gpu.privateMiB", "Renderer.privateMiB",
+                       "Chrome.stateEventsPerSecond", "Chrome.audioOnlyEventsPerSecond", "Chrome.domMutationsPerSecond",
+                       "Chrome.jsHeapUsedMiB", "FrameTime.p99Ms", "FrameTime.maxMs"):
             value = item["metrics"].get(metric)
             if not value:
                 continue

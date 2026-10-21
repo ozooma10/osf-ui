@@ -78,3 +78,19 @@ Run `python analyze-performance.py <baseline-run> <current-run> --out <new-dir>`
 The analyzer pairs repeat IDs, excludes mismatched or invalid steady captures,
 and reports medians, ranges, and paired deltas. Results are descriptive, not a
 significance test. Keep failed captures alongside accepted evidence.
+
+`Run-Performance.ps1` runs a complete isolated comparison session from an explicit
+payload: two TVs, 120-second warmup, three 30-second idle captures and three tone
+captures, then normal exit and profile restoration. It requires the existing
+explicit authorization to focus the owned game. Use different `-FirstRepeat`
+values for independent launches and reverse variant order on the second pair;
+`-ToneFirst` also permits matching the earlier tone-before-idle workload order.
+Use `-ValidateControls` on a candidate session to include screen count, save/load,
+navigation, video/mute and sustained audio checks after performance measurement.
+
+The private observer counts browser-state events and DOM mutation records without
+retaining DOM nodes. These counters distinguish repeated chrome updates from
+process CPU noise. The analyzer additionally separates Chromium GPU, renderer,
+browser-main and audio-service processes. Process private bytes are not VRAM;
+optional Chromium JS heap counters are separate, approximate diagnostics. Use
+identical observer instrumentation in both variants.
