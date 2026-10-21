@@ -279,10 +279,13 @@ try {
                     $sampleAt=[Environment]::TickCount64
                     try {
                         $game=Get-GameState;$page=Page
+                        # An absent page is expected while the stalled host is
+                        # being replaced. Keep native observations through that gap.
+                        $documentId=At $page @('documentId')
                         $samples.Add(@{elapsedMs=$timer.ElapsedMilliseconds;requestedTickMs=$sampleAt;completedTickMs=[Environment]::TickCount64;
                             tickCount=$game.tickCount;snapshotAtUtcMs=$game.snapshotAtUtcMs;snapshotAgeMs=$game.snapshotAgeMs;snapshotStale=$game.snapshotStale;
-                            loaded=$game.loaded;hostExited=$old.process.HasExited;documentId=$page.documentId})
-                        if($page -and $page.documentId -ne $before.documentId -and $old.process.HasExited){$recovered=$page;break}
+                            loaded=$game.loaded;hostExited=$old.process.HasExited;documentId=$documentId})
+                        if($documentId -and $documentId -ne $before.documentId -and $old.process.HasExited){$recovered=$page;break}
                     } catch {
                         $samples.Add(@{elapsedMs=$timer.ElapsedMilliseconds;requestedTickMs=$sampleAt;error=$_.Exception.Message})
                     }
