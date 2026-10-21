@@ -30,6 +30,7 @@ $gameId=[int]$session.pid
 $hostName=if($backend -eq 'cef'){'osfui_cef_host.exe'}else{'osfui_webview2_host.exe'}
 $output=Join-Path $captureRunPath ("performance/$Variant-$Workload-r$Repeat")
 if(Test-Path -LiteralPath $output){throw 'Performance evidence already exists; choose a fresh repeat number.'}
+$buildCpu=@{}
 
 function Assert-OwnedGame {
     $games=@(Get-Process Starfield -ErrorAction SilentlyContinue)
@@ -51,8 +52,22 @@ function Hash-File([string]$Path) {
 }
 function Inventory([bool]$AllowMissingHost=$false) {
     $null=Assert-OwnedGame
-    $compilers=@(Get-Process cl,link,MSBuild,xmake,cmake,ninja -ErrorAction SilentlyContinue)
+    $compilers=@(Get-Process cl,link,xmake,cmake,ninja -ErrorAction SilentlyContinue)
     if($compilers.Count){throw ('Build activity would contaminate this capture: '+(($compilers|ForEach-Object {"$($_.ProcessName):$($_.Id)"}) -join ', '))}
+    # MSBuild keeps reusable workers alive after a completed build. Reject CPU
+    # activity, not an idle worker's mere existence; never terminate shared nodes.
+    foreach($worker in @(Get-Process MSBuild -ErrorAction SilentlyContinue)){
+        $key="$($worker.Id)|$($worker.StartTime.ToFileTimeUtc())"
+        $cpu=$worker.TotalProcessorTime.Ticks
+        if($buildCpu.ContainsKey($key)){$previous=$buildCpu[$key]}
+        else{
+            $previous=$cpu;Start-Sleep -Milliseconds 100;$worker.Refresh()
+            if($worker.HasExited){continue}
+            $cpu=$worker.TotalProcessorTime.Ticks
+        }
+        if($cpu -gt $previous){throw "MSBuild worker $($worker.Id) consumed CPU during capture admission/measurement."}
+        $buildCpu[$key]=$cpu
+    }
     $all=@(Get-CimInstance Win32_Process -Filter "Name='Starfield.exe' OR Name='osfui_webview2_host.exe' OR Name='msedgewebview2.exe' OR Name='osfui_cef_host.exe'")
     $roles=@{};$roles[$gameId]='Game'
     foreach($p in $all){
