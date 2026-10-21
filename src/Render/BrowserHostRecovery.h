@@ -103,6 +103,14 @@ namespace OSFUI
 			return true;
 		}
 
+		// A retiring helper cannot produce a replacement response. Keep the
+		// attempt budget intact and give startup its full timeout after retirement.
+		void DeferResponseWait(double a_now)
+		{
+			if (m_phase == Phase::AwaitingResponse)
+				m_responseDeadline = a_now + kResponseTimeoutSeconds;
+		}
+
 		// Manual retry resets the exhausted budget but does not reopen the overlay.
 		[[nodiscard]] bool RequestManualRetry(double a_now)
 		{

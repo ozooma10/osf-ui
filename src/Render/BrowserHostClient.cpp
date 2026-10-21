@@ -1,6 +1,7 @@
 #include "Render/BrowserHostClient.h"
 #include "Render/SharedFrameConsumer.h"
 #include "Render/BrowserHostRuntime.h"
+#include "Render/BrowserHostRetirement.h"
 
 #include <atomic>
 #include <deque>
@@ -292,7 +293,7 @@ namespace OSFUI
 		std::thread      worker;
 		std::thread      writer;  // Spawned by the worker once connected; joined after the worker.
 		std::atomic<Lifecycle> lifecycle{ Lifecycle::Stopped };
-		HANDLE hostProcess{ nullptr };  // Written by the worker; Stop reads it only after joining the worker.
+		HANDLE hostProcess{ nullptr };  // Written by the worker; retirement reads it only after joining the worker.
 
 		std::mutex         notifyMutex;
 		std::deque<Notify> notifications;  // unbounded: the host rate-limits page messages and forwards console only in dev mode
@@ -307,6 +308,7 @@ namespace OSFUI
 
 		static constexpr std::size_t kMaxOutbound = 512;
 		osfui::browser::BoundedQueue<std::string> outbound{ kMaxOutbound };
+		BrowserHostRetirement retirement{ kMaxOutbound }; // Runtime-owned; joins before Impl destruction.
 
 		bool IsRunning() const { return lifecycle.load(std::memory_order_acquire) == Lifecycle::Running; }
 		bool IsStarting() const { return lifecycle.load(std::memory_order_acquire) == Lifecycle::Starting; }
@@ -342,6 +344,12 @@ namespace OSFUI
 
 		bool Enqueue(const json& a_msg, bool a_queueBeforeConnect)
 		{
+			// Rehydration starts as soon as retirement is requested. Preserve its
+			// messages separately so the old writer can never consume the replay.
+			if (a_queueBeforeConnect && lifecycle.load(std::memory_order_acquire) == Lifecycle::Stopping) {
+				return retirement.Push(Json::Dump(a_msg), CoalesceKey(a_msg)) !=
+					BrowserHostRetirement::Queue::PushResult::Full;
+			}
 			if (!a_queueBeforeConnect && !IsRunning()) {
 				return false;
 			}
@@ -757,7 +765,7 @@ namespace OSFUI
 				}
 			}
 
-			// Stop joins the worker before the writer, so this assignment is visible to it.
+			// Retirement joins the worker before the writer, so this assignment is visible to it.
 			writer = std::thread([this] { WriterMain(); });
 			ReadLoop();
 			SignalDead("browser-host connection ended unexpectedly: " + pipe.LastErrorText());
@@ -828,7 +836,7 @@ namespace OSFUI
 						.view = console.view, .text = console.json });
 				} else if (type == msg::Cursor::kType) {
 					// Cursor callbacks run on the transport thread by contract.
-					if (onCursorChange) {
+					if (IsRunning() && onCursorChange) {
 						onCursorChange(msg::FromJson<msg::Cursor>(message).id);
 					}
 				} else if (type == msg::Log::kType) {
@@ -893,7 +901,12 @@ namespace OSFUI
 				std::scoped_lock lock(notifyMutex);
 				local.swap(notifications);
 			}
+			// Old callbacks can arrive while the background worker closes its pipe.
+			// They must not restore a page/input grant belonging to that document.
+			if (lifecycle.load(std::memory_order_acquire) == Lifecycle::Stopping) return;
 			for (auto& value : local) {
+				if (value.kind != Notify::Kind::Fatal && value.kind != Notify::Kind::Dead &&
+					value.kind != Notify::Kind::Log && !IsRunning()) continue;
 				switch (value.kind) {
 				case Notify::Kind::BrowserState:
 					if (const auto raw = Json::Parse(value.text)) {
@@ -927,8 +940,6 @@ namespace OSFUI
 					}
 					break;
 				case Notify::Kind::Load:
-					// Ignore load and recovery notifications from a failed connection.
-					if (lifecycle.load(std::memory_order_acquire) == Lifecycle::Failed) break;
 					if (onLoad) {
 						const LoadEvent event{
 							.viewId = value.view,
@@ -995,14 +1006,10 @@ namespace OSFUI
 
 
 		// EOF requests shutdown in both helpers. Give CEF time to close browsers and flush its profile.
-		void Stop()
+		void StopTransport()
 		{
-			auto prior = lifecycle.load(std::memory_order_acquire);
-			do {
-				if (prior == Lifecycle::Stopped || prior == Lifecycle::Stopping) return;
-			} while (!lifecycle.compare_exchange_weak(prior, Lifecycle::Stopping, std::memory_order_acq_rel));
-
-			// Close cancels pipe I/O so the joins cannot block.
+			// Pipe cancellation, thread joins, and helper exit waits run off the
+			// runtime tick during recovery. The destructor also uses this path.
 			outbound.Close();
 			pipe.Close();
 			if (worker.joinable()) worker.join();
@@ -1018,12 +1025,41 @@ namespace OSFUI
 				}
 				::CloseHandle(browserHostProcess);
 			}
-
+		}
+		void Stop()
+		{
+			// Owner teardown may block, but must never race a recovery worker or
+			// abandon its process/thread/frame resources.
+			retirement.Wait();
+			lifecycle.store(Lifecycle::Stopping, std::memory_order_release);
+			StopTransport();
 			lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
 		}
-		void ResetAfterFailure()
+		void BeginRestart()
 		{
-			Stop();
+			if (retirement.Pending()) return;
+			std::scoped_lock stateLock(stateMutex);
+			lifecycle.store(Lifecycle::Stopping, std::memory_order_release);
+			outbound.Close();
+			focusRequested = false;
+			// Preserve desired visibility for replay; no old frame has this epoch.
+			BeginPresentation();
+			try {
+				retirement.Start([this] { StopTransport(); });
+			} catch (const std::exception& error) {
+				lifecycle.store(Lifecycle::Failed, std::memory_order_release);
+				REX::ERROR("BrowserHostClient: could not schedule browser retirement ({})", error.what());
+				Push(Notify{ .kind = Notify::Kind::Dead });
+			}
+		}
+		void FinishRestartIfReady()
+		{
+			if (!retirement.Pending()) return;
+			// Serialize replay routing with SendMessageToWeb. Ready polling never
+			// joins the still-running transport or waits for a helper process.
+			std::scoped_lock stateLock(stateMutex);
+			auto completed = retirement.TakeReady();
+			if (!completed) return;
 			// Successful preparation survives browser recovery; failed preparation can be retried.
 			if (viewFilesPreparation.valid() &&
 				viewFilesPreparation.wait_for(std::chrono::seconds(0)) == std::future_status::ready &&
@@ -1038,17 +1074,19 @@ namespace OSFUI
 				std::scoped_lock lock(notifyMutex);
 				notifications.clear();
 			}
-
-			{
-				std::scoped_lock lock(stateMutex);
-				focusRequested = false;
-			}
-
 			if (discardedOut) {
 				REX::WARN("BrowserHostClient: discarded {} transient message(s) from "
 						  "the dead document; runtime state will be replayed to its replacement",
 					discardedOut);
 			}
+			if (completed->error || completed->overflow || !outbound.Prepend(std::move(completed->replay))) {
+				lifecycle.store(Lifecycle::Failed, std::memory_order_release);
+				outbound.Close();
+				REX::ERROR("BrowserHostClient: retirement failed or its bounded replay queue overflowed");
+				Push(Notify{ .kind = Notify::Kind::Dead });
+				return;
+			}
+			lifecycle.store(Lifecycle::Stopped, std::memory_order_release);
 		}
 	};
 
@@ -1057,6 +1095,11 @@ namespace OSFUI
 	{}
 
 	BrowserHostClient::~BrowserHostClient()
+	{
+		Shutdown();
+	}
+
+	void BrowserHostClient::Shutdown()
 	{
 		if (m_impl) {
 			m_impl->Stop();
@@ -1100,8 +1143,9 @@ namespace OSFUI
 
 	void BrowserHostClient::RestartAfterFailure()
 	{
-		m_impl->ResetAfterFailure();
+		m_impl->BeginRestart();
 	}
+	bool BrowserHostClient::RestartPending() const { return m_impl->retirement.Pending(); }
 
 	void BrowserHostClient::CreateOrNavigateView(const ViewManifest& a_manifest)
 	{
@@ -1236,6 +1280,7 @@ namespace OSFUI
 
 	void BrowserHostClient::Update()
 	{
+		m_impl->FinishRestartIfReady();
 		if (m_impl->lifecycle.load(std::memory_order_acquire) ==
 			Impl::Lifecycle::Stopped) {
 			bool wantsView = false;

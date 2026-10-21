@@ -280,7 +280,12 @@ namespace OSFUI
                 m_bridge->OnViewDestroyed(e->manifest.id);
                 API::BridgeApi::Get().SetViewInstantiated(e->manifest.id, false);
                 m_instancesChanged = true;
-                e->retirement=std::async(std::launch::async, [host=std::move(retired)]() mutable { host.reset(); });
+                e->retirement=std::async(std::launch::async, [host=std::move(retired)]() mutable {
+                    // Keep ownership until callbacks, pipe threads and profile use
+                    // end; a temporary input/cursor reader must not run teardown.
+                    host->Shutdown();
+                    host.reset();
+                });
                 e->loaded=false; e->failed=false; e->recovery.Reset();
                 continue;
             }
@@ -290,10 +295,14 @@ namespace OSFUI
             bool countChanged;
             { std::scoped_lock lock(m_mutex); countChanged = std::exchange(e->screenCountChanged, false); }
             if (countChanged) BrowserLayout(*e);
-            (void)e->recovery.ExpireResponseWait(Now());
-            e->recovery.ObserveHealth(Now());
-            if (e->recovery.BeginDueAttempt(Now())) {
-                e->failed=false; e->host->RestartAfterFailure(); Navigate(*e);
+            if (e->host->RestartPending()) {
+                e->recovery.DeferResponseWait(Now());
+            } else {
+                (void)e->recovery.ExpireResponseWait(Now());
+                e->recovery.ObserveHealth(Now());
+                if (e->recovery.BeginDueAttempt(Now())) {
+                    e->failed=false; e->host->RestartAfterFailure(); Navigate(*e);
+                }
             }
             if (e->browserEnabled) {
                 API::Surfaces::AudioScene scene;

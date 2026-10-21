@@ -273,6 +273,13 @@ target("osfui-browser-recovery-tests")
     add_files("tests/native/browser_host_recovery_tests.cpp")
     add_includedirs("src", "tests/native/stubs")
 
+target("osfui-browser-retirement-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/browser_host_retirement_tests.cpp")
+    add_includedirs("src", "tools/browser_shared", "tests/native/stubs")
+
 target("osfui-hardware-cursor-tests")
     set_kind("binary")
     set_default(false)

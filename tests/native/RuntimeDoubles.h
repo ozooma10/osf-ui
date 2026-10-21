@@ -8,6 +8,7 @@
 
 #include <deque>
 #include <map>
+#include <atomic>
 
 // These are external inputs/observations, never a second implementation of Runtime.
 namespace RuntimeTest
@@ -44,6 +45,7 @@ namespace RuntimeTest
         bool preparedFrameReady = false;
         bool gameDeviceHealthy = true;
         int rendererInitializations = 0;
+        std::atomic_uint rendererShutdowns{}, rendererDestructions{};
         int compositorCreations = 0;
         int filePreparations = 0;
         int papyrusInstalls = 0;
@@ -65,6 +67,7 @@ namespace RuntimeTest
         std::vector<bool> backWindowActive;
         std::vector<SentMessage> sent;
         std::map<std::string,bool> remoteMode;
+        std::map<std::string,bool> restartPending;
         std::vector<osfui::browser::msg::BrowserLayout> browserLayouts;
         std::vector<osfui::browser::msg::BrowserCommand> browserCommands;
         std::vector<osfui::browser::msg::BrowserAudio> browserAudio;

@@ -59,9 +59,17 @@ namespace OSFUI
 		~BrowserHostClient();
 
 		bool Initialize(const BrowserHostConfig& a_config);
+		// Blocking owner teardown; call from the retirement worker while it keeps
+		// a strong owner, never from a host callback or concurrently with Update/
+		// RestartAfterFailure. Stops transport/profile use despite temporary readers.
+		void Shutdown();
 		// Runtime-thread call: prepare files asynchronously once per session, without starting a browser.
 		void PrepareViewFiles();
+		// Runtime-thread call: retire transport/process asynchronously. Page state
+		// may be replayed immediately; Update starts its replacement after retirement.
 		void RestartAfterFailure();
+		// Runtime-thread only: retirement has not yet been finalized by Update.
+		bool RestartPending() const;
 		void CreateOrNavigateView(const ViewManifest& a_manifest);
 		bool CreateOrNavigateRemoteView(std::string_view a_id, std::string_view a_url, std::uint32_t a_logicalHeight);
 		void SetBrowserLayout(osfui::browser::msg::BrowserLayout);

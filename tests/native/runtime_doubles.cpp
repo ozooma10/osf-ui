@@ -53,10 +53,12 @@ namespace OSFUI
     struct BrowserHostClient::Impl
     {
         std::string name;
+        std::atomic_bool stopped{};
         std::shared_ptr<SharedFrameConsumer> frames = std::make_shared<SharedFrameConsumer>();
     };
     BrowserHostClient::BrowserHostClient() : m_impl(std::make_unique<Impl>()) {}
-    BrowserHostClient::~BrowserHostClient() = default;
+    BrowserHostClient::~BrowserHostClient() { Shutdown(); ++env.rendererDestructions; }
+    void BrowserHostClient::Shutdown() { if (!m_impl->stopped.exchange(true)) ++env.rendererShutdowns; }
     bool BrowserHostClient::Initialize(const BrowserHostConfig& config)
     {
         ++env.rendererInitializations;
@@ -67,6 +69,7 @@ namespace OSFUI
         return env.rendererInitializes;
     }
     void BrowserHostClient::PrepareViewFiles() { ++env.filePreparations; }
+    bool BrowserHostClient::RestartPending() const { return env.restartPending[m_impl->name]; }
     void BrowserHostClient::RestartAfterFailure()
     {
         ++env.restarts;

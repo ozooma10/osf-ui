@@ -153,6 +153,26 @@ int main()
 	CHECK(!recovery.IsAvailable());
 	CHECK(!recovery.BeginDueAttempt(1040.0));
 
+	// Slow retirement (for example, waiting for view-file preparation) does not
+	// consume retries before a replacement has even started.
+	recovery.Reset();
+	CHECK(recovery.OnFailure(0.0, true));
+	CHECK(recovery.BeginDueAttempt(1.0));
+	for (double now : {31.0, 100.0, 300.0}) {
+		recovery.DeferResponseWait(now);
+		CHECK(!recovery.ExpireResponseWait(now));
+		CHECK(!recovery.BeginDueAttempt(now));
+		CHECK(recovery.Attempts() == 1 && recovery.PhaseValue() == Phase::AwaitingResponse);
+	}
+	CHECK(!recovery.ExpireResponseWait(329.99));
+	CHECK(recovery.ExpireResponseWait(330.0)); // Full response budget after retirement.
+	CHECK(recovery.Attempts() == 1 && recovery.PhaseValue() == Phase::Waiting);
+	recovery.DeferResponseWait(400.0); // Deferral cannot alter retry backoff or failures.
+	CHECK(recovery.BeginDueAttempt(400.0) && recovery.Attempts() == 2);
+	CHECK(recovery.OnFailure(401.0, false));
+	recovery.DeferResponseWait(500.0);
+	CHECK(recovery.PhaseValue() == Phase::Disabled && !recovery.ExpireResponseWait(600.0));
+
 	std::cout << "browser_host_recovery_tests: " << g_checks << " checks, " << g_failures << " failures\n";
 	return g_failures;
 }

@@ -374,6 +374,10 @@ namespace
             return;
         }
         CHECK(env.restarts == 1);
+        env.restartPending[""] = true;
+        runtime().Update();
+        CHECK(env.restarts == 1 && !api().IsReady() && !runtime().IsVisible());
+        env.restartPending[""] = false;
         CHECK(std::ranges::count(env.navigations, "acme/menu") == 2);
         CHECK(std::ranges::count(env.navigations, "acme/hud") == 2);
         CHECK(env.hidden.at("acme/hud") && env.hidden.at("acme/menu"));
@@ -460,12 +464,26 @@ void SurfaceLifecycle()
     CHECK(service.EndInteraction(token));
     service.UpdateInteraction(true,true,true,admit); service.UpdateInteraction(true,true,true,admit);
     CHECK((phases == std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended,API::Surfaces::Phase::Started})); // ending one keeps the queue
+    // A transient input owner may outlive service detachment. Retirement must
+    // explicitly stop the host before dropping its own strong reference.
+    auto retainedHost=service.InputRenderer();
+    CHECK(retainedHost);
+    const auto shutdowns=env.rendererShutdowns.load(), destructions=env.rendererDestructions.load();
     service.CancelInteraction(); service.UpdateInteraction(true,true,true,admit);
     CHECK(phases.back() == API::Surfaces::Phase::Ended);
     surfaceGpuIdle=false; service.Release(second); service.Update(true);
     CHECK(service.IsInstantiated("acme/screen")); // GPU reads retain the host
     surfaceGpuIdle=true; service.Update(true);
     CHECK(!service.IsInstantiated("acme/screen"));
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);
+    while (env.rendererShutdowns.load()==shutdowns && std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    CHECK(env.rendererShutdowns.load()==shutdowns+1 && env.rendererDestructions.load()==destructions);
+    retainedHost.reset();
+    deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);
+    while (env.rendererDestructions.load()==destructions && std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    CHECK(env.rendererDestructions.load()==destructions+1 && env.rendererShutdowns.load()==shutdowns+1);
     service.Release(second); // stale releases are harmless
 }
 
@@ -655,6 +673,10 @@ void SurfaceInputLifecycle()
     CheckReleased();
     CHECK((phases==std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
     waitForRestart(2);
+    env.restartPending["surface-acme!screen"] = true;
+    runtime().Update();
+    CHECK(env.restarts == 2 && !runtime().IsInputCaptured());
+    env.restartPending["surface-acme!screen"] = false;
     QueueLoad("acme/screen"); QueueHello("acme/screen"); runtime().Update();
     CHECK(std::ranges::count(env.navigations,"acme/screen")==2);
     phases.clear(); begin();

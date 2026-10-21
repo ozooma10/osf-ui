@@ -614,6 +614,10 @@ namespace OSFUI
 
 	void Runtime::DriveBrowserHostRecovery()
 	{
+		if (m_renderer && m_renderer->RestartPending()) {
+			m_browserHostRecovery.DeferResponseWait(m_nowSeconds);
+			return;
+		}
 		m_browserHostRecovery.ObserveHealth(m_nowSeconds);
 		if (m_browserHostRecovery.ExpireResponseWait(m_nowSeconds)) {
 			REX::ERROR("Runtime: replacement browser host produced no load response in {:.0f}s", BrowserHostRecovery::kResponseTimeoutSeconds);

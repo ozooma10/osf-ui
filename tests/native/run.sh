@@ -50,6 +50,7 @@ SUITES=(
 "gamepad_navigation_tests gamepad_navigation_tests.cpp"
 "gamepad_session_tests gamepad_session_tests.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp"
 "browser_host_recovery_tests browser_host_recovery_tests.cpp"
+"browser_host_retirement_tests browser_host_retirement_tests.cpp"
 "browser_backend_tests browser_backend_tests.cpp"
 "shared_frame_state_tests shared_frame_state_tests.cpp"
 "runtime_lifecycle_tests runtime_lifecycle_tests.cpp runtime_doubles.cpp surface_frames_double.cpp ../../src/Surfaces/SurfaceService.cpp ../../src/Views/ViewLoadTracker.cpp ../../src/Views/ViewRecoveryTracker.cpp ../../src/Runtime/Runtime.cpp ../../src/Runtime/RuntimeFrame.cpp ../../src/Views/RuntimeViews.cpp ../../src/Bridge/RuntimeBridge.cpp ../../src/Input/RuntimeInput.cpp ../../src/Input/InputCaptureController.cpp ../../src/Input/PointerInputState.cpp ../../src/Input/RelativePointerSession.cpp ../../src/Input/GamepadSession.cpp ../../src/Input/ViewInputGrants.cpp ../../src/Views/ViewManifest.cpp ../../src/Views/ViewManager.cpp ../../src/Views/ViewPresentationController.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewRevealGate.cpp ../../src/Views/ViewRequestQueue.cpp ../../src/API/BridgeApi.cpp ../../src/Bridge/MessageBridge.cpp ../../src/Bridge/RetainedStateStore.cpp ../../src/Dependency/OSFSettingsClient.cpp ../../src/Core/Json.cpp"
