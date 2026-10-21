@@ -90,6 +90,11 @@ function Spawn([bool]$Second) {
 function Meter([string]$Label,[bool]$Silent=$false,[bool]$Content=$false) {
     $output=Join-Path $script:Run.path ('meter-'+$Name+'-'+$Label)
     if(Test-Path -LiteralPath (Join-Path $output 'result.json')){throw 'Meter evidence already exists.'}
+    if(-not $Silent){
+        $null=Wait-Observed "$Label source route is ready before measurement" {Page} {
+            param($p) AudioReady $p $Content
+        } 30
+    }
     $before=Snapshot
     Write-JsonFile (Join-Path $output 'before.json') $before
     try { & (Join-Path $repo 'tools/profiling/audio-endpoint-meter/measure.ps1') -OutputDirectory $output -DurationMs $DurationMs | Out-Null }
