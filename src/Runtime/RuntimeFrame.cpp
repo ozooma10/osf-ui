@@ -108,13 +108,13 @@ namespace OSFUI
 		API::BridgeApi::Get().PumpRuntimeCallbacks();
 		if (m_renderer) m_renderer->DrainNotifications();
 		SurfaceService::Get().Update(m_dataLoaded);
+		if (SurfaceService::Get().TakeInstancesChanged()) UpdateDevViewReloadMods();
 	}
 
 	void Runtime::ProcessRendererFrame()
 	{
 		if (!m_renderer) return;
 		DriveDevTools();
-		PumpDevViewReload();
 		if (const auto clientSize = OverlayInputHook::GameWindowClientSize()) {
 			OnOutputResized(clientSize->width, clientSize->height);
 		}
@@ -151,6 +151,8 @@ namespace OSFUI
 			DriveBrowserHostRecovery();
 			DriveRecovery();
 		}
+		// Reload ends document-owned input before capture/focus reconciliation.
+		PumpDevViewReload();
 		UpdateSurfaceInteraction();
 		CommitPresentation();
 		RouteGamepadInput();

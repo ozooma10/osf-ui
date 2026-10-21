@@ -177,7 +177,7 @@ namespace OSFUI
 
 		std::vector<std::string> mods;
 		for (const auto& manifest : m_views.All()) {
-			if (m_presentation.IsInstantiated(manifest.id)) {
+			if (m_presentation.IsInstantiated(manifest.id) || SurfaceService::Get().IsInstantiated(manifest.id)) {
 				mods.emplace_back(Ids::ModOf(manifest.id));
 			}
 		}
@@ -190,6 +190,7 @@ namespace OSFUI
 
 		bool anyReloaded = false;
 		for (const auto& mod : m_devViewReload->DrainCompleted()) {
+			anyReloaded = SurfaceService::Get().ReloadMod(mod) || anyReloaded;
 			for (const auto& manifest : m_views.All()) {
 				if (!m_presentation.IsInstantiated(manifest.id) || Ids::ModOf(manifest.id) != mod) continue;
 				NavigateView(manifest);

@@ -199,12 +199,16 @@ namespace OSFUI
     void Runtime::UpdateSurfaceInteraction()
     {
         if (!SurfaceService::Get().WantsInteraction()) return;
-        bool neutral=OverlayInputHook::KeysNeutral();
-        const auto pad=m_gamepadSource.Poll(m_nowSeconds);
-        neutral = neutral && !pad.buttons && std::abs(pad.lx)<0.15f && std::abs(pad.ly)<0.15f && std::abs(pad.rx)<0.15f && std::abs(pad.ry)<0.15f;
+        const auto before=SurfaceService::Get().InputRenderer();
+        // Neutral input gates admission only. Keep active-session cancellation
+        // checks below without rescanning every virtual key each frame.
+        bool neutral=false;
+        if (!before) {
+            const auto pad=m_gamepadSource.Poll(m_nowSeconds);
+            neutral = OverlayInputHook::KeysNeutral() && !pad.buttons && std::abs(pad.lx)<0.15f && std::abs(pad.ly)<0.15f && std::abs(pad.rx)<0.15f && std::abs(pad.ry)<0.15f;
+        }
         const bool allowed=m_inputCapture.IntegrationAvailable() && !MenuEventSink::SurfaceBlocked() &&
             !m_presentation.ActiveMenu() && !m_viewOpens.PendingMenu() && OverlayInputHook::IsGameWindowActive();
-        const auto before=SurfaceService::Get().InputRenderer();
         SurfaceService::Get().UpdateInteraction(allowed,neutral,static_cast<bool>(m_compositor),[this]{return m_osfSettings.AcquireInputSuppression();});
         if (before != SurfaceService::Get().InputRenderer()) {
             (void)m_gamepadSession.End(); m_gamepadSource.Reset(); m_inputCapture.ResetBrowserFocus();

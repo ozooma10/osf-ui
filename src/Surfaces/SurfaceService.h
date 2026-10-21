@@ -33,6 +33,11 @@ namespace OSFUI
         // Receives cursor shapes from the fullscreen surface's browser.
         void SetCursorHandler(std::function<void(std::uint32_t)> handler) { m_cursor = std::move(handler); }
         bool IsInstantiated(std::string_view) const;
+        bool TakeInstancesChanged() { return std::exchange(m_instancesChanged, false); }
+        // File worker: pin entry ownership while refreshing its isolated mirror.
+        bool RefreshModFiles(std::string_view);
+        // Runtime tick: navigate only the surface documents whose files were refreshed.
+        bool ReloadMod(std::string_view);
         bool HasAvailableViews() const;
         const char* LoadState(std::string_view) const;
         bool Send(std::string_view, std::string_view);
@@ -57,6 +62,7 @@ namespace OSFUI
             std::future<void> retirement;
             BrowserHostRecovery recovery;
             std::size_t demand{};
+            std::size_t refreshPins{}; // m_mutex; retirement waits for mirror workers
             std::uint32_t screenCount{}; // m_mutex; logical bindings, not feed leases
             bool screenCountChanged{}; // m_mutex; publish on the runtime tick
             bool loaded{}, failed{};
@@ -106,6 +112,7 @@ namespace OSFUI
         unsigned m_neutral{};
         MessageBridge* m_bridge{};
         bool m_developerMode{};
+        bool m_instancesChanged{}; // runtime tick only
         std::function<std::optional<std::string>()> m_language;
         std::function<void(std::string_view)> m_resetPage;
         std::function<bool()> m_browserAllowed;

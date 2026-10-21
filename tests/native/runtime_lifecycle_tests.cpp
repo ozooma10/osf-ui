@@ -469,6 +469,113 @@ void SurfaceLifecycle()
     service.Release(second); // stale releases are harmless
 }
 
+void SurfaceReloadLifecycle()
+{
+    FixtureFiles::Write("worldonly/screen", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/worldonly.dds"})");
+    FixtureFiles::Write("acme/screen", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/acme.dds"})");
+    env.settings.values["developerMode"] = true;
+    PluginLoad(); PostLoad(); DataReady(); LoadHud();
+    auto& service = SurfaceService::Get();
+    const auto world = service.Acquire("worldonly/screen"), mixed = service.Acquire("acme/screen");
+    runtime().Update();
+    QueueLoad("worldonly/screen"); QueueHello("worldonly/screen");
+    QueueLoad("acme/screen"); QueueHello("acme/screen"); runtime().Update();
+    CHECK(std::ranges::find(env.reloadMods,"worldonly") != env.reloadMods.end());
+    CHECK(std::ranges::find(env.reloadMods,"acme") != env.reloadMods.end());
+    CHECK(env.refreshMod);
+    // Refresh the separate loose-file mirrors before announcing completion.
+    CHECK(env.refreshMod("worldonly"));
+    CHECK((env.refreshedMods == std::vector<std::pair<std::string,std::string>>{
+        {"","worldonly"},{"surface-worldonly!screen","worldonly"}}));
+    env.refreshFailsHost = "surface-worldonly!screen";
+    CHECK(!env.refreshMod("worldonly"));
+    env.refreshFailsHost.clear();
+    CHECK(std::ranges::count(env.navigations,"worldonly/screen") == 1);
+    std::vector<API::Surfaces::Phase> phases;
+    const auto callback=+[](std::uint64_t,API::Surfaces::Phase phase,const char*,void* context) noexcept {
+        static_cast<std::vector<API::Surfaces::Phase>*>(context)->push_back(phase);
+    };
+    CHECK(service.BeginInteraction(world,callback,&phases));
+    runtime().Update(); runtime().Update();
+    CHECK(runtime().IsInputCaptured());
+    env.message("worldonly/screen",R"({"kind":"send","name":"osfui.gamepadMode","payload":{"mode":"raw"}})");
+    env.reloadCompleted = {"worldonly"}; runtime().Update();
+    CheckReleased();
+    CHECK((phases == std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    CHECK(std::ranges::count(env.navigations,"worldonly/screen") == 2);
+    CHECK(std::ranges::count(env.navigations,"acme/screen") == 1);
+    CHECK(std::ranges::count(env.navigations,"acme/hud") == 1);
+    CHECK(env.viewHosts.at("worldonly/screen") == "surface-worldonly!screen");
+    CHECK(service.LoadState("worldonly/screen") == std::string_view("loading"));
+    QueueLoad("worldonly/screen"); QueueHello("worldonly/screen"); runtime().Update();
+    phases.clear(); CHECK(service.BeginInteraction(world,callback,&phases));
+    runtime().Update(); runtime().Update();
+    // Reload discards document-specific raw input grants.
+    env.gamepad.buttons=XInputButton::kB; runtime().Update(); runtime().Update();
+    CheckReleased(); env.gamepad={};
+    CHECK((phases == std::vector{API::Surfaces::Phase::Started,API::Surfaces::Phase::Ended}));
+    env.refreshedMods.clear(); CHECK(env.refreshMod("acme"));
+    CHECK((env.refreshedMods == std::vector<std::pair<std::string,std::string>>{
+        {"","acme"},{"surface-acme!screen","acme"}}));
+    env.reloadCompleted={"acme"}; runtime().Update();
+    CHECK(std::ranges::count(env.navigations,"acme/hud") == 2);
+    CHECK(std::ranges::count(env.navigations,"acme/screen") == 2);
+    CHECK(std::ranges::count(env.navigations,"acme/second") == 0);
+    CHECK(std::ranges::count(env.navigations,"worldonly/screen") == 2);
+
+    // A reload rejects requests for the replaced document before admission,
+    // without cancelling a queued request belonging to another world view.
+    phases.clear();
+    std::vector<API::Surfaces::Phase> otherPhases;
+    CHECK(service.BeginInteraction(world,callback,&phases));
+    const auto otherInteraction = service.BeginInteraction(mixed,callback,&otherPhases);
+    CHECK(otherInteraction);
+    env.reloadCompleted={"worldonly"}; runtime().Update();
+    CHECK((phases == std::vector{API::Surfaces::Phase::Rejected}));
+    QueueLoad("acme/screen"); QueueHello("acme/screen");
+    runtime().Update(); runtime().Update();
+    CHECK((otherPhases == std::vector{API::Surfaces::Phase::Started}));
+    CHECK(service.EndInteraction(otherInteraction)); runtime().Update(); CheckReleased();
+    QueueLoad("worldonly/screen"); QueueHello("worldonly/screen"); runtime().Update();
+    phases.clear(); CHECK(service.BeginInteraction(world,callback,&phases));
+    runtime().Update(); // Accepted request is still waiting for its second neutral tick.
+    CHECK(service.WantsInteraction()); CHECK(!runtime().IsInputCaptured());
+    env.reloadCompleted={"worldonly"}; runtime().Update();
+    CHECK((phases == std::vector{API::Surfaces::Phase::Rejected}));
+    CheckReleased(); CHECK(!service.WantsInteraction());
+
+    // Simulate the runtime tick while the file worker owns its refresh pin.
+    // Releasing/reacquiring demand cannot detach the host or reuse its profile.
+    API::Surfaces::Handle replacementWorld{};
+    const auto initialized = env.rendererInitializations;
+    env.duringRefreshMod = [&](std::string_view host) {
+        CHECK(host == "surface-worldonly!screen");
+        service.Release(world); service.Update(true);
+        CHECK(service.IsInstantiated("worldonly/screen"));
+        replacementWorld=service.Acquire("worldonly/screen"); CHECK(replacementWorld);
+        service.Update(true);
+        CHECK(env.rendererInitializations == initialized);
+    };
+    CHECK(service.RefreshModFiles("worldonly"));
+    env.duringRefreshMod={};
+    const auto worldNavigations=std::ranges::count(env.navigations,"worldonly/screen");
+    service.Release(replacementWorld); runtime().Update();
+    CHECK(!service.IsInstantiated("worldonly/screen"));
+    CHECK(std::ranges::find(env.reloadMods,"worldonly") == env.reloadMods.end());
+    // A completed worker refresh for a retired surface cannot resurrect it.
+    env.reloadCompleted={"worldonly"}; runtime().Update();
+    CHECK(std::ranges::count(env.navigations,"worldonly/screen") == worldNavigations);
+
+    // Failed refreshes release every pin and remain retryable on the worker.
+    const auto mixedNavigations=std::ranges::count(env.navigations,"acme/screen");
+    env.duringRefreshMod=[](std::string_view) { throw std::runtime_error("injected refresh failure"); };
+    CHECK(!service.RefreshModFiles("acme"));
+    env.duringRefreshMod={};
+    CHECK(std::ranges::count(env.navigations,"acme/screen") == mixedNavigations);
+    service.Release(mixed); runtime().Update();
+    CHECK(!service.IsInstantiated("acme/screen"));
+}
+
 void SurfaceInputLifecycle()
 {
     FixtureFiles::Write("acme/screen", R"({"manifestVersion":1,"kind":"world","texture":"textures/osfui/feeds/test.dds"})");
@@ -483,13 +590,19 @@ void SurfaceInputLifecycle()
         static_cast<std::vector<API::Surfaces::Phase>*>(context)->push_back(phase);
     };
     const auto begin=[&] {
+        const auto beforeAdmission=env.keyNeutralChecks;
         CHECK(service.BeginInteraction(lease,callback,&phases));
         env.keysNeutral=false; runtime().Update(); runtime().Update();
         CHECK(!runtime().IsInputCaptured());
+        CHECK(env.keyNeutralChecks >= beforeAdmission+2);
         env.keysNeutral=true; runtime().Update(); runtime().Update();
         CHECK(runtime().IsInputCaptured() && env.controlsBlocked && !env.paused && !env.cursorFree);
+        const auto admitted=env.keyNeutralChecks;
         env.engineFocus=true; runtime().Update();
         CHECK(env.browserFocus && env.inputTarget=="acme/screen");
+        env.keysNeutral=false; runtime().Update(); runtime().Update();
+        CHECK(runtime().IsInputCaptured() && env.keyNeutralChecks == admitted);
+        env.keysNeutral=true;
     };
     // Loading or focus changes before activation cannot poison its first try.
     service.CancelInteraction();
@@ -812,6 +925,7 @@ int main(int argc, char** argv)
         NormalLifecycle();
     }
     else if (scenario == "surface-input") SurfaceInputLifecycle();
+    else if (scenario == "surface-reload") SurfaceReloadLifecycle();
     else if (scenario == "surface-fullscreen") SurfaceFullscreenLifecycle();
     else if (scenario == "browser-surface") BrowserSurfaceLifecycle(true);
     else if (scenario == "browser-disabled") BrowserSurfaceLifecycle(false);

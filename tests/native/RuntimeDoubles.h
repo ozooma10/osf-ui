@@ -53,6 +53,7 @@ namespace RuntimeTest
         int focusOpenRequests = 0;
         int focusCloseRequests = 0;
         int restarts = 0;
+        int keyNeutralChecks = 0;
         int deviceReleases = 0;
         int queueReleases = 0;
         std::string inputTarget;
@@ -81,6 +82,11 @@ namespace RuntimeTest
         };
         std::map<std::string, HostCallbacks> hosts;
         std::map<std::string, std::string> viewHosts;
+        std::vector<std::string> reloadMods, reloadCompleted;
+        std::vector<std::pair<std::string,std::string>> refreshedMods;
+        std::function<bool(std::string_view)> refreshMod;
+        std::function<void(std::string_view)> duringRefreshMod;
+        std::string refreshFailsHost;
         std::deque<std::function<void()>> notifications;
         OSFUI::API::Papyrus::PendingBatch papyrus;
     };

@@ -81,7 +81,12 @@ namespace OSFUI
         env.viewHosts[manifest.id] = m_impl->name;
         env.hidden[manifest.id] = true;
     }
-    bool BrowserHostClient::RefreshModFiles(std::string_view) { return true; }
+    bool BrowserHostClient::RefreshModFiles(std::string_view mod)
+    {
+        env.refreshedMods.emplace_back(m_impl->name,mod);
+        if (env.duringRefreshMod) env.duringRefreshMod(m_impl->name);
+        return env.refreshFailsHost.empty() || m_impl->name != env.refreshFailsHost;
+    }
     bool BrowserHostClient::CreateOrNavigateRemoteView(std::string_view id, std::string_view, std::uint32_t)
     {
         CHECK(env.remoteMode[m_impl->name]);
@@ -152,7 +157,7 @@ namespace OSFUI
     bool D3D12Compositor::PreparedFrameReady(std::uint32_t, std::uint32_t) const { return env.preparedFrameReady; }
 
     bool MenuEventSink::Install() { ++env.menuEventInstalls; return env.menuEventsInstall; }
-    bool OverlayInputHook::KeysNeutral() { return env.keysNeutral; }
+    bool OverlayInputHook::KeysNeutral() { ++env.keyNeutralChecks; return env.keysNeutral; }
     bool MenuEventSink::SurfaceBlocked() { return env.transition; }
     bool MenuEventSink::ChargenOpen() { return false; }
     bool MenuEventSink::TransitionOpen() { return env.transition; }
@@ -184,10 +189,10 @@ namespace OSFUI
     }
 
     // No file worker or legacy/VM services run in this suite. Their adapters have separate tests.
-    DevViewReloadWorker::DevViewReloadWorker(std::filesystem::path, Refresh) {}
+    DevViewReloadWorker::DevViewReloadWorker(std::filesystem::path, Refresh refresh) { env.refreshMod=std::move(refresh); }
     DevViewReloadWorker::~DevViewReloadWorker() = default;
-    void DevViewReloadWorker::SetMods(std::vector<std::string>) {}
-    std::vector<std::string> DevViewReloadWorker::DrainCompleted() { return {}; }
+    void DevViewReloadWorker::SetMods(std::vector<std::string> mods) { env.reloadMods=std::move(mods); }
+    std::vector<std::string> DevViewReloadWorker::DrainCompleted() { return std::exchange(env.reloadCompleted,{}); }
     namespace Paths
     {
         void Initialize() {}

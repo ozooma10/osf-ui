@@ -205,8 +205,9 @@ namespace OSFUI
             .remoteMode=entry->browserEnabled})) {
             entry->failed = true; return;
         }
-        entry->host = std::move(host);
-        { std::scoped_lock lock(m_mutex); entry->gpu = std::make_shared<SurfaceFrames>(entry->host->Frames()); }
+        { std::scoped_lock lock(m_mutex);
+          entry->host = std::move(host); entry->gpu = std::make_shared<SurfaceFrames>(entry->host->Frames()); }
+        m_instancesChanged = true;
         entry->host->SetWebMessageHandler([this, weak=std::weak_ptr(entry)](std::string_view id, std::string_view json) {
             if (const auto e=weak.lock(); e && !e->failed && id == e->manifest.id) m_bridge->HandleWebMessage(id, json);
         });
@@ -270,12 +271,16 @@ namespace OSFUI
             if (!demand && e->host) {
                 if (InputView() == e->manifest.id) FinishInteraction("surface-released");
                 if (e->gpu && !e->gpu->Idle()) continue;
+                std::shared_ptr<BrowserHostClient> retired;
+                { std::scoped_lock lock(m_mutex);
+                  if (e->refreshPins) continue;
+                  e->gpu.reset(); retired=std::move(e->host); }
                 RejectBrowserRequests(*e);
                 if (m_resetPage) m_resetPage(e->manifest.id);
                 m_bridge->OnViewDestroyed(e->manifest.id);
                 API::BridgeApi::Get().SetViewInstantiated(e->manifest.id, false);
-                { std::scoped_lock lock(m_mutex); e->gpu.reset(); }
-                e->retirement=std::async(std::launch::async, [host=std::move(e->host)]() mutable { host.reset(); });
+                m_instancesChanged = true;
+                e->retirement=std::async(std::launch::async, [host=std::move(retired)]() mutable { host.reset(); });
                 e->loaded=false; e->failed=false; e->recovery.Reset();
                 continue;
             }
@@ -315,6 +320,59 @@ namespace OSFUI
     }
     bool SurfaceService::IsInstantiated(std::string_view id) const
     { return std::ranges::any_of(m_entries, [&](const auto& e) { return e->host && e->manifest.id == id; }); }
+    bool SurfaceService::RefreshModFiles(std::string_view mod)
+    {
+        // Do not retain host copies on the file worker: retirement's future must
+        // represent the actual destructor, before a new host reuses its profile.
+        struct RefreshPins
+        {
+            std::mutex& mutex;
+            std::vector<std::shared_ptr<Entry>> entries;
+            ~RefreshPins()
+            {
+                std::scoped_lock lock(mutex);
+                for (const auto& entry : entries) --entry->refreshPins;
+            }
+        } pins{m_mutex, {}};
+        try {
+            { std::scoped_lock lock(m_mutex);
+              for (const auto& e : m_entries)
+                  if (e->host && Ids::ModOf(e->manifest.id) == mod) {
+                      pins.entries.push_back(e);
+                      ++e->refreshPins;
+                  } }
+            bool refreshed = true;
+            for (const auto& entry : pins.entries) if (!entry->host->RefreshModFiles(mod)) refreshed = false;
+            return refreshed;
+        } catch (const std::exception& error) {
+            REX::WARN("Surface developer reload could not refresh '{}' ({})", mod, error.what());
+            return false;
+        }
+    }
+    bool SurfaceService::ReloadMod(std::string_view mod)
+    {
+        bool reloaded = false;
+        for (const auto& e : m_entries) {
+            if (!e->host || e->failed || Ids::ModOf(e->manifest.id) != mod) continue;
+            // Reload invalidates both admitted and queued requests for this
+            // document. Invoke callbacks outside m_mutex so they may reenter.
+            std::deque<Request> rejected;
+            { std::scoped_lock lock(m_mutex);
+              for (auto request = m_requests.begin(); request != m_requests.end();) {
+                  if (request->view == e->manifest.id) {
+                      rejected.push_back(*request);
+                      request = m_requests.erase(request);
+                  } else ++request;
+              } }
+            if (m_interaction && m_interaction->view == e->manifest.id) FinishInteraction("view-reloaded");
+            for (const auto& request : rejected)
+                request.callback(request.token,API::Surfaces::Phase::Rejected,"view-reloaded",request.context);
+            RejectBrowserRequests(*e);
+            Navigate(*e);
+            reloaded = true;
+        }
+        return reloaded;
+    }
     bool SurfaceService::Send(std::string_view id, std::string_view json)
     { for (const auto& e : m_entries) if (e->host && e->manifest.id == id) { e->host->SendMessageToWeb(id,json); return true; } return false; }
     API::Surfaces::Interaction SurfaceService::BeginInteraction(API::Surfaces::Handle lease, API::Surfaces::InteractionCallback callback, void* context) noexcept

@@ -184,7 +184,9 @@ namespace OSFUI
 		});
 		if (m_developerMode && !m_devViewReload) {
 			m_devViewReload = std::make_unique<DevViewReloadWorker>(Paths::ViewsDir(), [this](std::string_view a_mod) {
-				return m_renderer && m_renderer->RefreshModFiles(a_mod);
+				const bool overlay = m_renderer && m_renderer->RefreshModFiles(a_mod);
+				const bool surfaces = SurfaceService::Get().RefreshModFiles(a_mod);
+				return overlay && surfaces;
 			});
 			UpdateDevViewReloadMods();
 		}
