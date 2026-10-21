@@ -59,7 +59,16 @@ namespace OSFUI::Extension
                         "world-screen material refresh",[]{refreshPending=false;});
                     if (result==NativeMainThreadQueue::PostResult::Unavailable) refreshPending=false;
                 }
-                for (std::size_t i=0;i<views.size();++i) WorldTexture::SetDemand(i,ScreenBindings::HasBindings(views[i].id));
+                const auto counts=ScreenBindings::CountBindings();
+                std::vector<std::uint32_t> demand;
+                demand.reserve(views.size());
+                for (const auto& view:views) {
+                    const auto it=counts.find(view.id);
+                    const auto count=it==counts.end() ? 0u : it->second;
+                    demand.push_back(count);
+                    if (view.id=="osfui.browser/tv") core->PublishScreenCount(view.id.c_str(),count);
+                }
+                WorldTexture::SetDemand(demand);
                 std::vector<std::shared_ptr<Interaction>> pending;
                 { std::scoped_lock lock(interactionMutex); for (const auto& [_,entry]:interactions) pending.push_back(entry); }
                 for (const auto& entry:pending) {

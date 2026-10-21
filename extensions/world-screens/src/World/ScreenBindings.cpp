@@ -16,7 +16,7 @@ namespace OSFUI::ScreenBindings
             // Diagnostic identity only. Never dereference these saved addresses.
             std::uintptr_t reference{}, root{};
             std::string view;
-            bool privateGeometry{}, refresh{};
+            bool privateGeometry{}, refresh{}, appliedFullUV{};
         };
         std::mutex mutex;
         std::unordered_map<std::uint32_t, Binding> bindings;
@@ -146,12 +146,14 @@ namespace OSFUI::ScreenBindings
         return it==bindings.end() ? 0 : it->second.token;
     }
 
-    bool HasBindings(std::string_view a_view)
+    std::unordered_map<std::string,std::uint32_t> CountBindings()
     {
         std::lock_guard lock(mutex);
-        return !replacingSession && std::ranges::any_of(bindings,[&](const auto& item) {
-            return item.second.token && item.second.view==a_view;
-        });
+        std::unordered_map<std::string,std::uint32_t> result;
+        if (!enabled || replacingSession) return result;
+        for (const auto& [_,binding]:bindings)
+            if (binding.token) ++result[binding.view];
+        return result;
     }
 
     std::optional<Selection> Resolve(std::uint32_t a_token)
@@ -222,9 +224,16 @@ namespace OSFUI::ScreenBindings
         binding.root=root;
         if (!binding.privateGeometry) return;
         if (!binding.view.empty()) {
-            if (ScreenMaterial::Apply(a_root,WorldAssets::ScreenMaterialPath(binding.view,ScreenMaterial::FullUV(a_root)))) {
+            const bool fullUV=ScreenMaterial::FullUV(a_root);
+            // Appearance callbacks can repeat without changing this material.
+            // A new token, geometry proof, material ID, or UV variant still
+            // performs the normal lookup and setter.
+            if (binding.applied && current==binding.applied && binding.appliedToken==binding.token &&
+                binding.appliedFullUV==fullUV) return;
+            if (ScreenMaterial::Apply(a_root,WorldAssets::ScreenMaterialPath(binding.view,fullUV))) {
                 binding.applied=ScreenMaterial::Current(a_root);
                 binding.appliedToken=binding.token;
+                binding.appliedFullUV=fullUV;
             }
         } else if (binding.applied && current == binding.applied) {
             if (ScreenMaterial::ApplyID(a_root,binding.original)) binding.applied=0;

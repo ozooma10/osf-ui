@@ -13,7 +13,7 @@ namespace OSFUI::WorldAssets {
 }
 namespace OSFUI::ScreenMaterial {
     bool Supported() { return true; }
-    bool FullUV(RE::NiAVObject*) { return false; }
+    bool FullUV(RE::NiAVObject* root) { return root->fullUV; }
     std::uint32_t Current(RE::NiAVObject* root) { return root->material; }
     bool ApplyID(RE::NiAVObject* root, std::uint32_t id) { ++BindingTest::applied; root->material=id; return true; }
     bool Apply(RE::NiAVObject* root, std::string_view path) { return ApplyID(root,path=="mod/a" ? 28 : 31); }
@@ -54,6 +54,17 @@ int main() {
     S::Tick();
     Check(S::Resolve(aToken)->ready,"applied binding can admit input");
     Check(aRoot.material==28 && bRoot.material==28,"both mirrors apply their output");
+    Check(S::CountBindings()==std::unordered_map<std::string,std::uint32_t>{{"mod/a",2}},
+        "binding count includes each mirror independently of their shared feed");
+    const auto appliedBefore=BindingTest::applied;
+    S::OnSetup(&a,&aRoot,nullptr);
+    Check(BindingTest::applied==appliedBefore,"unchanged appearance callback skips redundant material lookup and setter");
+    aRoot.fullUV=true;
+    S::OnSetup(&a,&aRoot,nullptr);
+    Check(BindingTest::applied==appliedBefore+1,"changed UV variant reapplies its selected material");
+    aRoot.fullUV=false;
+    S::OnSetup(&a,&aRoot,nullptr);
+    Check(BindingTest::applied==appliedBefore+2,"restoring UV variant reapplies its selected material");
     namespace I=OSFUI::ScreenInteraction;
     Check(I::Decide(false,false,S::Resolve(aToken),"mod/a",false)==I::Action::Forward,
         "ready selected binding forwards interaction to core");
@@ -69,6 +80,7 @@ int main() {
     Check(I::Decide(false,false,S::Resolve(aToken),"mod/a",false)==I::Action::Wait,
         "unforwarded interaction can wait for selected graph recovery");
     Check(S::ReadyReferences("mod/a").size()==1,"invalidated geometry is excluded from audio candidates");
+    Check(S::CountBindings().at("mod/a")==2,"logical screen count includes an unready reference excluded from audio");
     a.scene=&aRoot;
     aRoot.material=491362;
     S::OnSetup(&a,&aRoot,&source);
@@ -90,6 +102,7 @@ int main() {
     Check(S::Unbind(aToken) && !S::Unbind(aToken),"unbind invalidates its token once");
     S::Tick();
     Check(aRoot.material==491362 && bRoot.material==28,"unbind restores only its own monitor");
+    Check(S::CountBindings().at("mod/a")==1,"unbind removes only its own logical screen count");
     const auto nextToken=S::Bind(a.id,"mod/b");
     Check(nextToken>aToken,"tokens are not reused");
     Check(!S::Resolve(aToken) && !S::Resolve(nextToken)->ready,"replacement invalidates input and waits for its own material");
@@ -98,6 +111,8 @@ int main() {
     const auto queued=BindingTest::enqueued;
     S::Tick();
     Check(S::Token(a.id)==nextToken && BindingTest::enqueued==queued,"unloaded reference retains selection without enqueue");
+    Check(S::CountBindings()==std::unordered_map<std::string,std::uint32_t>{{"mod/a",1},{"mod/b",1}},
+        "logical counts retain unloaded references on their selected view");
     aReplacement.id=a.id; aReplacement.data.objectReference=&base; aReplacement.scene=&rebuilt;
     RE::TESForm::forms[a.id]=&aReplacement;
     rebuilt.material=0;
@@ -126,6 +141,7 @@ int main() {
     Check(!S::Token(a.id) && !S::Token(b.id),"load begin clears old token authority");
     Check(!S::Unbind(reuseToken) && !S::Unbind(bToken),"old tokens are rejected during load");
     Check(!S::Bind(a.id,"mod/a"),"binding is suspended during load");
+    Check(S::CountBindings().empty(),"session replacement clears logical screen counts");
     const auto beforeLoad=BindingTest::enqueued;
     S::Tick();
     Check(BindingTest::enqueued==beforeLoad,"no explicit appearance work queued during load");
@@ -144,9 +160,9 @@ int main() {
     const auto first=S::Bind(a.id,"mod/a"); S::Tick();
     const auto changed=S::Bind(a.id,"mod/b"); S::Tick();
     Check(changed>first && !S::Unbind(first) && reused.material==31,"selection replacement retires old handle and applies new view");
-    Check(S::HasBindings("mod/b") && !S::HasBindings("mod/a"),"browser demand follows the selected company");
+    Check(S::CountBindings()==std::unordered_map<std::string,std::uint32_t>{{"mod/b",1}},"browser demand follows the selected company");
     S::Unbind(changed); S::Tick();
-    Check(!S::HasBindings("mod/b") && reused.material==491362,"last unbind releases browser demand and restores original");
+    Check(S::CountBindings().empty() && reused.material==491362,"last unbind releases browser demand and restores original");
     const auto missingMaterial=S::Bind(a.id,"mod/a"); S::Tick();
     reused.material=0;
     S::OnSetup(&aReuse,&reused,nullptr);

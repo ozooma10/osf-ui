@@ -29,6 +29,7 @@ namespace RE {
     class NiAVObject {
     public:
         std::uint32_t material{491362};
+        bool fullUV{};
         virtual NiNode* GetAsNiNode() { return nullptr; }
     };
     class NiNode : public NiAVObject {

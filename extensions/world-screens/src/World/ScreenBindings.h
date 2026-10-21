@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace RE { class NiAVObject; class TESObjectREFR; }
@@ -29,7 +30,9 @@ namespace OSFUI::ScreenBindings
         bool ready{};
     };
     std::optional<Selection> Resolve(std::uint32_t a_token);
-    bool HasBindings(std::string_view a_view);
+    // Counts logical references, including unloaded or temporarily unready
+    // bindings. An absent view has zero bindings; session replacement is empty.
+    std::unordered_map<std::string,std::uint32_t> CountBindings();
     void Tick();
     struct ReadyReference
     {

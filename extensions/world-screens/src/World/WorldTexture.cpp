@@ -605,22 +605,25 @@ namespace OSFUI::WorldTexture
 
 
     void SetService(API::Surfaces::IService* service) { GetState().service=service; }
-    void SetDemand(std::size_t index, bool bound)
+    void SetDemand(std::span<const std::uint32_t> bindingCounts)
     {
         auto& state=GetState();
         std::scoped_lock lock(state.mutex);
-        if (!state.service || index>=state.count) return;
-        auto& surface=state.surfaces[index];
+        if (!state.service || bindingCounts.size()!=state.count) return;
         // Bindings outlive cell unloads; only a material the engine still holds is worth feeding.
         const auto now=std::chrono::steady_clock::now();
-        surface.demanded=bound && surface.output && surface.output->engineOwners.load();
-        if (surface.demanded) surface.residentAt=now;
-        surface.evictRequested=!surface.demanded;
-        if (surface.demanded) {
-            if (!surface.feed) surface.feed=state.service->Acquire(surface.stats.id.c_str());
-        } else if (surface.feed && (!bound || now-surface.residentAt >= kFeedGrace) && state.service->IsIdle(surface.feed)) {
-            state.service->Release(surface.feed); surface.feed=0;
-            surface.stats.lastCompletedFrame=0;
+        for (std::size_t index=0;index<state.count;++index) {
+            auto& surface=state.surfaces[index];
+            const bool bound=bindingCounts[index]!=0;
+            surface.demanded=bound && surface.output && surface.output->engineOwners.load();
+            if (surface.demanded) surface.residentAt=now;
+            surface.evictRequested=!surface.demanded;
+            if (surface.demanded) {
+                if (!surface.feed) surface.feed=state.service->Acquire(surface.stats.id.c_str());
+            } else if (surface.feed && (!bound || now-surface.residentAt >= kFeedGrace) && state.service->IsIdle(surface.feed)) {
+                state.service->Release(surface.feed); surface.feed=0;
+                surface.stats.lastCompletedFrame=0;
+            }
         }
         RefreshWork(state);
     }
