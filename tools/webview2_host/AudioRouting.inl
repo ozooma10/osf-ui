@@ -5,7 +5,7 @@
 				// A completed navigation can recover a failed renderer/capture. Bound
 				// retries so an unsupported runtime stays quiet instead of looping.
 				if (audioExtensionReady && view.browserLoadSucceeded &&
-					view.audio->Status().value("state", "") == "failed" &&
+					view.audio->HasFailed() &&
 					view.audioRestartAttempts < 2 && now >= view.nextAudioRestart) {
 					++view.audioRestartAttempts;
 					view.nextAudioRestart = now + 2000;

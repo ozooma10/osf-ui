@@ -5,7 +5,6 @@
 #include <wrl.h>
 #include <array>
 #include <atomic>
-#include <condition_variable>
 #include <thread>
 
 namespace osfui::cefhost
@@ -18,6 +17,23 @@ namespace osfui::cefhost
         void Check(HRESULT hr, const char* operation)
         { if (FAILED(hr)) throw std::runtime_error(std::string(operation)+": "+std::to_string(hr)); }
         X3DAUDIO_VECTOR Vector(AudioVector v) { return {v.x,v.z,v.y}; }
+        struct WakeEvent
+        {
+            HANDLE handle{CreateEventW(nullptr,FALSE,FALSE,nullptr)};
+            WakeEvent() { if (!handle) Check(HRESULT_FROM_WIN32(GetLastError()),"Create audio wake event"); }
+            ~WakeEvent() { CloseHandle(handle); }
+            void Notify() const noexcept { SetEvent(handle); }
+            void Wait(DWORD timeout) const noexcept { WaitForSingleObject(handle,timeout); }
+        };
+        struct SpatialSnapshot
+        {
+            AudioScene scene;
+            std::array<float,kMaxAudioEmitters> distances{};
+            std::array<float,XAUDIO2_MAX_AUDIO_CHANNELS> matrix{};
+            unsigned outputChannels{};
+            DWORD mask{};
+            bool captured{}, fresh{}, enabled{}, muted{};
+        };
     }
     void AudioSceneState::Update(const nlohmann::json& value, std::uint64_t expiresMs)
     {
@@ -30,25 +46,27 @@ namespace osfui::cefhost
     {
         std::shared_ptr<AudioSceneState> scene;
         mutable std::mutex mutex;
-        std::condition_variable wake;
+        // An auto-reset event retains callbacks arriving just before a wait and
+        // never takes the PCM mutex on an XAudio2 callback thread.
+        WakeEvent wake;
         std::array<Block,kBlocks> incoming;
         unsigned head{}, count{}, channels{}, generation{};
         bool active{};
         std::uint64_t packets{}, frames{}, dropped{};
         double squares{}, peak{};
         std::string error;
-        nlohmann::json output;
+        SpatialSnapshot output;
         struct Submitted { Block block; std::atomic_bool busy{}; };
         std::array<Submitted,kBlocks> submitted;
         std::atomic<HRESULT> failure{S_OK};
         std::jthread worker;
         explicit Impl(std::shared_ptr<AudioSceneState> s) : scene(std::move(s)),
             worker([this](std::stop_token stop) { Run(stop); }) {}
-        ~Impl() { worker.request_stop(); wake.notify_one(); worker.join(); }
+        ~Impl() { worker.request_stop(); wake.Notify(); worker.join(); }
         void STDMETHODCALLTYPE OnBufferEnd(void* context) override
-        { static_cast<Submitted*>(context)->busy.store(false,std::memory_order_release); wake.notify_one(); }
-        void STDMETHODCALLTYPE OnVoiceError(void*, HRESULT hr) override { failure=hr; wake.notify_one(); }
-        void STDMETHODCALLTYPE OnCriticalError(HRESULT hr) override { failure=hr; wake.notify_one(); }
+        { static_cast<Submitted*>(context)->busy.store(false,std::memory_order_release); wake.Notify(); }
+        void STDMETHODCALLTYPE OnVoiceError(void*, HRESULT hr) override { failure=hr; wake.Notify(); }
+        void STDMETHODCALLTYPE OnCriticalError(HRESULT hr) override { failure=hr; wake.Notify(); }
         void STDMETHODCALLTYPE OnProcessingPassStart() override {}
         void STDMETHODCALLTYPE OnProcessingPassEnd() override {}
         void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32) override {}
@@ -84,7 +102,6 @@ namespace osfui::cefhost
                 try {
                     bool live; unsigned version;
                     { std::lock_guard lock(mutex); live=active; version=generation; }
-                    Check(com,"Audio COM");
                     Check(failure.exchange(S_OK),"Audio device");
                     if (seenGeneration!=version) { destroySource(); seenGeneration=version; }
                     const auto now=GetTickCount64();
@@ -93,6 +110,7 @@ namespace osfui::cefhost
                     // delivers its first PCM packet, so the bounded queue need
                     // not discard the beginning of playback during activation.
                     if (now>=retryAt && !engine) {
+                        Check(com,"Audio COM");
                         Check(XAudio2Create(&engine),"XAudio2Create");
                         Check(engine->RegisterForCallbacks(this),"Register audio callback");
                         // Default virtual client follows Windows' default endpoint.
@@ -116,7 +134,8 @@ namespace osfui::cefhost
                         const bool fresh=Fresh(expires,ClockMs());
                         const bool enabled=fresh && snapshot.count && !muted && snapshot.gain>0;
                         matrix.fill(0);
-                        auto sources=nlohmann::json::array();
+                        const bool diagnosticDue=now-diagnosticAt>=250;
+                        std::array<float,kMaxAudioEmitters> distances{};
                         if (enabled) {
                             X3DAUDIO_LISTENER listener{};
                             listener.Position=Vector(snapshot.position);
@@ -134,8 +153,7 @@ namespace osfui::cefhost
                                 dsp.pMatrixCoefficients=coefficients.data();
                                 X3DAudioCalculate(spatial,&listener,&emitter,X3DAUDIO_CALCULATE_MATRIX,&dsp);
                                 for (unsigned c=0;c<outputChannels;++c) matrix[c]+=coefficients[c];
-                                if (now-diagnosticAt>=250) sources.push_back({{"id",snapshot.emitters[i].id},
-                                    {"distance",dsp.EmitterToListenerDistance},{"position",browser::audio::Vector(snapshot.emitters[i].position)}});
+                                if (diagnosticDue) distances[i]=dsp.EmitterToListenerDistance;
                             }
                             Normalize(matrix.data(),outputChannels);
                         }
@@ -144,12 +162,8 @@ namespace osfui::cefhost
                             current[c]=enabled ? current[c]+.35f*(matrix[c]-current[c]) : 0;
                         Check(source->SetOutputMatrix(master,1,outputChannels,current.data()),"TV spatial matrix");
                         Check(source->SetVolume(enabled ? snapshot.gain : 0),"TV gain");
-                        if (now-diagnosticAt>=250) {
-                            nlohmann::json state{{"fresh",fresh},{"enabled",enabled},{"muted",muted},{"gain",snapshot.gain},
-                                {"listener",browser::audio::Vector(snapshot.position)},{"front",browser::audio::Vector(snapshot.front)},
-                                {"up",browser::audio::Vector(snapshot.up)},{"emitters",std::move(sources)},
-                                {"emitterCount",snapshot.count},{"matrix",std::vector<float>(current.begin(),current.begin()+outputChannels)},
-                                {"outputChannels",outputChannels},{"channelMask",mask}};
+                        if (diagnosticDue) {
+                            const SpatialSnapshot state{snapshot,distances,current,outputChannels,mask,true,fresh,enabled,muted};
                             std::lock_guard lock(mutex); output=std::move(state); diagnosticAt=now;
                         }
                         spatialAt=now;
@@ -169,12 +183,20 @@ namespace osfui::cefhost
                     }
                 } catch (const std::exception& e) {
                     destroy(); retryAt=GetTickCount64()+1000;
-                    std::lock_guard lock(mutex); error=e.what(); head=count=0; output={{"enabled",false}};
+                    std::lock_guard lock(mutex); error=e.what(); head=count=0; output={};
                 } catch (...) {
                     destroy(); retryAt=GetTickCount64()+1000;
-                    std::lock_guard lock(mutex); head=count=0; output={{"enabled",false}};
+                    std::lock_guard lock(mutex); head=count=0; output={};
                 }
-                std::unique_lock lock(mutex); wake.wait_for(lock,std::chrono::milliseconds(5));
+                // Idle routes have no spatial work. Wake for stream/device/buffer
+                // events, retry deadlines, or the next 10 ms active spatial update.
+                // Active updates remain periodic so stale poses silence promptly
+                // even when the game stops sending scenes.
+                const auto now=GetTickCount64();
+                const auto deadline=engine ? spatialAt+10 : retryAt;
+                const DWORD timeout=engine && !source ? INFINITE :
+                    static_cast<DWORD>(deadline>now ? deadline-now : 0);
+                wake.Wait(timeout);
             }
             destroy();
             if (SUCCEEDED(com)) CoUninitialize();
@@ -186,7 +208,7 @@ namespace osfui::cefhost
     {
         auto& p=*impl_; std::lock_guard lock(p.mutex);
         p.active=rate==kRate && (channels==1 || channels==2); p.channels=channels;
-        p.head=p.count=0; ++p.generation; p.wake.notify_one();
+        p.head=p.count=0; ++p.generation; p.wake.Notify();
     }
     void SpatialAudio::Packet(const float** samples, int frames) noexcept
     {
@@ -201,17 +223,40 @@ namespace osfui::cefhost
             value=std::isfinite(value) ? std::clamp(value,-1.f,1.f) : 0;
             block.samples[f]=value; p.squares+=double(value)*value; p.peak=std::max(p.peak,double(std::abs(value)));
         }
-        ++p.count; ++p.packets; p.frames+=frames; p.wake.notify_one();
+        ++p.count; ++p.packets; p.frames+=frames; p.wake.Notify();
     }
     void SpatialAudio::Stop() noexcept
-    { auto& p=*impl_; std::lock_guard lock(p.mutex); p.active=false; p.head=p.count=0; ++p.generation; p.wake.notify_one(); }
+    { auto& p=*impl_; std::lock_guard lock(p.mutex); p.active=false; p.head=p.count=0; ++p.generation; p.wake.Notify(); }
     void SpatialAudio::Error(const std::string& text) noexcept
     { Stop(); try { std::lock_guard lock(impl_->mutex); impl_->error=text; } catch (...) {} }
     nlohmann::json SpatialAudio::Status() const
     {
-        auto& p=*impl_; std::lock_guard lock(p.mutex);
-        return {{"active",p.active},{"packets",p.packets},{"frames",p.frames},{"droppedPackets",p.dropped},
-            {"inputEnergy",p.squares},{"inputRms",p.frames ? std::sqrt(p.squares/p.frames) : 0},
-            {"peak",p.peak},{"generation",p.generation},{"error",p.error},{"spatial",p.output}};
+        auto& p=*impl_;
+        SpatialSnapshot output;
+        bool active; unsigned generation;
+        std::uint64_t packets, frames, dropped;
+        double squares, peak;
+        std::string error;
+        {
+            std::lock_guard lock(p.mutex);
+            active=p.active; generation=p.generation; packets=p.packets; frames=p.frames;
+            dropped=p.dropped; squares=p.squares; peak=p.peak; error=p.error; output=p.output;
+        }
+        // Serialization is developer-only and stays outside the PCM mutex.
+        nlohmann::json spatial{{"enabled",false}};
+        if (output.captured) {
+            auto emitters=nlohmann::json::array();
+            if (output.enabled) for (unsigned i=0; i<output.scene.count; ++i)
+                emitters.push_back({{"id",output.scene.emitters[i].id},{"distance",output.distances[i]},
+                    {"position",browser::audio::Vector(output.scene.emitters[i].position)}});
+            spatial={{"fresh",output.fresh},{"enabled",output.enabled},{"muted",output.muted},{"gain",output.scene.gain},
+                {"listener",browser::audio::Vector(output.scene.position)},{"front",browser::audio::Vector(output.scene.front)},
+                {"up",browser::audio::Vector(output.scene.up)},{"emitters",std::move(emitters)},
+                {"emitterCount",output.scene.count},{"matrix",std::vector<float>(output.matrix.begin(),output.matrix.begin()+output.outputChannels)},
+                {"outputChannels",output.outputChannels},{"channelMask",output.mask}};
+        }
+        return {{"active",active},{"packets",packets},{"frames",frames},{"droppedPackets",dropped},
+            {"inputEnergy",squares},{"inputRms",frames ? std::sqrt(squares/frames) : 0},
+            {"peak",peak},{"generation",generation},{"error",error},{"spatial",std::move(spatial)}};
     }
 }

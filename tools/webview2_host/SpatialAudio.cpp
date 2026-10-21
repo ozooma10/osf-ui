@@ -288,6 +288,7 @@ namespace osfui::webview2
     void SpatialAudio::SetMuted(bool muted) { state->muted = muted; state->sceneDirty = true; state->PushScene(); }
     void SpatialAudio::SetLoading(bool loading) { state->loading = loading; }
     bool SpatialAudio::Muted() const { return state->muted; }
+    bool SpatialAudio::HasFailed() const { return state->failed; }
     json SpatialAudio::Status(bool includeSpatial) const
     {
         const bool fresh = audio::Fresh(state->expires,audio::ClockMs());

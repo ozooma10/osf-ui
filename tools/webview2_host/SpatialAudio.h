@@ -33,6 +33,7 @@ namespace osfui::webview2
         void SetMuted(bool muted);
         void SetLoading(bool loading);
         bool Muted() const;
+        bool HasFailed() const;
         nlohmann::json Status(bool includeSpatial = false) const;
 
     private:
