@@ -3,6 +3,8 @@
 #include "World/WorldTexture.h"
 #include "World/ScreenBindingRuntime.h"
 #include "World/ScreenBindings.h"
+#include "World/ScreenAudio.h"
+#include "World/ScreenInteraction.h"
 #include "Core/NativeMainThreadQueue.h"
 #include "REX/FModule.h"
 
@@ -50,7 +52,7 @@ namespace OSFUI::Extension
                         static auto audioAt=std::chrono::steady_clock::time_point{};
                         const auto now=std::chrono::steady_clock::now();
                         if (now-audioAt>=std::chrono::milliseconds(50)) {
-                            core->PublishAudioScene("osfui.browser/tv",ScreenBindings::CaptureAudioScene());
+                            core->PublishAudioScene("osfui.browser/tv",ScreenAudio::Capture());
                             audioAt=now;
                         }
                     },
@@ -64,12 +66,13 @@ namespace OSFUI::Extension
                     const auto selection=ScreenBindings::Resolve(entry->binding);
                     bool cancelled;
                     { std::scoped_lock lock(interactionMutex); cancelled=entry->cancelled; }
-                    const bool invalid=cancelled || !selection || selection->view!=entry->view;
-                    if (entry->coreToken) { if (invalid) core->EndInteraction(entry->coreToken); continue; }
-                    if (invalid || std::chrono::steady_clock::now()-entry->requested>std::chrono::seconds(5)) {
+                    const auto action=ScreenInteraction::Decide(entry->coreToken!=0,cancelled,selection,entry->view,
+                        std::chrono::steady_clock::now()-entry->requested>std::chrono::seconds(5));
+                    if (action==ScreenInteraction::Action::End) { core->EndInteraction(entry->coreToken); continue; }
+                    if (action==ScreenInteraction::Action::Keep || action==ScreenInteraction::Action::Wait) continue;
+                    if (action==ScreenInteraction::Action::Reject) {
                         OnInteraction(0,API::Surfaces::Phase::Rejected,"binding-unavailable",entry.get()); continue;
                     }
-                    if (!selection->ready) continue;
                     const auto view=std::ranges::find_if(views,[&](const auto& v){return v.id==entry->view;});
                     if (view==views.end()) continue;
                     const auto feed=WorldTexture::Feed(static_cast<std::size_t>(view-views.begin()));
@@ -116,7 +119,7 @@ namespace OSFUI::Extension
     bool Connect()
     {
         core=API::Surfaces::RequestInterface();
-        if (!core) { REX::ERROR("World Screens requires OSF UI with surface service ABI 1.2; extension disabled"); return false; }
+        if (!core) { REX::ERROR("World Screens requires OSF UI with surface service ABI 1.3; extension disabled"); return false; }
         std::vector<WorldTexture::SurfaceDesc> discovered;
         core->VisitViews([](const API::Surfaces::View& view,void* context) noexcept {
             static_cast<std::vector<WorldTexture::SurfaceDesc>*>(context)->push_back({view.id,view.texture,view.width,view.height});

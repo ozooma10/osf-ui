@@ -1,6 +1,7 @@
 #include "stubs/Engine.h"
 // Compile the actual private registry with engine-call doubles.
 #include "../src/World/ScreenBindings.cpp"
+#include "World/ScreenInteraction.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -53,6 +54,39 @@ int main() {
     S::Tick();
     Check(S::Resolve(aToken)->ready,"applied binding can admit input");
     Check(aRoot.material==28 && bRoot.material==28,"both mirrors apply their output");
+    namespace I=OSFUI::ScreenInteraction;
+    Check(I::Decide(false,false,S::Resolve(aToken),"mod/a",false)==I::Action::Forward,
+        "ready selected binding forwards interaction to core");
+    Check(I::Decide(true,false,S::Resolve(aToken),"mod/a",true)==I::Action::Keep,
+        "forwarded interaction remains valid without an admission timeout");
+    Check(S::ReadyReferences("mod/a").size()==2,"ready mirror snapshot supplies both references");
+    a.scene=&unknown;
+    S::OnSetup(&a,&unknown,nullptr);
+    Check(S::Resolve(aToken) && !S::Resolve(aToken)->ready && S::Resolve(bToken)->ready,
+        "selected graph invalidation preserves logical binding and the other ready mirror");
+    Check(I::Decide(true,false,S::Resolve(aToken),"mod/a",false)==I::Action::End,
+        "selected graph invalidation ends a forwarded or active interaction despite a healthy mirror");
+    Check(I::Decide(false,false,S::Resolve(aToken),"mod/a",false)==I::Action::Wait,
+        "unforwarded interaction can wait for selected graph recovery");
+    Check(S::ReadyReferences("mod/a").size()==1,"invalidated geometry is excluded from audio candidates");
+    a.scene=&aRoot;
+    aRoot.material=491362;
+    S::OnSetup(&a,&aRoot,&source);
+    Check(I::Decide(false,false,S::Resolve(aToken),"mod/a",false)==I::Action::Forward,
+        "restored selected geometry can admit a new interaction");
+    aRoot.material=0;
+    S::OnSetup(&a,&aRoot,nullptr);
+    Check(I::Decide(true,false,S::Resolve(aToken),"mod/a",false)==I::Action::End,
+        "temporarily missing material also ends the forwarded interaction");
+    aRoot.material=491362;
+    S::OnSetup(&a,&aRoot,nullptr);
+    Check(S::Resolve(aToken)->ready,"same-graph material recovery restores readiness");
+    Check(I::Decide(true,true,S::Resolve(aToken),"mod/a",false)==I::Action::End,
+        "explicit cancellation still ends a ready forwarded interaction");
+    Check(I::Decide(true,false,S::Resolve(aToken),"mod/b",false)==I::Action::End,
+        "view replacement cannot retain a forwarded interaction");
+    Check(I::Decide(false,false,S::Resolve(aToken),"mod/a",true)==I::Action::Reject,
+        "pending admission timeout is still enforced");
     Check(S::Unbind(aToken) && !S::Unbind(aToken),"unbind invalidates its token once");
     S::Tick();
     Check(aRoot.material==491362 && bRoot.material==28,"unbind restores only its own monitor");
@@ -113,6 +147,14 @@ int main() {
     Check(S::HasBindings("mod/b") && !S::HasBindings("mod/a"),"browser demand follows the selected company");
     S::Unbind(changed); S::Tick();
     Check(!S::HasBindings("mod/b") && reused.material==491362,"last unbind releases browser demand and restores original");
+    const auto missingMaterial=S::Bind(a.id,"mod/a"); S::Tick();
+    reused.material=0;
+    S::OnSetup(&aReuse,&reused,nullptr);
+    Check(!S::Resolve(missingMaterial)->ready,"missing material revokes readiness without losing restoration metadata");
+    S::Unbind(missingMaterial);
+    reused.material=28;
+    S::Tick();
+    Check(reused.material==491362,"unbind restores the original after same-graph material recovery");
     RE::TESForm otherBase; otherBase.id=0x07000800;
     RE::TESObjectREFR placed; RE::NiNode placedRoot;
     placed.id=0x07000900; placed.data.objectReference=&otherBase; placed.scene=&placedRoot;
