@@ -1,6 +1,7 @@
 			void CompleteNavigation(View& view, bool succeeded, int error, std::string source)
 			{
 				view.mediaNavigation.End();
+				view.documentNavigation.Complete(succeeded);
 				view.browserLoading = false;
 				view.browserLoadSucceeded = succeeded;
 				if (view.audio) view.audio->SetLoading(!succeeded);
@@ -9,6 +10,30 @@
 					.view = view.id, .failed = !succeeded, .url = std::move(source),
 					.description = succeeded ? "" : "The page could not finish loading. Try reloading.",
 					.code = succeeded ? 0 : error }));
+			}
+
+			void CancelNavigation(View& view, std::uint64_t navigationId)
+			{
+				LPWSTR raw{};
+				std::wstring source;
+				if (view.webView && SUCCEEDED(view.webView->get_Source(&raw)) && raw) source = raw;
+				::CoTaskMemFree(raw);
+				const bool allowed = IsAllowedContentDocument(view.remoteContent, source, view.modId, view.viewName);
+				if (!view.documentNavigation.Cancel(navigationId, allowed)) return;
+				view.mediaNavigation.End(); // Invalidate an outstanding media metadata query too.
+				view.browserLoading = false;
+				view.browserLoadSucceeded = view.documentNavigation.usable;
+				if (view.audio) view.audio->SetLoading(!view.documentNavigation.usable);
+				if (view.documentNavigation.domReady && !view.domSeen) {
+					view.domSeen = true;
+					InitializeCdpInput(view);
+					DrainQueuedViewWork(view);
+				}
+				PublishBrowserState(view);
+				// Cancellation is not a failed host. Only acknowledge a document when
+				// a commit or the previous completed navigation proves one is usable.
+				if (view.documentNavigation.usable)
+					Send(msg::ToJson(msg::LoadEvent{ .view = view.id, .url = ToUtf8(source) }));
 			}
 
 			void FinishMediaNavigation(View& view, bool accepted, std::string_view reason)

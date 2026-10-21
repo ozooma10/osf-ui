@@ -108,7 +108,13 @@
 				else if (command.action == "back") hr=web->GoBack();
 				else if (command.action == "forward") hr=web->GoForward();
 				else if (command.action == "reload") hr=web->Reload();
-				else if (command.action == "stop") hr=web->Stop();
+				else if (command.action == "stop") {
+					const auto navigationId = view->documentNavigation.id;
+					hr=web->Stop();
+					// Stop may arrive after NavigationCompleted while media verification
+					// is pending. Do not depend on another canceled completion callback.
+					if (SUCCEEDED(hr)) CancelNavigation(*view, navigationId);
+				}
 				else if (command.action == "mute") {
 					if (view->audio) {
 						browserAudioMuted = command.value;

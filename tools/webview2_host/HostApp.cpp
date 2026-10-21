@@ -3,6 +3,7 @@
 #include "FormControls.h"
 #include "SpatialAudio.h"
 #include "MediaNavigation.h"
+#include "DocumentNavigation.h"
 
 #include "Core/Ids.h"
 #include "Core/Json.h"
@@ -202,6 +203,7 @@ namespace osfui::webview2
 				bool remoteContent{}; // Set before controller creation; immutable.
 				bool browserLoading{}, browserLoadSucceeded{};
 				MediaNavigation mediaNavigation;
+				DocumentNavigation documentNavigation;
 				bool mediaQueryInFlight{}; // At most one outstanding metadata query per controller.
 				std::string lastBrowserState;
 				json lastAudioState;
@@ -487,6 +489,7 @@ namespace osfui::webview2
 			void DestroyOneView(View& a_view)
 			{
 				a_view.mediaNavigation.Start(0);
+				a_view.documentNavigation = {};
 				a_view.audio.reset(); // Mute source before closing the collector or source controller.
 				if (pointerTarget == &a_view) { pointerTarget=nullptr; browserPointer.Reset(); }
 				if (captureOpening.view == a_view.id) {
@@ -664,6 +667,7 @@ namespace osfui::webview2
 					if (!a_frame) {
 						UINT64 navigationId{};
 						a_args->get_NavigationId(&navigationId);
+						a_view.documentNavigation.Start(navigationId);
 						a_view.mediaNavigation.Start(navigationId);
 						if (a_view.audio) a_view.audio->SetLoading(true);
 						a_view.audioRestartAttempts = 0;
@@ -1106,9 +1110,13 @@ namespace osfui::webview2
 							log.Info(std::format(
 								"view '{}': navigation {} completed (success={}, webErrorStatus={}, httpStatus={})",
 								view->id, navigationId, success == TRUE, static_cast<int>(status), httpStatus));
-							// Canceled or replaced navigations must not count as recovery failures.
-							if (status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) return S_OK;
-							if (navigationId && navigationId != view->mediaNavigation.navigationId) return S_OK;
+							if (!view->documentNavigation.Current(navigationId) || !view->documentNavigation.loading) return S_OK;
+							// Settle the current cancellation without a recovery failure; a
+							// superseded navigation must not change the replacement's state.
+							if (status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) {
+								CancelNavigation(*view, navigationId);
+								return S_OK;
+							}
 							LPWSTR raw = nullptr;
 							std::string source;
 							if (SUCCEEDED(a_sender->get_Source(&raw)) && raw) source = ToUtf8(raw);
@@ -1124,6 +1132,16 @@ namespace osfui::webview2
 							CompleteNavigation(*view, success == TRUE, static_cast<int>(status), std::move(source));
 							return S_OK;
 						}).Get(), &token);
+				a_view.webView->add_ContentLoading(
+					Callback<ICoreWebView2ContentLoadingEventHandler>(
+						[view](ICoreWebView2*, ICoreWebView2ContentLoadingEventArgs* args) -> HRESULT {
+							UINT64 navigationId{};
+							BOOL errorPage{};
+							args->get_NavigationId(&navigationId);
+							args->get_IsErrorPage(&errorPage);
+							view->documentNavigation.Commit(navigationId, errorPage == TRUE);
+							return S_OK;
+						}).Get(), &token);
 				ComPtr<ICoreWebView2_2> webView2;
 				if (SUCCEEDED(a_view.webView.As(&webView2))) {
 					webView2->add_DOMContentLoaded(
@@ -1131,7 +1149,7 @@ namespace osfui::webview2
 							[this, view](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs* args) -> HRESULT {
 								UINT64 navigationId{};
 								args->get_NavigationId(&navigationId);
-								if (navigationId && navigationId != view->mediaNavigation.navigationId) return S_OK;
+								if (!view->documentNavigation.DomReady(navigationId)) return S_OK;
 								view->mediaNavigation.DomReady(navigationId);
 								view->domSeen = true;
 								InitializeCdpInput(*view);
@@ -1156,6 +1174,7 @@ namespace osfui::webview2
 							case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE:
 								view->domSeen = false;
 								view->mediaNavigation.Start(0);
+								view->documentNavigation = {};
 								SuspendCdpInput(*view);
 								Send(msg::ToJson(msg::LoadEvent{
 									.view = view->id,

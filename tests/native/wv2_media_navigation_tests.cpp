@@ -1,4 +1,5 @@
 #include "../../tools/webview2_host/MediaNavigation.h"
+#include "../../tools/webview2_host/DocumentNavigation.h"
 #include "check.h"
 #include <iostream>
 
@@ -8,6 +9,46 @@ int main()
     using osfui::webview2::VerifiedMediaDocumentMime;
     using nlohmann::json;
     constexpr auto url = "https://example.com/trailer.webm";
+    osfui::webview2::DocumentNavigation document;
+    document.Start(1);
+    document.Commit(1, false);
+    CHECK(document.DomReady(1));
+    document.Complete(true);
+    document.Start(2); // Stop before commit retains the previous document and input.
+    CHECK(document.Cancel(2, true));
+    CHECK(!document.loading && document.usable && document.domReady);
+    CHECK(!document.Cancel(2, true)); // Late/duplicate cancellation is inert.
+    document.Start(3);
+    document.Start(4); // Replaced navigation, including same-URL reloads.
+    CHECK(!document.Cancel(3, true));
+    CHECK(document.loading);
+    CHECK(!document.DomReady(3));
+    document.Commit(3, false);
+    CHECK(!document.committed);
+    document.Commit(4, false);
+    CHECK(!document.usable && !document.domReady);
+    document.Start(4); // A redirect callback with the same ID preserves state.
+    CHECK(document.committed);
+    CHECK(document.Cancel(4, true)); // Explicitly allow a stopped partial document.
+    CHECK(!document.loading && document.usable && document.domReady);
+    document.Start(5);
+    document.Commit(5, true);
+    CHECK(document.Cancel(5, true));
+    CHECK(!document.loading && !document.usable && !document.domReady);
+    CHECK(!document.DomReady(5)); // Error-page DOM must not admit input after Stop.
+    document = {};
+    document.Start(6);
+    CHECK(document.Cancel(6, true)); // No proven document on the first pre-commit Stop.
+    CHECK(!document.loading && !document.usable && !document.domReady);
+    document.Start(7);
+    document.Commit(7, false);
+    CHECK(document.DomReady(7));
+    CHECK(document.Cancel(7, false)); // Current source must still pass the origin guard.
+    CHECK(!document.usable && !document.domReady);
+    document = {}; // Renderer destruction invalidates every ID and document.
+    CHECK(!document.Current(7));
+    CHECK(!document.Cancel(0, true));
+
     MediaNavigation check;
     check.Start(10);
     CHECK(check.Begin(true, false, 9, 200, 10, url, 100));
