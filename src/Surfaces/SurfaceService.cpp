@@ -225,8 +225,10 @@ namespace OSFUI
         });
         entry->host->SetBrowserStateHandler([this, weak=std::weak_ptr(entry)](const auto& state) {
             if (const auto e=weak.lock(); e && e->browserEnabled && state.view == osfui::browser::kBrowserContent) {
+                // Loading can still be true in title/audio updates after a load
+                // failure. Only a new loading transition clears that failure.
+                if (state.loading && !Json::Get(e->browserState,"loading",false)) e->browserError.clear();
                 e->browserState=osfui::browser::msg::ToJson(state);
-                if (state.loading) e->browserError.clear();
                 BrowserLayout(*e);
             }
         });

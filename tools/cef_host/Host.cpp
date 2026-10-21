@@ -946,11 +946,14 @@ namespace osfui::cefhost
         // Pre-commit failures may refer to a provisional frame; only committed
         // start/end callbacks can require the browser's current frame identity.
         if (!frame->IsMain() || code == ERR_ABORTED || closing) return;
+        if (owner.init.devMode) owner.Log("CEF navigation error: " + std::to_string(code) +
+            "; loading=" + std::to_string(browser && browser->IsLoading()) + "; text=" + text.ToString());
         loadState.Fail(frame->GetIdentifier().ToString());
         ReleaseInput(); loaded = false; reveal.Reset();
         PublishBrowserState();
         owner.MarkDirty();
-        owner.Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = true, .url = url.ToString(), .description = text.ToString(), .code = code }));
+        owner.Send(msg::ToJson(msg::LoadEvent{ .view = id, .failed = true, .url = url.ToString(),
+            .description = DescribeLoadError(code, text.ToString()), .code = code }));
     }
     class LocalResource final : public CefResourceHandler
     {

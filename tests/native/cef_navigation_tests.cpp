@@ -4,6 +4,8 @@
 
 int main()
 {
+    CHECK(osfui::cefhost::DescribeLoadError(-105, "") == "CEF navigation failed (error -105)");
+    CHECK(osfui::cefhost::DescribeLoadError(-105, "Name not resolved") == "Name not resolved");
     osfui::cefhost::LoadState state;
     CHECK(!state.End("main", true));
     state.Start("main");
