@@ -202,43 +202,30 @@
 
 				std::vector<std::uint64_t> slots;
 				slots.reserve(kRingSlots);
-				std::vector<HANDLE> remoteHandles;
-				remoteHandles.reserve(kRingSlots + 1);
-				const auto closeUnannouncedHandles = [&] {
-					for (const auto remote : remoteHandles) {
-						HANDLE local = nullptr;
-						if (::DuplicateHandle(gameProcess, remote, ::GetCurrentProcess(), &local,
-							0, FALSE, DUPLICATE_CLOSE_SOURCE)) {
-							::CloseHandle(local);
-						}
-					}
-				};
+				auto remoteHandles = std::make_unique<PipeWriter::HandleBatch>(gameProcess, kRingSlots + 1);
 				for (auto& slot : ring) {
 					const auto remote = DuplicateToGame(slot.localHandle);
 					if (!remote) {
-						closeUnannouncedHandles();
 						ReleaseRing();
 						return false;
 					}
-					remoteHandles.push_back(remote);
+					remoteHandles->Add(remote);
 					slots.push_back(reinterpret_cast<std::uint64_t>(remote));
 				}
 				HANDLE produceLocal = nullptr;
 				if (const auto hr = produceFence->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr,
 						&produceLocal); FAILED(hr)) {
 					FailHost("capture-ring", hr, "produce fence CreateSharedHandle failed");
-					closeUnannouncedHandles();
 					ReleaseRing();
 					return false;
 				}
 				const auto produceRemote = DuplicateToGame(produceLocal);
 				::CloseHandle(produceLocal);
 				if (!produceRemote) {
-					closeUnannouncedHandles();
 					ReleaseRing();
 					return false;
 				}
-				remoteHandles.push_back(produceRemote);
+				remoteHandles->Add(produceRemote);
 				if (!Send(msg::ToJson(msg::Textures{
 					.width = a_width,
 					.height = a_height,
@@ -246,8 +233,7 @@
 					.produceFence = reinterpret_cast<std::uint64_t>(produceRemote),
 					.adapterLuidLow = graphicsAdapterLuid.LowPart,
 					.adapterLuidHigh = static_cast<std::uint32_t>(graphicsAdapterLuid.HighPart),
-				}))) {
-					closeUnannouncedHandles();
+				}), std::move(remoteHandles))) {
 					ReleaseRing();
 					return false;
 				}
