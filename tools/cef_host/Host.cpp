@@ -120,7 +120,7 @@ namespace osfui::cefhost
         void OnBrowserCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDictionaryValue> extra) override
         {
             if (extra) documents_[browser->GetIdentifier()] = {
-                extra->GetString("view").ToString(), extra->GetBool("legacy"), extra->GetBool("remoteContent") };
+                extra->GetString("view").ToString(), extra->GetBool("legacy"), extra->GetBool("remoteContent"), extra->GetBool("devMode") };
         }
         void OnBrowserDestroyed(CefRefPtr<CefBrowser> browser) override { documents_.erase(browser->GetIdentifier()); }
         void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefV8Context> context) override
@@ -132,7 +132,7 @@ namespace osfui::cefhost
             CefRefPtr<CefV8Exception> networkError;
             context->Eval(std::string(kNetworkScript), frame->GetURL(), 0, networkResult, networkError);
             if (!frame->IsMain()) return;
-            const auto& [id, legacy, remoteContent] = found->second;
+            const auto& [id, legacy, remoteContent, devMode] = found->second;
             if (!browser::IsTrustedViewDocumentUri(frame->GetURL().ToWString(), browser::kViewHost,
                 ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id)))) return;
             auto handler = CefRefPtr<Binding>(new Binding);
@@ -141,7 +141,8 @@ namespace osfui::cefhost
                 context->GetGlobal()->SetValue(name, CefV8Value::CreateFunction(name, handler), attributes);
             CefRefPtr<CefV8Value> result;
             CefRefPtr<CefV8Exception> error;
-            const auto script = std::string(kBridgeScript) + (legacy ? std::string(kLegacyScript) : "");
+            const auto script = std::string(kBridgeScript) + (legacy ? std::string(kLegacyScript) : "") +
+                (devMode ? std::string(kPerformanceScript) : "");
             if (!context->Eval(script, frame->GetURL(), 0, result, error)) {
                 auto failure = CefProcessMessage::Create("osfui.bridge-error");
                 failure->GetArgumentList()->SetString(0, error ? error->GetMessage() : "CEF bridge injection failed");
@@ -166,7 +167,7 @@ namespace osfui::cefhost
             return true;
         }
     private:
-        struct Document { std::string id; bool legacy{}, remoteContent{}; };
+        struct Document { std::string id; bool legacy{}, remoteContent{}, devMode{}; };
         std::map<int, Document> documents_;
         IMPLEMENT_REFCOUNTING(Application);
     };
@@ -497,6 +498,7 @@ namespace osfui::cefhost
             auto extra = CefDictionaryValue::Create();
             extra->SetString("view", nav.id); extra->SetBool("legacy", nav.legacy);
             extra->SetBool("remoteContent", nav.remoteContent);
+            extra->SetBool("devMode", init.devMode);
             if (nav.remoteContent && !remoteContext) { Fatal("cef-content-policy", E_FAIL, "Remote context is unavailable"); return; }
             views.emplace(nav.id, view);
             auto browser = CefBrowserHost::CreateBrowserSync(window, view, url, settings, extra,

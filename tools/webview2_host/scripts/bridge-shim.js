@@ -20,6 +20,11 @@
 							try {
 								const m = JSON.parse(json);
 								const visibility = m && m.kind === 'event' && m.name === 'ui.visibility';
+								if (visibility && typeof m.payload?.visible === 'boolean') bridge.performance?.setVisible(m.payload.visible);
+								if (m && m.kind === 'event' && m.name === 'osfui.debug.performance') {
+									bridge.performance?.toggle();
+									return;
+								}
 								if (visibility && m.payload && m.payload.visible === false) {
 									const el = document.activeElement;
 									if (el && el !== document.body && typeof el.blur === 'function') el.blur();

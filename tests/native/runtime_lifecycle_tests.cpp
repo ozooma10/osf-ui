@@ -104,6 +104,7 @@ namespace
         CHECK(api().RegisterViewLifecycle("acme/second", &OnLifecycle, nullptr));
         CHECK(api().RegisterRelativePointer("acme/menu", &OnPointer, nullptr));
         CHECK(!runtime().OnGameWindowKeyboard({ .vk = 0x79, .down = true })); // F10 before capture is untouched.
+        CHECK(!runtime().OnGameWindowKeyboard({ .vk = 0x7A, .down = true })); // F11 also requires capture.
     }
 
     void PostLoad()
@@ -187,6 +188,21 @@ namespace
         CHECK(env.browserFocus);
         CHECK(runtime().OnGameWindowKeyboard({ .vk = 0x79, .down = true }));
         CHECK(env.keys == std::vector<std::uint32_t>{ 0x79 }); // F10 is ordinary page input.
+        const auto performanceMessages = [] {
+            return std::ranges::count_if(env.sent, [](const auto& message) {
+                return message.view == "acme/menu" && message.body.value("name", "") == "osfui.debug.performance";
+            });
+        };
+        const auto beforePerformance = performanceMessages();
+        CHECK(runtime().OnGameWindowKeyboard({ .vk = 0x7A, .down = true }));
+        CHECK(runtime().OnGameWindowKeyboard({ .vk = 0x7A, .down = true, .repeat = true }));
+        CHECK(runtime().OnGameWindowKeyboard({ .vk = 0x7A, .down = false }));
+        runtime().Update();
+        const bool developer = env.settings.values["developerMode"];
+        CHECK(performanceMessages() == beforePerformance + (developer ? 1 : 0));
+        CHECK(std::ranges::count(env.keys, 0x7A) == (developer ? 0 : 3));
+        runtime().Update();
+        CHECK(performanceMessages() == beforePerformance + (developer ? 1 : 0));
         CHECK(CountLifecycle("acme/menu", API::ViewLifecyclePhase::kShown) == 1);
 
         // Alt-Tab loss arrives, but another window hook swallows the focus-gain message.
@@ -516,6 +532,11 @@ void SurfaceReloadLifecycle()
     CHECK(service.BeginInteraction(world,callback,&phases));
     runtime().Update(); runtime().Update();
     CHECK(runtime().IsInputCaptured());
+    CHECK(runtime().OnGameWindowKeyboard({ .vk = 0x7A, .down = true }));
+    runtime().Update();
+    CHECK(std::ranges::any_of(env.sent, [](const auto& message) {
+        return message.view == "worldonly/screen" && message.body.value("name", "") == "osfui.debug.performance";
+    }));
     env.message("worldonly/screen",R"({"kind":"send","name":"osfui.gamepadMode","payload":{"mode":"raw"}})");
     env.reloadCompleted = {"worldonly"}; runtime().Update();
     CheckReleased();
@@ -967,6 +988,10 @@ int main(int argc, char** argv)
     else if (scenario == "surfaces") SurfaceLifecycle();
     else if (scenario == "normal") {
         env.settings.values["cefPrototype"] = true; // Obsolete setting cannot override the installed edition.
+        NormalLifecycle();
+    }
+    else if (scenario == "developer-mode") {
+        env.settings.values["developerMode"] = true;
         NormalLifecycle();
     }
     else if (scenario == "missing-settings" || scenario == "renderer-init-failure") StartupFailure(scenario);

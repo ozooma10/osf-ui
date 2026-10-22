@@ -10,6 +10,7 @@ namespace osfui::webview2
 		LegacyBridgeShim,
 		NetworkGuard,
 		FormControls,
+		PerformanceOverlay,
 	};
 
 	[[nodiscard]] const std::wstring& GetEmbeddedScript(EmbeddedScript a_script);

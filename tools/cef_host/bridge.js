@@ -15,6 +15,12 @@
   Object.defineProperty(window, '__osfCefReceive', { value: json => {
     try {
       const m = JSON.parse(json);
+      if (m.kind === 'event' && m.name === 'ui.visibility' && typeof m.payload?.visible === 'boolean')
+        bridge.performance?.setVisible(m.payload.visible);
+      if (m.kind === 'event' && m.name === 'osfui.debug.performance') {
+        bridge.performance?.toggle();
+        return;
+      }
       if (m.kind === 'event' && m.name === 'ui.visibility' && m.payload?.visible === false)
         document.activeElement?.blur?.();
     } catch (_) {}

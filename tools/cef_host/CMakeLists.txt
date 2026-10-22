@@ -34,10 +34,11 @@ target_link_libraries(osfui_cef_host PRIVATE xaudio2)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/bridge.js" BRIDGE_SCRIPT)
 file(READ "${REPO}/tools/webview2_host/scripts/network-guard.js" NETWORK_SCRIPT)
 file(READ "${REPO}/src/Compat/V1/web-transport.js" LEGACY_SCRIPT)
+file(READ "${REPO}/tools/browser_shared/performance-overlay.js" PERFORMANCE_SCRIPT)
 configure_file(Scripts.h.in Scripts.h @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   bridge.js "${REPO}/tools/webview2_host/scripts/network-guard.js"
-  "${REPO}/src/Compat/V1/web-transport.js")
+  "${REPO}/src/Compat/V1/web-transport.js" "${REPO}/tools/browser_shared/performance-overlay.js")
 
 set(RUNTIME_DIR "${CMAKE_BINARY_DIR}/runtime")
 set_target_properties(osfui_cef_host PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/host")

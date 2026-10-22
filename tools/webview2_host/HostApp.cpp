@@ -841,6 +841,22 @@ namespace osfui::webview2
 				ReconcileCdpFocus();
 			}
 
+			void InstallPerformanceOverlay(View& a_view)
+			{
+				if (!devMode) { FinishControllerSetup(a_view); return; }
+				const auto hr = AddDocumentScript(a_view, EmbeddedScript::PerformanceOverlay,
+					[this, id = a_view.id, generation = a_view.generation](HRESULT result) {
+						auto* view = FindView(id);
+						if (!view || view->generation != generation) return;
+						if (FAILED(result)) log.Warn("Performance overlay installation failed");
+						FinishControllerSetup(*view);
+					});
+				if (FAILED(hr)) {
+					log.Warn("Performance overlay registration failed");
+					FinishControllerSetup(a_view);
+				}
+			}
+
 			void InstallBridgeShim(View& a_view)
 			{
 				const auto hr = AddDocumentScript(a_view,
@@ -852,7 +868,7 @@ namespace osfui::webview2
 							FailHost("bridge-shim", a_scriptHr, "bridge shim installation failed");
 						} else {
 							// Includes form-control styles for every document and iframe.
-							FinishControllerSetup(*view);
+							InstallPerformanceOverlay(*view);
 						}
 					});
 				if (FAILED(hr)) {

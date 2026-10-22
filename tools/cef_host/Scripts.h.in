@@ -3,3 +3,4 @@
 inline constexpr std::string_view kBridgeScript = R"OSFCEF(@BRIDGE_SCRIPT@)OSFCEF";
 inline constexpr std::string_view kNetworkScript = R"OSFCEF(@NETWORK_SCRIPT@)OSFCEF";
 inline constexpr std::string_view kLegacyScript = R"OSFCEF(@LEGACY_SCRIPT@)OSFCEF";
+inline constexpr std::string_view kPerformanceScript = R"OSFCEF(@PERFORMANCE_SCRIPT@)OSFCEF";

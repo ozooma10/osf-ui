@@ -155,6 +155,13 @@ namespace OSFUI
 
 	void Runtime::DriveDevTools()
 	{
+		if (m_performanceRequested.exchange(false)) {
+			auto renderer = SurfaceService::Get().InputRenderer();
+			auto view = renderer ? SurfaceService::Get().InputView() : m_presentation.ActiveMenu();
+			if (!renderer) renderer = m_renderer;
+			if (renderer && view) renderer->SendMessageToWeb(*view,
+				R"({"kind":"event","name":"osfui.debug.performance","payload":{}})");
+		}
 		if (!m_devToolsRequested.exchange(false) || !m_renderer) {
 			return;
 		}

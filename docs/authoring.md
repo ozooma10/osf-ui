@@ -438,6 +438,8 @@ Turn on **Developer mode** in OSF Settings (*OSF UI → Developer*), then restar
 game. Developer mode gives you:
 
 - **F12** opens DevTools for the open menu.
+- **F11** toggles the performance overlay for the active local view. It works with
+  both browser backends and v1 views, without adding a script to the mod.
 - **Live reload.** Saving a file in a loaded view reloads every open view of that
   mod. Manifest changes still need a restart.
 - Page `console` output and uncaught errors written to `OSF UI.log`.
@@ -451,6 +453,35 @@ The logs are in `Documents\My Games\Starfield\SFSE\Logs\`:
 
 To trace every bridge message in the page console, run
 `localStorage["osfui:trace"] = "1"` in DevTools and reload.
+
+For scrolling diagnostics, open the affected view, press **F11**, and scroll. The
+top-right overlay shows FPS, average / p95 / worst frame intervals, counts over
+33.3 and 50 ms, and a frame-time graph for the last five seconds. **Scroll FPS**
+uses intervals during top-level document scrolling (including nested scrollers)
+and the following 200 ms; a dash means there are no recent scroll samples. Scroll
+events inside child frames are not included. The session worst frame and
+JavaScript tasks lasting at least 50 ms remain visible after a hitch has passed. Long-task counts and their
+total duration accumulate while sampling, including work in descendant frames
+when reported by the browser.
+
+Press **F11** again to stop sampling and write a JSON summary prefixed
+`[OSF UI performance]` to the page console. Menu and HUD views also forward it to
+the existing developer console log in `OSF UI.log`. Enabling the overlay starts a
+fresh session. In DevTools,
+`osfui.performance.snapshot()` returns the current numbers,
+`osfui.performance.reset()` clears them, and `.show()` / `.hide()` also control
+the overlay (including on HUD views). Sampling pauses when the view or document
+is hidden; returning to it clears the recent window so hidden time is not counted
+as a hitch. The overlay updates four times per second, ignores pointer input, and
+does no animation sampling or long-task observation while disabled.
+
+These are **browser `requestAnimationFrame` intervals**, not Starfield FPS, GPU
+execution time, or proof that a frame reached the game. High p95 / worst values
+with long tasks suggest page main-thread work worth profiling with F12 DevTools.
+If scrolling looks choppy while browser timings stay smooth, investigate input
+delivery, browser capture / texture transfer, and game compositing next. The
+overlay itself causes small periodic paints, so disable it for baseline captures.
+Remote websites do not receive this diagnostic script.
 
 You can also open `index.html` in a normal browser for layout work. `osfui.js`
 detects that there is no bridge: `send` returns `false`, `request` rejects with

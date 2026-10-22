@@ -25,7 +25,7 @@
         "type": "bool",
         "default": false,
         "requires": "restart",
-        "hint": "Enable verbose diagnostics, F12 WebView DevTools, and loose-view hot reload on the next launch."
+        "hint": "Enable verbose diagnostics, F11 UI performance overlay, F12 WebView DevTools, and loose-view hot reload on the next launch."
       }
     ]
   }

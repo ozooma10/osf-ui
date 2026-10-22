@@ -10,6 +10,7 @@ namespace OSFUI
 	namespace
 	{
 		constexpr std::uint32_t kVkEscape{ 0x1B };
+		constexpr std::uint32_t kVkF11{ 0x7A };
 		constexpr std::uint32_t kVkF12{ 0x7B };
 	}
 
@@ -20,6 +21,10 @@ namespace OSFUI
 
 	bool Runtime::OnGameWindowKeyboard(const osfui::browser::msg::Keyboard& a_key)
 	{
+		if (m_developerMode && IsInputCaptured() && a_key.vk == kVkF11) {
+			if (a_key.down && !a_key.repeat) m_performanceRequested.store(true);
+			return true;
+		}
 		if (m_developerMode && IsInputCaptured() && a_key.vk == kVkF12) {
 			if (a_key.down && !a_key.repeat) m_devToolsRequested.store(true);
 			return true;

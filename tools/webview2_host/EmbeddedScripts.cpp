@@ -22,6 +22,9 @@ namespace osfui::webview2
 		const unsigned char kFormControls[] = {
 #include "form-controls.js.h"
 		};
+		const unsigned char kPerformanceOverlay[] = {
+#include "performance-overlay.js.h"
+		};
 
 		template <std::size_t N>
 		[[nodiscard]] std::wstring LoadScript(const unsigned char (&a_data)[N])
@@ -45,11 +48,13 @@ namespace osfui::webview2
 		static const auto bridge = controls + LoadScript(kBridgeShim);
 		static const auto legacyBridge = bridge + LoadScript(kLegacyTransport);
 		static const auto network = LoadScript(kNetworkGuard);
+		static const auto performance = LoadScript(kPerformanceOverlay);
 		switch (a_script) {
 		case EmbeddedScript::BridgeShim:   return bridge;
 		case EmbeddedScript::LegacyBridgeShim: return legacyBridge;
 		case EmbeddedScript::NetworkGuard: return network;
 		case EmbeddedScript::FormControls: return controls;
+		case EmbeddedScript::PerformanceOverlay: return performance;
 		}
 		return bridge;
 	}

@@ -187,5 +187,6 @@ namespace OSFUI
 
 		// Developer tools request (WndProc -> runtime).
 		std::atomic_bool m_devToolsRequested{ false };
+		std::atomic_bool m_performanceRequested{ false };
 	};
 }
