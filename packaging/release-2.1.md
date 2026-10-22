@@ -43,14 +43,21 @@ normal rendering fix and is independent of diagnostic sampling.
 ## Candidate verification
 
 Both archives were rebuilt from the same clean source revision,
-`62146ae59ff33804ef9e631ace4d698fbe6b3a25`. Their adjacent `.zip.manifest.json`
+`f0eba30daf3c2d40e665dadcf4473aae4a77bbcd`, including the CEF first-frame fix.
+Their adjacent `.zip.manifest.json`
 files record `sourceDirty: false` and the per-file hashes. Later documentation
 updates do not change the source revision of these binaries.
 
 | Archive in `dist/` | Bytes | SHA256 |
 | --- | ---: | --- |
-| `OSF-UI-v2.1.0-webview2.zip` | 1,580,165 | `E6432A6E122B92F42386C59B3D69B2623B744D220343088276EC2E5032581182` |
-| `OSF-UI-v2.1.0-cef.zip` | 185,283,413 | `597A90A4E1703013EF34A1FC179A29A1324A7549A385D8AE5927EE6593137907` |
+| `OSF-UI-v2.1.0-webview2.zip` | 1,580,159 | `CB5026E5DD99BDAF0295624ABB864E29BD6EC7BC586A986DECFAB5E08AF1BCEE` |
+| `OSF-UI-v2.1.0-cef.zip` | 185,283,398 | `3B0DA287E26F26265769BD95DD14B6C957EA895C6C34791DBF139BEF6F4CCA03` |
+
+The superseded `62146ae5` candidates and their manifests/checksums are retained
+in `build/cef-first-frame-20261022/previous-candidates/`. The current CEF archive's
+bootstrap, host DLL and Chromium DLL match the binaries from the passing desktop
+checks below. The host DLL SHA256 is
+`01481AD38849CAAB05CB471B737FFF79AA338AF45B12EF873F601CF8563CE82E`.
 
 Both release builds and package checks passed: exclusive backend payload,
 55 Papyrus natives, matching shared scripts/assets, default-off Developer mode,
@@ -64,7 +71,7 @@ The production OSF Settings 1.2.0 acceptance dependency was built from clean sou
 The exact manifest path is retained in
 `build/release-2.1-20261022/settings-manifest-path.txt`.
 
-Fresh source checks passed: 39 portable native suites, all 20 CEF lifecycle
+Earlier checks on `62146ae5` passed: 39 portable native suites, all 20 CEF lifecycle
 scenarios, 51 Windows capture-timing checks, 30 capture-counter checks, 34 direct
 native diagnostic-gate checks, and 34 JavaScript tests. Two optional original-mod
 fixture tests were skipped; Windows denied creation of a symlink for one escape
