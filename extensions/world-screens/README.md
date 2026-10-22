@@ -47,8 +47,9 @@ The current engine hooks are gated to **Starfield 1.16.244.0** and the verified 
 and call-site checks in the source. This is not a generic replacement for every vanilla
 display. Supported targets are registered ACTI bases using DisplayScreen5, or authored
 full-UV screen geometry under `osfui/screens/`. A reference must have a proven private
-geometry instance and original material before binding succeeds. Small/medium plugin
-form-ID resolution is not implemented; catalogs currently resolve full plugins.
+geometry instance and original material before binding succeeds. Catalogs resolve full,
+medium and small (light) plugins; `formId` is always the author-time local ID and the
+extension composes the runtime ID for whichever tier the plugin loaded into.
 
 Several references may show the same view. They share one browser and output texture;
 different view IDs use separate browsers/profiles and outputs. A view has demand while a
@@ -102,7 +103,10 @@ while Starfield is running. Enable the extension in the mod manager only when wa
    {"version":1,"bases":[{"plugin":"MyScreens.esm","formId":"800","profile":"display-screen5"}]}
    ```
 
-   `formId` is hexadecimal local ID without `0x`. A `full-uv` entry also needs
+   `formId` is hexadecimal local ID without `0x`. Write it as xEdit shows it for the
+   plugin itself, not the runtime ID: a small master's local ID must fit 12 bits and a
+   medium master's 16 bits, and an ID too wide for its tier is rejected rather than
+   truncated. A `full-uv` entry also needs
    `"model":"osfui/screens/my-screen.nif"`. The model must actually match the ACTI.
    The extension ships no catalog of vanilla screens and no placed references.
 4. Bind from Papyrus after the reference's 3D is ready:

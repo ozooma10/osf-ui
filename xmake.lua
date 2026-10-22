@@ -191,6 +191,14 @@ target("osfui-screen-binding-tests")
     add_files("extensions/world-screens/tests/screen_binding_tests.cpp")
     add_includedirs("extensions/world-screens/tests/stubs", "extensions/world-screens/src")
 
+target("osfui-screen-formid-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("extensions/world-screens/tests/screen_formid_tests.cpp",
+        "extensions/world-screens/src/World/ScreenFormId.cpp")
+    add_includedirs("extensions/world-screens/src")
+
 target("osfui-surface-catalog-tests")
     set_kind("binary")
     set_default(false)

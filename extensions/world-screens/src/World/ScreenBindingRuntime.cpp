@@ -1,5 +1,6 @@
 #include "World/ScreenBindingRuntime.h"
 #include "World/ScreenBindings.h"
+#include "World/ScreenFormId.h"
 #include "World/ScreenMaterial.h"
 #include "Extension.h"
 #include "RE/E/Events.h"
@@ -9,6 +10,8 @@
 #include "Core/StringUtil.h"
 #include "Core/Json.h"
 #include <charconv>
+#include <optional>
+#include <string_view>
 #include "REL/Trampoline.h"
 #include "REX/FModule.h"
 
@@ -25,6 +28,30 @@ namespace OSFUI::ScreenBindingRuntime
         LoadModel load{};
         thread_local RE::NiAVObject* cached{};
         template<class T> T Read(std::uintptr_t address) { T value; std::memcpy(&value,reinterpret_cast<void*>(address),sizeof(value)); return value; }
+
+        struct LoadedSlot { ScreenFormId::Tier tier; std::uint32_t slot; };
+
+        // Full plugins carry their own compile index; medium and small plugins are
+        // identified by their position within their own tier's array. Tier order and
+        // this slot derivation are proven in OSF RE (NpcAppearanceProbe,
+        // StarmapCruiseProbe) against 1.16.242.
+        std::optional<LoadedSlot> FindLoadedPlugin(const RE::TESDataHandler& handler, std::string_view plugin)
+        {
+            const auto& collection = handler.compiledFileCollection;
+            const auto matches = [&](const RE::TESFile* file) {
+                return file && StringUtil::EqualsCaseInsensitiveAscii(file->fileName, plugin);
+            };
+            for (const auto* loaded : collection.files)
+                if (matches(loaded) && loaded->compileIndex < 0xFD)
+                    return LoadedSlot{ScreenFormId::Tier::Full, loaded->compileIndex};
+            for (std::uint32_t slot{}; slot < collection.mediumFiles.size(); ++slot)
+                if (matches(collection.mediumFiles[slot]))
+                    return LoadedSlot{ScreenFormId::Tier::Medium, slot};
+            for (std::uint32_t slot{}; slot < collection.smallFiles.size(); ++slot)
+                if (matches(collection.smallFiles[slot]))
+                    return LoadedSlot{ScreenFormId::Tier::Small, slot};
+            return std::nullopt;
+        }
 
         std::vector<std::uint32_t> RegisteredBases()
         {
@@ -47,14 +74,12 @@ namespace OSFUI::ScreenBindingRuntime
                         if ((profile != "display-screen5" && profile != "full-uv") || plugin.empty() || plugin.find_first_of("/\\:") != plugin.npos ||
                             parsed.ec != std::errc{} || parsed.ptr != localText.data() + localText.size() || !local || local > 0xFFFFFF)
                             throw std::runtime_error("invalid screen base or unsupported profile");
-                        RE::TESForm* base{};
-                        for (auto* loaded : handler->compiledFileCollection.files) {
-                            if (loaded && StringUtil::EqualsCaseInsensitiveAscii(loaded->fileName, plugin) && loaded->compileIndex < 0xFD) {
-                                base = RE::TESForm::LookupByID((static_cast<std::uint32_t>(loaded->compileIndex) << 24) | local);
-                                break;
-                            }
-                        }
                         // An optional content plugin may not be enabled in this profile.
+                        const auto slot = FindLoadedPlugin(*handler, plugin);
+                        if (!slot) continue;
+                        const auto composed = ScreenFormId::Compose(slot->tier, slot->slot, local);
+                        if (!composed) throw std::runtime_error("screen local form ID does not fit its plugin tier");
+                        auto* base = RE::TESForm::LookupByID(*composed);
                         if (!base) continue;
                         if (!base->Is(RE::FormType::kACTI)) throw std::runtime_error("screen base is not an activator");
                         auto model = StringUtil::ToLowerAscii(static_cast<RE::TESObjectACTI*>(base)->model.c_str());
