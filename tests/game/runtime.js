@@ -5,7 +5,11 @@ const status=document.getElementById('status'),video=document.querySelector('vid
 const evidence={document:crypto.randomUUID(),frame:0,complete:true,errors:[],results:{},path:location.pathname};
 const bits=document.getElementById('bits');
 for(let i=0;i<12;i++)bits.append(document.createElement('i'));
-function report(){osfui.send('report',evidence);}
+function report(){
+  evidence.performanceAvailable = typeof osfui.performance !== 'undefined';
+  evidence.performancePanel = !!document.getElementById('osfui-performance');
+  osfui.send('report',evidence);
+}
 function require(ok,message){if(!ok)throw Error(message);}
 function event(target,name){return new Promise((resolve,reject)=>{
   const cleanup=()=>{clearTimeout(timer);target.removeEventListener(name,success);target.removeEventListener('error',failure);};

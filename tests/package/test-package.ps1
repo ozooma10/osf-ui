@@ -76,6 +76,11 @@ if ($backend -eq 'webview2') {
 }
 
 $schema = Get-Content -LiteralPath (Join-Path $root 'SFSE/Plugins/OSF/Settings/schemas/osfui.json') -Raw | ConvertFrom-Json
+$developer = @($schema.groups.Developer | Where-Object key -eq 'developerMode')
+if ($developer.Count -ne 1 -or $developer[0].type -ne 'bool' -or
+        $developer[0].default -isnot [bool] -or $developer[0].default -or $developer[0].requires -ne 'restart') {
+    throw 'Developer mode must ship disabled and require a restart'
+}
 if (@($schema.groups.Developer | Where-Object key -eq 'cefPrototype').Count) { throw 'Obsolete renderer toggle must not ship' }
 Get-ChildItem -LiteralPath (Join-Path $ui 'views') -Recurse -Filter 'manifest.json' | ForEach-Object {
     $view = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json

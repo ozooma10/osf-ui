@@ -51,7 +51,8 @@ function Runtime-Command([string]$Test,[hashtable]$Values=@{},[string]$View='run
 }
 function Open-RuntimeView([string]$View) {
     Send-Probe menu @{view="osfui-backend-test/$View";open=$true}
-    $null=Wait-Observed "$View document ready" {Read-Page $View} {param($p)$p -and $p.complete} 30
+    $page=Wait-Observed "$View document ready" {Read-Page $View} {param($p)$p -and $p.complete} 30
+    Assert-Test ($page.performanceAvailable -eq $false -and $page.performancePanel -eq $false) "$View has no performance diagnostic outside Developer mode"
 }
 function Capture-RuntimeProgress([string]$Phase) {
     $observed=@()

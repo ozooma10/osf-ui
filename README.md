@@ -18,7 +18,7 @@ OSF UI **2.1.0** supports 2 different backends, WebView2 and CEF. See [Runtime](
 
 There are 2 different backend editions for OSFUI, recommended Webview2, and CEF which bundles the runtime.
 
-Both editions require SFSE, Address Library, and OSF Settings 1.1.2 or a compatible newer release.
+Both editions require SFSE, Address Library, and OSF Settings 1.2.0 or a compatible newer release.
 
 | Edition | Recommendation | Browser requirement |
 | --- | --- | --- |

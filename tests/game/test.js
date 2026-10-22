@@ -4,6 +4,8 @@ if (isHud) document.body.classList.add('hud');
 const evidence = {document: crypto.randomUUID(), complete:false, errors:[], clicks:0, wheel:0, text:'', frame:0, events:[], state:null, rects:{}};
 const byId = id => document.getElementById(id);
 function report() {
+  evidence.performanceAvailable = typeof osfui.performance !== 'undefined';
+  evidence.performancePanel = !!document.getElementById('osfui-performance');
   for (const id of ['text','button','drag','scroll','select']) {
     const r=byId(id).getBoundingClientRect();
     evidence.rects[id]={x:(r.x+r.width/2)/innerWidth,y:(r.y+r.height/2)/innerHeight};
@@ -24,7 +26,10 @@ byId('button').addEventListener('click', () => {evidence.clicks++;report();});
 byId('scroll').addEventListener('wheel', () => {evidence.wheel++;report();});
 byId('drag').addEventListener('mousedown', event => {if(event.button===0)osfui.send('osfui.relativePointer',{active:true});});
 byId('close').addEventListener('click', () => osfui.send('close'));
-addEventListener('keydown', event => {if(event.key==='Escape'){event.preventDefault();osfui.send('close');}});
+addEventListener('keydown', event => {
+  if(event.key==='F11'){evidence.f11Keys=(evidence.f11Keys||0)+1;report();}
+  if(event.key==='Escape'){event.preventDefault();osfui.send('close');}
+});
 function tick(){evidence.frame++;requestAnimationFrame(tick);} requestAnimationFrame(tick);
 (async () => {
   try {

@@ -21,6 +21,14 @@ function ExpectFailure([string]$Data, [string]$Backend, [string]$Message) {
     $script:checks++
 }
 ExpectFailure $wv 'cef' 'wrong backend'
+$schemaPath = Join-Path $wv 'SFSE/Plugins/OSF/Settings/schemas/osfui.json'
+$schemaBytes = [IO.File]::ReadAllBytes($schemaPath)
+try {
+    $schema = Get-Content -LiteralPath $schemaPath -Raw | ConvertFrom-Json
+    ($schema.groups.Developer | Where-Object key -eq 'developerMode').default = $true
+    $schema | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $schemaPath
+    ExpectFailure $wv 'webview2' 'Developer mode must ship disabled'
+} finally { [IO.File]::WriteAllBytes($schemaPath, $schemaBytes) }
 $broker = Join-Path $wv "$uiRelative/bin/broker/osfui_browser_broker.exe"
 $brokerBytes = [IO.File]::ReadAllBytes($broker)
 try {

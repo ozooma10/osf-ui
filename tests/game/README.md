@@ -52,6 +52,11 @@ performance tools live under `tools/profiling`; run those while Starfield is clo
 
 ## Original consumer review
 
+The packaged synthetic suite runs with Developer mode disabled and verifies that
+pages have no performance diagnostic API or panel. Its interactive leg also
+presses F11 and verifies ordinary page key delivery without enabling diagnostics.
+The background CEF suite checks the absence of diagnostics on its runtime views.
+
 `-RealMods -SettingsManifest <manifest>` stages the installed Stock Exchange,
 Starcade, AISS and Somatic Camera payloads byte for byte into the private mod,
 enables their ESMs only in the private profile, and also isolates Starcade's

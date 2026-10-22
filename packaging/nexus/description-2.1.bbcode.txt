@@ -35,7 +35,7 @@ Both editions provide the same mod APIs. [b]Install one edition only.[/b] The in
 [list]
 [*][url=https://www.nexusmods.com/starfield/mods/106]Starfield Script Extender (SFSE)[/url][/*]
 [*][url=https://www.nexusmods.com/starfield/mods/3256]Address Library for SFSE Plugins[/url][/*]
-[*][url=https://www.nexusmods.com/starfield/mods/18326]OSF Settings[/url] - install 1.1.2 or a compatible newer release, the supported dependency baseline for OSF UI 2.1.[/*]
+[*][url=https://www.nexusmods.com/starfield/mods/18326]OSF Settings[/url] - install 1.2.0 or a compatible newer release, the supported dependency baseline for OSF UI 2.1.[/*]
 [*][b]WebView2 edition only:[/b] [url=https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section]Microsoft Edge WebView2 Evergreen Runtime[/url]. The CEF edition includes its own runtime.[/*]
 [/list]
 

@@ -8,6 +8,8 @@ VERSION
 2.1.0
 
 CHANGELOG
+- Added optional F11 performance diagnostics in Developer mode: browser timing on both editions, plus capture/publication timing and correlated hitch logs on WebView2. Developer mode is off by default and requires a restart.
+- Guarded WebView2 capture timing while views are visible and improved browser-host recovery without blocking the game tick.
 - Added separate WebView2 and bundled CEF editions with automatic renderer selection and the same public APIs.
 - Refined CEF damage copying, publication scheduling, and view reveal handling while retaining safe texture completion and full-copy fallbacks.
 - Added mixed menu/HUD/overlay validation; measured performance varies by workload and does not establish a general CEF speed or memory improvement.
@@ -48,7 +50,7 @@ Update Nexus's title, short description, and Requirements fields as well as the 
 List WebView2 first as the recommended default. List CEF as the bundled-runtime alternative, not as an upgrade, patch, or additional dependency. Use the separate file descriptions above and make the Evergreen requirement conditional on choosing WebView2.
 These are local publication drafts. Do not upload files, change the live listing, tag, or publish without explicit release authorization. Confirm final archive filenames, hashes, and matching source revision before publication.
 At an authorized release, ensure the public GitHub default branch contains the matching 2.1 author documentation.
-OSF Settings 1.1.2 or a compatible newer release is the supported dependency baseline. packaging/release-2.1.md pins the exact production Settings archive used for acceptance. Older development builds with reused version numbers may have incompatible interfaces.
+OSF Settings 1.2.0 or a compatible newer release is the supported dependency baseline. packaging/release-2.1.md records the exact production Settings archive and acceptance status. Older development builds with reused version numbers may have incompatible interfaces.
 Final package identities and acceptance are tracked in packaging/release-2.1.md; tests/game/README.md describes the in-game checks. This evidence does not establish every historical integration, GPU, Luma/HDR/frame-generation, physical-controller, or IME configuration. Performance comparisons are workload-specific and do not establish a general CEF speed or memory improvement.
 
 EXISTING OSF UI IMAGE REFERENCES

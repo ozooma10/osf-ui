@@ -59,6 +59,8 @@ SUITES=(
 "wv2_messages_tests wv2_messages_tests.cpp ../../src/Core/Json.cpp"
 "wv2_cdp_input_tests wv2_cdp_input_tests.cpp ../../src/Core/Json.cpp"
 "wv2_mouse_buttons_tests wv2_mouse_buttons_tests.cpp"
+"wv2_capture_performance_tests wv2_capture_performance_tests.cpp"
+"wv2_performance_gate_tests wv2_performance_gate_tests.cpp"
 "local_view_uri_tests local_view_uri_tests.cpp"
 "remote_uri_tests remote_uri_tests.cpp"
 "browser_surface_tests browser_surface_tests.cpp"

@@ -85,6 +85,7 @@ function Open-Panel([string]$View='panel') {
     Send-Probe menu @{view="osfui-backend-test/$View";open=$true}
     $page=Wait-Observed "Page $View bridge completed" {Read-Page $View} {param($p)$p -and $p.complete} 45
     Assert-Test ($page.errors.Count -eq 0 -and $page.networkBlocked) "Page $View native replies/rejections and network boundary" $page
+    Assert-Test ($page.performanceAvailable -eq $false -and $page.performancePanel -eq $false) "Page $View has no performance diagnostic outside Developer mode"
     if($View -ne 'hud'){Wait-Menu $true}
 }
 function Click-Element([string]$Id,[string[]]$Extra=@()) {
@@ -315,6 +316,8 @@ try {
         }
     }
     Capture-Panel 'panel'
+    Send-Key 122
+    $null=Wait-Observed 'F11 reaches the page without enabling diagnostics outside Developer mode' {Read-Page} {param($p)$p -and $p.ContainsKey('f11Keys') -and $p.f11Keys -gt 0 -and $p.performanceAvailable -eq $false -and $p.performancePanel -eq $false} 10
     Click-Element text
     Send-Key 65; Send-Key 66; Send-Key 8; Send-Key 67
     $null=Wait-Observed 'Keyboard text and Backspace reach browser' {Read-Page} {param($p)$p -and $p.text -eq 'ac'} 10
