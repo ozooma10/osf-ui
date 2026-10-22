@@ -28,7 +28,8 @@ try {
     $script:HarnessModName=$script:Config.TestProfile; $script:AutoLoadModName=$script:HarnessModName
     $mod=Assert-ChildPath $script:ModRoot (Join-Path $script:ModRoot $script:HarnessModName)
     if((Test-Path $mod) -or (Test-Path $script:ProfileRoot)){throw 'Fresh test paths already exist.'}
-    [IO.Directory]::CreateDirectory($script:ProfileRoot)|Out-Null
+    New-TemporaryMO2Directory profiles $script:ProfileRoot
+    New-TemporaryMO2Directory mods $mod
     foreach($file in Get-ChildItem -LiteralPath $source -File){Copy-Item -LiteralPath $file.FullName -Destination $script:ProfileRoot}
     Write-JsonFile (Join-Path $script:ProfileRoot '.osf-test-harness.json') @{harnessRoot=$script:HarnessRoot;session=$script:ProbeSession}
     # Exact generated payloads; never copy the obsolete combined prototype DLL.

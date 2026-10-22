@@ -39,7 +39,9 @@ try {
     if((Test-Path -LiteralPath $mod) -or (Test-Path -LiteralPath $script:ProfileRoot)){throw 'Fresh test paths already exist.'}
     $default=Join-Path $script:Config.MO2 'profiles/Default'
     $backup=Join-Path $script:Run.path 'default-before'
-    New-Item -ItemType Directory -Path $backup,$script:ProfileRoot,$mod,$script:ProbeDir -Force|Out-Null
+    New-TemporaryMO2Directory profiles $script:ProfileRoot
+    New-TemporaryMO2Directory mods $mod
+    New-Item -ItemType Directory -Path $backup,$script:ProbeDir -Force|Out-Null
     foreach($file in @('modlist.txt','plugins.txt','loadorder.txt')){
         Copy-Item -LiteralPath (Join-Path $default $file) -Destination $backup
     }
