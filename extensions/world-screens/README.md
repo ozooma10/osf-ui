@@ -171,7 +171,9 @@ input admission/cancellation, fullscreen admission, pause, letterboxed pointer m
 and GPU-busy retirement using engine/GPU doubles. The fullscreen draw itself is GPU work
 and is only verified in game.
 Binding tests cover private geometry, replacement, invalidation, and save/load tokens.
-Node tests cover generated texture identities and material profiles. Build and package
+Node tests cover generated texture identities, material profiles, and Browser TV
+state rendering (`node --test extensions/world-screens/tests/browser-chrome.test.mjs`
+from the repository root). Build and package
 checks are separate from actual GPU, input, and save/load acceptance in Starfield.
 The old monolithic prototype's runtime results do not validate these newly split DLLs.
 
