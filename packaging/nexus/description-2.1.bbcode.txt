@@ -64,7 +64,7 @@ Ship a view manifest and local HTML, CSS, and JavaScript files. Use the C++ or P
 [*][b]Menus and HUDs:[/b] Choose an interactive menu or a passive HUD. Menus can capture input and optionally pause gameplay.[/*]
 [*][b]Launcher Integration:[/b] Add a [font=Courier New]launcher[/font] entry to a menu's manifest to list it in OSF Settings.[/*]
 [*][b]Settings and Hotkeys:[/b] Use OSF Settings for configuration, rebindable hotkeys, and issue reporting. Forward any settings your web interface needs through OSF UI.[/*]
-[*][b]Developer Tools:[/b] Enable Developer mode on the OSF UI settings page and restart the game for F12 WebView DevTools and loose-view hot reload.[/*]
+[*][b]Developer Tools:[/b] Enable Developer mode on the OSF UI settings page and restart the game for F11 performance diagnostics, F12 WebView DevTools, and loose-view hot reload. Developer mode is off by default.[/*]
 [/list]
 
 [b]Minimal view manifest[/b]
