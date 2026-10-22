@@ -333,16 +333,22 @@ the next `CefInitialize`, reporting `restartRequired: true` to chrome.
 
 ## Consent
 
-OSF UI's own OSF Settings schema has **"Allow web browsing on World Screens"**
-(`osfui/allowWebBrowsing`), default **off**, in the **World Screens** group.
+This extension ships its own OSF Settings schema,
+`SFSE/Plugins/OSF/Settings/schemas/osfuiworldscreens.json`, whose **Browsing** group
+declares **"Allow web browsing on World Screens"** (`osfuiworldscreens/allowWebBrowsing`),
+default **off**. The schema filename is the settings mod ID, so the option exists only
+where this extension is installed; core's `osfui.json` does not declare it, and players
+running OSF UI alone are never offered a toggle for a feature they do not have.
 It is a **restart setting**: both enabling and disabling take effect on the next
 Starfield launch. `OSFSettingsClient` reads it once during startup, using the same
-pattern as developer mode. A missing, wrong-type, unavailable or failed read gives
-no consent and reports the existing startup-setting warning in Mod Issues.
+pattern as developer mode, but against this extension's mod ID. `UnknownMod` — the
+ordinary answer when the extension is absent — gives no consent silently. Any other
+failure (missing key, wrong type, unavailable or failed read) also gives no consent and
+reports the existing startup-setting warning in Mod Issues.
 
 With effective consent off, core never launches a remote-mode host. The browser
 surface then loads only the chrome view in a "browsing is disabled — enable it in
-Mods → OSF UI, then restart Starfield" state. The setting's description says the screen
+Mods → OSF UI - World Screens, then restart Starfield" state. The setting's description says the screen
 loads real websites with their own cookies and sign-ins, stored in the OSF UI profile
 folder. Enabling the setting does not create a host by itself: the reserved view must
 have surface demand. Plain surfaces and overlay views stay offline regardless of consent.
@@ -459,9 +465,10 @@ with no DLL, implemented under `extensions/browser-tv`.
    `browser.*` commands and native state drive chrome. A site-load error expands the
    local page for retry instead of failing the surface host.
 6. **Consent setting** (implemented; Settings/in-game acceptance pending).
-   Default-off `allowWebBrowsing`, explicitly requiring restart, is read through
-   `OSFSettingsClient` and wired into reserved browser host creation. Disabled chrome
-   points to Mods → OSF UI and explains the restart. A failed read stays offline.
+   Default-off `allowWebBrowsing`, explicitly requiring restart, ships in this
+   extension's own schema and is read through `OSFSettingsClient` and wired into
+   reserved browser host creation. Disabled chrome points to
+   Mods → OSF UI - World Screens and explains the restart. A failed read stays offline.
 7. **TV mod** (implemented; in-game acceptance pending). Separate OSF Browser TV
    full ESM, Papyrus script, catalog and build/deploy helper. No new DLL, framework
    copies or placed-reference overrides. See the consumer and verification sections.

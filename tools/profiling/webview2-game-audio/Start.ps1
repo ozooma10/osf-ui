@@ -96,7 +96,9 @@ try {
     # Map only the owned process's Settings folder before production Settings initializes.
     $private=Join-Path $script:Run.path 'private-values/settings'
     Write-JsonFile (Join-Path $private '.osf-ui-storage.json') @{session=$script:ProbeSession}
-    Write-JsonFile (Join-Path $private 'osfui.json') @{formatVersion=1;values=@{developerMode=$true;allowWebBrowsing=$true}}
+    Write-JsonFile (Join-Path $private 'osfui.json') @{formatVersion=1;values=@{developerMode=$true}}
+    # Browsing consent is declared by the World Screens extension, so it stores under its own mod id.
+    Write-JsonFile (Join-Path $private 'osfuiworldscreens.json') @{formatVersion=1;values=@{allowWebBrowsing=$true}}
     $probe=@{directory=$script:ProbeDir;session=$script:ProbeSession;realViews=@('osfui.browser/tv');
         storage=@{game=$script:Config.Game;mo2=$script:Config.MO2;vfsInstance='mod_organizer_instance';
             expiresUnixMs=([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+180000);

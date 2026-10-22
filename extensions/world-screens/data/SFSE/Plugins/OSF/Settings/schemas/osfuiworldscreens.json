@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ozooma10/osf-settings/dev/sdk/osf-settings.schema.json",
+  "title": "OSF UI - World Screens",
+  "description": "Material-backed web displays for OSF UI",
+  "version": "0.1.0",
+  "dependencies": {
+    "osfsettings": "1.2.0"
+  },
+  "groups": {
+    "Browsing": [
+      {
+        "key": "allowWebBrowsing",
+        "label": "Allow web browsing on World Screens",
+        "type": "bool",
+        "default": false,
+        "requires": "restart",
+        "hint": "Requires restarting Starfield. Browser screens load real websites, with their own cookies and sign-ins stored in the OSF UI profile folder. Turning this off stops web browsing on the next launch."
+      }
+    ]
+  }
+}

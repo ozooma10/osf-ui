@@ -5,6 +5,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace SettingsTest
@@ -15,6 +16,9 @@ namespace SettingsTest
     {
         bool ready = true;
         std::map<std::string, bool> values{{"developerMode", false}, {"allowWebBrowsing", false}, {"cefPrototype", false}, {"showDetails", false}};
+        // Mods listed here are not installed, so their settings answer UnknownMod.
+        std::set<std::string> missingMods;
+        std::vector<std::pair<std::string, std::string>> readKeys;
         std::map<std::string, Status> readStatus;
         int reads = 0, acquisitions = 0, releases = 0, registrations = 0;
         Status acquireStatus = Status::Ok, releaseStatus = Status::Ok;
@@ -31,9 +35,11 @@ namespace SettingsTest
         int languageReads = 0;
 
         bool IsReady() noexcept override { return ready; }
-        Status GetBool(const char*, const char* key, bool* out) noexcept override
+        Status GetBool(const char* mod, const char* key, bool* out) noexcept override
         {
             ++reads;
+            readKeys.emplace_back(mod ? mod : "", key ? key : "");
+            if (missingMods.contains(mod ? mod : "")) return Status::UnknownMod;
             if (readStatus.contains(key) && readStatus.at(key) != Status::Ok) return readStatus.at(key);
             if (!values.contains(key)) return Status::UnknownSetting;
             *out = values.at(key);

@@ -17,8 +17,9 @@ The extension also owns the reserved `osfui.browser/tv` view, its trusted browse
 controls and named placeholder texture. Content mods bind to that ID instead of
 shipping copies of its pages. Its two-view implementation exists for both editions.
 Browsing defaults off: enable **Allow web browsing on World Screens** in
-**Mods → OSF UI**, then restart Starfield. Turning it off also takes effect on the next
-launch. Websites store cookies and sign-ins in the OSF UI profile folder.
+**Mods → OSF UI - World Screens**, then restart Starfield. Turning it off also takes
+effect on the next launch. This extension ships the schema that declares the setting, so
+players without it never see the option. Websites store cookies and sign-ins in the OSF UI profile folder.
 [OSF Browser TV](../browser-tv/README.md) supplies a separate Papyrus-only craftable
 wall TV; build it with `pwsh tools/build-browser-tv.ps1 -Deploy`. Watch/playback
 and CEF positional audio/lifecycle checks pass; broader acceptance remains in:

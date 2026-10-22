@@ -378,7 +378,7 @@
     $("section-meta").textContent = "Restart required after changing";
     list.append(el("p", "lead", "This screen can play real websites, but browsing has to be turned on first."));
     const steps = el("ol", "steps");
-    for (const [n, text] of [["01", "Open Mods, then OSF UI, then World Screens"],
+    for (const [n, text] of [["01", "Open Mods, then OSF UI - World Screens, then Browsing"],
       ["02", "Turn on “Allow web browsing on World Screens”"], ["03", "Restart Starfield"]]) {
       const item = el("li");
       item.append(el("b", "", n), text);

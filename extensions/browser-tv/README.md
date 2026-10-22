@@ -12,8 +12,8 @@ does not include the required browser surface APIs.
 
 1. Install this mod alongside the matching core and World Screens. Enable
    `OSFBrowserTV.esm` in your mod manager.
-2. In **Mods → OSF UI → World Screens**, enable **Allow web browsing on World
-   Screens**, then restart Starfield. With consent off, the TV shows the local
+2. In **Mods → OSF UI - World Screens → Browsing**, enable **Allow web browsing on
+   World Screens**, then restart Starfield. With consent off, the TV shows the local
    disabled page and stays offline.
 3. In a ship's Decorate menu or an outpost's build menu, choose **Decorations →
    Browser TV**. The recipe uses 4 Aluminum, 2 Zero Wire and 2 Beryllium, matching

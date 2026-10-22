@@ -12,6 +12,9 @@ namespace OSFUI
 		using Status = OSFSettings::API::Status;
 		using Severity = OSFSettings::API::Diagnostics::Severity;
 		constexpr const char* kRepair = "Check the mod installation and the OSF UI log, then restart Starfield.";
+		// Browsing consent belongs to the optional World Screens extension, which ships the
+		// schema that declares it. Core only reads it, and an absent extension means no consent.
+		constexpr const char* kWorldScreensMod = "osfuiworldscreens";
 	}
 
 	bool OSFSettingsClient::Initialize()
@@ -24,8 +27,8 @@ namespace OSFUI
 			ReportFailure("dependency", "dependency.settings-unavailable", "OSF UI cannot start without compatible OSF Settings services");
 			return false;
 		}
-		ReadStartupBool("developerMode", m_developerMode);
-		ReadStartupBool("allowWebBrowsing", m_allowWebBrowsing);
+		ReadStartupBool("osfui", "developerMode", m_developerMode);
+		ReadStartupBool(kWorldScreensMod, "allowWebBrowsing", m_allowWebBrowsing, true);
 		ClearFailure("dependency");
 		return true;
 	}
@@ -83,16 +86,20 @@ namespace OSFUI
 		return m_language;
 	}
 
-	void OSFSettingsClient::ReadStartupBool(const char* a_key, bool& a_value)
+	void OSFSettingsClient::ReadStartupBool(const char* a_mod, const char* a_key, bool& a_value, bool a_optional)
 	{
 		a_value = false;
-		const auto status = m_settings.GetBool("osfui", a_key, &a_value);
+		const auto status = m_settings.GetBool(a_mod, a_key, &a_value);
 		if (status == Status::Ok) return;
 		a_value = false;
-		REX::WARN("OSF Settings read failed for osfui/{}: status {}; using false until restart", a_key, static_cast<unsigned>(status));
+		if (a_optional && status == Status::UnknownMod) {
+			REX::DEBUG("{} is not installed; {} stays off", a_mod, a_key);
+			return; // The extension that owns this setting is simply absent.
+		}
+		REX::WARN("OSF Settings read failed for {}/{}: status {}; using false until restart", a_mod, a_key, static_cast<unsigned>(status));
 		IssueText issue{ Severity::Warning, "An OSF UI startup setting could not be read",
 			std::format("{} is disabled for this session.", a_key),
-			"Reinstall OSF UI's osfui.json settings schema and restart Starfield." };
+			std::format("Reinstall the {}.json settings schema and restart Starfield.", a_mod) };
 		const auto id = std::string("settings.") + a_key;
 		Report(id, issue);
 	}
