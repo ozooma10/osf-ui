@@ -34,7 +34,14 @@ try {
     $moProcesses=@(Get-Process ModOrganizer -ErrorAction SilentlyContinue)
     foreach($mo in $moProcesses){if($mo.Path -ne (Join-Path $script:Config.MO2 'ModOrganizer.exe')){throw 'Unexpected MO2 process.'}}
     foreach($mo in $moProcesses){
-        $null=$mo.CloseMainWindow()
+        # Finish reopens Default asynchronously. A following comparison may
+        # arrive before MO2 has a window to receive the normal close request.
+        $deadline=[DateTime]::UtcNow.AddSeconds(15)
+        while(-not $mo.HasExited -and $mo.MainWindowHandle -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $deadline){
+            Start-Sleep -Milliseconds 100;$mo.Refresh()
+        }
+        if($mo.HasExited){continue}
+        if(-not $mo.CloseMainWindow()){throw 'MO2 has no ready window for normal close.'}
         if(-not $mo.WaitForExit(10000)){throw 'MO2 did not close normally.'}
     }
     $script:ArtifactRoot=Join-Path $repo 'build/world-screen-validation/runs'
