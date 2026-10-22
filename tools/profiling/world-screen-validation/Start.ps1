@@ -86,9 +86,6 @@ try {
         $path=Join-Path $script:ProfileRoot $ini
         Set-IniValue $path General sLocalSavePath ([IO.Path]::GetRelativePath($script:GameDocuments,$script:SaveRoot)+'\')
         Set-IniValue $path General bAlwaysActive 1
-        # Present in Starfield 1.16.244's INI registry. Foreground alone does
-        # not prevent the idle camera orbit during unattended captures.
-        Set-IniValue $path Camera bDisableAutoVanityMode 1
         Set-IniValue $path General SIntroSequence 0
         Set-IniValue $path General uMainMenuDelayBeforeAllowSkip 0
         Set-IniValue $path Archive bInvalidateOlderFiles 1

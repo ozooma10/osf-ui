@@ -52,10 +52,11 @@ retain their source revisions and hashes.
 With explicit user authorization, `Focus.ps1 -RunPath <run> -AllowForeground`
 focuses only the identity-verified owned game and records the observed result.
 It sends no keyboard or mouse input. Otherwise the runner remains background-only.
-Foreground still matters for matched captures. The private INIs additionally set
-`bDisableAutoVanityMode:Camera=1`: the idle orbit can start even in foreground.
-The analyzer must still verify the actual camera pose; the setting alone is not
-proof. Normal profile INIs are never changed.
+Foreground still matters for matched captures. After fixture load, the private
+Papyrus setup applies `bDisableAutoVanityMode:Camera=true` in game memory and
+restores third person before placing the TVs. The startup INI entry alone did not
+reliably suppress the orbit. The analyzer must still verify the actual camera
+pose; the setting alone is not proof. Normal profile INIs are never changed.
 
 `Measure.ps1 -RunPath <run> -Variant current|baseline -Workload <name> -Repeat 1
 -DurationSeconds 30` samples owned game/browser CPU and memory plus PresentMon

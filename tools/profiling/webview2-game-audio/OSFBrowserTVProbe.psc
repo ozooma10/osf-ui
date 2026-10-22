@@ -1,6 +1,10 @@
 Scriptname OSFBrowserTVProbe Hidden
 ; Private setup only. Watch is dispatched through the real reference activation.
 Function Spawn() Global
+    ; Apply after fixture load: the startup INI entry alone did not reliably
+    ; suppress the idle orbit. This changes only the disposable game's memory.
+    Utility.SetINIBool("bDisableAutoVanityMode:Camera", True)
+    Game.ForceThirdPerson()
     Actor player = Game.GetPlayer()
     Form base = Game.GetFormFromFile(0x800, "OSFBrowserTV.esm")
     ObjectReference screen = player.PlaceAtMe(base)
