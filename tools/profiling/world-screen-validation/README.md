@@ -85,7 +85,7 @@ significance test. Keep failed captures alongside accepted evidence.
 
 `Run-Performance.ps1` runs a complete isolated comparison session from an explicit
 payload: two TVs, 120-second warmup, three 30-second idle captures and three tone
-captures, then normal exit and profile restoration. It requires the existing
+captures, then normal exit and profile restoration. Foreground mode requires
 explicit authorization to focus the owned game. Use different `-FirstRepeat`
 values for independent launches and reverse variant order on the second pair;
 `-ToneFirst` also permits matching the earlier tone-before-idle workload order.
@@ -94,6 +94,9 @@ navigation, video/mute and sustained audio checks after performance measurement.
 `-Background` omits foreground requests throughout the session. Compare only
 captures with the same observed focus state; foreground and background timings
 are separate experiments.
+For intermediate sessions in a batch, `-KeepMO2Closed` skips reopening Default
+after the temporary profile has been removed. The final session should omit it;
+failure cleanup always attempts to restore Default.
 
 The private observer counts browser-state events and DOM mutation records without
 retaining DOM nodes. These counters distinguish repeated chrome updates from

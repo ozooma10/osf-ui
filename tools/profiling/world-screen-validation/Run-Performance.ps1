@@ -7,6 +7,7 @@ param(
     [ValidateRange(1,97)][int]$FirstRepeat=1,
     [switch]$ToneFirst,
     [switch]$Background,
+    [switch]$KeepMO2Closed,
     [switch]$ValidateControls
 )
 $ErrorActionPreference='Stop'
@@ -48,7 +49,9 @@ try {
         Case Tone tone-after-checks start
         Case Meter sustained-audio '' 30000
     }
-    & (Join-Path $PSScriptRoot 'Finish.ps1') -RunPath $run -Outcome passed -RestoreDefault -Message "$Experiment $Backend $Variant captures complete."
+    # Intermediate comparisons can leave MO2 closed after temporary-profile cleanup.
+    # Avoid reopening Default only for the next run to immediately close it again.
+    & (Join-Path $PSScriptRoot 'Finish.ps1') -RunPath $run -Outcome passed -RestoreDefault:(-not $KeepMO2Closed) -Message "$Experiment $Backend $Variant captures complete."
 } catch {
     $failure=$_
     # Preserve the failed capture and close only the session this script created.
