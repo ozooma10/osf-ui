@@ -12,6 +12,17 @@ as `6bcbfb23c391edeb263a879c7eaa1ea840ef440c` on
 fast-forward. It restores the native F11 capture/publication diagnostics and WGC
 timing guard to the source used for this release.
 
+The subsequent `9ae09f2e` merge also incorporates the asynchronous WebView2 pipe
+writer (`dec8b637`) and temporary test-profile registration (`0249d0e3`). Its
+348 Windows pipe checks pass. An initial package attempt crossed that merge and
+is retained under `build/release-2.1-20261022/superseded-mixed-revision-attempt/`;
+those archives are rejected for release because their source revisions differ.
+
+Release packaging uses `pwsh tools/package.ps1 -Backend both -Tag '' -RequireClean`.
+The packager pins HEAD before building and rejects a revision change during
+either edition. `-RequireClean` also checks the worktree and submodules and
+disallows reusing unverified binaries with `-SkipBuild`.
+
 The earlier tested helper SHA256 is
 `9E2684ECC6B7B45C854DC8BDB825681FBB6425D79D52F750FE07948D5E38D3A7`.
 Its embedded diagnostic script is compared with the reconciled source, and the

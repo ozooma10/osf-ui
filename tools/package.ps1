@@ -8,6 +8,7 @@ param(
     [switch]$IncludePdb,
     [string]$Mode = 'releasedbg',
     [switch]$SkipBuild,
+    [switch]$RequireClean,
     [string]$WebView2SdkDir,
     [string]$OutDir
 )
@@ -15,6 +16,20 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($NoPdb -and $IncludePdb) { throw 'Choose either -IncludePdb or -NoPdb, not both.' }
 $RepoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
+$sourceCommit = & git -C $RepoRoot rev-parse HEAD
+if ($LASTEXITCODE) { throw 'Cannot determine package source revision' }
+function Assert-SourceUnchanged {
+    $current = & git -C $RepoRoot rev-parse HEAD
+    if ($LASTEXITCODE -or $current -cne $sourceCommit) {
+        throw 'Source revision changed during packaging; discard this attempt and rebuild both editions.'
+    }
+    if ($RequireClean) {
+        $changes = @(& git -C $RepoRoot status --porcelain=v1 --untracked-files=all --ignore-submodules=none)
+        if ($LASTEXITCODE -or $changes.Count) { throw 'Release packaging requires a clean source tree, including submodules.' }
+    }
+}
+if ($RequireClean -and $SkipBuild) { throw '-RequireClean cannot use -SkipBuild; release binaries must be built from the recorded source.' }
+Assert-SourceUnchanged
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 $OutDir = [IO.Path]::GetFullPath($OutDir)
 $Staging = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'build/package/staging'))
@@ -73,6 +88,7 @@ try {
         $commonPex = $null
         $archiveRecords = @()
         foreach ($edition in $editions) {
+            Assert-SourceUnchanged
             xmake f -P $RepoRoot -F (Join-Path $RepoRoot 'xmake.lua') -m $Mode "--browser_backend=$edition" -y
             if ($LASTEXITCODE) { throw 'XMake configuration failed' }
             if (-not $SkipBuild) {
@@ -101,6 +117,7 @@ try {
                 $commonPex = $pex
             }
             & (Join-Path $RepoRoot 'tests/package/test-package.ps1') -DataRoot $data -ExpectedBackend $edition
+            Assert-SourceUnchanged
             $files = FileManifest $data
             $shared = @($files | Where-Object {
                 $_.path -notin @('SFSE/Plugins/OSFUI.dll', 'SFSE/Plugins/OSFUI.pdb') -and
@@ -113,10 +130,11 @@ try {
             $archive = Join-Path $OutDir "OSF-UI-$versionLabel-$edition.zip"
             Compress-Archive -LiteralPath $data -DestinationPath $archive -CompressionLevel Optimal -Force
             VerifyArchive $archive $files
+            Assert-SourceUnchanged
             $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
             "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath ($archive + '.sha256') -Encoding utf8NoBOM
             [ordered]@{
-                backend = $edition; version = $Version; sourceCommit = (& git rev-parse HEAD)
+                backend = $edition; version = $Version; sourceCommit = $sourceCommit
                 sourceDirty = [bool](& git status --porcelain --untracked-files=normal --ignore-submodules)
                 archiveSha256 = $hash; files = $files
             } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath ($archive + '.manifest.json') -Encoding utf8NoBOM
