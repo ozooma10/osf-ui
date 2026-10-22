@@ -69,6 +69,7 @@ SUITES=(
 "cef_navigation_tests cef_navigation_tests.cpp"
 "cef_assets_tests cef_assets_tests.cpp"
 "cef_frame_pacer_tests cef_frame_pacer_tests.cpp"
+"cef_composition_tests cef_composition_tests.cpp"
 "cef_paint_damage_tests cef_paint_damage_tests.cpp"
 "view_presentation_controller_tests view_presentation_controller_tests.cpp ../../src/Views/ViewPresentationController.cpp"
 "view_open_coordinator_tests view_open_coordinator_tests.cpp ../../src/Views/ViewOpenCoordinator.cpp ../../src/Views/ViewPresentationController.cpp"

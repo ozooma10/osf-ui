@@ -211,6 +211,9 @@ struct Bench {
                 if(coldOpen&&!firstEpochMarker.contains(frame.presentationEpoch)){
                     firstEpochMarker.emplace(frame.presentationEpoch,marker);
                     firstEpochPixel.emplace(frame.presentationEpoch,consumer.Pixel(consumer.width/2,consumer.height/2));
+                    result["first_epoch_frames"][std::to_string(frame.presentationEpoch)]={
+                        {"serial",frame.serial},{"complete",frame.complete},{"marker",marker},
+                        {"pixel",firstEpochPixel.at(frame.presentationEpoch)}};
                     consumer.Save(output/("first-epoch-"+std::to_string(frame.presentationEpoch)+".png"));
                 }
                 const msg::FrameAck ack{.slot=frame.slot,.serial=frame.serial};
@@ -255,6 +258,9 @@ struct Bench {
         // Production launchers load a new view while hidden, then request its
         // first presentation after a previously opened menu has been closed.
         result["cold_open"]=json::array();
+        phase="cold_initial";
+        if(firstEpochMarker.at(1)!=0x110001||!result["first_epoch_frames"]["1"].value("complete",false))
+            throw std::runtime_error("first startup frame has stale, blank or incomplete pixels");
         Send(msg::SetHidden{.view="bench/main",.hidden=true,.presentationEpoch=1});
         RunFor(.4);
         for(UINT64 cycle=1;cycle<=3;++cycle){
@@ -269,7 +275,8 @@ struct Bench {
             Send(msg::SetHidden{.view="bench/second",.hidden=false,.presentationEpoch=cycle+1,.settleColdOpen=true});
             WaitUntil([&]{return lastEpoch==cycle+1&&(coldLegacy?consumer.Pixel(consumer.width/2,consumer.height/2)[3]==255:lastMarker==expected);},5,"first hidden-load menu pixels");
             result["first_epoch_pixels"][std::to_string(cycle+1)]=firstEpochPixel.at(cycle+1);
-            if(coldLegacy?firstEpochPixel.at(cycle+1)[3]!=255:firstEpochMarker.at(cycle+1)!=expected)
+            if(!result["first_epoch_frames"][std::to_string(cycle+1)].value("complete",false)||
+                (coldLegacy?firstEpochPixel.at(cycle+1)[3]!=255:firstEpochMarker.at(cycle+1)!=expected))
                 throw std::runtime_error("first prepared menu frame has stale or blank pixels");
             consumer.Save(output/(phase+".png"));
             result["cold_open"].push_back({{"cycle",cycle},{"epoch",lastEpoch},{"marker",lastMarker}});

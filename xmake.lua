@@ -373,6 +373,13 @@ target("osfui-cef-frame-pacer-tests")
     add_files("tests/native/cef_frame_pacer_tests.cpp")
     add_includedirs("tests/native/stubs")
 
+target("osfui-cef-composition-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/cef_composition_tests.cpp")
+    add_includedirs("tests/native/stubs")
+
 target("osfui-cef-paint-damage-tests")
     set_kind("binary")
     set_default(false)

@@ -45,10 +45,12 @@ This fills the actual output ring, checks that bridge traffic stays responsive, 
 
 The results do not establish Starfield FPS, D3D12 compositing cost, MO2 materialization time, disk footprint, long-session stability, or performance of a particular mod's UI. Use the existing in-game capture workflow for those questions.
 
-`-ColdOpen` is a separate first-frame diagnostic: it hides the first menu, then
-creates, reveals and destroys a second menu three times. It retains the first
-frame of each presentation epoch and requires that very first helper frame to
-contain the expected pixels. The native `--cold-legacy true` option supports a
+`-ColdOpen` is a separate first-frame diagnostic: it checks initial startup,
+hides the first menu, then creates, reveals and destroys a second menu three
+times. It retains the first frame of each presentation epoch and requires that
+very first helper frame to be complete and contain the expected pixels. Results
+include each first frame's serial, completion flag, marker and center pixel.
+The native `--cold-legacy true` option supports a
 locally copied legacy fixture under `bench/second` and checks center opacity.
 Blank first frames remain failures of this strict probe even if a later frame
 contains the page. This desktop consumer does not execute the game's Settings

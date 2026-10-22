@@ -12,6 +12,7 @@ CHANGELOG
 - Guarded WebView2 capture timing while views are visible and improved browser-host recovery without blocking the game tick.
 - Added separate WebView2 and bundled CEF editions with automatic renderer selection and the same public APIs.
 - Refined CEF damage copying, publication scheduling, and view reveal handling while retaining safe texture completion and full-copy fallbacks.
+- Prevented CEF from publishing an empty first frame while a menu waits for its reveal paint; healthy views continue updating while other views load.
 - Added mixed menu/HUD/overlay validation; measured performance varies by workload and does not establish a general CEF speed or memory improvement.
 - Fixed missed repeated hotkeys after closing an overlay and blank first menu presentation during a Settings launcher handoff.
 - Improved browser recovery and CEF view isolation, bounded message queues, graceful shutdown, GPU selection, and local media seeking.

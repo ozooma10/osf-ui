@@ -74,17 +74,45 @@ suite also verifies that F11 reaches the page without enabling it.
 
 ### Desktop first-frame diagnostic
 
-The final helpers were tested at 2560×1440 with Developer mode off. WebView2
+The earlier candidate helpers were tested at 2560×1440 with Developer mode off. WebView2
 passed all three cold-open cycles and clean shutdown. **CEF failed** the strict
 probe in `cold_second_1`: the first frame of epoch 2 was transparent
 `[0, 0, 0, 0]`. Its normal shutdown passed. Evidence is retained under
 `build/release-2.1-20261022/cold-open/`, including source and binary hashes.
 
-This is an unresolved diagnostic failure, not a passed check. The
-[probe's documented scope](../tools/profiling/backend-bench/README.md) excludes
-the game's Settings preparation handshake and `SharedFrameState` queue, so it
-does not establish whether the game shows a blank menu. The packaged CEF cold
-launcher check must determine that before release; fix and rebuild if it fails.
+Investigation found that CEF's composition loop allowed publication with zero
+ready layers while a requested view awaited its reveal paint. The output target
+was cleared to transparent and sent as `complete: false`. The fix retains pending
+work until at least one view is ready. Healthy views can still publish partial
+frames while a sibling loads or fails; valid transparent views are not rejected.
+The composition code is shared directly with a native regression test.
+
+All 19 composition checks pass; removing the new guard makes the regression
+test fail. The existing 45 scheduler/reveal checks and benchmark marker test
+also pass. The cold-open probe now checks startup as well as all three reopen
+cycles, recording the first frame's completion flag, serial, marker and pixel.
+
+The isolated desktop comparison confirms the fix. The old candidate fails in
+`build/cef-first-frame-20261022/before-isolated/` with a transparent, incomplete
+first startup frame. The rebuilt helper passes all **24 first frames** (six
+startups and 18 reopens) across three fresh sessions each at 1920×1080 and
+2560×1440, with clean shutdowns. Evidence and first-frame screenshots are in
+`build/cef-first-frame-20261022/after-corrected/`. The 1440p first-reopen capture
+was also visually inspected and contains the expected menu and marker.
+
+The real CEF view-isolation suite passes in
+`build/cef-first-frame-20261022/isolation/`: healthy-view output continues during
+slow loading, pending-message overflow, failed navigation, missed reveal, and a
+renderer crash. Recovery restores complete compositions; normal shutdown passes.
+
+Earlier attempts are retained: `before/` was invalidated by another Starfield
+session starting, and `after/` received a malformed command-line height
+(`10801440` instead of the intended array). Neither is accepted as a validation
+run. Subsequent checks held the shared harness reservation and had no game
+contention. No game was launched or closed for this investigation. The
+[probe's documented scope](../tools/profiling/backend-bench/README.md) still
+excludes the game's Settings handshake; final game acceptance remains deferred
+by the author.
 
 ### Game acceptance deferred
 
@@ -101,8 +129,8 @@ Before publication:
   Cover both editions' input, focus, save/load, launcher handoff and cold opens,
   browser recovery, and the default-off F11 assertions. Record actual captures
   and outcomes using [the packaged acceptance guide](../tests/game/README.md).
-- Run the focused CEF background runtime checks, and resolve or explicitly
-  disposition the first-frame diagnostic based on the game acceptance evidence.
+- Run the focused CEF background runtime checks before publication. The
+  standalone cold-open and view-isolation checks above have passed.
 - Verify Developer mode after a restart: F11 opens/closes diagnostics, and
   turning Developer mode off followed by another restart removes them.
 - Review the original consumer workflows and any supported Luma/HDR/controller
