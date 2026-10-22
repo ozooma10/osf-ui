@@ -148,6 +148,11 @@
 			void HandleWindowActive(const json& a_msg)
 			{
 				windowActive = msg::FromJson<msg::WindowActive>(a_msg).active;
+				if (!windowActive) {
+					for (auto& view : views) {
+						if (view->performance) view->performance->SetActive(false, CapturePerformance::Now());
+					}
+				}
 				if (!windowActive) RecoverAllPressedMouseButtons("Starfield focus loss");
 				ReconcileCdpFocus();
 			}

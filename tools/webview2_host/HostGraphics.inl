@@ -316,6 +316,7 @@
 				}
 				if (writableSlot == kRingSlots) {
 					++consumeLagDrops;
+					RecordPerformance(2);
 					if (consumeLagDrops == 1 || consumeLagDrops % 300 == 0) {
 						log.Info(std::format("capture backpressure (all {} slots reserved, {} deferrals); retaining latest capture", kRingSlots, consumeLagDrops));
 					}
@@ -339,6 +340,7 @@
 				if (!Send(msg::ToJson(msg::Frame{ .slot = lastSlot, .serial = serial,
 					.width = a_width, .height = a_height,
 					.presentationEpoch = a_presentationEpoch }))) return false;
+				RecordPerformance(1);
 				if (serial == 1) {
 					log.InfoFwd(std::format("first frame published ({}x{})", a_width, a_height));
 				}

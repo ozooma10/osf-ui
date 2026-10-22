@@ -7,7 +7,7 @@ const script = fs.readFileSync('tools/browser_shared/performance-overlay.js', 'u
 
 function fixture(backend = 'cef', { child = false, longTasks = true } = {}) {
   let now = 0, next = 0, receive, activeObserver;
-  const frames = new Map(), listeners = new Map(), logs = [], panels = [];
+  const frames = new Map(), listeners = new Map(), logs = [], panels = [], posted = [];
   const element = () => ({ style: {}, textContent: '', append() {}, setAttribute() {},
     attachShadow: () => element(), getContext: () => null,
     remove() { panels.splice(panels.indexOf(this), 1); } });
@@ -17,7 +17,7 @@ function fixture(backend = 'cef', { child = false, longTasks = true } = {}) {
     removeEventListener: name => listeners.delete(name) };
   const window = { __osfCefPost() {} };
   window.top = child ? {} : window;
-  const chrome = { webview: { postMessage() {}, addEventListener: (_, fn) => {
+  const chrome = { webview: { postMessage: value => posted.push(value), addEventListener: (_, fn) => {
     receive = message => fn({ data: JSON.stringify(message) });
   } } };
   window.chrome = chrome;
@@ -36,7 +36,7 @@ function fixture(backend = 'cef', { child = false, longTasks = true } = {}) {
     'tools/webview2_host/scripts/bridge-shim.js', 'utf8'), context);
   if (backend === 'cef') receive = message => window.__osfCefReceive(JSON.stringify(message));
   vm.runInContext(script, context);
-  return { api: window.osfui.performance, frames, document, listeners, logs, panels, context,
+  return { api: window.osfui.performance, frames, document, listeners, logs, panels, context, posted,
     receive, toggle: () => receive({ kind: 'event', name: 'osfui.debug.performance', payload: {} }),
     visibility: visible => receive({ kind: 'event', name: 'ui.visibility', payload: { visible } }),
     step(delta) { now += delta; const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(fn => fn(now)); },
@@ -139,4 +139,64 @@ test('child frames never create a duplicate overlay or sampler', () => {
   f.toggle();
   assert.equal(f.frames.size, 0);
   assert.equal(f.panels.length, 0);
+});
+
+test('native telemetry uses session IDs, expires, logs with F11 and stops when hidden', () => {
+  const f = fixture('webview2');
+  const messages = () => f.posted.filter(v => v.startsWith('__osfuiPerformance:'))
+    .map(v => JSON.parse(v.slice('__osfuiPerformance:'.length)));
+  assert.equal(messages().length, 0);
+  f.toggle();
+  const id = f.api.snapshot().diagnosticSession;
+  assert.equal(messages()[0].action, 'start');
+  const payload = { capture: { fps: 13 }, publication: { fps: 12 }, queueDeferrals: 1,
+    scrollHitches: 2, hitches: [{ stage: 'capture', gapMs: 80 }] };
+  f.receive({ kind: 'osfui.nativePerformance', session: 'old', payload });
+  assert.equal(f.api.snapshot().native, null);
+  f.receive({ kind: 'osfui.nativePerformance', session: id, payload });
+  assert.equal(f.api.snapshot().native.capture.fps, 13);
+  assert.equal(f.api.snapshot().native.status, 'current');
+  f.step(1600);
+  assert.equal(f.api.snapshot().native.status, 'stale');
+  f.listeners.get('scroll')();
+  assert.equal(messages().at(-1).scrolling, true);
+  f.toggle();
+  assert.equal(messages().at(-1).action, 'stop');
+  const logged = JSON.parse(f.logs[0].slice('[OSF UI performance] '.length));
+  assert.equal(logged.diagnosticSession, id);
+  assert.equal(logged.native.capture.fps, 13);
+  f.toggle();
+  const next = f.api.snapshot().diagnosticSession;
+  assert.notEqual(next, id);
+  f.receive({ kind: 'osfui.nativePerformance', session: id, payload });
+  assert.equal(f.api.snapshot().native, null);
+  f.visibility(false);
+  assert.equal(messages().at(-1).action, 'pause');
+  f.step(5000);
+  f.visibility(true);
+  assert.equal(messages().at(-1).action, 'start');
+  assert.equal(messages().at(-1).session, next);
+  f.api.reset();
+  assert.notEqual(f.api.snapshot().diagnosticSession, next);
+  assert.equal(messages().at(-1).action, 'start');
+});
+
+test('browser hitch log is bounded, survives rolling window expiry and resets explicitly', () => {
+  const f = fixture('webview2');
+  f.toggle(); f.step(0);
+  for (let i = 0; i < 100; ++i) f.step(70);
+  let s = f.api.snapshot();
+  assert.equal(s.hitches.length, 32);
+  assert.equal(s.hitchesOmitted, 68);
+  assert.equal(s.hitches.at(-1).durationMs, 70);
+  assert.equal(s.hitches.at(-1).atMs, 7000);
+  for (let i = 0; i < 600; ++i) f.step(10);
+  s = f.api.snapshot();
+  assert.equal(s.recent.over50ms, 0);
+  assert.equal(s.hitches.length, 32);
+  f.task(80);
+  assert.equal(f.api.snapshot().hitches.at(-1).stage, 'js-long-task');
+  f.api.reset();
+  assert.equal(f.api.snapshot().hitches.length, 0);
+  assert.equal(f.api.snapshot().hitchesOmitted, 0);
 });

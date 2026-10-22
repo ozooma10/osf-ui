@@ -1,5 +1,5 @@
 // Injected into local top-level views only, and only in Developer mode.
-// Measures browser animation callbacks, not GPU time or game presentation FPS.
+// Browser timing plus optional native capture/publication telemetry; never game FPS.
 (() => {
   if (window.top !== window) return;
   const bridge = window.osfui = window.osfui || {};
@@ -15,19 +15,35 @@
   let scrollUntil = -Infinity, observer = null, longTasksSupported = false;
   let panel = null, readout = null, graph = null;
   let total;
+  let session = '', sequence = 0, sessionStart = 0, native = null, nativeAt = -Infinity;
+  let hitches = [], hitchCount = 0;
+  let lastScroll = -Infinity;
+  const nativeRequest = action => bridge.nativePerformance?.(action, session, performance.now() <= scrollUntil,
+    Number.isFinite(lastScroll) ? performance.now() - lastScroll : 60000);
+  function hitch(stage, duration, at = performance.now()) {
+    ++hitchCount;
+    if (hitches.length === 32) hitches.shift();
+    hitches.push({ stage, atMs: at - sessionStart, durationMs: duration, scrolling: at <= scrollUntil });
+  }
 
   function clearWindow() {
     head = count = 0;
     previous = null;
     lastDraw = scrollUntil = -Infinity;
+    lastScroll = -Infinity;
   }
 
   function reset() {
     clearWindow();
+    session = `${Date.now().toString(36)}-${++sequence}`;
+    sessionStart = performance.now();
+    native = null; nativeAt = -Infinity;
+    hitches = []; hitchCount = 0;
     total = { frames: 0, measuredMs: 0, worstMs: 0, over33ms: 0, over50ms: 0,
       longTasks: 0, longTaskMs: 0, longestTaskMs: 0 };
     // Discard observer records from before this reset.
     observer?.takeRecords();
+    if (running) nativeRequest('start');
   }
 
   function recent(now) {
@@ -57,7 +73,10 @@
     return { source: 'browser requestAnimationFrame (not game/GPU FPS)',
       page: location.pathname, enabled, sampling: running, windowMs,
       recent: summarize(samples), scroll: summarize(samples.filter(s => s.scroll)),
-      session: { ...total, longTasksSupported } };
+      session: { ...total, longTasksSupported }, diagnosticSession: session,
+      native: native ? { ...native, status: performance.now() - nativeAt > 1500 ? 'stale' : 'current',
+        ageMs: performance.now() - nativeAt } : null,
+      hitches: hitches.map(h => ({ ...h })), hitchesOmitted: hitchCount - hitches.length };
   }
 
   function mount() {
@@ -67,7 +86,7 @@
     // The page's fonts, theme, layout and pointer handling must not affect the HUD.
     panel.style.cssText = 'all:initial!important;position:fixed!important;top:12px!important;right:12px!important;' +
       'z-index:2147483647!important;pointer-events:none!important;contain:content!important;' +
-      'width:340px!important;max-width:calc(100vw - 24px)!important;';
+      'width:390px!important;max-width:calc(100vw - 24px)!important;';
     const shadow = panel.attachShadow({ mode: 'closed' });
     const style = document.createElement('style');
     style.textContent = ':host{color-scheme:dark}section{box-sizing:border-box;padding:12px;background:#101923f2;' +
@@ -75,16 +94,16 @@
       'font-variant-numeric:tabular-nums}b{color:#8fe3cb;font-size:13px}pre{margin:6px 0;white-space:pre-wrap;' +
       'font:inherit}canvas{display:block;width:100%;height:64px}small{color:#b0c4d3;font:10px/1.4 Consolas,monospace}';
     const section = document.createElement('section');
-    section.setAttribute('aria-label', 'OSF UI browser performance');
+    section.setAttribute('aria-label', 'OSF UI performance');
     const title = document.createElement('b');
-    title.textContent = 'OSF UI / BROWSER PERFORMANCE';
+    title.textContent = 'OSF UI / PERFORMANCE';
     readout = document.createElement('pre');
     const canvas = document.createElement('canvas');
     canvas.width = 316;
     canvas.height = 64;
     graph = canvas.getContext('2d');
     const note = document.createElement('small');
-    note.textContent = 'Last 5s · graph 0–100ms · lines 16.7 / 33.3ms. F11: hide + log summary. Browser timing only.';
+    note.textContent = 'Last 5s · native totals cover all views, not game FPS. Idle capture gaps are normal. Scroll hitches: >50ms. F11: hide + save logs.';
     section.append(title, readout, canvas, note);
     shadow.append(style, section);
     document.documentElement.append(panel);
@@ -94,8 +113,15 @@
     mount();
     if (!readout) return;
     const s = snapshot();
-    const ms = value => value === null ? '—' : value.toFixed(1);
-    readout.textContent = `FPS ${ms(s.recent.fps)}   Scroll ${ms(s.scroll.fps)}\n` +
+    const ms = value => Number.isFinite(value) ? value.toFixed(1) : '—';
+    const n = s.native;
+    const nativeText = n?.status === 'current' ?
+      `Capture ${ms(n.capture.fps)} FPS / Published ${ms(n.publication.fps)} FPS\n` +
+      `Capture gap: p95 ${ms(n.capture.p95GapMs)} / max ${ms(n.capture.worstGapMs)} ms\n` +
+      `Publish gap: p95 ${ms(n.publication.p95GapMs)} / max ${ms(n.publication.worstGapMs)} ms\n` +
+      `Queue deferrals ${n.queueDeferrals} / Scroll hitches ${n.scrollHitches}\n` :
+      `Native capture: ${n ? 'stale' : bridge.nativePerformance ? 'waiting' : 'unavailable on this backend'}\n`;
+    readout.textContent = `Browser ${ms(s.recent.fps)} FPS / Scroll ${ms(s.scroll.fps)}\n` + nativeText +
       `Frame ms: avg ${ms(s.recent.averageMs)} / p95 ${ms(s.recent.p95Ms)}\n` +
       `Worst: ${ms(s.recent.worstMs)} ms / session ${ms(total.worstMs)}\n` +
       `Last 5s: >33ms ${s.recent.over33ms} / >50ms ${s.recent.over50ms}\n` +
@@ -130,14 +156,19 @@
       total.measuredMs += delta;
       total.worstMs = Math.max(total.worstMs, delta);
       if (delta > 1000 / 30 + 0.01) ++total.over33ms;
-      if (delta > 50) ++total.over50ms;
+      if (delta > 50) { ++total.over50ms; hitch('browser-frame', delta, now); }
     }
     previous = now;
-    if (now - lastDraw >= 250) { lastDraw = now; draw(now); }
+    if (now - lastDraw >= 250) { lastDraw = now; nativeRequest('sample'); draw(now); }
     raf = requestAnimationFrame(frame);
   }
 
-  function onScroll() { scrollUntil = performance.now() + 200; }
+  function onScroll() {
+    const starting = performance.now() > scrollUntil;
+    lastScroll = performance.now();
+    scrollUntil = lastScroll + 200;
+    if (starting) nativeRequest('sample');
+  }
 
   function reconcile() {
     const wanted = enabled && viewVisible && !document.hidden;
@@ -145,6 +176,8 @@
     running = wanted;
     clearWindow(); // Hiding, caching or alt-tabbing is not a slow frame.
     if (running) {
+      native = null; nativeAt = -Infinity;
+      nativeRequest('start');
       mount();
       document.addEventListener('scroll', onScroll, { capture: true, passive: true });
       try {
@@ -155,6 +188,7 @@
               ++total.longTasks;
               total.longTaskMs += task.duration;
               total.longestTaskMs = Math.max(total.longestTaskMs, task.duration);
+              hitch('js-long-task', task.duration);
             }
           });
           observer.observe({ type: 'longtask' });
@@ -163,6 +197,7 @@
       } catch (_) { observer?.disconnect(); observer = null; longTasksSupported = false; }
       raf = requestAnimationFrame(frame);
     } else {
+      nativeRequest(enabled ? 'pause' : 'stop');
       cancelAnimationFrame(raf);
       raf = 0;
       observer?.disconnect();
@@ -184,10 +219,16 @@
     if (!enabled) return;
     console.info('[OSF UI performance] ' + JSON.stringify(snapshot()));
     enabled = false;
+    if (!running) nativeRequest('stop');
     reconcile();
   }
 
   bridge.performance = Object.freeze({ show, hide, reset, snapshot,
+    updateNative: (id, value) => {
+      if (!running || id !== session || !value || typeof value !== 'object' ||
+          !value.capture || !value.publication) return;
+      native = value; nativeAt = performance.now();
+    },
     toggle: () => enabled ? hide() : show(),
     // Transport-level visibility works with both the modern and bundled v1 SDK.
     setVisible: visible => { viewVisible = visible; reconcile(); } });

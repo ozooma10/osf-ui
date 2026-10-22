@@ -57,7 +57,7 @@ target("osfui-webview2-host")
     add_includedirs("src", "tools/browser_shared")
     add_packages("nlohmann_json")
     add_syslinks(
-        "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging",
+        "d3d11", "dxgi", "windowsapp", "runtimeobject", "CoreMessaging", "winmm",
         "ole32", "oleaut32", "uuid", "advapi32", "user32", "shell32", "taskschd", "comsuppw")
     add_ldflags("/SUBSYSTEM:WINDOWS", { force = true })
     on_load(function(target)
@@ -76,6 +76,22 @@ target("osfui-webview2-host")
     end)
 
 -- Windows-only transport tests stay separate from the portable native suite.
+target("wv2-capture-timing-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/wv2_capture_timing_tests.cpp")
+    add_includedirs("tools/webview2_host", "tests/native/stubs")
+    add_syslinks("winmm")
+
+target("wv2-capture-performance-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("tests/native/wv2_capture_performance_tests.cpp")
+    add_includedirs("tools/webview2_host", "tests/native/stubs")
+    add_packages("nlohmann_json")
+
 target("wv2-cdp-smoke")
     set_kind("binary")
     set_default(false)

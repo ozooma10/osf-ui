@@ -14,11 +14,17 @@
 						});
 						bridge.postMessage = (json) => chrome.webview.postMessage(String(json));
 						if (!window.chrome || !chrome.webview) return;
+						bridge.nativePerformance = (action, session, scrolling, scrollAgeMs) =>
+							chrome.webview.postMessage('__osfuiPerformance:' + JSON.stringify({ action, session, scrolling, scrollAgeMs }));
 						chrome.webview.addEventListener('message', (event) => {
 							const json = typeof event.data === 'string' ?
 								event.data : JSON.stringify(event.data);
 							try {
 								const m = JSON.parse(json);
+								if (m && m.kind === 'osfui.nativePerformance') {
+									bridge.performance?.updateNative(m.session, m.payload);
+									return;
+								}
 								const visibility = m && m.kind === 'event' && m.name === 'ui.visibility';
 								if (visibility && typeof m.payload?.visible === 'boolean') bridge.performance?.setVisible(m.payload.visible);
 								if (m && m.kind === 'event' && m.name === 'osfui.debug.performance') {

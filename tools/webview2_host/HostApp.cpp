@@ -4,6 +4,8 @@
 #include "SpatialAudio.h"
 #include "MediaNavigation.h"
 #include "DocumentNavigation.h"
+#include "CaptureTiming.h"
+#include "CapturePerformance.h"
 
 #include "Core/Ids.h"
 #include "Core/Json.h"
@@ -204,6 +206,7 @@ namespace osfui::webview2
 				bool browserLoading{}, browserLoadSucceeded{};
 				MediaNavigation mediaNavigation;
 				DocumentNavigation documentNavigation;
+				std::unique_ptr<CapturePerformance> performance;
 				bool mediaQueryInFlight{}; // At most one outstanding metadata query per controller.
 				std::string lastBrowserState;
 				json lastAudioState;
@@ -260,6 +263,7 @@ namespace osfui::webview2
 			unsigned          captureCallbackFailures{};
 			bool              captureHasVisibleView{ false };
 			std::uint32_t      captureCadenceHz{ 0 };
+			CaptureTiming     captureTiming;
 
 			struct Slot
 			{
@@ -341,6 +345,7 @@ namespace osfui::webview2
 				pipeDead.store(true, std::memory_order_release);
 				::SetEvent(wakeEvent);
 			}
+#include "HostPerformance.inl"
 #include "HostGraphics.inl"
 #include "CdpInput.inl"
 
@@ -397,6 +402,7 @@ namespace osfui::webview2
 
 			void HideView(View& a_view)
 			{
+				if (a_view.performance) a_view.performance->SetActive(false, CapturePerformance::Now());
 				if (captureOpening.view == a_view.id) {
 					captureOpening = {};
 					pendingCaptureEpoch = 0;
@@ -488,6 +494,7 @@ namespace osfui::webview2
 
 			void DestroyOneView(View& a_view)
 			{
+				StopPerformance(a_view, "view destroyed");
 				a_view.mediaNavigation.Start(0);
 				a_view.documentNavigation = {};
 				a_view.audio.reset(); // Mute source before closing the collector or source controller.
@@ -667,6 +674,7 @@ namespace osfui::webview2
 					if (!a_frame) {
 						UINT64 navigationId{};
 						a_args->get_NavigationId(&navigationId);
+						StopPerformance(a_view, "navigation");
 						a_view.documentNavigation.Start(navigationId);
 						a_view.mediaNavigation.Start(navigationId);
 						if (a_view.audio) a_view.audio->SetLoading(true);
@@ -1092,6 +1100,7 @@ namespace osfui::webview2
 								}
 								return S_OK;
 							}
+							if (HandlePerformanceMessage(*view, text)) return S_OK;
 							Send(msg::ToJson(msg::WebMessage{ .view = view->id,
 								.json = std::move(text) }));
 							return S_OK;
@@ -1265,12 +1274,28 @@ namespace osfui::webview2
 				}
 			}
 
+			void EnableCaptureTiming()
+			{
+				const auto timing = captureTiming.Enable();
+				if (timing.timer != TIMERR_NOERROR || timing.policyError) {
+					log.Warn(std::format("WGC timing guard partially unavailable (timer={}, policy={})",
+						timing.timer, timing.policyError));
+				} else {
+					log.Info("WGC timing guard active: 1 ms resolution, occlusion throttling disabled");
+				}
+			}
+
 			void ApplyCaptureCadence()
 			{
 				if (!captureSession) return;
 				const bool visible = captureHasVisibleView;
 				const std::uint32_t desiredHz = visible ? 60u : 4u;
 				if (captureCadenceHz == desiredHz) return;
+				if (visible) {
+					EnableCaptureTiming();
+				} else if (const auto error = captureTiming.Disable()) {
+					log.Warn(std::format("WGC timing policy restore failed ({})", error));
+				}
 				try {
 					if (const auto cadence = captureSession.try_as<
 						winrt::Windows::Graphics::Capture::IGraphicsCaptureSession5>()) {
@@ -1334,6 +1359,7 @@ namespace osfui::webview2
 					const auto framePresentationEpoch = presentationEpoch;
 					const auto capturedFrame = a_pool.TryGetNextFrame();
 					if (!capturedFrame) return;
+					RecordPerformance(0);
 					// Drain captures while hidden so the WGC pool stays current.
 					if (!captureHasVisibleView) return;
 					if (!captureOpening.view.empty() &&
@@ -1634,6 +1660,9 @@ namespace osfui::webview2
 					captureSession = nullptr;
 				}
 				captureCadenceHz = 0;
+				if (const auto error = captureTiming.Disable()) {
+					log.Warn(std::format("WGC timing policy restore failed ({})", error));
+				}
 				if (framePool) {
 					try { framePool.Close(); }
 					catch (const winrt::hresult_error& e) {
@@ -1667,6 +1696,10 @@ namespace osfui::webview2
 			}
 			int Run()
 			{
+				// Establish timing before constructing the dispatcher/compositor and
+				// browser processes. Applying it only after capture starts is too late
+				// to avoid coarse startup pacing. Visibility takes over once initialized.
+				EnableCaptureTiming();
 				winrt::init_apartment(winrt::apartment_type::single_threaded);
 				int exitCode = 0;
 				if (CreateWindows() && InitializeComposition()) {

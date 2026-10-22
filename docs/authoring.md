@@ -475,11 +475,35 @@ is hidden; returning to it clears the recent window so hidden time is not counte
 as a hitch. The overlay updates four times per second, ignores pointer input, and
 does no animation sampling or long-task observation while disabled.
 
-These are **browser `requestAnimationFrame` intervals**, not Starfield FPS, GPU
-execution time, or proof that a frame reached the game. High p95 / worst values
-with long tasks suggest page main-thread work worth profiling with F12 DevTools.
-If scrolling looks choppy while browser timings stay smooth, investigate input
-delivery, browser capture / texture transfer, and game compositing next. The
+On **WebView2**, F11 also shows native **Capture** and **Published** FPS, p95 and
+maximum gaps for both stages, queue deferrals, and scrolling hitches over 50 ms.
+These counters cover the host's combined output across all its views. Capture
+counts frames received from Windows Graphics Capture; Published counts shared
+texture notifications successfully sent to the game. Publication does not prove
+that Starfield displayed the frame. Native sampling uses a high-resolution steady
+clock; the HUD requests an update four times per second and marks old data stale.
+CEF currently reports native capture as unavailable.
+
+Capture is driven by visual changes: a static page can legitimately produce few
+frames and long gaps. Native hitch records require an active scrolling interval;
+idle gaps and hidden time are not classified as scrolling hitches. Capture and
+publication gaps are confirmed after the page reports continued scrolling;
+unconfirmed gaps remain a separate count in the native summary. Capture and
+publication can each record the same hitch, so this count is stage observations,
+not a count of unique pauses. Queue deferrals count attempts blocked by occupied
+texture slots, not necessarily lost frames.
+
+Closing F11 writes `[OSF UI native performance]` JSON to
+`OSF UI.webview2-host.log`, including up to 64 native hitch records, exact totals,
+and a count of omitted records. Navigation and view destruction also flush it.
+The browser summary retains up to 32 frame/long-task hitch records. Both summaries
+carry the same diagnostic session ID for correlation. Reset starts a new session.
+
+**Browser FPS** uses `requestAnimationFrame`; none of these counters measure
+Starfield FPS or GPU execution time. High browser p95 / worst values with long
+tasks suggest page main-thread work worth profiling with F12 DevTools. Smooth
+browser timing with low capture FPS points to the capture path; publication
+falling behind capture with queue deferrals points to transport backpressure. The
 overlay itself causes small periodic paints, so disable it for baseline captures.
 Remote websites do not receive this diagnostic script.
 
