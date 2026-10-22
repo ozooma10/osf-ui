@@ -135,12 +135,13 @@ try {
     $script:Config.TestProfile='OSF UI Backend '+$script:Run.id
     $script:ProfileRoot=Assert-ChildPath (Join-Path $script:Config.MO2 'profiles') (Join-Path $script:Config.MO2 ('profiles\'+$script:Config.TestProfile))
     if(Test-Path $script:ProfileRoot){throw 'Fresh private profile already exists.'}
-    [IO.Directory]::CreateDirectory($script:ProfileRoot)|Out-Null
+    New-TemporaryMO2Directory profiles $script:ProfileRoot
     foreach($file in Get-ChildItem -LiteralPath $sourceProfile -File){Copy-Item -LiteralPath $file.FullName -Destination $script:ProfileRoot}
     Write-JsonFile (Join-Path $script:ProfileRoot '.osf-test-harness.json') @{harnessRoot=$script:HarnessRoot;session=$script:ProbeSession}
     $script:HarnessModName=$script:Config.TestProfile; $script:AutoLoadModName=$script:HarnessModName
     $mod=Assert-ChildPath $script:ModRoot (Join-Path $script:ModRoot $script:HarnessModName)
     if(Test-Path $mod){throw 'Fresh private mod already exists.'}
+    New-TemporaryMO2Directory mods $mod
     $expanded=Join-Path $script:Run.path 'package'
     Expand-Archive -LiteralPath $Package -DestinationPath $expanded
     $data=if(Test-Path (Join-Path $expanded 'Data')){Join-Path $expanded 'Data'}else{$expanded}

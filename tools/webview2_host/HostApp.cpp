@@ -18,6 +18,7 @@
 #include "Wv2CdpInput.h"
 #include "BrowserMouseButtons.h"
 #include "BrowserPipe.h"
+#include "BrowserPipeWriter.h"
 #include "BrowserProtocol.h"
 #include "Win32Util.h"
 
@@ -76,7 +77,7 @@ namespace osfui::webview2
 
 		struct Logger
 		{
-			Pipe&         pipe;  // writes are dropped while it is unconnected or closed
+			PipeWriter&   outbound; // forwarding never performs pipe I/O on the logging thread
 			std::ofstream file;
 			std::mutex    mutex;
 
@@ -116,7 +117,7 @@ namespace osfui::webview2
 
 			void Forward(int a_level, const std::string& a_text)
 			{
-				pipe.WriteMessage(Json::Dump(msg::ToJson(msg::Log{ .level = a_level, .text = a_text })));
+				outbound.Enqueue(Json::Dump(msg::ToJson(msg::Log{ .level = a_level, .text = a_text })));
 			}
 
 			void Info(const std::string& a_text) { Log(0, a_text); }
@@ -133,9 +134,14 @@ namespace osfui::webview2
 		struct App
 		{
 			Pipe        pipe;
-			Logger      log{ pipe };
 			HANDLE      gameProcess{ nullptr };
 			HANDLE      wakeEvent{ nullptr };
+			std::atomic_bool pipeDead{ false };
+			PipeWriter outbound{ pipe, [this] {
+				pipeDead.store(true, std::memory_order_release);
+				if (wakeEvent) ::SetEvent(wakeEvent);
+			} };
+			Logger      log{ outbound };
 			std::thread reader;
 			std::atomic_bool quit{ false };
 			bool             rendererFatal{ false };  // STA thread only; first failure wins
@@ -143,6 +149,7 @@ namespace osfui::webview2
 
 			~App()
 			{
+				StopTransport();
 				if (gameProcess) ::CloseHandle(gameProcess);
 				if (wakeEvent) ::CloseHandle(wakeEvent);
 			}
@@ -158,7 +165,6 @@ namespace osfui::webview2
 			static constexpr std::size_t kMaxGameMessages = 1024;
 			static constexpr std::size_t kGameMessagesPerDrain = 128;
 			BoundedQueue<json> gameMessages{ kMaxGameMessages };
-			std::atomic_bool pipeDead{ false };
 			std::uint64_t nextHeartbeatAt{ 0 };  // STA thread only
 
 			bool                  initialized{ false };
@@ -296,23 +302,30 @@ namespace osfui::webview2
 			json audioScene;
 			bool environmentRequested{ false };
 
-			bool Send(const json& a_msg)
+			bool Send(const json& a_msg, std::unique_ptr<PipeWriter::HandleBatch> a_handles = {})
 			{
 				if (Json::Get(a_msg, "type", "") == msg::Console::kType &&
 					Json::Get(a_msg, "json", "").size() > 1024u * 1024u) {
 					log.Warn("dropping console message larger than 1 MiB");
 					return false;
 				}
-				const auto result = pipe.WriteMessage(Json::Dump(a_msg));
-				if (result == Pipe::WriteResult::Written) return true;
-				if (result == Pipe::WriteResult::InvalidPayload) {
+				const auto result = outbound.Enqueue(Json::Dump(a_msg), std::move(a_handles));
+				if (result == PipeWriter::Result::Queued) return true;
+				if (result == PipeWriter::Result::InvalidPayload) {
 					log.Warn("dropping oversized outbound message");
 					return false;
 				}
 				pipeDead.store(true, std::memory_order_release);
 				captureClosing = true;
-				RequestQuit("pipe-write");
+				RequestQuit(result == PipeWriter::Result::Full ? "pipe-queue-full" : "pipe-write");
 				return false;
+			}
+
+			void StopTransport(std::chrono::milliseconds a_drain = std::chrono::milliseconds::zero())
+			{
+				gameMessages.Close();
+				outbound.Stop(a_drain); // Cancels blocked reads/writes before either thread is joined.
+				if (reader.joinable()) reader.join();
 			}
 
 			void ReaderMain()
@@ -1751,10 +1764,16 @@ namespace osfui::webview2
 					exitCode = 5;
 				}
 
+				if (outbound.Failed() == PipeWriter::Failure::Overflow) {
+					log.Info("outbound pipe queue exceeded its message/byte limit - shutting down");
+				} else if (outbound.Failed() == PipeWriter::Failure::Write) {
+					log.Info("outbound pipe write failed: " + pipe.LastErrorText());
+				}
 				Send(msg::ToJson(msg::Bye{
 					.reason = !byeReason.empty() ? byeReason
 						: exitCode == 0          ? "shutdown"
 												 : "init-failed" }));
+				StopTransport(std::chrono::milliseconds{ 250 });
 				CloseWebResources();
 				if (dispatcher) {
 					try { dispatcher.ShutdownQueueAsync(); }
@@ -1780,8 +1799,6 @@ namespace osfui::webview2
 					::DestroyWindow(bootstrapWindow);
 					bootstrapWindow = nullptr;
 				}
-				pipe.Close();
-				if (reader.joinable()) reader.join();
 				log.Info(std::format("browser host exiting (code {})", exitCode));
 				return exitCode;
 			}
@@ -1820,6 +1837,13 @@ namespace osfui::webview2
 			return 4;
 		}
 
+		app.wakeEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+		if (!app.wakeEvent) {
+			app.log.Error(std::format("CreateEvent(wake) failed (Win32 error {})", ::GetLastError()));
+			return 10;
+		}
+		app.outbound.Start();
+
 		LPWSTR webView2RuntimeVersionRaw = nullptr;
 		std::string webView2RuntimeVersion = "unknown";
 		if (SUCCEEDED(::GetAvailableCoreWebView2BrowserVersionString(nullptr, &webView2RuntimeVersionRaw)) &&
@@ -1835,16 +1859,11 @@ namespace osfui::webview2
                 .backend = "webview2",
                 .capabilities = kRequiredHostCapabilities,
 			}))) {
-			app.log.Error("hello write failed: " + app.pipe.LastErrorText());
+			app.log.Error("hello could not be queued");
 			return 7;
 		}
-		app.log.Info("hello sent (WebView2 Runtime " + webView2RuntimeVersion + ")");
+		app.log.Info("hello queued (WebView2 Runtime " + webView2RuntimeVersion + ")");
 
-		app.wakeEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-		if (!app.wakeEvent) {
-			app.log.Error(std::format("CreateEvent(wake) failed (Win32 error {})", ::GetLastError()));
-			return 10;
-		}
 		app.reader = std::thread([&app] { app.ReaderMain(); });
 		int code = 10;
 		try {
@@ -1852,13 +1871,10 @@ namespace osfui::webview2
 		} catch (const winrt::hresult_error& e) {
 			app.log.Error("unhandled browser-host failure: " + ToUtf8(e.message()));
 		}
-		// Run() normally stops the reader itself; this also covers the exception path.
+		// Run() normally stops both transport threads; this also covers the exception path.
 		app.quit.store(true);
 		::SetEvent(app.wakeEvent);
-		app.pipe.Close();
-		if (app.reader.joinable()) {
-			app.reader.join();
-		}
+		app.StopTransport();
 		return code;
 	}
 }

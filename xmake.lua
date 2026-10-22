@@ -215,6 +215,14 @@ target("osfui-screen-binding-tests")
     add_files("extensions/world-screens/tests/screen_binding_tests.cpp")
     add_includedirs("extensions/world-screens/tests/stubs", "extensions/world-screens/src")
 
+target("osfui-screen-formid-tests")
+    set_kind("binary")
+    set_default(false)
+    add_tests("default")
+    add_files("extensions/world-screens/tests/screen_formid_tests.cpp",
+        "extensions/world-screens/src/World/ScreenFormId.cpp")
+    add_includedirs("extensions/world-screens/src")
+
 target("osfui-surface-catalog-tests")
     set_kind("binary")
     set_default(false)
@@ -242,7 +250,7 @@ target("osfui-manifest-tests")
     set_default(false)
     add_tests("default")
     add_files("tests/native/view_manifest_tests.cpp", "src/Views/ViewManifest.cpp", "src/Views/ViewManager.cpp", "src/Core/Json.cpp")
-    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk", "tools/browser_shared")
     set_pcxxheader("tests/native/stubs/pch.h")
     add_packages("nlohmann_json")
 
@@ -261,7 +269,7 @@ target("osfui-compat-tests")
     add_tests("default")
     add_files("tests/native/compat_v1_tests.cpp", "src/Compat/V1/SettingsCodec.cpp", "src/Compat/V1/KeyNames.cpp",
         "src/Compat/V1/LegacyViews.cpp", "src/Views/ViewManifest.cpp", "src/Views/ViewManager.cpp", "src/Core/Json.cpp")
-    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk")
+    add_includedirs("tests/native/stubs", "tests/native", "src", "sdk", "tools/browser_shared")
     set_pcxxheader("tests/native/stubs/pch.h")
     add_packages("nlohmann_json")
 
@@ -403,6 +411,7 @@ end
 target("osfui-settings-client-tests")
     set_kind("binary")
     set_default(false)
+    set_rundir(os.projectdir())
     add_tests("default")
     add_files("tests/native/settings_client_tests.cpp", "src/Dependency/OSFSettingsClient.cpp",
         "src/API/BridgeApi.cpp", "src/Views/ViewRequestQueue.cpp", "src/Bridge/MessageBridge.cpp", "src/Core/Json.cpp")
