@@ -49,6 +49,14 @@ xmake build
 
 Deploy and package builds also compile `OSFUI.psc`; set `PAPYRUS_COMPILER` and `PAPYRUS_IMPORTS` if the Creation Kit compiler is outside the defaults in `tools/build-papyrus.ps1`.
 
+Run the desktop native tests with `bash tests/native/run.sh` (Git Bash on Windows;
+Python 3.9+ and a C++23 compiler are required). The runner uses Clang/GCC when available,
+or MSVC through Visual Studio. It caches objects and executables in `tests/native/.build`,
+tracks source and included-header contents plus compiler settings, and rebuilds only
+affected objects and suites. Every invocation still runs all tests. Use
+`bash tests/native/run.sh --clean` to force a full rebuild. The small runner regression
+check is `python tests/native/test_build_runner.py`.
+
 ## License
 
 [GPL-3.0](LICENSE) with the additional permissions in [EXCEPTIONS](EXCEPTIONS).

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Native desktop unit tests: compiles the real runtime sources against stubs/pch.h and runs them
 # without SFSE or the game. Needs C++23; fetches pinned nlohmann/json headers on first run.
-# Each distinct translation unit compiles once, in parallel; suites only re-link.
+# Python 3.9+ tracks compiler-reported dependencies; unchanged objects and suites are reused.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -9,8 +9,13 @@ DEPS=.deps
 BUILD=.build
 NLOHMANN_VERSION=v3.11.3
 
-# Rebuilt from scratch every run; this also evicts binaries of removed suites.
-rm -rf "$BUILD"
+if [[ $# -gt 1 || ( $# -eq 1 && "$1" != --clean ) ]]; then
+    echo "usage: $0 [--clean]" >&2
+    exit 2
+fi
+PYTHON="${PYTHON:-python3}"
+command -v "$PYTHON" >/dev/null 2>&1 || PYTHON=python
+command -v "$PYTHON" >/dev/null 2>&1 || { echo 'Python 3 is required' >&2; exit 1; }
 mkdir -p "$DEPS/nlohmann" "$BUILD/obj"
 for header in json.hpp json_fwd.hpp; do
     if [[ ! -s "$DEPS/nlohmann/$header" ]]; then
@@ -31,8 +36,9 @@ if [[ -z "${CXX:-}" ]] && ! command -v clang++ >/dev/null 2>&1 && ! command -v g
         [[ -n "$VSROOT" ]] && MSVC=1
     fi
 fi
-CXX="${CXX:-clang++}"
-BASEFLAGS="-std=c++2b -Wall -Wextra -g -I stubs -I ../../src -I ../../sdk -I ../../tools/browser_shared -I $DEPS"
+if [[ -z "${CXX:-}" ]]; then
+    if command -v clang++ >/dev/null 2>&1; then CXX=clang++; else CXX=g++; fi
+fi
 
 # Each suite is "<name> <translation units...>"; units shared across suites compile once.
 SUITES=(
@@ -78,74 +84,11 @@ SUITES=(
 "papyrus_call_tests papyrus_call_tests.cpp"
 )
 
-objname() { printf '%s/obj/%s.o' "$BUILD" "$(printf '%s' "$1" | tr './ ' '___')"; }
-
-declare -A seen=()
-UNIQUE=()
-for suite in "${SUITES[@]}"; do
-    read -r _name srcs <<< "$suite"
-    for s in $srcs; do
-        [[ -n "${seen[$s]:-}" ]] && continue
-        seen[$s]=1
-        UNIQUE+=("$s")
-    done
-done
-
+build_args=(--cxx "$CXX")
 if [[ "$MSVC" == 1 ]]; then
-    # MSVC: one cmd script runs vcvars64 once, compiles every TU with /MP, then links each suite.
-    # /Fo<dir> flattens objects to basenames, so reject basename collisions.
-    declare -A bybase=()
-    for s in "${UNIQUE[@]}"; do
-        b="$(basename "$s")"
-        if [[ -n "${bybase[$b]:-}" ]]; then
-            echo "MSVC mode: duplicate TU basename: $s vs ${bybase[$b]}" >&2
-            exit 1
-        fi
-        bybase[$b]="$s"
-    done
-    HERE_W="$(cygpath -w "$(pwd)")"
-    winsrc() { printf '%s\\%s' "$HERE_W" "${1//\//\\}"; }
-    CMDFILE="$BUILD/msvc_build.cmd"
-    {
-        echo '@echo off'
-        echo "call \"$(cygpath -w "$VSROOT")\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul || exit /b 1"
-        echo "cd /d \"$HERE_W\\$BUILD\" || exit /b 1"
-        FLAGS="/nologo /std:c++latest /EHsc /I \"$HERE_W\\stubs\" /I \"$HERE_W\\..\\..\\src\" /I \"$HERE_W\\..\\..\\sdk\" /I \"$HERE_W\\..\\..\\tools\\browser_shared\" /I \"$HERE_W\\$DEPS\" /FI \"$HERE_W\\stubs\\pch.h\""
-        printf 'cl %s /MP /c' "$FLAGS"
-        for s in "${UNIQUE[@]}"; do printf ' "%s"' "$(winsrc "$s")"; done
-        printf ' /Foobj\\ || exit /b 1\n'
-        for suite in "${SUITES[@]}"; do
-            read -r name srcs <<< "$suite"
-            printf 'cl /nologo'
-            for s in $srcs; do printf ' "obj\\%s.obj"' "$(basename "$s" .cpp)"; done
-            printf ' /Fe:%s.exe || exit /b 1\n' "$name"
-        done
-    } > "$CMDFILE"
-    echo "== MSVC (cl via vcvars64): compiling ${#UNIQUE[@]} translation units, linking ${#SUITES[@]} suites =="
-    cmd //c "$(cygpath -w "$CMDFILE")"
-else
-    # Compile each distinct unit once, in parallel; xargs fails the pipeline if any compile fails.
-    compile_one() {
-        local src=$1 obj
-        obj="$BUILD/obj/$(printf '%s' "$src" | tr './ ' '___').o"
-        echo "  cc $src"
-        $CXX $BASEFLAGS -include stubs/pch.h -c "$src" -o "$obj"
-    }
-    export -f compile_one
-    export CXX BASEFLAGS BUILD
-
-    JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-    echo "== compiling ${#UNIQUE[@]} translation units (-P $JOBS) =="
-    printf '%s\n' "${UNIQUE[@]}" | xargs -P "$JOBS" -n1 -I{} bash -c 'compile_one "$1"' _ {}
-
-    echo "== linking ${#SUITES[@]} suites =="
-    for suite in "${SUITES[@]}"; do
-        read -r name srcs <<< "$suite"
-        objs=()
-        for s in $srcs; do objs+=("$(objname "$s")"); done
-        $CXX $BASEFLAGS "${objs[@]}" -o "$BUILD/$name"
-    done
+    build_args=(--msvc "$(cygpath -w "$VSROOT")")
 fi
+printf '%s\n' "${SUITES[@]}" | "$PYTHON" build.py "${build_args[@]}" "$@"
 
 # Run. Exit code = number of failing checks.
 failures=0
