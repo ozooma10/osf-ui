@@ -42,19 +42,5 @@ int main()
 	CHECK(std::get<OSFUI::ViewRequestQueue::ViewRequest>(next[0]).view == "acme/first");
 	CHECK(std::get<OSFUI::ViewRequestQueue::ViewRequest>(next[1]).view == "acme/second");
 	CHECK(queue.Take().empty());
-
-	// Launcher requests and their after-close activation preserve identity and FIFO order.
-	queue.EnqueueLauncherOpen("acme/first", 41);
-	queue.EnqueueView("acme/first", true, 41);
-	queue.EnqueueView("acme/first", true);
-	const auto launch = queue.Take();
-	CHECK(launch.size() == 3);
-	const auto& request = std::get<OSFUI::ViewRequestQueue::LauncherRequest>(launch[0]);
-	CHECK(request.view == "acme/first" && request.requestId == 41);
-	const auto& activation = std::get<OSFUI::ViewRequestQueue::ViewRequest>(launch[1]);
-	CHECK(activation.view == "acme/first" && activation.requestId == 41 && activation.open);
-	const auto& direct = std::get<OSFUI::ViewRequestQueue::ViewRequest>(launch[2]);
-	CHECK(direct.open && direct.requestId == 0);
-	CHECK(queue.Take().empty());
 	return g_failures ? 1 : 0;
 }

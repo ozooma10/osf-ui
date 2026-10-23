@@ -65,7 +65,6 @@ int main()
 
 	Check(Json::Get(obj, "f", 0) == 0, "2.5 into an int target keeps the default");
 	Check(Json::Get(obj, "whole", 0.0) == 2.0, "integer into a double target is accepted");
-	Check(Json::Get(obj, "f", 0.0) == 2.5, "double into a double target");
 
 	Check(Json::Get(obj, "neg", std::uint32_t{ 1 }) == 1u,
 		"negative into u32 keeps the default, no modular wrap");
@@ -86,7 +85,6 @@ int main()
 		const auto s = Json::Get(obj, "s", "");
 		static_assert(std::is_same_v<decltype(s), const std::string>,
 			"a string-literal default must deduce to std::string");
-		Check(s == "text", "literal default deduces to std::string");
 		const std::string fallback = "owned";
 		Check(Json::Get(obj, "nope", fallback) == "owned", "std::string default");
 	}

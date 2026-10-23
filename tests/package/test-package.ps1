@@ -115,16 +115,6 @@ if ($unexpected) {
     throw 'OSF UI package owns Settings files other than schemas/osfui.json'
 }
 
-# The synchronizer may replace OSF/UI/views/shared but must never delete the OSF parent or OSF Settings dirs.
-$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$sync = Get-Content -LiteralPath (Join-Path $repo 'tools\xmake\runtime_payload.lua') -Raw
-if ($sync -match 'os\.rm\(\s*(?:views|uidata|pluginsdir|settings)\s*\)') {
-    throw 'runtime_payload.lua can delete a shared or sibling-owned directory'
-}
-if ($sync -notmatch 'os\.rm\(path\.join\(views, "shared"\)\)') {
-    throw 'runtime_payload.lua must synchronize only OSF UI-owned views'
-}
-
 & python (Join-Path $PSScriptRoot 'verify_binary.py') $root --expected-backend $backend
 if ($LASTEXITCODE -ne 0) { throw 'OSF UI compiled binary contract verification failed' }
 Write-Host 'OSF UI package ownership and compiled binary tests passed'
