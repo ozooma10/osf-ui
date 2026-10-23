@@ -557,10 +557,12 @@ namespace OSFUI
 		if (!visible) {
 			m_renderer->SetPointerInputEnabled(true);
 		}
-		if (m_compositor && !prepare) {
+		if (m_compositor) {
 			if (visible && !wasVisible) {
+				// A HUD can become visible while its menu is still preparing. Keep
+				// the reveal pending so the committed frame also restores pointer input.
 				m_viewReveal.Arm();
-			} else {
+			} else if (!prepare) {
 				if (!visible) {
 					m_viewReveal.Cancel();  // closed while a reveal was still pending
 				}

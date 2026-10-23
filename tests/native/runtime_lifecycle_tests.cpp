@@ -272,6 +272,41 @@ namespace
         CHECK(!runtime().IsVisible() && env.hidden.at("acme/hud")); // Explicit close survives suspension.
     }
 
+    void HudMenuReopen()
+    {
+        PluginLoad();
+        PostLoad();
+        DataReady();
+        LoadHud();
+        OpenMenu();
+        runtime().EnqueueCloseView("acme/menu");
+        runtime().EnqueueCloseView("acme/hud");
+        runtime().Update();
+        CheckReleased();
+        CHECK(!runtime().IsVisible() && !env.compositorVisible);
+        CHECK(env.pointerInput);
+
+        // A consumer reopens its HUD and menu in the same frame after completion.
+        // The HUD becomes logically visible while the menu is still preparing.
+        env.preparedFrameReady = false;
+        runtime().EnqueueOpenView("acme/hud");
+        runtime().EnqueueOpenView("acme/menu");
+        runtime().Update();
+        CHECK(runtime().IsVisible() && !runtime().IsInputCaptured());
+        CHECK(!env.compositorVisible && !env.pointerInput);
+        env.preparedFrameReady = true;
+        runtime().Update();
+        CHECK(runtime().IsInputCaptured() && env.inputTarget == "acme/menu");
+        // The doubles have no presentable frame. A prepared-menu commit must not
+        // bypass the reveal gate and strand pointer input in its disabled state.
+        CHECK(!env.compositorVisible && !env.pointerInput);
+        runtime().EnqueueCloseView("acme/menu");
+        runtime().EnqueueCloseView("acme/hud");
+        runtime().Update();
+        CheckReleased();
+        CHECK(!env.compositorVisible && env.pointerInput);
+    }
+
     void StartupFailure(std::string_view scenario)
     {
         PluginLoad();
@@ -977,6 +1012,7 @@ int main(int argc, char** argv)
             : R"({"schemaVersion":1,"backend":"cef"})");
         NormalLifecycle();
     }
+    else if (scenario == "hud-menu-reopen") HudMenuReopen();
     else if (scenario == "surface-input") SurfaceInputLifecycle();
     else if (scenario == "surface-reload") SurfaceReloadLifecycle();
     else if (scenario == "surface-fullscreen") SurfaceFullscreenLifecycle();

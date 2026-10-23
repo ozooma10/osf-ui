@@ -392,7 +392,7 @@ for _, backend in ipairs({"webview2", "cef"}) do
         set_kind("binary")
         set_default(false)
         add_defines("OSFUI_BROWSER_CEF=" .. (backend == "cef" and "1" or "0"))
-        for _, scenario in ipairs({"normal", "developer-mode", "stale-selection", "missing-settings", "renderer-init-failure",
+        for _, scenario in ipairs({"normal", "hud-menu-reopen", "developer-mode", "stale-selection", "missing-settings", "renderer-init-failure",
             "input-hook-failure", "focus-menu-failure", "menu-events-failure", "suppression-failure",
             "recovery", "game-device-failure", "surfaces", "surface-input", "surface-fullscreen",
             "browser-surface", "browser-disabled", "browser-consent-on", "browser-consent-off", "browser-consent-failed", "surface-reload"}) do
