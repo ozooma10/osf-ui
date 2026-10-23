@@ -45,9 +45,6 @@ $Version = $sourceVersion
 $versionLabel = "v$Version"
 if ($Tag) { $versionLabel += "-$Tag" }
 $editions = @(if ($Backend -eq 'both') { 'webview2'; 'cef' } else { $Backend })
-if ($SkipBuild -and $editions.Count -gt 1) {
-    throw '-SkipBuild requires one explicit -Backend: the build output holds one edition-specific DLL at a time.'
-}
 $previousSdk = $env:WEBVIEW2_SDK_DIR
 $previousMods = $env:XSE_SF_MODS_PATH
 $previousGame = $env:XSE_SF_GAME_PATH
@@ -89,7 +86,9 @@ try {
         $archiveRecords = @()
         foreach ($edition in $editions) {
             Assert-SourceUnchanged
-            xmake f -P $RepoRoot -F (Join-Path $RepoRoot 'xmake.lua') -m $Mode "--browser_backend=$edition" -y
+            # Keep both backend object/dependency caches across packaging runs.
+            $nativeOutput = Join-Path $RepoRoot "build/package/native/$edition"
+            xmake f -P $RepoRoot -F (Join-Path $RepoRoot 'xmake.lua') -o $nativeOutput -m $Mode "--browser_backend=$edition" -y
             if ($LASTEXITCODE) { throw 'XMake configuration failed' }
             if (-not $SkipBuild) {
                 xmake build -P $RepoRoot -F (Join-Path $RepoRoot 'xmake.lua') -j4 -y 'OSF UI'
