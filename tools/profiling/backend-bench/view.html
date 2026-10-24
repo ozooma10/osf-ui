@@ -1,6 +1,7 @@
 <!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:16px Arial;color:#e8f3ff;background:transparent}
 #panel{position:absolute;inset:0;background:#101b29;padding:48px}h1{font-size:32px;margin:0 0 12px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{height:68px;border:1px solid #38506d;background:#182d43;padding:10px;border-radius:7px}.card b{display:block;color:#72d7f0}.bar{height:7px;background:#385b89;margin-top:8px;width:70%}canvas{position:absolute;inset:0;pointer-events:none}#marker{width:32px;height:32px;z-index:100}
+#scene{width:100%;height:100%}
 </style></head><body><div id="panel"><h1>OSF UI renderer benchmark</h1><p>Local deterministic workload · no network or game simulation</p><div class="grid"></div></div><canvas id="scene"></canvas><canvas id="marker" width="32" height="32"></canvas><script>
 (() => {
   const api=window.osfui, panel=document.querySelector('#panel'), grid=document.querySelector('.grid');
