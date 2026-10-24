@@ -260,6 +260,20 @@ int main()
 	assert(Read(caseRename->root / "BETA" / "games" / "large.bin") == binary);
 	fs::rename(modsSource / "BETA", modsSource / "beta");
 
+	// Exact-path cleanup must retain filesystem-identity aliases as before.
+	// This alias has no source entry, but is the same root asset as a prepared file.
+	Write(modsSource / "identity.txt", "identity-root-asset");
+	const auto identity = OSFUI::ViewCache::PrepareMods(modsSource, modsCache, "v1", "identity", error);
+	assert(identity);
+	fs::create_hard_link(identity->root / "identity.txt", identity->root / "identity-alias.txt");
+	const auto aliased = OSFUI::ViewCache::PrepareMods(modsSource, modsCache, "v1", "identity-alias", error);
+	assert(aliased && aliased->removed == 0);
+	assert(Read(aliased->root / "identity-alias.txt") == "identity-root-asset");
+	fs::remove(modsSource / "identity.txt");
+	const auto unaliased = OSFUI::ViewCache::PrepareMods(modsSource, modsCache, "v1", "identity-removed", error);
+	assert(unaliased && unaliased->removed == 2);
+	assert(!fs::exists(unaliased->root / "identity.txt") && !fs::exists(unaliased->root / "identity-alias.txt"));
+
 	// A removed mod's cache held open no longer fails preparation; it is demoted and retried.
 	Write(modsSource / "gamma" / "main" / "index.html", "gamma");
 	const auto gammaAdded = OSFUI::ViewCache::PrepareMods(modsSource, modsCache, "v1", "gamma-added", error);

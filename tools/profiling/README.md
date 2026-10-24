@@ -2,6 +2,10 @@
 
 ## Desktop backend comparison
 
+For provider-density startup preparation, use the isolated
+[view-cache benchmark](view-cache/README.md). It measures the production cache
+implementation separately from browser rendering and the game thread.
+
 `Compare-Backends.ps1` runs both built browser helpers with isolated profiles, identical local workloads, and a real shared-texture consumer. It does not launch Starfield or change player settings. See [the benchmark method](backend-bench/README.md) for what these measurements establish.
 
 ```powershell

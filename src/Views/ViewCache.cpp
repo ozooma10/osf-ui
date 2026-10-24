@@ -9,6 +9,7 @@
 #include <fstream>
 #include <span>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 namespace OSFUI::ViewCache
@@ -456,7 +457,14 @@ namespace OSFUI::ViewCache
 			}
 			prepared.entries.push_back({ Utf8Path(name), file });
 		}
+		// Every prepared entry was just verified or published at this exact path.
+		// Avoid opening both filesystem objects for every preceding mod during
+		// cleanup. Keep the identity fallback for case-only renames and aliases.
+		std::unordered_set<std::filesystem::path> preparedPaths;
+		preparedPaths.reserve(prepared.entries.size());
+		for (const auto& mod : prepared.entries) preparedPaths.insert(mod.cache.generation);
 		for (std::filesystem::directory_iterator it(prepared.root, ec), end; !ec && it != end; it.increment(ec)) {
+			if (preparedPaths.contains(it->path())) continue;
 			bool keep = false;
 			for (const auto& mod : prepared.entries) {
 				// File identity also handles case-only mod renames on Windows.
