@@ -348,10 +348,13 @@ namespace OSFUI::API
 		assert(!a_available || m_bridge);
 		if (m_bridgeAvailable.exchange(a_available, std::memory_order_acq_rel) != a_available) {
 			m_legacyReadyFired = false;
+			if (!a_available) {
+				m_queuedReplies.clear();  // discard replies queued before the host failed
+			}
 		}
-		if (!a_available) {
-			m_queuedReplies.clear();  // nothing left to settle them against
-		}
+		// A replacement page may call native endpoints before its load notification.
+		// Keep those bounded replies across repeated unavailable frames. The bridge
+		// still rejects old document tokens when availability returns.
 	}
 
 	void BridgeApi::RemoveOwnedEndpoint(const char* a_name, void* a_owner)

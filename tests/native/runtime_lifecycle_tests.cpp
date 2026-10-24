@@ -433,6 +433,19 @@ namespace
         CHECK(std::ranges::count(env.navigations, "acme/hud") == 2);
         CHECK(env.hidden.at("acme/hud") && env.hidden.at("acme/menu"));
         env.sent.clear();
+        // A replacement document can request native data before NavigationCompleted.
+        // Repeated unavailable frames must preserve its bounded deferred reply.
+        CHECK(api().RegisterRequest("acme.recoveryEcho", [](const API::Request& request, void*) noexcept {
+            request.Reply(R"({"recovered":true})");
+        }, nullptr));
+        QueueHello("acme/hud");
+        env.notifications.push_back([] {
+            env.hosts.at(env.viewHosts.at("acme/hud")).message("acme/hud",
+                R"({"kind":"request","name":"recoveryEcho","id":"early-recovery","payload":{}})");
+        });
+        runtime().Update();
+        runtime().Update();
+        CHECK(!api().IsReady());
         QueueLoad("acme/hud");
         QueueHello("acme/hud");
         QueueLoad("acme/menu");
@@ -440,6 +453,10 @@ namespace
         runtime().Update();
         runtime().Update(); // Admission observes health on the following lifecycle pass.
         CHECK(api().IsReady());
+        CHECK(std::ranges::any_of(env.sent, [](const auto& message) {
+            return message.body.value("id", "") == "early-recovery" &&
+                message.body.value("kind", "") == "reply" && message.body.at("payload").at("recovered") == true;
+        }));
         CHECK(!env.diagnostics.Has("runtime.renderer"));
         CHECK(!env.hidden.at("acme/hud") && env.hidden.at("acme/menu"));
         CHECK(StateFor("acme/menu", "native") == 42 && StateFor("acme/hud", "native") == 42);
