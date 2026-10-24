@@ -20,10 +20,11 @@ namespace OSFUI
         bool UsesVirtualFilesystem() { return ::GetModuleHandleW(L"usvfs_x64.dll") != nullptr; }
 
         // USVFS redirects the open but not handle path queries, so the kernel reports the backing file.
-        std::optional<std::filesystem::path> BackingFile(const std::filesystem::path& file)
+        std::optional<std::filesystem::path> BackingFile(const std::filesystem::path& file, bool directory = false)
         {
             const HANDLE handle = ::CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                directory ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL, nullptr);
             if (handle == INVALID_HANDLE_VALUE) return std::nullopt;
             std::wstring buffer(MAX_PATH, L'\0');
             DWORD length = 0;
@@ -110,6 +111,21 @@ namespace OSFUI
             if (result.removed) REX::INFO("Removed {} old {} cop{}", result.removed, label, result.removed == 1 ? "y" : "ies");
             if (result.failed) REX::WARN("{} old {} cop{} still in use; retrying next launch", result.failed, label, result.failed == 1 ? "y" : "ies");
         }
+    }
+
+    std::filesystem::path ResolveBrowserStorageRoot(const std::filesystem::path& root)
+    {
+        std::error_code ec;
+        std::filesystem::create_directories(root, ec);
+        if (!ec) {
+            if (const auto physical = BackingFile(root, true)) {
+                if (!SamePath(root, *physical))
+                    REX::INFO("Browser storage resolves {} to {}", Utf8Path(root), Utf8Path(*physical));
+                return *physical;
+            }
+        }
+        // Keep the existing preparation error/retry path for inaccessible roots.
+        return root;
     }
 
     BrowserHostLayout HostLayout(osfui::browser::Backend backend, const std::filesystem::path& dataDir)

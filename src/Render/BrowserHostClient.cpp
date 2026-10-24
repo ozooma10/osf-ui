@@ -52,14 +52,19 @@ namespace OSFUI
 
 		std::filesystem::path LocalOsfuiDir()
 		{
-			PWSTR value = nullptr;
-			if (FAILED(::SHGetKnownFolderPath(
-					FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &value))) {
-				return std::filesystem::temp_directory_path() / "OSFUI";
-			}
-			std::filesystem::path out(value);
-			::CoTaskMemFree(value);
-			return out / "OSFUI";
+			// The broker leaves the game's filesystem context. Resolve once so
+			// cache, profile and executable paths identify the same files there.
+			static const auto root = [] {
+				PWSTR value = nullptr;
+				if (FAILED(::SHGetKnownFolderPath(
+						FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &value))) {
+					return ResolveBrowserStorageRoot(std::filesystem::temp_directory_path() / "OSFUI");
+				}
+				std::filesystem::path out(value);
+				::CoTaskMemFree(value);
+				return ResolveBrowserStorageRoot(out / "OSFUI");
+			}();
+			return root;
 		}
 
 

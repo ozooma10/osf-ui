@@ -14,6 +14,9 @@ namespace OSFUI
     };
 
     BrowserHostLayout HostLayout(osfui::browser::Backend backend, const std::filesystem::path& dataDir);
+    // Detached hosts must see the same physical directory as the game, including
+    // when an app-container filesystem context redirects LocalAppData.
+    std::filesystem::path ResolveBrowserStorageRoot(const std::filesystem::path& root);
     bool ValidateHostPayload(osfui::browser::Backend backend, const std::filesystem::path& executable,
         std::string& error);
     std::optional<std::filesystem::path> PrepareHostExecutable(osfui::browser::Backend backend,
