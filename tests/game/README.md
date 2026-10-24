@@ -127,6 +127,24 @@ without Evergreen. Those remain separate acceptance checks.
 
 ## Background CEF runtime checks
 
+For core cache/lifecycle changes, `-BackgroundChecks` supports either edition
+with a production `-SettingsManifest` and exact `-Package`. It uses the same
+owned harness and private saves, with no desktop input or focus calls. The
+LocalAppData OSFUI directory is resolved through a file handle before its
+contents are leased. This accounts for inherited app filesystem redirection;
+the root stays in place. Game/helpers and browser children must stop before
+restoration, and destination collisions fail rather than nesting backups.
+Normal profiles, caches and helper copies are restored by hash. Its journal
+and private storage remain in the run evidence.
+It checks actual HUD pixels, native/Papyrus replies, retained state after reload,
+repeated activation, observed save/load, host recovery and a bounded soak.
+It does not establish interactive input or audio acceptance.
+
+```powershell
+pwsh tests/game/Test-Backend.ps1 -Backend webview2 -BackgroundChecks `
+  -Package <exact-production-package.zip> -SettingsManifest <production-settings-manifest.json>
+```
+
 `-RuntimeChecks` runs a focused CEF suite without desktop input or focus changes.
 It requires a production Settings archive and an explicitly generated video:
 

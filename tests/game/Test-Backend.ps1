@@ -5,6 +5,7 @@ param(
     [ValidateSet('stock','luma')][string]$Graphics='stock',
     [switch]$Interactive,
     [switch]$RuntimeChecks,
+    [switch]$BackgroundChecks,
     [string]$VideoFixture,
     [ValidateRange(0,1800)][int]$SoakSeconds=120,
     [string]$Package,
@@ -21,7 +22,8 @@ param(
     [string]$SettingsTestDll='C:\Modding\Starfield\OSF Settings\build\windows\x64\releasedbg\OSFSettings.dll'
 )
 $ErrorActionPreference='Stop'
-if(-not $Interactive -and -not $RuntimeChecks){throw '[blocked] This suite tests keyboard/mouse paths; explicitly supply -Interactive, or select background -RuntimeChecks.'}
+if(-not $Interactive -and -not $RuntimeChecks -and -not $BackgroundChecks){throw '[blocked] Select -Interactive, -RuntimeChecks, or -BackgroundChecks.'}
+if($BackgroundChecks -and ($Interactive -or $RuntimeChecks -or $RealMods -or -not $SettingsManifest)){throw 'BackgroundChecks requires production SettingsManifest without Interactive, RuntimeChecks or RealMods.'}
 if($RuntimeChecks -and ($Backend -ne 'cef' -or $RealMods -or $Interactive -or -not $SettingsManifest -or -not $VideoFixture)){throw 'RuntimeChecks requires CEF, production SettingsManifest and VideoFixture, without Interactive or RealMods.'}
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if(-not $Package){
@@ -47,6 +49,7 @@ $diagnosticComparison=$DiagnosticWithoutUI -or $DiagnosticDisableQuickSaveLoad -
 if($diagnosticComparison -and (-not $RealMods -or $ResumeRun)){throw 'Diagnostic comparisons require a fresh RealMods run; they cannot create an edition-switch baseline.'}
 . (Join-Path $PSScriptRoot 'RealMods.ps1')
 . (Join-Path $PSScriptRoot 'Runtime.ps1')
+. (Join-Path $PSScriptRoot 'Background.ps1')
 function Get-StorageHashes([string]$Root) {
     $files=@(if(Test-Path -LiteralPath $Root){Get-ChildItem -LiteralPath $Root -File -Recurse | Sort-Object FullName | ForEach-Object {
         [ordered]@{path=[IO.Path]::GetRelativePath($Root,$_.FullName);sha256=(Get-FileHash -LiteralPath $_.FullName).Hash}
@@ -113,7 +116,7 @@ try {
     }
     $lock=[IO.File]::Open((Join-Path $script:StateRoot 'runner.lock'),'OpenOrCreate','ReadWrite','None')
     if(@(Get-GameProcess).Count){throw '[blocked] Existing Starfield will not be interrupted.'}
-    $null=Start-RunArtifacts "$Backend-$Graphics$(if($RuntimeChecks){'-runtime'})"
+    $null=Start-RunArtifacts "$Backend-$Graphics$(if($RuntimeChecks){'-runtime'}elseif($BackgroundChecks){'-background'})"
     $sources=@(Get-ChildItem $PSScriptRoot -File | ForEach-Object {@{name=$_.Name;sha256=(Get-FileHash $_.FullName).Hash}})
     Write-JsonFile (Join-Path $script:Run.path 'test-sources.json') $sources
     $script:ProbeSession=[guid]::NewGuid().ToString('N')
@@ -276,6 +279,7 @@ try {
         $storageController=Start-Process -FilePath (Get-Command python).Source -ArgumentList $controllerArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $script:Run.path 'storage-controller.out') -RedirectStandardError (Join-Path $script:Run.path 'storage-controller.err')
     }
     if($RuntimeChecks){Enter-PrivateCefProfile}
+    if($BackgroundChecks){Enter-PrivateBackgroundStorage}
     $null=Start-TestGame -RequiredTestMods @($script:HarnessModName) -RefocusAfterLoad:$Interactive
     $consumer=Wait-Observed 'Public SDK consumer initialized' {Read-Consumer} {param($c)$c -and $c.pid -eq $script:Session.pid -and ($DiagnosticWithoutUI -or ($c.initialized -and $c.registered))} 20
     $packageVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $data 'SFSE\Plugins\OSFUI.dll'))
@@ -295,7 +299,7 @@ try {
         $saved=Read-JsonFile (Join-Path $privateSettings 'osfui.json')
         Assert-Test ($saved.values.developerMode -eq $true) 'Production Settings commits public API edits into private storage'
         Send-Probe settingsBool @{mod='osfui';key='developerMode';value=$false}
-        if(-not $RealMods -and -not $RuntimeChecks){
+        if(-not $RealMods -and -not $RuntimeChecks -and -not $BackgroundChecks){
             Send-Key 121
             $null=Wait-Observed 'Production Settings opens from its normal hotkey' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
             $null=Save-Capture 'production-settings'
@@ -304,7 +308,7 @@ try {
         }
     }
     Assert-Test ((@($modules | Where-Object name -eq 'Luma.dll').Count -gt 0) -eq ($Graphics -eq 'luma')) 'Selected graphics integration loaded'
-    if($RuntimeChecks){Invoke-CefGameRuntimeChecks} elseif($RealMods){Invoke-RealModReview} else {
+    if($BackgroundChecks){Invoke-BackgroundBrowserChecks} elseif($RuntimeChecks){Invoke-CefGameRuntimeChecks} elseif($RealMods){Invoke-RealModReview} else {
     Open-Panel
     $hosts=@(Get-TestHosts); Assert-Test ($hosts.Count -eq 1) 'Package automatically selected expected browser helper'
     Add-Evidence 'browser-host' $Backend (Get-ProcessIdentity $hosts[0])
@@ -409,6 +413,7 @@ try {
     $outcome='passed';$message='Production package passed browser, native/Papyrus bridge, input, lifecycle and recovery scenarios.';$exitCode=0
     if($RealMods){$message='Real-mod review completed; see review-complete.json for the exact checked workflows and limitations.'}
     if($RuntimeChecks){$message='CEF background game checks passed: GPU adapter, decoded video seeks, view isolation/recovery, and browser storage across normal game exit.'}
+    if($BackgroundChecks){$message='Background browser checks passed: actual HUD pixels, native/Papyrus bridge, retained state, reload, repeated opens, save/load and host recovery. No physical input acceptance.'}
 } catch {
     $message=$_.Exception.Message
     if($message.StartsWith('[failed]')){$outcome='failed';$exitCode=1}
@@ -430,6 +435,9 @@ try {
     }
     if($RuntimeChecks){
         try {Exit-PrivateCefProfile} catch {Write-Warning $_;$message+="; browser profile restore: $_";$outcome='blocked';$exitCode=2}
+    }
+    if($BackgroundChecks){
+        try {Stop-BackgroundBrokers;Exit-PrivateBackgroundStorage} catch {Write-Warning $_;$message+="; browser storage restore: $_";$outcome='blocked';$exitCode=2}
     }
     if($null -ne $liveStorageBefore){
         $after=Get-StorageHashes $liveSettings
