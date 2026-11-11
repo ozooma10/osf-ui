@@ -86,16 +86,9 @@ int main()
 		source, cache, "runtime-v1", "second", error);
 	assert(again && again->reused && again->generation == first->generation);
 
-	// Known limitation: metadata-only fingerprint misses a same-size edit with a preserved timestamp.
+	// An edited file with a newer timestamp publishes a different generation.
 	const auto preservedTime = fs::last_write_time(source / "shared" / "osfui.js");
 	Write(source / "shared" / "osfui.js", "shared-v2");
-	fs::last_write_time(source / "shared" / "osfui.js", preservedTime);
-	const auto stale = OSFUI::ViewCache::Prepare(
-		source, cache, "runtime-v1", "stale", error);
-	assert(stale && stale->reused && stale->generation == first->generation);
-	assert(Read(stale->generation / "shared" / "osfui.js") == "shared-v1");
-
-	// A timestamp change alone publishes a different generation.
 	fs::last_write_time(source / "shared" / "osfui.js", preservedTime + std::chrono::seconds(5));
 	const auto changed = OSFUI::ViewCache::Prepare(
 		source, cache, "runtime-v1", "third", error);

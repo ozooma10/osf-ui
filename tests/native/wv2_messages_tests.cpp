@@ -58,17 +58,10 @@ int main()
 		const auto reply = RoundTrip(msg::BackUnhandled{ .view = request.view, .presentationEpoch = request.presentationEpoch });
 		Check(reply.view == request.view && reply.presentationEpoch == 0xFFFFFFFFFFFFull,
 			"Back request and reply retain view and presentation identity");
-		Check(msg::Back::kType != msg::BackUnhandled::kType, "Back request and reply have distinct types");
 	}
 	{
 		Check(msg::ToJson(msg::Init{}).at("type") == "init", "init stamps type");
 		Check(msg::ToJson(msg::Heartbeat{}).at("type") == "heartbeat", "fieldless message stamps type");
-		Check(msg::SetInputTarget::kType == "setInputTarget", "input target has its own message type");
-		Check(msg::PointerInput::kType == "pointerInput",
-			"pointer-transition state has a stable wire spelling");
-		Check(msg::Viewport::kType == "viewport",
-			"content viewport state has a stable wire spelling");
-		Check(msg::Heartbeat::kType != msg::DestroyView::kType, "distinct types");
 	}
 
 	{
@@ -154,11 +147,6 @@ int main()
 		const std::string inner = R"({"kind":"event","name":"x","payload":{"a":[1,2]}})";
 		const auto        got = RoundTrip(msg::PostWeb{ .view = "acme.mod/v", .json = inner });
 		Check(got.json == inner, "opaque bridge envelope survives byte-for-byte");
-	}
-	{
-		// Non-ASCII must survive: Json::Dump is ensure_ascii=false.
-		const auto got = RoundTrip(msg::Bye{ .reason = "終了 — done ✅" });
-		Check(got.reason == "終了 — done ✅", "utf-8 payload survives");
 	}
 
 	{

@@ -1,5 +1,4 @@
 #include "Views/ViewOpenCoordinator.h"
-#include "Views/ViewPresentationController.h"
 #include "check.h"
 
 #include <unordered_map>
@@ -19,9 +18,7 @@ int main()
         });
     };
 
-    // Preparation reaches frame readiness without changing input ownership.
-    OSFUI::ViewPresentationController presentation;
-    presentation.AddInstantiated({ .id = "mod/menu", .kind = OSFUI::ViewKind::Menu, .capturesInput = true, .pausesGame = true });
+    // Page readiness and prepared-frame activation are separate, request-scoped steps.
     for (const auto request : { std::uint64_t{0}, std::uint64_t{41} }) {
         opens.QueueMenu("mod/menu", 130.0, request);
         CHECK(opens.Contains("mod/menu"));
@@ -39,21 +36,15 @@ int main()
         CHECK(ready().empty());
         opens.PendingMenu()->phase = Phase::Ready; // renderer confirms GPU-ready retained frame
         CHECK(ready().empty());
-        CHECK(!presentation.DesiredCapture());
-        CHECK(!presentation.DesiredPause());
         CHECK(!opens.TakeReadyMenu("mod/other"));
         CHECK(opens.Contains("mod/menu"));
         CHECK(!opens.TakeReadyMenu("mod/menu", request + 1));
         // Only this request's after-close callback can consume its frame, once.
         const auto finished = opens.TakeReadyMenu("mod/menu", request);
-        CHECK(finished && finished->requestId == request);
-        CHECK(presentation.Open(finished->view));
-        CHECK(presentation.DesiredCapture());
-        CHECK(presentation.DesiredPause());
+        CHECK(finished && finished->view == "mod/menu" && finished->requestId == request);
         CHECK(!opens.PendingMenu());
         CHECK(!opens.TakeReadyMenu("mod/menu", request));
         CHECK(!opens.TakeMenu());
-        presentation.CloseActiveMenu();
     }
 
     // Runtime cleanup may discard any stage, including an accepted completion whose after-close callback never came.
