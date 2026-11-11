@@ -83,6 +83,7 @@ try {
         if (Test-Path -LiteralPath $Staging) { Remove-Item -LiteralPath $Staging -Recurse -Force }
         $commonHashes = $null
         $commonPex = $null
+        $commonBroker = $null
         $archiveRecords = @()
         foreach ($edition in $editions) {
             Assert-SourceUnchanged
@@ -114,6 +115,15 @@ try {
                 Copy-Item -LiteralPath $commonPex -Destination $pex -Force
             } else {
                 $commonPex = $pex
+            }
+            # The broker is backend-neutral. Independent native build directories
+            # can produce different PE/PDB identities from the same source; ship
+            # the first verified broker in both editions, like the shared PEX.
+            $broker = Join-Path $ui 'bin/broker/osfui_browser_broker.exe'
+            if ($commonBroker) {
+                Copy-Item -LiteralPath $commonBroker -Destination $broker -Force
+            } else {
+                $commonBroker = $broker
             }
             & (Join-Path $RepoRoot 'tests/package/test-package.ps1') -DataRoot $data -ExpectedBackend $edition
             Assert-SourceUnchanged

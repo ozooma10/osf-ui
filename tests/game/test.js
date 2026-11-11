@@ -6,6 +6,10 @@ const byId = id => document.getElementById(id);
 function report() {
   evidence.performanceAvailable = typeof osfui.performance !== 'undefined';
   evidence.performancePanel = !!document.getElementById('osfui-performance');
+  const performanceSample = osfui.performance?.snapshot();
+  evidence.performanceSampling = performanceSample?.sampling ?? false;
+  evidence.performanceFrames = performanceSample?.session.frames ?? 0;
+  evidence.performanceNativeCurrent = performanceSample?.native?.status === 'current';
   for (const id of ['text','button','drag','scroll','select']) {
     const r=byId(id).getBoundingClientRect();
     evidence.rects[id]={x:(r.x+r.width/2)/innerWidth,y:(r.y+r.height/2)/innerHeight};

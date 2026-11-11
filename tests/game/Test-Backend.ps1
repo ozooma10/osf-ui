@@ -6,6 +6,7 @@ param(
     [switch]$Interactive,
     [switch]$RuntimeChecks,
     [switch]$BackgroundChecks,
+    [switch]$DeveloperChecks,
     [string]$VideoFixture,
     [ValidateRange(0,1800)][int]$SoakSeconds=120,
     [string]$Package,
@@ -25,6 +26,9 @@ $ErrorActionPreference='Stop'
 if(-not $Interactive -and -not $RuntimeChecks -and -not $BackgroundChecks){throw '[blocked] Select -Interactive, -RuntimeChecks, or -BackgroundChecks.'}
 if($BackgroundChecks -and ($Interactive -or $RuntimeChecks -or $RealMods -or -not $SettingsManifest)){throw 'BackgroundChecks requires production SettingsManifest without Interactive, RuntimeChecks or RealMods.'}
 if($RuntimeChecks -and ($Backend -ne 'cef' -or $RealMods -or $Interactive -or -not $SettingsManifest -or -not $VideoFixture)){throw 'RuntimeChecks requires CEF, production SettingsManifest and VideoFixture, without Interactive or RealMods.'}
+if($DeveloperChecks -and (-not $Interactive -or -not $SettingsManifest -or $RuntimeChecks -or $BackgroundChecks -or $RealMods)){throw 'DeveloperChecks requires Interactive and production SettingsManifest without other check modes.'}
+$script:ExpectedDeveloperMode=[bool]$DeveloperChecks
+$privateBrowserStorage=$BackgroundChecks -or ($Interactive -and -not $RealMods)
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if(-not $Package){
     $versionMatch=Select-String -LiteralPath (Join-Path $repo 'src/Core/Version.h') -Pattern 'kOsfuiReleaseVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
@@ -88,7 +92,7 @@ function Open-Panel([string]$View='panel') {
     Send-Probe menu @{view="osfui-backend-test/$View";open=$true}
     $page=Wait-Observed "Page $View bridge completed" {Read-Page $View} {param($p)$p -and $p.complete} 45
     Assert-Test ($page.errors.Count -eq 0 -and $page.networkBlocked) "Page $View native replies/rejections and network boundary" $page
-    Assert-Test ($page.performanceAvailable -eq $false -and $page.performancePanel -eq $false) "Page $View has no performance diagnostic outside Developer mode"
+    Assert-Test ($page.performanceAvailable -eq $script:ExpectedDeveloperMode -and $page.performancePanel -eq $false) "Page $View diagnostics match startup Developer mode and start hidden"
     if($View -ne 'hud'){Wait-Menu $true}
 }
 function Click-Element([string]$Id,[string[]]$Extra=@()) {
@@ -116,7 +120,7 @@ try {
     }
     $lock=[IO.File]::Open((Join-Path $script:StateRoot 'runner.lock'),'OpenOrCreate','ReadWrite','None')
     if(@(Get-GameProcess).Count){throw '[blocked] Existing Starfield will not be interrupted.'}
-    $null=Start-RunArtifacts "$Backend-$Graphics$(if($RuntimeChecks){'-runtime'}elseif($BackgroundChecks){'-background'})"
+    $null=Start-RunArtifacts "$Backend-$Graphics$(if($RuntimeChecks){'-runtime'}elseif($BackgroundChecks){'-background'}elseif($DeveloperChecks){'-developer'})"
     $sources=@(Get-ChildItem $PSScriptRoot -File | ForEach-Object {@{name=$_.Name;sha256=(Get-FileHash $_.FullName).Hash}})
     Write-JsonFile (Join-Path $script:Run.path 'test-sources.json') $sources
     $script:ProbeSession=[guid]::NewGuid().ToString('N')
@@ -188,7 +192,15 @@ try {
         [IO.Directory]::CreateDirectory($privateSettings)|Out-Null
         if(Test-Path -LiteralPath $liveSettings){Copy-Tree $liveSettings $privateSettings}
         Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}
-        Write-JsonFile (Join-Path $privateSettings 'osfui.json') @{formatVersion=1;values=@{developerMode=$false;cefPrototype=($Backend -eq 'webview2')}}
+        Write-JsonFile (Join-Path $privateSettings 'osfui.json') @{formatVersion=1;values=@{developerMode=$script:ExpectedDeveloperMode;cefPrototype=($Backend -eq 'webview2')}}
+        if($DeveloperChecks -and $ResumeRun){
+            $ResumeRun=Assert-ChildPath (Join-Path $repo 'build/backend-validation/game') ([IO.Path]::GetFullPath($ResumeRun))
+            $previous=Read-JsonFile (Join-Path $ResumeRun 'result.json')
+            $identity=Read-JsonFile (Join-Path $ResumeRun 'developer-checks.json')
+            if(-not $previous -or $previous.outcome -ne 'passed' -or -not $identity -or $identity.backend -ne $Backend -or $identity.packageSha256 -ne (Get-FileHash $Package).Hash){throw 'Developer restart requires a passing run of this exact package and backend.'}
+            Copy-Item -LiteralPath (Join-Path $ResumeRun 'private-values/settings/osfui.json') -Destination (Join-Path $privateSettings 'osfui.json') -Force
+            $script:ExpectedDeveloperMode=[bool](Read-JsonFile (Join-Path $privateSettings 'osfui.json')).values.developerMode
+        }
         if($RealMods -and $ResumeRun){Copy-Tree (Join-Path $ResumeRun 'private-values\settings') $privateSettings;Write-JsonFile (Join-Path $privateSettings '.osf-ui-storage.json') @{session=$script:ProbeSession}}
         $probeConfig.storage=@{game=$script:Config.Game;mo2=$script:Config.MO2;vfsInstance='mod_organizer_instance';expiresUnixMs=([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+180000);mappings=@(@{source=$privateSettings;destination=$liveSettings})}
         [IO.File]::WriteAllText((Join-Path $script:Run.path 'live-settings-before.json'),$liveStorageBefore)
@@ -279,7 +291,7 @@ try {
         $storageController=Start-Process -FilePath (Get-Command python).Source -ArgumentList $controllerArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $script:Run.path 'storage-controller.out') -RedirectStandardError (Join-Path $script:Run.path 'storage-controller.err')
     }
     if($RuntimeChecks){Enter-PrivateCefProfile}
-    if($BackgroundChecks){Enter-PrivateBackgroundStorage}
+    if($privateBrowserStorage){Enter-PrivateBackgroundStorage}
     $null=Start-TestGame -RequiredTestMods @($script:HarnessModName) -RefocusAfterLoad:$Interactive
     $consumer=Wait-Observed 'Public SDK consumer initialized' {Read-Consumer} {param($c)$c -and $c.pid -eq $script:Session.pid -and ($DiagnosticWithoutUI -or ($c.initialized -and $c.registered))} 20
     $packageVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $data 'SFSE\Plugins\OSFUI.dll'))
@@ -299,7 +311,7 @@ try {
         $saved=Read-JsonFile (Join-Path $privateSettings 'osfui.json')
         Assert-Test ($saved.values.developerMode -eq $true) 'Production Settings commits public API edits into private storage'
         Send-Probe settingsBool @{mod='osfui';key='developerMode';value=$false}
-        if(-not $RealMods -and -not $RuntimeChecks -and -not $BackgroundChecks){
+        if(-not $RealMods -and -not $RuntimeChecks -and -not $BackgroundChecks -and -not $DeveloperChecks){
             Send-Key 121
             $null=Wait-Observed 'Production Settings opens from its normal hotkey' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
             $null=Save-Capture 'production-settings'
@@ -308,7 +320,23 @@ try {
         }
     }
     Assert-Test ((@($modules | Where-Object name -eq 'Luma.dll').Count -gt 0) -eq ($Graphics -eq 'luma')) 'Selected graphics integration loaded'
-    if($BackgroundChecks){Invoke-BackgroundBrowserChecks} elseif($RuntimeChecks){Invoke-CefGameRuntimeChecks} elseif($RealMods){Invoke-RealModReview} else {
+    if($DeveloperChecks){
+        Open-Panel
+        Send-Key 122
+        if($script:ExpectedDeveloperMode){
+            $null=Wait-Observed 'F11 enables Developer diagnostics and samples frames' {Read-Page} {param($p)$p -and $p.performancePanel -and $p.performanceSampling -and $p.performanceFrames -gt 5} 15
+            if($Backend -eq 'webview2'){$null=Wait-Observed 'WebView2 native capture/publication diagnostics arrive' {Read-Page} {param($p)$p -and $p.performanceNativeCurrent} 15}
+            Capture-Panel 'developer-enabled'
+            Send-Key 122
+            $null=Wait-Observed 'F11 removes diagnostics and stops sampling' {Read-Page} {param($p)$p -and -not $p.performancePanel -and -not $p.performanceSampling} 10
+        }else{
+            $null=Wait-Observed 'Restart with Developer mode off removes the API and leaves F11 as a page key' {Read-Page} {param($p)$p -and $p.ContainsKey('f11Keys') -and $p.f11Keys -gt 0 -and -not $p.performanceAvailable -and -not $p.performancePanel} 10
+        }
+        Capture-Panel 'developer-disabled'
+        Send-Probe settingsBool @{mod='osfui';key='developerMode';value=$false}
+        Assert-Test ((Read-JsonFile (Join-Path $privateSettings 'osfui.json')).values.developerMode -eq $false) 'Developer mode off persisted for the next fresh game'
+        Write-JsonFile (Join-Path $script:Run.path 'developer-checks.json') @{backend=$Backend;packageSha256=(Get-FileHash $Package).Hash;startupDeveloperMode=$script:ExpectedDeveloperMode;resume=$ResumeRun}
+    }elseif($BackgroundChecks){Invoke-BackgroundBrowserChecks} elseif($RuntimeChecks){Invoke-CefGameRuntimeChecks} elseif($RealMods){Invoke-RealModReview} else {
     Open-Panel
     $hosts=@(Get-TestHosts); Assert-Test ($hosts.Count -eq 1) 'Package automatically selected expected browser helper'
     Add-Evidence 'browser-host' $Backend (Get-ProcessIdentity $hosts[0])
@@ -414,6 +442,7 @@ try {
     if($RealMods){$message='Real-mod review completed; see review-complete.json for the exact checked workflows and limitations.'}
     if($RuntimeChecks){$message='CEF background game checks passed: GPU adapter, decoded video seeks, view isolation/recovery, and browser storage across normal game exit.'}
     if($BackgroundChecks){$message='Background browser checks passed: actual HUD pixels, native/Papyrus bridge, retained state, reload, repeated opens, save/load and host recovery. No physical input acceptance.'}
+    if($DeveloperChecks){$message='Developer diagnostics startup gate, F11 toggle and persisted off setting passed; see developer-checks.json for restart provenance.'}
 } catch {
     $message=$_.Exception.Message
     if($message.StartsWith('[failed]')){$outcome='failed';$exitCode=1}
@@ -436,7 +465,7 @@ try {
     if($RuntimeChecks){
         try {Exit-PrivateCefProfile} catch {Write-Warning $_;$message+="; browser profile restore: $_";$outcome='blocked';$exitCode=2}
     }
-    if($BackgroundChecks){
+    if($privateBrowserStorage){
         try {Stop-BackgroundBrokers;Exit-PrivateBackgroundStorage} catch {Write-Warning $_;$message+="; browser storage restore: $_";$outcome='blocked';$exitCode=2}
     }
     if($null -ne $liveStorageBefore){
