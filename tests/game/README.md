@@ -16,7 +16,12 @@ pwsh tests/game/Test-Backend.ps1 -Backend cef -Interactive
 `-Package` selects an exact ZIP; the default is the corresponding local RC in
 `dist`. For release qualification, pass `-SettingsManifest` with the production
 Settings archive manifest. Its archive, payload and production markers are
-validated, and the complete exact archive is staged. The acceptance consumer
+validated, and the complete exact archive is staged. The runner
+uses the release validator from the Settings manifest's source revision, retained
+with its hash in the run evidence; later sibling-checkout changes cannot redefine
+that archive's payload contract. Synthetic interactive runs also lease and restore
+the normal browser storage by hash, just like background checks.
+The acceptance consumer
 waits in SFSE Preload for `private_storage.py` to connect to the owned MO2 VFS and
 map normal Documents Settings storage to a private copy. PID, process creation,
 session marker and mapped reads are verified before production Settings loads.
@@ -51,6 +56,15 @@ fixing a defect, then run a fresh session. The standalone helper lifecycle and
 performance tools live under `tools/profiling`; run those while Starfield is closed.
 
 ## Original consumer review
+
+For Developer mode release acceptance, run a fresh interactive session with
+`-DeveloperChecks -Package <zip> -SettingsManifest <manifest>`. It starts with
+Developer mode enabled in private Settings, checks F11 show/hide and real browser
+sampling (plus native capture/publication samples on WebView2), and persists the
+off setting. Repeat with `-DeveloperChecks -ResumeRun <passing-run>` against the
+same package to verify that a fresh game removes the diagnostic API and F11 panel.
+The restart run copies only the prior run's private OSF UI setting; live user
+settings remain isolated. Ordinary acceptance still checks the default-off case.
 
 The packaged synthetic suite runs with Developer mode disabled and verifies that
 pages have no performance diagnostic API or panel. Its interactive leg also

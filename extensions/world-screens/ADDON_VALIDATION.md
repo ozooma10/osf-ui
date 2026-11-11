@@ -2,7 +2,7 @@
 
 2026-10-19. Local development builds, uncommitted and unpublished. Starcade and
 SSSE now consume the optional `OSFUIWorldScreens.dll` extension. Use the matching
-unreleased core from this checkout; released OSF UI 2.1.0 lacks the surfaces ABI.
+matching core from this checkout; older 2.1.0 development builds lack the surfaces ABI.
 
 ## Migrated content
 

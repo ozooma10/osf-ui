@@ -5,8 +5,8 @@ fullscreen, choose a website, then close it to keep playing on the TV.
 
 Development content mod: Papyrus and records only, with no DLL. Requires the
 matching unreleased **OSF UI** core and **OSF UI - World Screens** extension, plus
-their SFSE, Address Library and OSF Settings dependencies. Released OSF UI 2.1.0
-does not include the required browser surface APIs.
+their SFSE, Address Library and OSF Settings dependencies. Older OSF UI 2.1.0
+development builds may lack the required browser surface APIs.
 
 ## Install and use
 

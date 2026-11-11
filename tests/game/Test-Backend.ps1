@@ -155,11 +155,20 @@ try {
     & (Join-Path $repo 'tests\package\test-package.ps1') -DataRoot $data -ExpectedBackend $Backend
     Copy-Tree $data $mod
     if($SettingsManifest){
+        # A sibling checkout can advance independently. Validate a pinned archive
+        # with its own revision's payload contract, not today's changed allowlist.
+        $settingsIdentity=Get-Content -LiteralPath $SettingsManifest -Raw | ConvertFrom-Json -AsHashtable
+        if($settingsIdentity.revision -cnotmatch '^[0-9a-f]{40}$'){throw 'Settings manifest lacks a valid source revision.'}
+        $validatorSource=@(& git -C $script:Config.SettingsProject show ($settingsIdentity.revision+':packaging/ReleaseValidation.ps1'))
+        if($LASTEXITCODE -or -not $validatorSource.Count){throw 'Cannot read the pinned Settings release validator.'}
+        $settingsValidator=Join-Path $script:Run.path 'settings-release-validator.ps1'
+        [IO.File]::WriteAllText($settingsValidator,($validatorSource -join "`n"))
+        Write-JsonFile (Join-Path $script:Run.path 'settings-validator.json') @{revision=$settingsIdentity.revision;sha256=(Get-FileHash $settingsValidator).Hash}
         $settingsArchive=& {
-            param($Manifest,$Project)
-            . (Join-Path $Project 'packaging\ReleaseValidation.ps1')
+            param($Manifest,$Validator)
+            . $Validator
             Test-ReleaseArchive ([IO.Path]::GetFullPath($Manifest))
-        } $SettingsManifest $script:Config.SettingsProject
+        } $SettingsManifest $settingsValidator
         $settingsData=Join-Path $script:Run.path 'settings-package'
         Expand-Archive -LiteralPath $settingsArchive.archive -DestinationPath $settingsData
         Copy-Tree $settingsData $mod

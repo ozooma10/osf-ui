@@ -4,8 +4,8 @@ Optional extension for material-backed web displays in Starfield. Development ve
 0.1.0; not published. Both projects live in this repository.
 
 Install one OSF UI backend edition, then this extension and a content mod that provides
-screens. **Use OSF UI from this same source revision**: the previously released 2.1.0
-DLL does not export the required `OSFUI_RequestSurfaces` ABI 1.3. The extension checks that
+screens. **Use OSF UI from this same source revision**: older 2.1.0 development
+DLLs may not export the required `OSFUI_RequestSurfaces` ABI 1.3. The extension checks that
 interface at startup and disables itself when it is missing or incompatible.
 
 This extension has one backend-independent DLL, `SFSE/Plugins/OSFUIWorldScreens.dll`.
