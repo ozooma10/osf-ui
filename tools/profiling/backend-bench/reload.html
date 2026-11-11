@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>OSF UI reload regression</title>
+<style>html,body{margin:0;background:#123;color:white}canvas{position:absolute;top:0;left:0}</style>
+<canvas width="32" height="32"></canvas>
+<p style="margin:48px" id="status">Checking reload bridge...</p>
+<script src="/shared/osfui.js"></script>
+<script>
+const documentId = crypto.randomUUID();
+const ctx = document.querySelector('canvas').getContext('2d');
+for (let block = 0; block < 8; ++block) {
+  const value = 0x110001 >> ((7-block)*3);
+  ctx.fillStyle = `rgb(${value&4?255:0},${value&2?255:0},${value&1?255:0})`;
+  ctx.fillRect(block%4*8, Math.floor(block/4)*16, 8, 16);
+}
+osfui.send('bench.ready');
+osfui.on('runtime.command', () => location.reload());
+(async () => {
+  try {
+    const state = new Promise(resolve => osfui.state.on('value', resolve));
+    const reply = await osfui.request('echo', {document:documentId});
+    if (reply.document !== documentId) throw Error('Reply belongs to another document');
+    const value = await state;
+    document.getElementById('status').textContent = 'Reload bridge and retained state passed';
+    osfui.send('runtime.result', {test:'reload', passed:true, document:documentId, revision:value.revision});
+  } catch(error) {
+    document.getElementById('status').textContent = error.message;
+    osfui.send('runtime.result', {test:'reload', passed:false, document:documentId, error:error.message});
+  }
+})();
+</script>

@@ -16,7 +16,18 @@ void Bench::RuntimeChecks()
         if(!answer.value("passed",false))throw std::runtime_error("page check failed: "+answer.dump());
         return answer;
     };
-    if(runtimeCheck=="gpu"){
+    if(runtimeCheck=="reload"){
+        auto previous=response("bench/main","reload");
+        for(int cycle=0;cycle<10;++cycle){
+            runtimeReplies.erase("bench/main:reload");
+            command("bench/main","reload");
+            auto current=response("bench/main","reload");
+            require(current.at("document")!=previous.at("document"),"reload did not replace the document");
+            require(current.at("revision")==7,"reload lost retained state");
+            previous=std::move(current);
+        }
+        consumer.Save(output/"reloaded.png");
+    }else if(runtimeCheck=="gpu"){
         command("bench/main","gpu");const auto answer=response("bench/main","gpu");
         require(answer.at("renderer").get<std::string>().find(consumer.adapterName)!=std::string::npos,
             "Chromium ANGLE renderer does not match the requested DXGI adapter");

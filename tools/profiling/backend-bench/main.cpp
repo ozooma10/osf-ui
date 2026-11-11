@@ -242,6 +242,13 @@ struct Bench {
                 const auto m=json::parse(v.value("json",""),nullptr,false);if(m.is_discarded())continue;const auto name=m.value("name","");const auto view=v.value("view","");
                 if(name=="bench.ready")ready.insert(view);
                 if(name=="runtime.result")runtimeReplies[view+":"+m.at("payload").value("test","")]=m.at("payload");
+                if(runtimeCheck=="reload"){
+                    if(name=="osfui.hello"){
+                        Send(msg::PostWeb{.view=view,.json=json{{"kind","ready"},{"payload",{{"mod","bench"}}}}.dump()});
+                        Send(msg::PostWeb{.view=view,.json=json{{"kind","state"},{"mod","bench"},{"key","value"},{"value",{{"revision",7}}}}.dump()});
+                    }
+                    if(name=="echo")Send(msg::PostWeb{.view=view,.json=json{{"kind","reply"},{"id",m.at("id")},{"payload",m.at("payload")}}.dump()});
+                }
                 if(name=="bench.modeReady")modeReady.insert(view);
                 if(name=="bench.stats"&&measuring)pageStats.push_back({{"view",view},{"payload",m.value("payload",json::object())}});
                 if(name=="bench.pong"){int id=m.at("payload").at("id");auto found=pings.find(id);if(found!=pings.end()){if(measuring)pingTimes.push_back((received.time-found->second)*1000);pings.erase(found);}}

@@ -119,10 +119,21 @@ namespace osfui::cefhost
         }
         void OnBrowserCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDictionaryValue> extra) override
         {
+            // RenderDocument can create the replacement before destroying the old
+            // browser with the same ID, including on a same-URL reload. Their
+            // immutable view policy must survive until the last owner is gone.
+            if (const auto found = documents_.find(browser->GetIdentifier()); found != documents_.end()) {
+                ++found->second.owners;
+                return;
+            }
             if (extra) documents_[browser->GetIdentifier()] = {
                 extra->GetString("view").ToString(), extra->GetBool("legacy"), extra->GetBool("remoteContent"), extra->GetBool("devMode") };
         }
-        void OnBrowserDestroyed(CefRefPtr<CefBrowser> browser) override { documents_.erase(browser->GetIdentifier()); }
+        void OnBrowserDestroyed(CefRefPtr<CefBrowser> browser) override
+        {
+            const auto found = documents_.find(browser->GetIdentifier());
+            if (found != documents_.end() && --found->second.owners == 0) documents_.erase(found);
+        }
         void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefV8Context> context) override
         {
             const auto found = documents_.find(browser->GetIdentifier());
@@ -132,7 +143,7 @@ namespace osfui::cefhost
             CefRefPtr<CefV8Exception> networkError;
             context->Eval(std::string(kNetworkScript), frame->GetURL(), 0, networkResult, networkError);
             if (!frame->IsMain()) return;
-            const auto& [id, legacy, remoteContent, devMode] = found->second;
+            const auto& [id, legacy, remoteContent, devMode, owners] = found->second;
             if (!browser::IsTrustedViewDocumentUri(frame->GetURL().ToWString(), browser::kViewHost,
                 ToWide(OSFUI::Ids::ModOf(id)), ToWide(ViewName(id)))) return;
             auto handler = CefRefPtr<Binding>(new Binding);
@@ -167,7 +178,7 @@ namespace osfui::cefhost
             return true;
         }
     private:
-        struct Document { std::string id; bool legacy{}, remoteContent{}, devMode{}; };
+        struct Document { std::string id; bool legacy{}, remoteContent{}, devMode{}; unsigned owners{1}; };
         std::map<int, Document> documents_;
         IMPLEMENT_REFCOUNTING(Application);
     };

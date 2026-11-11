@@ -10,9 +10,9 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const options = Object.fromEntries(Array.from({length:(process.argv.length-2)/2}, (_,i) => process.argv.slice(i*2+2,i*2+4)));
 const output = path.resolve(options['--out'] ?? path.join(repo,'build/cef-runtime',new Date().toISOString().replaceAll(':','-')));
 const adapters = (options['--adapter-indices'] ?? '0').split(',').map(Number);
-const checks = (options['--checks'] ?? 'gpu,storage,media,isolation').split(',');
+const checks = (options['--checks'] ?? 'gpu,storage,media,isolation,reload').split(',');
 if(!adapters.length||adapters.some(index=>!Number.isInteger(index)||index<0))throw new Error('Adapter indices must be nonnegative integers.');
-if(!checks.length||checks.some(check=>!['gpu','storage','media','isolation'].includes(check)))throw new Error('Unknown runtime check.');
+if(!checks.length||checks.some(check=>!['gpu','storage','media','isolation','reload'].includes(check)))throw new Error('Unknown runtime check.');
 if (fs.existsSync(output)) throw new Error('Use a new output directory to preserve prior evidence.');
 const powershell = command => execFileSync('pwsh',['-NoProfile','-Command',command],{encoding:'utf8',windowsHide:true}).trim();
 const gameRunning = () => powershell('@(Get-Process Starfield -ErrorAction SilentlyContinue).Count') !== '0';
@@ -35,7 +35,8 @@ wav.write('data',36);wav.writeUInt32LE(frames*2,40);
 for(let i=0;i<frames;i++)wav.writeInt16LE(Math.round(Math.sin(i*2*Math.PI*220/rate)*1000),44+i*2);
 fs.writeFileSync(path.join(views,'bench/main/tone.wav'),wav);
 const files=[consumer,host,path.join(path.dirname(host),'osfui_cef_host.dll'),path.join(path.dirname(host),'libcef.dll'),fixture,
-  fileURLToPath(import.meta.url),path.join(repo,'tools/profiling/backend-bench/main.cpp'),path.join(repo,'tools/profiling/backend-bench/RuntimeChecks.h')];
+  fileURLToPath(import.meta.url),path.join(repo,'tools/profiling/backend-bench/main.cpp'),path.join(repo,'tools/profiling/backend-bench/RuntimeChecks.h'),
+  path.join(repo,'tools/profiling/backend-bench/reload.html'),path.join(repo,'web/osfui.js')];
 const metadata={started:new Date().toISOString(),commit:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),
   sourceDirty:!!execFileSync('git',['status','--porcelain','--ignore-submodules'],{cwd:repo,encoding:'utf8'}).trim(),adapters,checks,
   gpu:JSON.parse(powershell('ConvertTo-Json -InputObject @(Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion)')),
@@ -65,6 +66,9 @@ async function crashSecond(port, run) {
 const results=[];
 async function run(check, adapter, profile, token='') {
   if(gameRunning())throw new Error('Starfield started; stop testing without touching its process.');
+  fs.copyFileSync(check==='reload'?path.join(repo,'tools/profiling/backend-bench/reload.html'):fixture,path.join(views,'bench/main/index.html'));
+  fs.mkdirSync(path.join(views,'shared'),{recursive:true});
+  fs.copyFileSync(path.join(repo,'web/osfui.js'),path.join(views,'shared/osfui.js'));
   const name=`${check}-adapter${adapter}`, folder=path.join(output,name);fs.mkdirSync(folder);
   const port=check==='isolation'?await freePort():0;
   const args=['--backend','cef','--host',host,'--out',folder,'--views',views,'--profile',profile,
@@ -100,5 +104,5 @@ if(checks.includes('storage')){
   const profile=path.join(output,'profiles','storage'),token=randomUUID();
   if(await run('storage-write',adapter,profile,token))await run('storage-read',adapter,profile,token);
 }
-for(const check of ['media','isolation'])if(checks.includes(check))await run(check,adapter,path.join(output,'profiles',check));
+for(const check of ['media','isolation','reload'])if(checks.includes(check))await run(check,adapter,path.join(output,'profiles',check));
 process.exitCode=results.every(item=>item.passed)?0:1;

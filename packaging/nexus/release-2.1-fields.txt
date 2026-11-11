@@ -8,6 +8,10 @@ VERSION
 2.1.0
 
 CHANGELOG
+- Fixed CEF page reloads losing native replies and retained state when Chromium replaces a browser object with another using the same ID.
+- Restored pointer input when reopening a HUD and menu together.
+- Preserved early native replies during browser recovery and resolved detached browser storage paths consistently.
+- Reduced view-cache preparation work with many UI providers; this is a startup/preparation improvement, not a measured FPS increase.
 - Added optional F11 performance diagnostics in Developer mode: browser timing on both editions, plus capture/publication timing and correlated hitch logs on WebView2. Developer mode is off by default and requires a restart.
 - Guarded WebView2 capture timing while views are visible and improved browser-host recovery without blocking the game tick.
 - Added separate WebView2 and bundled CEF editions with automatic renderer selection and the same public APIs.

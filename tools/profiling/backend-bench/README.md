@@ -91,6 +91,9 @@ completed GPU texture reads. They do not use the game or installed profiles.
   pending-message overflow, failed navigation, missed reveal and renderer crash,
   then checks recovery. Partial frames must retain the healthy pixels; complete
   frames must resume when the sibling becomes ready.
+- Reload uses the shipped JavaScript SDK, a correlated native echo reply and
+  retained-state replay across ten consecutive same-URL document replacements.
+  Each replacement must have a new document ID and receive its own reply.
 
 Only the crash check enables a temporary loopback debugging port. The runner
 targets the private helper's `bench/second` page with `Page.crash`; the consumer
@@ -99,5 +102,5 @@ frames. Each consumer owns a kill-on-close job for fallback cleanup, and passing
 requires normal helper exit within the production client's six-second deadline.
 The runner refuses an existing output directory, stops its own consumer if
 Starfield starts, and records source/binary hashes, JSON results, logs and PNGs.
-Use `--checks media` (or a comma-separated subset of `gpu,storage,media,isolation`)
+Use `--checks reload` (or a comma-separated subset of `gpu,storage,media,isolation,reload`)
 for diagnosis, then use a fresh full run to qualify a final helper.
