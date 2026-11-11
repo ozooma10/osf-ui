@@ -55,7 +55,7 @@ Results are under `build/backend-validation/game`. Keep the failed artifacts whe
 fixing a defect, then run a fresh session. The standalone helper lifecycle and
 performance tools live under `tools/profiling`; run those while Starfield is closed.
 
-## Original consumer review
+## Developer mode and cold launch
 
 For Developer mode release acceptance, run a fresh interactive session with
 `-DeveloperChecks -Package <zip> -SettingsManifest <manifest>`. It starts with
@@ -74,10 +74,12 @@ launcher. The runner requires page bridge completion, Settings removal, browser
 focus ownership and actual game pixels before continuing. This operator-reviewed
 step deliberately avoids hard-coded Settings layout coordinates.
 
-The packaged synthetic suite runs with Developer mode disabled and verifies that
+The ordinary packaged synthetic suite runs with Developer mode disabled and verifies that
 pages have no performance diagnostic API or panel. Its interactive leg also
 presses F11 and verifies ordinary page key delivery without enabling diagnostics.
 The background CEF suite checks the absence of diagnostics on its runtime views.
+
+## Original consumer review
 
 `-RealMods -SettingsManifest <manifest>` stages the installed Stock Exchange,
 Starcade, AISS and Somatic Camera payloads byte for byte into the private mod,

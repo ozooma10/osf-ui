@@ -72,3 +72,28 @@ Final archive identities and game acceptance are recorded in
 [the release record](../../packaging/release-2.1.md). Older successful game runs do
 not qualify new binaries. Nothing in these desktop checks establishes physical
 controller, HDR/Luma, arbitrary codecs or every original consumer workflow.
+
+## Additional cold-launch repair
+
+The first Developer-mode cold Settings launch failed in
+`20261111-165412-946-cef-stock-developer`. The file watcher deliberately refreshes
+each newly watched mod once. That completion reached `PumpDevViewReload` while
+the first menu was loading; `NavigateView` cancelled its pending launcher request
+with "The interface was reloaded." The bridge subsequently worked, but Settings
+correctly stayed open because its handoff had failed. This is separate from the
+CEF renderer-policy defect and affects shared runtime code.
+
+`3b912869` leaves worker completions queued while any menu open is pending,
+including preparation and the Settings close/activation handshake. The normal
+launch deadline remains in force, and queued refreshes run after completion or
+cancellation. The native `developer-pending-reload` scenario checks loading,
+frame preparation, successful open and subsequent refresh without losing input.
+All 40 native suites pass in `native-final.log`; the new scenario has 43 checks.
+
+The rebuilt CEF archive passes the original cold-launch scenario in
+`20261111-170148-719-cef-stock-developer`: the log records the prepared menu opening
+before the dev reload. F11 shows/samples/hides diagnostics, and the following
+fresh game `20261111-170324-796-cef-stock-developer` inherits the persisted off
+setting and verifies that the diagnostic API is absent and F11 reaches the page.
+The CEF helper bytes are unchanged by this shared-runtime fix. The release record
+separates earlier `279cac81` game evidence from the rebuilt `3b912869` packages.
