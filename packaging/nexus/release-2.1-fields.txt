@@ -8,6 +8,7 @@ VERSION
 2.1.0
 
 CHANGELOG
+- Prevented the initial Developer-mode file refresh from cancelling a cold Settings launcher handoff.
 - Fixed CEF page reloads losing native replies and retained state when Chromium replaces a browser object with another using the same ID.
 - Restored pointer input when reopening a HUD and menu together.
 - Preserved early native replies during browser recovery and resolved detached browser storage paths consistently.

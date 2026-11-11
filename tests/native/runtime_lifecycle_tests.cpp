@@ -159,6 +159,31 @@ namespace
         CHECK(CountLifecycle(view, API::ViewLifecyclePhase::kShown) == shownBefore + 1);
     }
 
+    void DeveloperPendingReload()
+    {
+        env.settings.values["developerMode"] = true;
+        PluginLoad(); PostLoad(); DataReady(); LoadHud();
+        runtime().EnqueueOpenView("acme/menu"); runtime().Update();
+        const auto navigations = env.navigations.size();
+        env.reloadCompleted = {"acme"};
+        runtime().Update();
+        CHECK(env.navigations.size() == navigations); // Still loading: do not cancel the open.
+        QueueLoad("acme/menu"); QueueHello("acme/menu"); runtime().Update();
+        CHECK(env.navigations.size() == navigations); // Retained frame is not ready yet.
+        CHECK(!runtime().IsInputCaptured());
+        env.preparedFrameReady = true; runtime().Update();
+        CHECK(runtime().IsInputCaptured());
+        CHECK(CountLifecycle("acme/menu", API::ViewLifecyclePhase::kShown) == 1);
+        env.engineFocus = true; // The engine processes the queued focus-menu open.
+        runtime().Update();
+        CHECK(env.navigations.size() == navigations + 2); // Queued refresh reloads menu and HUD.
+        CHECK(env.reloadCompleted.empty());
+        QueueLoad("acme/menu"); QueueHello("acme/menu");
+        QueueLoad("acme/hud"); QueueHello("acme/hud"); runtime().Update();
+        CHECK(runtime().IsInputCaptured());
+        CHECK(CountLifecycle("acme/menu", API::ViewLifecyclePhase::kHidden) == 0);
+    }
+
     void NormalLifecycle()
     {
         PluginLoad();
@@ -1043,6 +1068,7 @@ int main(int argc, char** argv)
         env.settings.values["cefPrototype"] = true; // Obsolete setting cannot override the installed edition.
         NormalLifecycle();
     }
+    else if (scenario == "developer-pending-reload") DeveloperPendingReload();
     else if (scenario == "developer-mode") {
         env.settings.values["developerMode"] = true;
         NormalLifecycle();

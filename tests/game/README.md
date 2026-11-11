@@ -66,6 +66,14 @@ same package to verify that a fresh game removes the diagnostic API and F11 pane
 The restart run copies only the prior run's private OSF UI setting; live user
 settings remain isolated. Ordinary acceptance still checks the default-off case.
 
+Add `-LauncherChecks` to a synthetic interactive run to open Settings before any
+browser host exists. When `review-ready.json` appears, inspect
+`cold-launcher-settings.png`, dot-source `Review-Context.ps1 -RunPath <run>
+-Interactive`, and use its guarded input to select the visible Backend test panel
+launcher. The runner requires page bridge completion, Settings removal, browser
+focus ownership and actual game pixels before continuing. This operator-reviewed
+step deliberately avoids hard-coded Settings layout coordinates.
+
 The packaged synthetic suite runs with Developer mode disabled and verifies that
 pages have no performance diagnostic API or panel. Its interactive leg also
 presses F11 and verifies ordinary page key delivery without enabling diagnostics.

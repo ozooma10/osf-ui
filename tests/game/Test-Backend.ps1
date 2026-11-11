@@ -7,6 +7,7 @@ param(
     [switch]$RuntimeChecks,
     [switch]$BackgroundChecks,
     [switch]$DeveloperChecks,
+    [switch]$LauncherChecks,
     [string]$VideoFixture,
     [ValidateRange(0,1800)][int]$SoakSeconds=120,
     [string]$Package,
@@ -27,6 +28,7 @@ if(-not $Interactive -and -not $RuntimeChecks -and -not $BackgroundChecks){throw
 if($BackgroundChecks -and ($Interactive -or $RuntimeChecks -or $RealMods -or -not $SettingsManifest)){throw 'BackgroundChecks requires production SettingsManifest without Interactive, RuntimeChecks or RealMods.'}
 if($RuntimeChecks -and ($Backend -ne 'cef' -or $RealMods -or $Interactive -or -not $SettingsManifest -or -not $VideoFixture)){throw 'RuntimeChecks requires CEF, production SettingsManifest and VideoFixture, without Interactive or RealMods.'}
 if($DeveloperChecks -and (-not $Interactive -or -not $SettingsManifest -or $RuntimeChecks -or $BackgroundChecks -or $RealMods)){throw 'DeveloperChecks requires Interactive and production SettingsManifest without other check modes.'}
+if($LauncherChecks -and (-not $Interactive -or -not $SettingsManifest -or $RealMods)){throw 'LauncherChecks requires synthetic Interactive checks with production Settings.'}
 $script:ExpectedDeveloperMode=[bool]$DeveloperChecks
 $privateBrowserStorage=$BackgroundChecks -or ($Interactive -and -not $RealMods)
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
@@ -329,6 +331,17 @@ try {
         }
     }
     Assert-Test ((@($modules | Where-Object name -eq 'Luma.dll').Count -gt 0) -eq ($Graphics -eq 'luma')) 'Selected graphics integration loaded'
+    if($LauncherChecks){
+        Assert-Test (@(Get-TestHosts).Count -eq 0) 'Cold launcher starts without a browser helper'
+        Send-Key 121
+        $null=Wait-Observed 'Settings home is ready for launcher review' {Get-GameState} {param($s)'OSFSettingsMenu' -in $s.menus} 15
+        $null=Save-Capture 'cold-launcher-settings'
+        Write-JsonFile (Join-Path $script:Run.path 'review-ready.json') @{session=$script:ProbeSession;harnessRoot=$HarnessRoot;mode='launcher'}
+        $page=Wait-Observed 'Reviewed Settings launcher opens the cold browser page' {Read-Page} {param($p)$p -and $p.complete -and $p.errors.Count -eq 0} 180
+        $null=Wait-Observed 'Launcher handoff closes Settings' {Get-GameState} {param($s)'OSFSettingsMenu' -notin $s.menus} 15
+        Wait-Menu $true
+        Capture-Panel 'cold-launcher-browser'
+    }
     if($DeveloperChecks){
         Open-Panel
         Send-Key 122

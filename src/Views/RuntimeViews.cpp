@@ -194,6 +194,10 @@ namespace OSFUI
 	void Runtime::PumpDevViewReload()
 	{
 		if (!m_devViewReload) return;
+		// The first watcher scan refreshes a newly watched mod even without edits.
+		// Keep completions queued until the retained-frame launcher handoff finishes;
+		// navigating here would cancel the pending open (including Settings' request).
+		if (m_viewOpens.PendingMenu()) return;
 
 		bool anyReloaded = false;
 		for (const auto& mod : m_devViewReload->DrainCompleted()) {

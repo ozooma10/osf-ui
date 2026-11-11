@@ -1,4 +1,4 @@
-# Dot-source only while Test-Backend -RealMods is waiting for explicit review.
+# Dot-source only while Test-Backend -RealMods or -LauncherChecks waits for review.
 param([Parameter(Mandatory)][string]$RunPath,[switch]$Interactive)
 if(-not $Interactive){throw 'Review input requires -Interactive.'}
 $ErrorActionPreference='Stop'
