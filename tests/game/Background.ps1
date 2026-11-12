@@ -120,6 +120,8 @@ function Invoke-BackgroundBrowserChecks {
     Capture-Panel 'background-reload'
     Send-Probe menu @{view=$view;open=$false}
     # Observe a changed position after load; a returned console handler alone is insufficient.
+    Test-OpenPanelSave
+    Test-OpenPanelSave -Scripted
     $before=Get-GameState
     $null=Invoke-ConsoleCommand 'save OSFUIBackground'
     $null=Wait-Observed 'Private checkpoint written' {

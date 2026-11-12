@@ -17,7 +17,8 @@ namespace OSFUI
 		m_menuEventsAvailable = MenuEventSink::Install();
 		const bool focusMenuRegistered = FocusMenu::Register();
 		const bool inputInstalled = OverlayInputHook::Install();
-		if (!m_menuEventsAvailable || !focusMenuRegistered || !inputInstalled) {
+		const bool saveSafetyInstalled = ControlLayer::InstallSaveSafety();
+		if (!m_menuEventsAvailable || !focusMenuRegistered || !inputInstalled || !saveSafetyInstalled) {
 			REX::ERROR("Runtime: required input integration is unavailable; menus that capture input will be refused this session");
 			return false;
 		}

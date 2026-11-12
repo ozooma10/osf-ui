@@ -51,6 +51,12 @@ owned browser-host termination/recovery, and a bounded animation/bridge soak
 markers and should also be visually inspected. Native handlers returning are not
 treated as completion of save/load or browser presentation.
 
+Both interactive and background runs also quicksave and call `Game.RequestSave`
+with an input-capturing panel still open. Each checks a completed file, reloads
+that exact save, and compares fresh native user/other control masks against the
+pre-panel baseline. These cases guard against both a menu save veto and temporary
+UI control locks being restored from a save after the panel has closed.
+
 Results are under `build/backend-validation/game`. Keep the failed artifacts when
 fixing a defect, then run a fresh session. The standalone helper lifecycle and
 performance tools live under `tools/profiling`; run those while Starfield is closed.

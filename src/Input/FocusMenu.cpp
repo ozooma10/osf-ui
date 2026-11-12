@@ -31,7 +31,9 @@ namespace OSFUI
 		menuName = MENU_NAME.data();
 		// No ShowCursor (engine arrow would freeze at centre), no kModal (blacks out the world),
 		// no kPausesGame (SimPause drives the pause counter directly).
-		flags = 0;
+		// Menus without bit 10 contribute to UI's save-blocking counter (+0x4C8
+		// on 1.16.244). This input-routing menu must not prevent scene saves.
+		flags = RE::IMenu::Flag10;
 		flagsUpdated = true;
 	}
 

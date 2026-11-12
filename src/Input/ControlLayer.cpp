@@ -10,9 +10,14 @@ namespace OSFUI
 {
 	namespace
 	{
-		// Runtime-owned state; requires non-overlapping Runtime::Update calls.
+		// Save completion can arrive on a worker while the runtime changes capture.
+		std::mutex              g_lock;
 		RE::BSInputEnableLayer* g_layer{ nullptr };
 		bool                    g_engaged{ false };
+		bool                    g_requested{ false };
+		bool                    g_saving{ false };
+		bool                    g_loading{ false };
+		unsigned                g_requestedSaveDepth{ 0 };
 
 		// Masks proven on 1.16.244. Menu stays enabled.
 		constexpr RE::USER_EVENT_FLAG kUserDisable =
@@ -60,27 +65,73 @@ namespace OSFUI
 			REX::DEBUG("ControlLayer: allocated input-enable layer (id {})", g_layer->GetLayerID());
 			return true;
 		}
+
+		void Reconcile()
+		{
+			const bool engage = g_requested && !g_saving && !g_loading && !g_requestedSaveDepth;
+			if (engage == g_engaged) return;
+			if (engage) {
+				if (!EnsureLayer()) return;  // retry next tick
+				g_layer->EnableUserEvent(kUserDisable, false);
+				g_layer->EnableOtherEvent(kOtherDisable, false);
+				REX::DEBUG("ControlLayer: player controls disabled (layer {})", g_layer->GetLayerID());
+			} else {
+				if (g_layer) {
+					g_layer->EnableUserEvent(kUserDisable, true);
+					g_layer->EnableOtherEvent(kOtherDisable, true);
+				}
+				REX::DEBUG("ControlLayer: player controls restored");
+			}
+			g_engaged = engage;
+		}
 	}
 
 	void ControlLayer::Apply(bool a_engage)
 	{
-		if (a_engage == g_engaged) {
-			return;
-		}
-		if (a_engage) {
-			if (!EnsureLayer()) {
-				return;  // retry next tick
-			}
-			g_layer->EnableUserEvent(kUserDisable, false);
-			g_layer->EnableOtherEvent(kOtherDisable, false);
-			REX::DEBUG("ControlLayer: player controls disabled (layer {})", g_layer->GetLayerID());
-		} else {
-			if (g_layer) {
-				g_layer->EnableUserEvent(kUserDisable, true);
-				g_layer->EnableOtherEvent(kOtherDisable, true);
-			}
-			REX::DEBUG("ControlLayer: player controls restored");
-		}
-		g_engaged = a_engage;
+		std::scoped_lock lock(g_lock);
+		g_requested = a_engage;
+		Reconcile();
+	}
+
+	void ControlLayer::SaveWindow(bool a_saving)
+	{
+		std::scoped_lock lock(g_lock);
+		g_saving = a_saving;
+		Reconcile();
+	}
+
+	void ControlLayer::BeginRequestedSave()
+	{
+		std::scoped_lock lock(g_lock);
+		++g_requestedSaveDepth;
+		Reconcile();
+	}
+
+	void ControlLayer::EndRequestedSave()
+	{
+		std::scoped_lock lock(g_lock);
+		if (g_requestedSaveDepth) --g_requestedSaveDepth;
+		Reconcile();
+	}
+
+	void ControlLayer::BeginLoad()
+	{
+		std::scoped_lock lock(g_lock);
+		g_requested = false;
+		g_saving = false;
+		g_loading = true;
+		Reconcile();
+	}
+
+	void ControlLayer::EndLoad()
+	{
+		std::scoped_lock lock(g_lock);
+		g_requested = false;
+		g_saving = false;
+		g_loading = false;
+		// A loaded save may restore this layer's old mask even if the previous
+		// world closed its panel. Reconcile only our layer, never other owners.
+		g_engaged = g_layer != nullptr;
+		Reconcile();
 	}
 }

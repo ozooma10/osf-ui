@@ -85,6 +85,39 @@ function Send-Probe([string]$Action,[hashtable]$Values=@{}) {
 function Wait-Menu([bool]$Open) {
     $null=Wait-Observed "Game focus menu open=$Open" {Get-GameState} {param($s)-not $s.snapshotStale -and (('OSFUI_FocusMenu' -in $s.menus) -eq $Open)} 15
 }
+function Read-ControlMasks {
+    Send-Probe controls
+    $command=(Read-JsonFile (Join-Path $script:ProbeDir 'reply.json')).id
+    $consumer=Wait-Observed 'Fresh native control masks published' {Read-Consumer} {
+        param($c)$c -and $c.ContainsKey('controls') -and $c.controls.command -eq $command
+    } 10
+    return $consumer.controls
+}
+function Test-OpenPanelSave([switch]$Scripted) {
+    $before=Read-ControlMasks
+    Open-Panel
+    $requested=[DateTime]::UtcNow
+    $null=Invoke-ConsoleCommand $(if($Scripted){'cgf "Game.RequestSave"'}else{'qsave'})
+    $pattern=if($Scripted){'Save*.sfs'}else{'Quicksave*.sfs'}
+    $file=Wait-Observed 'Save completes while the input-capturing panel remains open' {
+        Get-ChildItem -LiteralPath $script:SaveRoot -Filter $pattern |
+            Where-Object {$_.LastWriteTimeUtc -ge $requested -and $_.Length -gt 0} |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1 |
+            ForEach-Object {@{FullName=$_.FullName;BaseName=$_.BaseName;Length=$_.Length}}
+    } {param($f)$null -ne $f} 30
+    $length=$file.Length
+    Start-Sleep -Milliseconds 700
+    Assert-Test ((Get-Item -LiteralPath $file.FullName).Length -eq $length) 'Open-panel save finished writing'
+    Assert-Test ('OSFUI_FocusMenu' -in (Get-GameState).menus) 'Save did not close the input-capturing panel'
+    Add-Evidence 'open-panel-save' 'Save completed without hiding the panel' @{scripted=[bool]$Scripted;path=$file.FullName;sha256=(Get-FileHash -LiteralPath $file.FullName).Hash}
+    Send-Probe menu @{open=$false};Wait-Menu $false
+    $generation=(Read-Consumer).loadGeneration
+    $null=Invoke-ConsoleCommand ('load '+$file.BaseName)
+    $null=Wait-Observed 'Open-panel save actually loaded' {Read-Consumer} {param($c)$c -and $c.loadGeneration -gt $generation} 60
+    $null=Wait-Observed 'Loaded game has no capture menu' {Get-GameState} {param($s)$s.loaded -and -not $s.snapshotStale -and $s.menus.Count -eq 0} 30
+    $after=Read-ControlMasks
+    Assert-Test ($before.user -eq $after.user -and $before.other -eq $after.other) 'Open-panel save/load preserves baseline control masks' @{before=$before;after=$after;scripted=[bool]$Scripted}
+}
 function Capture-Panel([string]$Name) {
     $path=Save-Capture $Name
     $output=& python (Join-Path $PSScriptRoot 'check_capture.py') $path
@@ -429,6 +462,8 @@ try {
     Send-Probe menu @{view='osfui-backend-test/paused';open=$false}; Wait-Menu $false
     Assert-Test ((Get-GameState).pauseRequestCount -eq $pauseBefore) 'Closing paused menu releases engine pause request'
     Send-Probe menu @{view='osfui-backend-test/hud';open=$false}
+    Test-OpenPanelSave
+    Test-OpenPanelSave -Scripted
     $null=Invoke-ConsoleCommand 'save OSFUIBackendTest'
     $save=Wait-Observed 'Disposable save completed' {
         $file=Get-ChildItem $script:SaveRoot -Filter 'OSFUIBackendTest.sfs' | Select-Object -First 1

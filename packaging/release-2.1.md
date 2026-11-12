@@ -1,12 +1,66 @@
 # OSF UI 2.1 release preparation — updated November 12, 2026
 
-**Status: both core editions are built and locally qualified for the scope below.
-Version 2.1.0 has not shipped. No upload, tag or publication was performed.**
+**Status: the November 12 save-fix2 candidates supersede the earlier core archives
+for saving with an overlay open. Version 2.1.0 has not shipped. No upload, tag or
+publication was performed. Final publication still requires a clean source build.**
 
 Install one edition. Both require SFSE, Address Library, Starfield 1.16.244.0,
 and **OSF Settings 1.2.0 or a compatible newer release**. WebView2 requires
 Evergreen; CEF includes its Chromium runtime. Coordinate publication with the
 supported Settings dependency. This record does not qualify Settings itself.
+
+## November 12 save repair
+
+The overlay focus menu incorrectly contributed to the engine's save-blocking
+counter. Allowing saves through that menu then exposed a second bug: a loaded
+save could restore UI's temporary input lock after its panel had closed.
+
+The repair sets the verified non-blocking menu flag, suspends only UI's own input
+layer during save serialization, and reconciles that layer after world load.
+Ordinary save events and the separately verified `Game.RequestSave` pump path are
+both covered; the latter hook leaves Animation's existing inner save hook intact.
+Failure to verify the hook disables input-capturing menus instead of installing
+an unverified patch. The public API and Papyrus contracts are unchanged.
+
+Both updated production editions are in `dist/`, with adjacent hash manifests:
+
+| Current test candidate | SHA256 |
+| --- | --- |
+| `OSF-UI-v2.1.0-save-fix2-webview2.zip` | `7ABBDB6BFA33E9616B3EAD399569B0D70B6258DA5423CC8F3A99BD489AFD5458` |
+| `OSF-UI-v2.1.0-save-fix2-cef.zip` | `00EDD4169A4D896E4AE2B2456DEB12AA04AE56B609B6003D0F3EAD48E48BE76D` |
+
+WebView2 core DLL: `0A24B882431A2C19D9620C3D90D4B451E38A592A1D78B1E854BF318114F2D87C`.
+CEF core DLL: `1378ACE7DC7B28F0F3B29711CA884A7AD9E6F3A9751157BDE284B8740BDA90A6`.
+These were built from `a3975f0becbca4884474161649435ab4dbbd6a8d` plus local
+repair changes; manifests record `sourceDirty: true`. The older clean-source
+archives below do **not** contain this fix. Build clean final
+archives and qualify those exact bytes before publishing.
+
+All 76 native test cases pass, including production control-layer tests for
+nested save guards, close during save, late completion, restored old masks and
+preserving other owners. Both archives pass payload and 55 Papyrus signature
+validation. Both editions also pass Animation's maintained 69 live cases with
+unchanged production Settings 1.2.0 RC8. The production WebView2 consumer run passes
+54 AISS/Seduce/Autonomous checks and an active encounter save with its panel open;
+loaded controls and apparel match the pre-scene baseline. These runs live in the
+sibling Animation repository's `build/release-followup-20261112/` and are indexed
+in its `docs/RELEASE_2.0.0_ACCEPTANCE.md`.
+
+The permanent packaged UI regression now checks quicksave and `Game.RequestSave`
+with the input-capturing panel still open, loads each exact file and compares
+fresh native control masks against the baseline. Browser storage and normal
+Settings files are isolated and restored by hash. The final runs each passed
+84 assertions with zero failures/evidence warnings:
+
+- `build/backend-validation/game/20261112-173946-304-webview2-stock-background`
+- `build/backend-validation/game/20261112-174124-084-cef-stock-background`
+
+The exact WebView2 payload and production Settings RC8 are now installed in the
+normal MO2 mod folders; originals and the per-file deployment receipt are retained
+under Animation's `build/release-followup-20261112/`. The Default profile and saved
+Settings values are unchanged. Physical controller input,
+ordinary dialogue/AI workflows, pre-upgrade saves and longer play remain hands-on
+acceptance, as do the graphics/hardware combinations listed below.
 
 ## Changes since 2.0
 
@@ -30,6 +84,9 @@ The [Nexus fields and changelog](nexus/release-2.1-fields.txt) and
 Performance evidence is workload-specific; no general CEF FPS or memory gain is claimed.
 
 ## Exact candidates
+
+The following November 11 archives and runs are historical. Use the save-fix2
+candidates above for current testing; do not publish these older unpatched bytes.
 
 Both editions were built with `tools/package.ps1 -Backend both -Tag '' -RequireClean`
 from clean source **`3b91286925a68f226ed5983597a7b8fee256d6b9`**. Their adjacent

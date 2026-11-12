@@ -170,6 +170,7 @@ namespace OSFUI
     void FocusMenu::Open() { ++env.focusOpenRequests; } // Engine admission is a separate test input.
     void FocusMenu::Close() { ++env.focusCloseRequests; }
     void FocusMenu::SetGamepadCapture(bool) {}
+    bool ControlLayer::InstallSaveSafety() { return true; }
     void ControlLayer::Apply(bool engage) { env.controlsBlocked = engage; }
     void FreeCursor::Apply(bool desired) { env.cursorFree = desired; }
     void SimPause::Apply(bool desired) { env.paused = desired; }

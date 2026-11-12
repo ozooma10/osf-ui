@@ -9,6 +9,7 @@
 #include <RE/E/Events.h>
 #include <RE/M/MenuControls.h>
 #include <RE/C/CreationRenderer.h>
+#include <RE/B/BSInputEnableManager.h>
 #include "../../src/Compat/V1/LegacyABI.h"
 #include <nlohmann/json.hpp>
 #define WIN32_LEAN_AND_MEAN
@@ -160,6 +161,20 @@ void Run() {
                             device->Release();
                             std::scoped_lock lock(mutex);
                             observations["graphics"] = {{"adapterLuidHigh", luid.HighPart}, {"adapterLuidLow", luid.LowPart}};
+                            accepted = true;
+                        }
+                    }
+                    if (action == "controls") {
+                        auto* manager = RE::BSInputEnableManager::GetSingleton();
+                        if (manager) {
+                            std::uint32_t user{}, other{};
+                            {
+                                RE::BSAutoLock lock(manager->m_cacheLock);
+                                user = static_cast<std::uint32_t>(manager->m_cachedUserEventFlags);
+                                other = static_cast<std::uint32_t>(manager->m_cachedOtherEventFlags);
+                            }
+                            std::scoped_lock lock(mutex);
+                            observations["controls"] = {{"user",user},{"other",other},{"command",id}};
                             accepted = true;
                         }
                     }
