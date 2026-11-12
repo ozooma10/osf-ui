@@ -1,4 +1,4 @@
-# OSF UI 2.1 release preparation — November 11, 2026
+# OSF UI 2.1 release preparation — updated November 12, 2026
 
 **Status: both core editions are built and locally qualified for the scope below.
 Version 2.1.0 has not shipped. No upload, tag or publication was performed.**
@@ -49,13 +49,52 @@ The packager shares one verified backend-neutral broker across editions and stil
 requires byte-identical shared payloads. Backend exclusivity, all 55 Papyrus
 natives, ZIP hashes and all ten negative package checks pass.
 
-The final game dependency is production **OSFSettings 1.2.0-rc1**, source
-`b786e935db46625ca9cbff9cdb65ebab40dc2f92`, `test_harness=n`, ZIP SHA256
+The final dependency is production **OSF Settings 1.2.0**, candidate **RC8**,
+source `ce14c0aa9c985c1c11d33972ad5e023329e32f8d`, `test_harness=n`.
+`OSFSettings-1.2.0-rc8.zip` has SHA256
+`DC5306CB79575892A54DE94F730A4869184B301E707C448297A2A3BD6A664C22`.
+It is preserved under
+`C:/Modding/Starfield/Artifacts/OSF Settings/1.2.0-followup-20261111/candidate-final/`.
+Its manifest path is recorded in
+`build/release-2.1-20261111/settings-final-manifest-path.txt`.
+
+RC8's complete archive and all 16 payload files are byte-identical to RC7, which
+passed the final paired game checks below. The loaded Settings DLL matches the
+final archive: `A963A29DB461354B77D7AB31AEC72FE86CE44D677A48278CC43A9DDF3F2D47C0`.
+The November 12 reconciliation rechecked both Settings archives and both UI ZIPs
+against their manifests and the paired-run receipts. No runtime or package changes
+were needed; `settings-final-verification.json` in the release build directory
+records this check.
+
+The earlier seven-run UI matrix used **Settings RC1**, source
+`b786e935db46625ca9cbff9cdb65ebab40dc2f92`, ZIP SHA256
 `2C23A9D44F85EAA79249B38169A15361AFC9579E3222E1D73213C8AA166E83C3`.
-Its exact manifest path is retained in
-`build/release-2.1-20261111/settings-manifest-path.txt`. The test runner validates
-each dependency against the validator from its recorded revision and saves that
-validator and hash with the run.
+Its historical manifest path remains in `settings-manifest-path.txt`; it is not
+relabelled as an RC8 test. Each run retains its revision-pinned Settings validator.
+
+### Final dependency pairing
+
+These later runs used the exact UI archives above and production Settings RC7
+(the same archive bytes as final RC8):
+
+| Run | Passed assertions | Failed | Captures |
+| --- | ---: | ---: | ---: |
+| `20261111-202611-783-cef-stock` | 119 | 0 | 14 |
+| `20261111-203048-990-webview2-stock` | 117 | 0 | 14 |
+
+Both passed the cold Settings launcher handoff, native/Papyrus and legacy bridge,
+keyboard/mouse input, reload, save/load, browser recovery and clean shutdown.
+Both have zero evidence warnings and completed temporary-profile cleanup; browser
+storage was restored byte-for-byte. The Settings acceptance record reports visual
+review of all 28 captures. Preserved `ui-cef/` and `ui-webview2/` reports, candidate
+identities and events are under the same external artifact root above.
+
+Settings' `RELEASE_RECORD.md` records its own production acceptance and boundaries:
+12 supported runtime cases passed; failed-load injection is blocked because it
+also aborts without Settings. Character Studio's separate harness smoke is blocked
+by an existing consumer API/schema mismatch. Neither is evidence of an OSF UI
+regression. Physical-controller coverage remains unverified. Preserve those limits
+when publishing; this record does not claim that every Settings/harness case passed.
 
 ## Verification
 
@@ -68,7 +107,8 @@ afterward, checking document identity, correlated replies and retained state.
 Standalone GPU, storage, media and isolation/recovery checks also pass. The helper
 bytes in the final package match those desktop checks.
 
-Final game runs use the exact `3b912869` archives above and the pinned Settings candidate:
+The original UI qualification runs use the exact `3b912869` archives above and
+Settings RC1. The final RC7/RC8 dependency pairing is recorded separately above:
 
 | Run | Coverage | Passed assertions | Failed | Captures |
 | --- | --- | ---: | ---: | ---: |
@@ -104,6 +144,8 @@ survive normal game/helper shutdown and a fresh game. The retained 20-second VP8
 fixture has SHA256 `68209FE14091FE6427FD1686442F2D66838B33FDB02822A020FAD872010C4BEA`.
 
 Total: **349 passed assertions, zero failed assertions and zero evidence warnings**.
+The later final-dependency pair adds **236 passed assertions**, for **585** across
+both matrices; this combined count does not turn RC1-only checks into RC8 runs.
 `build/release-2.1-20261111/acceptance-summary.json` records counts and cleanup for
 all seven runs. Every registered temporary mod/profile was removed. All owned
 games/helpers exited; original browser storage was restored by hash. The normal
